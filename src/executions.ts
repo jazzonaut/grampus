@@ -4,12 +4,29 @@ import { Workflow } from './workflow.js';
 import { Sessions } from './sessions.js';
 import { Workspaces } from './workspaces.js';
 import type { Provider } from './agents/types.js';
-import { assertTaskExecutionIdle, type Execution } from './execution-state.js';
+import { assertTaskExecutionIdle, type Execution, type ExecutionLease } from './execution-state.js';
+import { requireDeadController } from './check-recovery.js';
 
 export class Executions {
   constructor(private readonly store: Store, private readonly workspaces = new Workspaces(store)) {}
   get(id: string): Execution { return this.store.execution<Execution>(id); }
   list(): Execution[] { return this.store.executions<Execution>(); }
+
+  recoverReadOnly(id: string): void {
+    this.store.transaction(() => {
+      const execution = this.get(id);
+      const lease = this.store.lease<ExecutionLease>(execution.workspaceId);
+      if (lease?.executionId !== id || !lease.readOnlyRecovery || !['snapshot', 'submission', 'completion'].includes(lease.kind ?? '')) {
+        throw new Error('No recoverable read-only operation; command and conversation leases require their own recovery');
+      }
+      requireDeadController(lease);
+      if (new Sessions(this.store).get(execution.sessionId).run) throw new Error('A conversation still owns this session');
+      this.store.releaseLease(execution.workspaceId, id, lease.runId);
+      const event = { runId: lease.runId, kind: lease.kind, evidence: 'Controller absent; operation protocol never dispatches repository-writing tools', replayed: false };
+      this.store.appendExecution(id, 'operation.recovered', event);
+      this.store.append(execution.taskId, execution.version, 'execution.operation_recovered', event);
+    });
+  }
 
   async create(workspaceId: string, version: number, provider: Provider, role: Execution['role'] = 'implementation',
     model: string | null = null, fallbackReason: string | null = null): Promise<Execution> {

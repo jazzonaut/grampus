@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -24,15 +24,17 @@ export interface JournalEvent {
 /** All state changes and their evidence are committed in the same transaction. */
 export class Store {
   private readonly db: DatabaseSync;
+  readonly path: string;
   private transactionDepth = 0;
 
   constructor(path: string) {
+    this.path = path === ':memory:' ? path : resolve(path);
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
     const version = this.db.prepare('PRAGMA user_version').get()?.user_version;
-    if (![0, 1, 2, 3, 4, 5, 6].includes(Number(version))) {
+    if (![0, 1, 2, 3, 4, 5, 6, 7].includes(Number(version))) {
       this.db.close();
       throw new Error(`Unsupported journal schema version: ${version}`);
     }
@@ -95,7 +97,7 @@ export class Store {
         execution_id TEXT NOT NULL REFERENCES executions(id),
         state TEXT NOT NULL
       );
-      PRAGMA user_version = 6;
+      PRAGMA user_version = 7;
       COMMIT;
     `);
   }

@@ -65,12 +65,14 @@ public static class GrampusCheck {
     }
     static void Emit(string value) { Console.WriteLine(value); Console.Out.Flush(); }
 
-    public static void Run(string file, string[] args, string cwd, int timeoutMs, string stdout, string stderr) {
+    public static void Run(string file, string[] args, string cwd, int timeoutMs, string stdout, string stderr, string receiptPath, string checkId, string token, int supervisorPid) {
         IntPtr job = IntPtr.Zero, list = IntPtr.Zero, jobs = IntPtr.Zero, handles = IntPtr.Zero;
         IntPtr input = IntPtr.Zero, output = IntPtr.Zero, error = IntPtr.Zero;
         var process = new ProcessInfo(); bool initialized = false, confirmed = false;
         string reason = "failed"; uint exitCode = 1;
-        var reader = new Thread(() => { try { Console.ReadLine(); } finally { stop = true; } });
+        // A broken Windows pipe can throw rather than return EOF. Never let the
+        // reader thread terminate the helper before the job is settled and receipted.
+        var reader = new Thread(() => { try { Console.ReadLine(); } catch { } finally { stop = true; } });
         reader.IsBackground = true; reader.Start();
         try {
             job = CreateJobObject(IntPtr.Zero, null); Check(job != IntPtr.Zero);
@@ -119,7 +121,18 @@ public static class GrampusCheck {
             if (initialized) DeleteProcThreadAttributeList(list);
             foreach (var memory in new [] { list, jobs, handles }) if (memory != IntPtr.Zero) Marshal.FreeHGlobal(memory);
             foreach (var handle in new [] { input, output, error, job }) if (handle != IntPtr.Zero && handle != new IntPtr(-1)) CloseHandle(handle);
-            Emit("{\"type\":\"result\",\"reason\":\"" + reason + "\",\"exitCode\":" + exitCode + ",\"exitConfirmed\":" + (confirmed ? "true" : "false") + "}");
+            string result = "\"reason\":\"" + reason + "\",\"exitCode\":" + exitCode + ",\"exitConfirmed\":" + (confirmed ? "true" : "false");
+            // Persist before touching the controller pipe: it may already be gone.
+            // Names and tokens are controller-generated UUIDs, never tool output.
+            if (!String.IsNullOrEmpty(receiptPath)) {
+                var receipt = Encoding.UTF8.GetBytes("{\"protocol\":1,\"checkId\":\"" + checkId + "\",\"token\":\"" + token
+                    + "\",\"supervisorPid\":" + supervisorPid + ",\"toolPid\":" + process.Pid + "," + result + "}");
+                using (var stream = new FileStream(receiptPath + ".tmp", FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough)) {
+                    stream.Write(receipt, 0, receipt.Length); stream.Flush(true);
+                }
+                File.Move(receiptPath + ".tmp", receiptPath);
+            }
+            Emit("{\"type\":\"result\"," + result + "}");
         }
     }
 }

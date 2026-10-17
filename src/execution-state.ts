@@ -26,7 +26,8 @@ export interface ExecutionLease {
   runId: string;
   controllerPid: number;
   host: string;
-  kind?: 'conversation' | 'snapshot' | 'check' | 'submission';
+  kind?: 'conversation' | 'snapshot' | 'check' | 'submission' | 'verification' | 'completion';
+  readOnlyRecovery?: true;
 }
 
 function canonical(path: string, allowMissing = false): string {
@@ -68,7 +69,9 @@ export function claimExecution(store: Store, session: Session, runId: string, ki
     throw new Error('Execution workspace identity or version does not match');
   }
   if (execution.role === 'implementation') {
-    if (task.phase !== 'running' || task.attempt.outcome !== 'running' || task.attempt.agent.sessionId !== session.id) {
+    const submitted = ['snapshot', 'verification', 'completion'].includes(kind)
+      && ['awaiting_verification', 'awaiting_decision'].includes(task.phase) && task.attempt.outcome === 'succeeded';
+    if ((!submitted && (task.phase !== 'running' || task.attempt.outcome !== 'running')) || task.attempt.agent.sessionId !== session.id) {
       throw new Error('Implementation attempt is settled; create a fresh execution attempt');
     }
   } else if (!['awaiting_verification', 'awaiting_decision'].includes(task.phase)
@@ -83,7 +86,8 @@ export function claimExecution(store: Store, session: Session, runId: string, ki
     const part = relative(directory, canonical(other.cwd, true));
     return part === '' || (part !== '..' && !part.startsWith(`..${sep}`) && !isAbsolute(part));
   })) throw new Error('Workspace has another active or uncertain session; reconcile it first');
-  const lease: ExecutionLease = { executionId: execution.id, sessionId: session.id, runId, controllerPid: process.pid, host: hostname(), kind };
+  const lease: ExecutionLease = { executionId: execution.id, sessionId: session.id, runId, controllerPid: process.pid, host: hostname(), kind,
+    ...(['snapshot', 'submission', 'completion'].includes(kind) ? { readOnlyRecovery: true as const } : {}) };
   store.acquireLease(workspace.id, execution.id, runId, lease);
   store.appendExecution(execution.id, 'lease.acquired', lease);
   store.append(task.id, task.version, kind === 'conversation' ? 'execution.turn_requested' : 'execution.operation_requested', { executionId: execution.id, sessionId: session.id, runId, role: execution.role, kind });

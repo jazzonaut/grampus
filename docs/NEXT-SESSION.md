@@ -1,7 +1,8 @@
 # Resume Grampus implementation
 
 Checkpoint: 17 October 2026, after durable state, conversations, Git/Orca workspaces,
-task-linked session ownership and explicit Windows repository checks. The user continued implementation in the
+task-linked session ownership, recoverable Windows checks, artifact review and
+exact-output acceptance verification. The user continued implementation in the
 same session and authorized pushing the repository.
 
 ## Read first
@@ -19,7 +20,7 @@ Default delivery remains local unless the user authorizes an external action.
 
 ## Completed
 
-- TypeScript/Node controller, SQLite schema 6, journal-derived Markdown task report.
+- TypeScript/Node controller, SQLite schema 7, journal-derived Markdown task report.
 - Task briefs, exact-version approval, attempts, provisional decisions, four
   completion gates, stale-result rejection and explicit recovery states.
 - Live Codex app-server and Claude Agent SDK conversations with subscription
@@ -35,10 +36,14 @@ Default delivery remains local unless the user authorizes an external action.
   approved context, per-workspace leases, fenced settlement and process-based recovery.
 - Snapshot-bound command checks, Windows Job Object supervision, retained diffs and
   bounded output, and atomic implementation submission with controller validation.
-- 101 offline tests passed on Windows with Node 24.22.0 and 25.8.1, covering real Git,
-  controller crashes, Orca protocol fixtures, lease races, rollback, uncertain startup
+- Durable supervisor receipts, explicit check/read-only recovery without replay,
+  bounded text artifact reviews, criterion-mapped output assertions and completion
+  revalidation. New review/verification requests invalidate an older gate pass.
+- 112 offline tests passed on Windows with Node 24.22.0 and 25.8.1, covering real Git,
+  controller crashes, Orca protocol fixtures, lease races, rollback, uncertain startup,
   stale bindings, real command results, timeouts, detached descendants, controller/
-  supervisor crashes, stale artifacts, rollback and CLI submission. Earlier live Orca 1.4.229 creation and
+  supervisor crashes, receipt recovery, stale artifacts, review context, output
+  assertions, final gates and CLI submission/verification. Earlier live Orca 1.4.229 creation and
   recovery passed; temporary probe worktrees were removed through Orca.
 - Both live probes passed question/answer, context across controller restarts,
   supplied-code review findings, interruption and resumption with earlier context.
@@ -46,31 +51,34 @@ Default delivery remains local unless the user authorizes an external action.
 The demo is synthetic. Live provider probes use a supplied snippet and conversations;
 they do not prove provider-driven repository execution, full independent review or
 task completion. New check tests execute a real greeting regression in a fixture
-worktree, but do not run a complete task through both providers and all gates.
+worktree. The artifact-gate fixture reaches completion with a mocked reviewer and
+explicit fixture simplification assessment; it does not prove a full live task through
+both providers and all gates.
 The implementation itself has not had independent review. macOS and Linux remain
 unverified. Temporary journals, generated schemas, local probe transcripts and
 dependency/build directories are intentionally not committed. The evidence document
 contains the durable summary, and the probe script can reproduce the checks.
 
-## Next implementation slice: recovery and artifact-aware review
+## Next implementation slice: simplification, provider tools and a real task
 
 Start with the existing source and a small concrete plan. Do not rebuild the
 controller or broaden into the dashboard first.
 
-1. Add a verifiable recovery path for interrupted check/snapshot/submission leases.
-   `check-show` preserves the state, but a dead controller may leave it `running`.
-   The OS job can terminate tools without delivering confirmation to the journal.
-   Do not release a command lease from dead root PIDs alone, use conversation recovery,
-   replay the command or add a force-unlock shortcut. Consider durable supervisor
-   completion evidence and identity that survives controller restarts.
-2. Bind independent review and explicit acceptance checks to the verified artifact.
-   `execution-finish` now supplies a real digest and validation, but the other gates
-   remain caller-controlled. Verify content before review and before final delivery;
-   do not infer acceptance coverage from exit zero. Preserve failed/skipped evidence.
-3. Define native provider tool authorization and repository-rule application before
+1. Expose an explicit simplification assessment tied to the current artifact. It remains
+   available only through the trusted Workflow API; neither a passing command nor a
+   review with no findings should invent that checkpoint. Keep it separate from review
+   arbitration and task completion.
+2. Define native provider tool authorization and repository-rule application before
    enabling agent edits. The check interface takes explicit trusted command JSON and
    acknowledges discovered `AGENTS.md`/`CLAUDE.md`; it is not an agent tool policy.
    Continue to keep successful conversational replies separate from task evidence.
+3. Run a tiny approved task through implementation, simplification, real checks,
+   independent live review, acceptance verification, local slice commit and report.
+   `execution-review` now supplies the full bounded text snapshot and checks its digest
+   before/after inference. `execution-verify` maps all criteria to a command and exact
+   expected stdout. `execution-complete` verifies current content and all gates. The
+   current fixture proves plumbing, not a live reviewer or meaningful coverage choice.
+   Demonstrate interruption/recovery and repeat with and without Orca.
 4. Define safe workspace release/rebinding for changed briefs and a recovery path for
    unknown provider PIDs. Failed reservations currently stay blocked for investigation.
    Keep using Orca's supported interfaces for Orca-owned state; its CLI exiting does
@@ -80,9 +88,9 @@ controller or broaden into the dashboard first.
    scheduling. The current Windows helper supervises ordinary descendants, not work
    delegated to WMI, existing services or external agents. A provider process exiting
    still does not prove that all provider tools stopped.
-6. Run one tiny approved task through implementation, simplification, real checks,
-   an independent review, acceptance verification, a local slice commit and report.
-   Demonstrate recovery and then repeat with and without Orca.
+6. Broaden review context beyond small UTF-8 repositories and acceptance observations
+   beyond exact decoded stdout. Keep context/evidence scope explicit and preserve
+   failed/skipped results rather than claiming coverage from a model reply.
 
 Prefer a fixture repository with a clear before/after example, such as a greeting
 command with exact output. Preserve the user's working changes. Record failures,
@@ -95,20 +103,30 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
   leave implementation open; they cannot create a successful artifact or pass a gate.
 - Native provider tool approvals and repository-rule application need design and
   validation before enabling writes. Current conversation restrictions are deliberate.
-- Same-provider independent-review fallback is recorded, but there is no review
-  orchestration, two-round arbitration loop or evidence collection from real checks.
+- Explicit independent artifact review and real acceptance checks are implemented;
+  same-provider fallback is recorded. There is no automatic two-round arbitration or
+  review/implementation scheduling. Review supports at most 256 KiB of snapshot-visible
+  UTF-8 text and a bounded prompt; provider tools remain disabled.
 - Effort/model presets, retry/escalation allowances and global concurrency values
   are not chosen. Probe models are observed defaults, not product presets.
 - Unknown provider PIDs and reused/live PIDs block recovery. There is no automatic
   process adoption, force-stop command or heartbeat mechanism.
-- Explicit check/snapshot leases have no recovery path yet. Missing supervisor
-  confirmation retains ownership. The check helper requires Windows 10+ and Windows
-  PowerShell `Add-Type`; it runs from `src/native` alongside the compiled JS checkout.
+- `check-recover` requires a persisted pre-dispatch boundary or matching completion
+  receipt plus absent controller/supervisor on the same host. It never accepts a lost
+  success. `execution-recover` handles new read-only snapshot/submission/completion
+  leases. Legacy missing proofs, a killed supervisor without a receipt and unknown
+  provider identity remain blocked. Do not add PID-only force-unlock or replay.
+- The check helper requires Windows 10+, a hidden detached Node host and Windows
+  PowerShell `Add-Type`; `src/native` accompanies the compiled JS checkout. Preserve
+  `<database>.checks/` with the journal. Receipts/output remain local and ignored by Git;
+  they trust the local account, and there is no retention cleanup yet.
 - Content digests omit ignored dependencies/build outputs and external environment/
   services. Snapshots use two matching reads, not an atomic filesystem snapshot.
   Symlinks, submodules and unresolved indexes are unsupported. Keep command specs
   outside the workspace to avoid invalidating their own digest. The direct Workflow
-  API still trusts callers; post-submission mutation does not yet invalidate its gates.
+  API still trusts callers; the explicit review/verification/completion commands
+  revalidate content, but there is no continuous watcher after completion. Acceptance
+  expectations and criterion mapping require a meaningful caller-selected check.
 - Workspace leases have no expiry and cover participating sessions in one journal.
   Uncertain startup retains a lease even before a PID appears. A late connection is
   closed without a prompt, but missing identity still needs investigation. Failed or

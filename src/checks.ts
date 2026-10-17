@@ -6,8 +6,10 @@ import { Sessions } from './sessions.js';
 import { Workflow, type Task } from './workflow.js';
 import { Workspaces } from './workspaces.js';
 import { claimExecution, type Execution, type ExecutionLease } from './execution-state.js';
-import { snapshotRepository, type RepositorySnapshot } from './artifacts.js';
-import { runCheckProcess, type CheckProcessOptions, type CheckProcessResult } from './check-process.js';
+import type { RepositorySnapshot } from './artifacts.js';
+import { runCheckProcess, retainedOutput, type CheckProcessOptions, type CheckProcessResult } from './check-process.js';
+import { allocateReceipt, readReceipt, requireDeadController, type CheckReceipt } from './check-recovery.js';
+import { captureRepository } from './repository-evidence.js';
 
 export interface CheckSpec {
   name: string;
@@ -16,6 +18,8 @@ export interface CheckSpec {
   timeoutMs: number;
   artifact: string;
   instructionsDigest: string;
+  criteria?: string[];
+  expectedStdout?: string;
 }
 export interface RepositoryCheck {
   id: string;
@@ -28,11 +32,19 @@ export interface RepositoryCheck {
   toolPid: number | null;
   result: CheckProcessResult | null;
   error: string | null;
+  purpose?: 'validation' | 'verification';
+  dispatch?: 'not_requested' | 'requested';
+  receipt?: CheckReceipt;
 }
 
 function validate(spec: CheckSpec): void {
   if (!spec || typeof spec.name !== 'string' || !spec.name.trim() || spec.name.length > 200) throw new Error('Check name is required (at most 200 characters)');
-  if (Object.keys(spec).some(key => !['name', 'file', 'args', 'timeoutMs', 'artifact', 'instructionsDigest'].includes(key))) throw new Error('Unknown check option');
+  if (Object.keys(spec).some(key => !['name', 'file', 'args', 'timeoutMs', 'artifact', 'instructionsDigest', 'criteria', 'expectedStdout'].includes(key))) throw new Error('Unknown check option');
+  if (spec.criteria !== undefined && (!Array.isArray(spec.criteria) || spec.criteria.length === 0
+    || spec.criteria.some(value => typeof value !== 'string' || !value.trim()) || new Set(spec.criteria).size !== spec.criteria.length)) throw new Error('Verification requires distinct acceptance criteria');
+  if (spec.criteria !== undefined ? typeof spec.expectedStdout !== 'string' || Buffer.byteLength(spec.expectedStdout) > 64 * 1024 : spec.expectedStdout !== undefined) {
+    throw new Error('Verification requires expectedStdout (at most 64 KiB); ordinary checks do not accept output assertions');
+  }
   if (typeof spec.file !== 'string' || !isAbsolute(spec.file) || !statSync(spec.file).isFile()
     || (process.platform === 'win32' && !spec.file.toLowerCase().endsWith('.exe'))) throw new Error('Check file must be an absolute executable path; invoke scripts through their interpreter');
   if (!Array.isArray(spec.args) || spec.args.some(value => typeof value !== 'string' || value.includes('\0')) || spec.file.includes('\0')) throw new Error('Check arguments must be strings without NUL');
@@ -66,15 +78,7 @@ export class Checks {
   }
 
   private async capture(execution: Execution): Promise<RepositorySnapshot> {
-    const inspected = await this.workspaces.inspect(execution.workspaceId, false);
-    if (!inspected.taskCurrent) throw new Error('Workspace task version changed');
-    const workspace = this.workspaces.get(execution.workspaceId);
-    const snapshot = await snapshotRepository(workspace.path!, workspace.baseCommit);
-    // A second read detects changes during collection. The lease coordinates Grampus, not external editors.
-    const verified = await snapshotRepository(workspace.path!, workspace.baseCommit);
-    if (snapshot.artifact !== verified.artifact) throw new Error('Repository changed while collecting the snapshot');
-    await this.workspaces.inspect(execution.workspaceId, false);
-    return snapshot;
+    return captureRepository(this.workspaces, execution);
   }
 
   async snapshot(executionId: string): Promise<RepositorySnapshot> {
@@ -91,11 +95,23 @@ export class Checks {
     // Reject unsupported hosts before acquiring ownership, even for an otherwise valid check.
     if (runner === runCheckProcess && process.platform !== 'win32') throw new Error('Repository checks currently require Windows 10 or later');
     const id = randomUUID();
+    const purpose = spec.criteria ? 'verification' : 'validation';
     const execution = this.store.transaction(() => {
-      const execution = this.claim(executionId, id, 'check');
+      if (purpose === 'verification') {
+        const execution = this.store.execution<Execution>(executionId);
+        const task = this.store.get<Task>(execution.taskId);
+        new Workflow(this.store).record(task.id, { id: `${id}:requested`, attemptId: execution.attemptId, version: execution.version, artifact: task.attempt?.artifact ?? '',
+          kind: 'verification', outcome: 'skipped', source: 'controller', criteria: spec.criteria!, summary: 'Acceptance check requested; a new verified result is pending' });
+      }
+      const execution = this.claim(executionId, id, purpose === 'verification' ? 'verification' : 'check');
       if (execution.role !== 'implementation') throw new Error('Repository checks currently require an implementation execution');
+      const task = this.store.get<Task>(execution.taskId);
+      if (purpose === 'verification' && (task.attempt?.outcome !== 'succeeded' || !['awaiting_verification', 'awaiting_decision'].includes(task.phase)
+        || spec.criteria!.length !== task.brief.criteria.length || !task.brief.criteria.every(item => spec.criteria!.includes(item)))) {
+        throw new Error('Verification requires submitted implementation and an exact mapping of all approved criteria');
+      }
       const check: RepositoryCheck = { id, executionId, spec: structuredClone(spec), phase: 'running', before: null, after: null,
-        supervisorPid: null, toolPid: null, result: null, error: null };
+        supervisorPid: null, toolPid: null, result: null, error: null, purpose, dispatch: 'not_requested' };
       this.store.saveCheck(id, executionId, check);
       this.store.appendExecution(executionId, 'check.requested', { checkId: id, spec });
       this.store.append(execution.taskId, execution.version, 'check.requested', { executionId, checkId: id, spec });
@@ -106,16 +122,20 @@ export class Checks {
     try {
       check.before = await this.capture(execution);
       if (check.before.artifact !== spec.artifact || check.before.instructionsDigest !== spec.instructionsDigest) throw new Error('Repository or instructions changed; inspect a fresh snapshot before dispatch');
+      if (purpose === 'verification' && check.before.artifact !== this.store.get<Task>(execution.taskId).attempt?.artifact) throw new Error('Repository changed since implementation submission');
       if (signal?.aborted) {
         check.result = { reason: 'interrupted', exitCode: null, exitConfirmed: true, stdout: '', stderr: '', outputTruncated: false };
       } else {
+        check.receipt = allocateReceipt(this.store, id);
         this.store.transaction(() => {
           this.fenced(execution, id);
+          check.dispatch = 'requested';
           this.store.saveCheck(id, executionId, check);
           this.store.appendExecution(executionId, 'check.dispatch_requested', { checkId: id, artifact: check.before!.artifact });
         });
         dispatched = true;
         check.result = await runner({ file: spec.file, args: spec.args, cwd: this.workspaces.get(execution.workspaceId).path!, timeoutMs: spec.timeoutMs,
+          receipt: check.receipt,
           ...(signal ? { signal } : {}), started: (kind, pid) => {
             this.store.transaction(() => {
               this.fenced(execution, id);
@@ -128,6 +148,9 @@ export class Checks {
       if (check.result.exitConfirmed) {
         check.after = await this.capture(execution);
         if (check.before.artifact !== check.after.artifact) check.error = 'Check changed repository inputs; inspect the diff and run a fresh check';
+        if (purpose === 'verification' && (check.result.outputTruncated || check.result.outputUnavailable || check.result.stdout !== spec.expectedStdout)) {
+          check.error = 'Acceptance output did not exactly match expectedStdout, or retained output was truncated/unavailable';
+        }
       }
     } catch (error) { check.error = error instanceof Error ? error.message : String(error); }
     return this.store.transaction(() => {
@@ -136,7 +159,7 @@ export class Checks {
       check.phase = !confirmed ? 'recovery_required' : signal?.aborted || check.result?.reason === 'interrupted' ? 'interrupted'
         : !check.error && check.result?.reason === 'exited' && check.result.exitCode === 0 ? 'passed' : 'failed';
       if (confirmed) this.release(execution, id);
-      else {
+      else if (purpose === 'validation') {
         const task = this.store.get<Task>(execution.taskId);
         task.phase = 'recovery_required'; task.attempt!.outcome = 'uncertain';
         this.store.save(task.id, task);
@@ -145,8 +168,58 @@ export class Checks {
       const event = { checkId: id, phase: check.phase, artifact: check.before?.artifact, result: check.result, error: check.error };
       this.store.appendExecution(executionId, 'check.settled', event);
       this.store.append(execution.taskId, execution.version, 'check.settled', event);
+      if (confirmed && purpose === 'verification') this.recordVerification(execution, check);
       return check;
     });
+  }
+
+  private recordVerification(execution: Execution, check: RepositoryCheck): void {
+    const task = this.store.get<Task>(execution.taskId);
+    new Workflow(this.store).record(task.id, { id: check.id, attemptId: execution.attemptId, version: execution.version, artifact: task.attempt!.artifact!,
+      kind: 'verification', source: 'controller', outcome: check.phase === 'passed' ? 'passed' : check.phase === 'interrupted' ? 'skipped' : 'failed',
+      criteria: check.spec.criteria!, summary: `Acceptance check ${check.spec.name}: ${check.phase}. Exact output expectation and criterion mapping supplied by the caller; command and actual result retained in check ${check.id}.` });
+  }
+
+  recover(id: string): RepositoryCheck {
+    return this.store.transaction(() => {
+      const check = this.get(id); const execution = this.store.execution<Execution>(check.executionId);
+      this.fenced(execution, id);
+      const lease = this.store.lease<ExecutionLease>(execution.workspaceId)!;
+      if (!['check', 'verification'].includes(lease.kind ?? '') || !['running', 'recovery_required'].includes(check.phase)) throw new Error('Check does not need recovery');
+      requireDeadController(lease);
+      if (check.dispatch === 'requested' && check.receipt) {
+        check.result = { ...readReceipt(check.receipt, check.supervisorPid, check.toolPid), ...retainedOutput(check.receipt.directory) };
+      } else if (check.dispatch !== 'not_requested') throw new Error('No durable dispatch boundary or matching completion receipt; ownership retained');
+      check.phase = 'interrupted'; check.error = 'Recovered without replay or success acceptance; run an explicit fresh check';
+      this.release(execution, id);
+      const task = this.store.get<Task>(execution.taskId);
+      if (task.attempt?.id !== execution.attemptId || task.version !== execution.version) throw new Error('Recovery task binding changed');
+      if (check.purpose !== 'verification' && task.phase === 'recovery_required') { task.phase = 'running'; task.attempt.outcome = 'running'; this.store.save(task.id, task); }
+      if (check.purpose !== 'verification' && task.phase === 'stop_requested') { task.phase = 'stopped'; task.attempt.outcome = 'stopped'; this.store.save(task.id, task); }
+      this.store.saveCheck(id, execution.id, check);
+      const event = { checkId: id, dispatch: check.dispatch, result: check.result, replayed: false, acceptedAsSuccess: false };
+      this.store.appendExecution(execution.id, 'check.recovered', event);
+      this.store.append(task.id, task.version, 'check.recovered', event);
+      if (check.purpose === 'verification') this.recordVerification(execution, check);
+      return check;
+    });
+  }
+
+  async complete(executionId: string): Promise<void> {
+    const runId = randomUUID();
+    const execution = this.store.transaction(() => this.claim(executionId, runId, 'completion'));
+    try {
+      if (execution.role !== 'implementation') throw new Error('Complete through the implementation execution');
+      const snapshot = await this.capture(execution);
+      this.store.transaction(() => {
+        if (snapshot.artifact !== this.store.get<Task>(execution.taskId).attempt?.artifact) throw new Error('Repository changed since implementation submission');
+        this.release(execution, runId);
+        new Workflow(this.store).complete(execution.taskId);
+        this.store.appendExecution(execution.id, 'artifact.completed', { artifact: snapshot.artifact });
+      });
+    } finally {
+      this.store.transaction(() => { if (this.store.lease<ExecutionLease>(execution.workspaceId)?.runId === runId) this.release(execution, runId); });
+    }
   }
 
   /** Explicit caller decision: implementation is ready; one passing check only supplies validation. */

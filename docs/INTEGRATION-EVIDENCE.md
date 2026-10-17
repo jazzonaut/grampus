@@ -211,8 +211,52 @@ was needed for this slice.
 These checks establish the Windows helper's ordinary child-process behavior, not a
 sandbox or supervision of work delegated to services, WMI or external agents. Command
 selection and acceptance coverage are still trusted caller choices. Snapshot/check
-recovery, provider-driven edits, artifact-aware review, post-submission revalidation,
-other-platform supervision and a complete independently reviewed task remain to do.
+recovery, artifact-aware review and post-submission revalidation were addressed in the
+subsequent slice below. Provider-driven edits, other-platform supervision and a complete
+independently reviewed live task remain to do.
+
+## Recovery and artifact-gate validation
+
+**112 tests passed on Node 24.22.0 and 25.8.1 on Windows.** Eleven additional tests and
+extensions to the earlier tests cover receipt recovery and artifact-bound gates. Review
+responses are injected protocol fixtures; no new live model call or Orca operation was
+performed. Existing live provider evidence above still describes conversation probes.
+
+- An actual controller is terminated while its tool tree is running. The surviving
+  supervisor stops the job and writes a terminal receipt, and a separate CLI recovers
+  the lease without replaying or accepting success. A second recovery is rejected.
+- Live owners, mismatched receipt ids/tokens/PIDs, unconfirmed settlement and missing
+  receipts cannot release ownership. A lost final reply with a valid receipt can be
+  reconciled, after which a fresh check runs explicitly.
+- Crashes before dispatch and during read-only snapshot collection are recoverable
+  under their own protocol. Read-only recovery cannot clear command ownership. Schema
+  6 migration preserves uncertain older records without fabricating proof.
+- Review receives the approved brief, instructions, full bounded source and verified
+  digest. It records an independent reviewer identity only after shutdown and a fresh
+  content check. Stale content blocks inference; changes during a review prevent pass.
+- Blocking findings fail the gate; questions can resume with answers; unknown shutdown
+  retains the lease. A newer pending/failed/skipped review cannot expose an older pass,
+  including same-provider fallback with an explicit reason.
+- Acceptance checks require exact approved criteria and expected stdout. Exit zero
+  with wrong or unavailable output fails; changed submitted artifacts cannot dispatch.
+  Recovery of a lost verification records skipped evidence rather than resurrecting an
+  earlier pass. CLI verification is exercised across separate controller processes.
+- The fixture reaches completion only after real validation, a mocked independent
+  review, a real exact-output check and an explicit fixture simplification assessment.
+  Missing gates and later repository changes block completion.
+
+The crash test initially exposed that libuv's normal Windows child ownership kills
+the native helper with its controller, before a receipt can be saved. Direct detached
+Windows PowerShell did not provide the required process behavior. The implementation
+now uses a hidden detached Node host owning a normally launched hidden PowerShell
+helper. Pipe closure stops the native job, broken-pipe output is drained, and host/native
+deadlines bound lifetime. A hard host/helper loss without a receipt still retains
+ownership. The successful crash regression verifies the implemented process arrangement.
+
+These results do not constitute independent review of Grampus itself, a live full-task
+run, cross-platform process supervision or a proof that a caller's acceptance plan is
+semantically sufficient. Larger/binary repository reviews, native provider edits,
+review arbitration, local slice commits and the simplification UI/API remain work.
 
 ## Primary references consulted
 
@@ -224,5 +268,7 @@ other-platform supervision and a complete independently reviewed task remain to 
 - [Windows Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
 - [Atomic process/job assignment](https://devblogs.microsoft.com/oldnewthing/20230209-00/?p=107812/)
 - [Process creation attributes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute)
+- [Durable .NET file flushing](https://learn.microsoft.com/en-us/dotnet/api/system.io.filestream.flush)
+- [libuv Windows process ownership](https://github.com/libuv/libuv/blob/v1.x/src/win/process.c)
 - Local Orca guide: `orca skills get orca-cli --json`, resolved through
   `ORCA_CLI_COMMAND`; installed CLI help for agent launch and worktree discovery.

@@ -47,6 +47,9 @@ conversation reply to repository changes, evidence acceptance or task completion
 | `src/checks.ts` | Lease repository operations, capture evidence, execute explicit checks and submit implementation |
 | `src/artifacts.ts` | Hash repository inputs and retain structured changes and discovered instructions |
 | `src/check-process.ts` | Control the Windows supervisor and retain bounded command output |
+| `src/check-host.ts` | Hidden detached host that forwards controller lifetime to the native helper |
+| `src/check-recovery.ts` | Allocate receipt storage, validate completion proofs and check controller absence |
+| `src/repository-evidence.ts` | Collect stable workspace snapshots and bounded text review context |
 | `src/native/check.ps1`, `src/native/check.cs` | Compile and run the Windows Job Object helper |
 | `src/agents/types.ts` | Provider contract, reply validation, usage fields and subscription environment |
 | `src/agents/codex.ts` | Installed Codex app-server initialization, threads, turns and notifications |
@@ -65,7 +68,7 @@ has been built.
 
 ## Persistence
 
-Schema version 6 contains ten tables:
+Schema version 7 contains ten tables:
 
 | Table | Contents |
 | --- | --- |
@@ -87,15 +90,18 @@ uses WAL, full synchronous writes, foreign keys and a five-second busy timeout.
 History is append-only through the application interface. State is loaded from
 snapshots rather than reconstructed by replaying events.
 
-Version 1–5 journals gain the missing tables without losing history. Version 4 added
+Version 1–6 journals gain the missing tables without losing history. Version 4 added
 Orca-aware workspace state: path/branch may be null until identity capture. The
 unique key initially reserves the Orca repository/request name, then atomically
 changes to the canonical destination. Standalone records retain their shape. The
 version bump prevents older code from treating a pending Orca operation as a local
 Git process. Version 5 adds execution bindings and leases without changing prior
 records. Version 6 adds checks and distinguishes conversation, snapshot, check and
-submission leases. Unknown schema versions are refused. Older executables cannot open
-version 6 journals. Default
+submission leases. Version 7 adds durable dispatch boundaries and receipt references,
+read-only recovery markers, verification/completion operation kinds and acceptance
+expectations. These extend JSON state without new tables. Missing legacy proof fields
+are never inferred. Unknown schema versions are refused. Older executables cannot open
+version 7 journals. Default
 storage is outside the checkout; see [README.md](../README.md) for portable paths
 and overrides. Retention expiry, backup tooling, settings transfer and task export/
 import have not been implemented. Markdown task reports are the current export.
@@ -239,7 +245,8 @@ verified implementation evidence.
 Settlement fences on the exact session run and lease token. Session state, linked task
 outcome, journal events and lease release commit together. A successful conversation
 does not finish an implementation attempt. Failure marks it failed; confirmed interrupt
-or recovery marks it stopped. Review outcomes leave implementation evidence unchanged.
+or recovery marks it stopped. Ordinary review conversations leave evidence unchanged;
+explicit artifact reviews additionally follow the evidence protocol below.
 Unconfirmed exit retains the lease and marks the session, plus an implementation task,
 as requiring recovery. A startup promise still pending after cancellation is uncertain
 even if no PID was observed. A late connection is closed without receiving the prompt;
@@ -289,7 +296,10 @@ per input file, 128 MiB of input bytes and 4 MiB of retained structured changes.
 
 The command request and before-snapshot are durable before dispatch. The initial
 supervisor runs on Windows 10+ through Windows PowerShell `Add-Type`, using checked-in
-C# and no new npm runtime dependency. It creates the tool directly inside an unnamed
+C# and no new npm runtime dependency. A hidden detached Node host owns PowerShell;
+it survives the controller's libuv parent-exit job, forwards input closure/cancellation,
+drains broken output pipes and has its own bounded watchdog. PowerShell needs a normal
+hidden-console launch, so it runs as that host's child. The native helper creates the tool directly inside an unnamed
 Job Object via `PROC_THREAD_ATTRIBUTE_JOB_LIST`, avoiding the suspended-process
 assignment gap. Kill-on-close is enabled, breakaway is disabled, and only tool stdin
 (NUL) and output handles are inherited. Arguments use Windows CRT quoting; no shell
@@ -299,20 +309,22 @@ The supervisor observes timeout, controller pipe closure and cancellation. It ch
 the job's active process count, terminates remaining descendants, and confirms zero
 before reporting settlement. A tool that exits zero but leaves children is a failed
 check. A helper crash closes the job handle but supplies no controller confirmation:
-the durable lease remains. Job ownership covers ordinary child creation; delegating
+the durable lease remains unless an earlier matching completion receipt exists. Job ownership covers ordinary child creation; delegating
 to a service, WMI or an external agent is outside this boundary. It is not a sandbox.
 
 Keep the first 64 KiB from each output stream, with truncation flagged. A monitored
 2 MiB combined disk-output threshold stops the job (polling may overshoot that
 threshold). The tool deadline is 100–600000 ms, plus a bounded helper startup/shutdown
-allowance. Temporary output is removed after collection when possible. Controller
-crashes can leave temporary diagnostics; no retention cleaner is implemented.
+allowance. Journaled checks retain output and receipts in `<database>.checks/` beside
+the journal. Standalone process probes remove their temporary output when possible.
+No retention cleaner is implemented.
 
 Confirmed failures/interruption release the lease and leave implementation open for
 an explicit new command. Unconfirmed dispatch/shutdown retains the lease and marks
 recovery required; a controller crash may leave the durable check marked running.
-There is no command replay, check/snapshot recovery, PID-only force-release or
-macOS/Linux supervisor yet. Existing conversation recovery cannot release these leases.
+There is no command replay, PID-only force-release or macOS/Linux supervisor yet.
+Explicit recovery follows the protocol below; conversation recovery cannot release
+these leases.
 
 Passing requires exit code zero, normal tool/job exit and unchanged before/after
 inputs. `execution-finish` then checks current content again and accepts only the
@@ -320,11 +332,79 @@ latest passing result from that execution. Releasing its lease, finishing the at
 and recording controller validation are one transaction. Newer failed/interrupted
 checks cannot be hidden by selecting an older passing one. This is an explicit caller
 decision that implementation is ready, not automatic acceptance verification. The
-other three completion gates remain unsatisfied. Native provider repository tools,
-review orchestration and post-submission artifact revalidation remain future work.
+other three completion gates remain unsatisfied until separately assessed. Explicit
+review, verification and completion now revalidate the submitted content as below.
+Native provider repository tools and review arbitration remain future work.
+
+### Durable recovery protocol
+
+New checks persist `dispatch=not_requested` with their claim. Before invoking the
+runner they allocate a unique receipt directory and token, then atomically persist
+`dispatch=requested`, its receipt identity and the dispatch event. A crash before that
+transaction cannot have launched a tool. A crash after it requires terminal proof.
+
+After settling its Job Object and closing tool handles, the native helper writes a
+receipt containing protocol version, check id, token, host supervisor/tool ids, reason,
+exit code and `exitConfirmed`. It uses a write-through temporary file, `Flush(true)`
+and same-directory rename before emitting the final pipe message. An absent/partial
+receipt cannot prove settlement. The receipt token prevents mixing operations, not
+tampering by the local account that already owns the journal. Receipt and output
+retention remain local; no live process is adopted or force-killed during recovery.
+
+`check-recover` requires the same host, an absent controller, the exact lease/run,
+and either a recorded pre-dispatch boundary or a matching terminal receipt plus absent
+supervisor. Live/reused/unverifiable ids block recovery. It releases ownership and
+records interruption without accepting success, even for a lost exit-zero reply.
+Implementation returns from uncertain state to running for an explicit fresh check;
+a pending task stop becomes stopped. Verification recovery records a skipped gate.
+State, evidence, journal events and lease release share one transaction. Legacy checks
+without proof remain blocked, as does a killed supervisor that left no receipt.
+
+`execution-recover` applies only to new snapshot/submission/completion leases marked
+as read-only by this protocol. These operations never launch repository-writing tools;
+after controller absence their interrupted reads cannot accept evidence or complete
+a later transaction. Recovery releases their exact lease and records no result. It
+cannot be used for command or conversation ownership.
+
+### Artifact review, acceptance and completion
+
+`execution-review` enables artifact evidence explicitly; ordinary conversations retain
+their previous behavior. A fresh review binding pins the current successful digest.
+Before inference, the controller captures the workspace, checks the digest and supplies
+all snapshot-visible UTF-8 files (at most 256 KiB), discovered instructions and changes.
+File hashes are rechecked while building context; binary/larger input is refused.
+The final prompt is journaled. Provider tools remain disabled and the repository is
+treated as untrusted supplied content. This scope excludes ignored dependencies and
+external behavior just as the artifact digest does.
+
+A new review first records a pending/skipped gate atomically with claiming the session.
+After confirmed provider shutdown, content is verified again. A structured review
+with a nonempty summary and no blocking findings records an agent review pass;
+blocking findings or execution/content failures record failure. Questions, interruptions
+and non-review replies remain skipped. Session settlement, lease release and evidence
+acceptance are atomic. Uncertain shutdown keeps ownership and the pending gate, so
+recovering the conversation cannot resurrect an older pass. Same-provider fallback
+continues to require a recorded reason. Question answers must use artifact review mode
+again to produce artifact evidence; ordinary session-answer alone cannot pass the gate.
+
+`execution-verify` operates through the submitted implementation binding. Its command
+specification must map every approved criterion exactly and supply `expectedStdout`.
+It checks the submitted artifact before dispatch, then requires the usual command
+success conditions plus exact decoded stdout and available, untruncated output. Selection of
+the command and meaningful expected behavior remains a trusted caller responsibility;
+the mapping itself is not semantic proof. Every new verification request makes its
+gate pending, and actual failure/skipped outcomes supersede prior passes.
+
+`execution-complete` claims a read-only completion lease, verifies current content,
+then atomically releases the lease and applies all workflow gates and decision checks.
+It creates no commit or external delivery. Simplification remains a separate trusted
+assessment. Direct `Workflow` API calls remain a trusted boundary; the CLI does not
+continuously watch for edits after completion.
 
 Windows lifecycle references: [Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
 and [atomic job assignment at process creation](https://devblogs.microsoft.com/oldnewthing/20230209-00/?p=107812/).
+Receipt writes use [.NET file flushing](https://learn.microsoft.com/en-us/dotnet/api/system.io.filestream.flush).
+The host lifetime accounts for [libuv's Windows parent-exit job](https://github.com/libuv/libuv/blob/v1.x/src/win/process.c).
 
 ## Conversation lifecycle
 
@@ -401,6 +481,6 @@ Both providers also passed explicit live probes; see
 [INTEGRATION-EVIDENCE.md](INTEGRATION-EVIDENCE.md) for versions and observed behavior.
 
 Only Windows has been tested. Workspace release/rebinding, shared scheduling,
-real check runners, tool approvals, review arbitration, slice commits,
+other-platform check runners, provider tool approvals, review arbitration, slice commits,
 delivery integration, dashboard, installers and platform CI remain outstanding.
 The implementation itself has not had an independent review.

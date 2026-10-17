@@ -6,7 +6,8 @@ import { Store } from './store.js';
 import { connectAgent } from './agents/index.js';
 import { Workspaces } from './workspaces.js';
 import { claimExecution, requireExecutionLease, settleExecution, stopExecution, type Execution } from './execution-state.js';
-import type { Task } from './workflow.js';
+import { Workflow, type Task } from './workflow.js';
+import { captureRepository, reviewContext } from './repository-evidence.js';
 import { parseReply, type AgentEvent, type AgentSession, type Connector, type Provider, type Reply, type TurnResult } from './agents/types.js';
 
 export interface Session {
@@ -156,6 +157,7 @@ export interface RunOptions {
   signal?: AbortSignal;
   answers?: Record<string, string>;
   onEvent?: (event: AgentEvent) => void;
+  artifactReview?: boolean;
 }
 
 /** Each CLI invocation owns one process, closes it, and retains a resumable provider id. */
@@ -164,7 +166,18 @@ export async function runSession(store: Store, id: string, prompt: string, optio
   if (!Number.isSafeInteger(timeout) || timeout < 100 || timeout > 600_000) throw new Error('Timeout must be between 100 and 600000 ms');
   if (options.interruptAfterMs !== undefined && (!Number.isSafeInteger(options.interruptAfterMs) || options.interruptAfterMs < 1)) throw new Error('Interrupt delay must be a positive integer');
   const sessions = new Sessions(store);
-  const claim = sessions.claim(id, prompt, options.answers);
+  const review = options.artifactReview ? store.executionForSession<Execution>(id) : null;
+  if (options.artifactReview && (review?.role !== 'review' || !review.artifact?.startsWith('sha256:'))) throw new Error('Artifact review requires a review execution bound to a verified content digest');
+  const claim = store.transaction(() => {
+    if (review) {
+      const session = sessions.get(id);
+      new Workflow(store).record(review.taskId, { id: randomUUID(), attemptId: review.attemptId, version: review.version, artifact: review.artifact!,
+        kind: 'review', outcome: 'skipped', source: 'agent', summary: 'Artifact review requested; a new verified verdict is pending',
+        agent: { provider: session.provider, sessionId: session.id, model: session.model ?? 'provider-default' },
+        ...(review.fallbackReason ? { fallbackReason: review.fallbackReason } : {}) });
+    }
+    return sessions.claim(id, prompt, options.answers);
+  });
   let agent: AgentSession | null = null;
   let stopped = false;
   let connectionFinished = false;
@@ -203,8 +216,12 @@ export async function runSession(store: Store, id: string, prompt: string, optio
   try {
     const execution = store.executionForSession<Execution>(id);
     if (execution) {
-      const inspected = await workspaces.inspect(execution.workspaceId);
+      const inspected = await workspaces.inspect(execution.workspaceId, !review);
       if (!inspected.taskCurrent) throw new Error('Execution task version changed before dispatch');
+      if (review) {
+        claim.prompt += `\n\n${await reviewContext(store, workspaces, review)}`;
+        emit({ type: 'review.context', data: { artifact: review.artifact, prompt: claim.prompt } });
+      }
       if (stopped) throw new Error('Interrupted before provider connection');
     }
     connectionPending = true;
@@ -228,9 +245,28 @@ export async function runSession(store: Store, id: string, prompt: string, optio
       if (agent) { await (agent as AgentSession).close(); exitConfirmed = true; }
       else exitConfirmed = connectorClosed || (!processStarted && !connectionPending);
     } catch (error) { result = { ...result, status: 'failed', error: `Process shutdown unconfirmed: ${error instanceof Error ? error.message : String(error)}` }; }
-    if (stopped) { result.status = 'interrupted'; result.reply = null; }
+    if (review && exitConfirmed && result.status === 'completed') {
+      try {
+        if ((await captureRepository(workspaces, review)).artifact !== review.artifact) throw new Error('Repository changed during review');
+        if (result.reply?.kind === 'review' && !result.reply.text.trim()) throw new Error('Review requires an explicit summary');
+      } catch (error) { result = { ...result, status: 'failed', error: error instanceof Error ? error.message : String(error) }; }
+    }
+    if (stopped || options.signal?.aborted) { result.status = 'interrupted'; result.reply = null; }
     if (!connectorClosed && (connectionPending || (!connectionFinished && stopped && processStarted))) exitConfirmed = false;
-    sessions.settle(id, claim.runId, result, exitConfirmed);
+    store.transaction(() => {
+      const owned = sessions.get(id).run?.id === claim.runId;
+      sessions.settle(id, claim.runId, result, exitConfirmed);
+      if (review && exitConfirmed && owned) {
+        const session = sessions.get(id);
+        const isReview = result.status === 'completed' && result.reply?.kind === 'review';
+        const outcome = result.status === 'failed' || (isReview && result.reply!.findings.some(finding => finding.severity === 'blocking')) ? 'failed' : isReview ? 'passed' : 'skipped';
+        new Workflow(store).record(review.taskId, { id: claim.runId, attemptId: review.attemptId, version: review.version, artifact: review.artifact!,
+          kind: 'review', outcome, source: 'agent', summary: result.error ?? (result.reply?.text.trim() || 'Artifact review did not produce a review verdict'),
+          agent: { provider: session.provider, sessionId: session.id, model: session.model ?? 'provider-default' },
+          ...(review.fallbackReason ? { fallbackReason: review.fallbackReason } : {}) });
+        store.appendExecution(review.id, 'review.settled', { runId: claim.runId, artifact: review.artifact, outcome, findings: result.reply?.findings ?? [] });
+      }
+    });
   }
   return result;
 }

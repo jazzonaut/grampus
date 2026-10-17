@@ -8,7 +8,8 @@ The [design and decision record](DESIGN.md) captures the requirements agreed dur
 
 Current state: the durable controller, live conversations, Git/Orca workspaces and
 task-linked sessions with exclusive workspace ownership are implemented. Explicit
-repository checks on Windows now produce content-bound validation evidence.
+repository checks on Windows now produce content-bound validation evidence, with
+receipt-based recovery, artifact reviews and exact-output acceptance checks.
 They include a SQLite journal, versioned task approval, completion gates, Codex and
 Claude conversations, structured questions and review findings, interruption,
 reconnection, local integration discovery and journaled worktree creation.
@@ -228,7 +229,8 @@ current conversation restrictions. Review sessions use `--role review` and requi
 successful current artifact from `execution-finish` or the trusted workflow API.
 Same-provider review also requires
 `--fallback-reason <text>`, and always gets a fresh session. Review replies do not
-automatically satisfy review gates. Closed, revised or superseded bindings cannot run.
+automatically satisfy review gates through ordinary conversation commands. Use the
+explicit artifact review command below. Closed, revised or superseded bindings cannot run.
 
 Ownership applies to participating Grampus sessions sharing one journal. It does not
 lock out editors, other journals or agents launched separately through Orca. There is
@@ -289,11 +291,80 @@ simplification, independent review and acceptance verification remain separate g
 Failed/interrupted checks keep the implementation open for an explicit correction and
 new check. Commands are never replayed automatically.
 
-A lost controller/supervisor retains the durable lease even if the OS later kills
-the job. There is no check/snapshot lease recovery command yet; conversation recovery
-cannot release it. Normal descendants are covered, but work delegated to an existing
+A lost controller/supervisor retains the durable lease until explicit recovery.
+Normal descendants are covered, but work delegated to an existing
 service, WMI, a scheduler or an external agent is outside the job. macOS/Linux command
 supervision and provider-driven repository editing remain outstanding.
+
+## Recover an interrupted operation
+
+```sh
+npm start -- check-show <check-id>
+npm start -- check-recover <check-id>
+# For a snapshot, submission or completion interrupted before its transaction committed:
+npm start -- execution-recover <execution-id>
+```
+
+Recovery requires the previous controller to be absent on the same host. A dispatched
+check additionally requires a matching supervisor receipt proving the tool job settled,
+and an absent supervisor. The receipt is flushed before replying to the controller.
+The hidden supervisor host survives a controller crash long enough to stop its job
+and write the receipt. Dead process ids alone cannot release a dispatched check.
+
+Recovery records the check as interrupted, preserves available output, and never
+replays the command or accepts a lost success. Run a fresh check explicitly. A recorded
+pre-dispatch boundary can recover without a receipt; read-only operations use their
+separate protocol. Old journals lacking these proofs, missing/invalid receipts and
+live or unverifiable owners remain blocked. Conversation recovery cannot release a
+command lease. Receipt/output directories are retained beside the journal as
+`<database>.checks/`; keep them with the journal and out of commits. They contain local
+operational data and are trusted like the journal, not a sandbox against its owner.
+
+## Review and verify a submitted artifact
+
+```sh
+npm start -- execution-new <workspace-id> 1 claude --role review
+npm start -- execution-review <review-execution-id>
+# If the reviewer asks questions, supply the same question-id JSON format as session-answer:
+npm start -- execution-review <review-execution-id> --answers-file answers.json
+npm start -- execution-verify <implementation-execution-id> acceptance.json
+npm start -- execution-complete <implementation-execution-id>
+```
+
+Artifact review uses a fresh independent session, verifies the submitted digest,
+supplies the repository text, instructions and diff, and verifies content again after
+provider shutdown. This initial mode supports at most 256 KiB of UTF-8 repository text;
+binary files and larger repositories need a future review-context strategy. Blocking
+findings fail the review gate. Questions, interruptions and non-review replies leave
+it pending. Ordinary `session-send` replies still cannot pass gates. The provider's
+repository tools remain disabled; this reviews supplied content, not runtime behavior.
+
+Acceptance JSON uses the check fields above plus the exact approved `criteria` list
+and an `expectedStdout` string, for example:
+
+```json
+{
+  "name": "Greeting acceptance",
+  "file": "<absolute path to node.exe>",
+  "args": ["greeting.js"],
+  "timeoutMs": 120000,
+  "artifact": "<submitted sha256:...>",
+  "instructionsDigest": "<digest from execution-snapshot>",
+  "criteria": ["Print hello"],
+  "expectedStdout": "hello\n"
+}
+```
+
+Verification requires exit zero, unchanged submitted content and an exact match to
+the expected decoded stdout, without truncated or unavailable output. The caller must choose a
+meaningful command, expectation and criterion mapping; the controller checks the
+observations, not the semantic sufficiency of that plan. Failed/skipped results remain
+visible. Starting a new review or acceptance check makes the corresponding gate pending,
+so a lost or failed newer run cannot leave an older pass current.
+
+Completion verifies the artifact again and requires every existing gate and decision.
+Simplification is still an explicit assessment through the trusted workflow API;
+these commands do not invent that assessment, commit code or push task branches.
 
 ## Development
 
@@ -306,8 +377,8 @@ npm test
 TypeScript compiles to `dist/`; Node supplies SQLite, process handling and the test
 runner. The live Claude adapter adds the official `@anthropic-ai/claude-agent-sdk`
 runtime dependency, pinned in the lockfile. Node 24 may emit an experimental SQLite
-warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1–5 journals
-migrate to schema 6 without losing task, session or workspace data. Older executables cannot reopen a
+warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1–6 journals
+migrate to schema 7 without losing task, session or workspace data. Older executables cannot reopen a
 migrated journal, so retain backups if you need to run an older checkout.
 
 - [Implementation sequence and acceptance examples](docs/IMPLEMENTATION.md)

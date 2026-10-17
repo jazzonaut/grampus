@@ -57,7 +57,8 @@ review. Live agent probes, if run, only establish the specific capabilities obse
    inspection and conservative creation recovery. Task/attempt/session bindings and
    exclusive per-workspace turn ownership are also implemented. Explicit Windows
    checks now supervise tool descendants and bind validation to repository snapshots.
-   Provider-driven edits, shared concurrency, recovery and sequential commits remain.
+   Receipt-based recovery, artifact review and exact-output acceptance checks are also
+   implemented. Provider-driven edits, shared concurrency and sequential commits remain.
 3. **One real task:** run a tiny coding task through both agents, independently
    inspect output, interrupt/recover, and repeat with and without Orca. Complete
    this milestone only when those real cases pass.
@@ -175,6 +176,30 @@ changed instructions, command mutations, failures, rollback, controller/supervis
 crashes, detached descendants, Unicode arguments, output limits, CLI restarts and
 schema migration. Platform support for this helper is currently Windows only.
 
-Next: check/snapshot ownership recovery, artifact-aware independent review and explicit
-acceptance checks, then provider tool policies and one real task through all gates.
-Workspace release/rebinding, bounded scheduling and other-platform supervisors remain.
+## Recovery and artifact gate slice
+
+Schema 7 preserves dispatch boundaries and receipt identities. Windows supervisors
+flush a completion receipt before replying; explicit recovery requires the same host,
+an absent controller, exact ownership and either a never-dispatched command or matching
+settlement proof. A hidden detached Node host allows the native helper to finish after
+controller death despite libuv's default parent-exit job. Native supervisor loss without
+proof remains blocked. New read-only snapshot/submission/completion operations have a
+separate recovery path. No operation is replayed and no lost success is auto-accepted.
+
+Artifact review supplies bounded verified repository text to an independent session
+and rechecks content after shutdown. Acceptance commands map all approved criteria
+and require exact expected stdout, intact output, unchanged inputs and exit zero.
+New requests mark their gates pending; failed, interrupted or lost results cannot
+resurrect older passes. Completion rechecks the artifact and all existing workflow
+gates in an atomic transaction. Simplification remains an explicit trusted assessment.
+
+Tests cover actual controller crashes and receipt recovery, missing/corrupt proofs,
+pre-dispatch/read-only recovery, schema migration, changed review artifacts, independent
+review identity, findings/questions, uncertain shutdown, exact-output verification,
+missing output, newer-result invalidation and final completion guards. Provider review
+responses in this slice are protocol fixtures, not a fresh live integration claim.
+
+Next: explicit simplification assessment, native provider tool policies and a small
+real task through all gates and a local commit. Workspace release/rebinding, recovery
+without receipts/known provider identity, bounded scheduling, richer acceptance
+observations, larger review context and other-platform supervisors remain.

@@ -36,7 +36,12 @@ const help = `Grampus — local agent controller
   execution-snapshot <id>        Inspect repository content, diff and instruction digest
   execution-check <id> <file.json>  Run an explicit check against that snapshot (Windows)
   execution-finish <id> <check-id> Submit implementation with the latest passing check
+  execution-verify <id> <file.json> Check submitted artifact against all named criteria
+  execution-review <id>           Review a verified artifact (review execution; optional --answers-file)
+  execution-complete <id>         Recheck artifact and require every completion gate
+  execution-recover <id>          Recover a read-only operation after its controller exits
   check-show <id>                Show retained command, snapshots and output
+  check-recover <id>             Reconcile a lost check using durable supervisor evidence
   session-new <codex|claude>      Create a conversation (--cwd, optional --model)
   session-send <id> <prompt>      Run one live turn (or use --prompt-file <path>)
   session-answer <id> <file.json> Answer pending question ids with a JSON object
@@ -54,6 +59,7 @@ async function main(): Promise<void> {
     allowPositionals: true,
     options: { db: { type: 'string' }, orca: { type: 'boolean', default: false }, help: { type: 'boolean', short: 'h' },
       cwd: { type: 'string' }, model: { type: 'string' }, 'prompt-file': { type: 'string' },
+      'answers-file': { type: 'string' },
       repo: { type: 'string' }, path: { type: 'string' }, base: { type: 'string' },
       role: { type: 'string' }, 'fallback-reason': { type: 'string' },
       'timeout-ms': { type: 'string' }, 'interrupt-after-ms': { type: 'string' } },
@@ -102,7 +108,7 @@ async function main(): Promise<void> {
     return;
   }
   if (action.startsWith('execution-')) {
-    if (!['execution-new', 'execution-list', 'execution-show', 'execution-close', 'execution-snapshot', 'execution-check', 'execution-finish'].includes(action)) throw new Error('Unknown execution command');
+    if (!['execution-new', 'execution-list', 'execution-show', 'execution-close', 'execution-snapshot', 'execution-check', 'execution-finish', 'execution-verify', 'execution-review', 'execution-complete', 'execution-recover'].includes(action)) throw new Error('Unknown execution command');
     if (action !== 'execution-list' && !id) throw new Error(`${action} requires an argument`);
     const store = new Store(values.db ?? defaultDatabasePath());
     try {
@@ -123,29 +129,48 @@ async function main(): Promise<void> {
       }
       if (action === 'execution-close') { executions.close(id!); console.log(JSON.stringify(executions.get(id!), null, 2)); }
       if (action === 'execution-snapshot') console.log(JSON.stringify(await checks.snapshot(id!), null, 2));
+      if (action === 'execution-recover') { executions.recoverReadOnly(id!); console.log(JSON.stringify(executions.get(id!), null, 2)); }
+      if (action === 'execution-complete') {
+        await checks.complete(id!);
+        console.log(JSON.stringify(new Workflow(store).get(executions.get(id!).taskId), null, 2));
+      }
       if (action === 'execution-finish') {
         if (!version) throw new Error('execution-finish requires a check id');
         await checks.finish(id!, version);
         console.log(JSON.stringify(new Workflow(store).get(executions.get(id!).taskId), null, 2));
       }
-      if (action === 'execution-check') {
-        if (!version) throw new Error('execution-check requires a check specification file');
+      if (action === 'execution-check' || action === 'execution-verify') {
+        if (!version) throw new Error(`${action} requires a check specification file`);
+        const spec = JSON.parse(readFileSync(version, 'utf8')) as CheckSpec;
+        if ((spec.criteria !== undefined) !== (action === 'execution-verify')) throw new Error('Only execution-verify requires criteria in the specification');
         const abort = new AbortController();
         const stop = () => { console.error('Stop requested; waiting for the owned tool processes to exit.'); abort.abort(); };
         process.on('SIGINT', stop);
         try {
-          const check = await checks.run(id!, JSON.parse(readFileSync(version, 'utf8')) as CheckSpec, abort.signal);
+          const check = await checks.run(id!, spec, abort.signal);
           console.log(JSON.stringify(check, null, 2));
           if (check.phase !== 'passed') process.exitCode = check.phase === 'interrupted' ? 130 : 1;
+        } finally { process.off('SIGINT', stop); }
+      }
+      if (action === 'execution-review') {
+        const execution = executions.get(id!);
+        const abort = new AbortController(); const stop = () => abort.abort();
+        process.on('SIGINT', stop);
+        try {
+          const result = await runSession(store, execution.sessionId, 'Review the verified artifact.', { artifactReview: true, signal: abort.signal,
+            ...(values['answers-file'] ? { answers: JSON.parse(readFileSync(values['answers-file'], 'utf8')) as Record<string, string> } : {}),
+            ...(values['timeout-ms'] ? { timeoutMs: Number(values['timeout-ms']) } : {}) });
+          console.log(JSON.stringify({ session: new Sessions(store).get(execution.sessionId), result }, null, 2));
+          if (result.status !== 'completed' || result.reply?.findings.some(item => item.severity === 'blocking')) process.exitCode = result.status === 'interrupted' ? 130 : 1;
         } finally { process.off('SIGINT', stop); }
       }
     } finally { store.close(); }
     return;
   }
-  if (action === 'check-show') {
-    if (!id) throw new Error('check-show requires an id');
+  if (action === 'check-show' || action === 'check-recover') {
+    if (!id) throw new Error(`${action} requires an id`);
     const store = new Store(values.db ?? defaultDatabasePath());
-    try { console.log(JSON.stringify(new Checks(store).get(id), null, 2)); }
+    try { console.log(JSON.stringify(action === 'check-recover' ? new Checks(store).recover(id) : new Checks(store).get(id), null, 2)); }
     finally { store.close(); }
     return;
   }

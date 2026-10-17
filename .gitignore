@@ -4,5 +4,6 @@ dist/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+*.checks/
 .env
 .env.*
