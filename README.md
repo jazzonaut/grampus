@@ -1,0 +1,144 @@
+# Grampus
+
+Grampus is a local application being built to coordinate coding agents from task clarification through implementation, independent review, and verified delivery. It aims to reduce human steering and rework while preserving code quality, observability, and control over model usage.
+
+The design targets Windows, macOS, and Linux, with complete operation both with and without Orca.
+
+The [design and decision record](DESIGN.md) captures the requirements agreed during discovery, proposed architecture, and remaining implementation questions.
+
+Current state: the durable controller and live conversation slices are implemented.
+They include a SQLite journal, versioned task approval, completion gates, Codex and
+Claude conversations, structured questions and review findings, interruption,
+reconnection, and local integration discovery. Agent-driven repository changes,
+worktree scheduling, the dashboard, and installers remain to be built.
+
+## Try the first slice
+
+Requires Node.js 24 or newer. From this checkout:
+
+```sh
+npm ci
+npm test
+npm run demo
+npm run doctor
+npm run doctor -- --orca
+```
+
+`demo` runs a **synthetic** task through approval, an interrupted controller,
+recovery, retry, review and verification. It prints a journal-based Markdown report
+and retains an isolated temporary database. It does not run coding agents or edit
+a repository. Simulated evidence cannot complete a real task.
+
+`doctor` checks Git, the Codex app-server handshake and authentication type, and
+Claude Code installation and authentication status. `--orca` additionally checks
+the current Orca worktree. These checks do not start model inference, validate
+subscription entitlements, or establish that agent interruption and resumption work.
+Optional executable overrides: `GRAMPUS_CODEX_COMMAND`, `GRAMPUS_CLAUDE_COMMAND`,
+and `ORCA_CLI_COMMAND`. Each override is one executable path, not a shell command.
+
+Create and inspect a real brief without starting agent execution:
+
+```sh
+npm start -- create examples/brief.json
+npm start -- approve <task-id> 1
+npm start -- show <task-id>
+npm start -- report <task-id>
+```
+
+## Live conversations
+
+Use an existing ChatGPT or Claude subscription login. This slice refuses API-key
+and third-party provider authentication; it does not enable API billing. Each turn
+starts an owned provider process, resumes the recorded conversation if present,
+saves the response, and waits for process exit before releasing ownership.
+
+```sh
+npm start -- session-new codex
+npm start -- session-send <session-id> "Explain the difference between a task and a slice."
+npm start -- session-show <session-id>
+npm start -- session-list
+```
+
+Use `claude` instead of `codex` for Claude. `session-new` accepts `--cwd <directory>`
+and `--model <id>`; otherwise it uses the current directory and provider default.
+The observed model is saved and used on reconnection. For longer prompts, use
+`session-send <id> --prompt-file <path>`.
+
+When a reply has `kind: "question"`, the session enters `awaiting_answer`.
+Write a JSON object mapping every question id to a text answer, for example
+`{"label":"reef"}`, then run:
+
+```sh
+npm start -- session-answer <session-id> answers.json
+```
+
+Questions are structured model replies, not native provider permission prompts.
+They survive process exits and can be answered later. Review findings contain
+severity, description and evidence, but remain agent claims; they do not satisfy
+task verification or automatically approve code.
+
+Ctrl+C requests interruption. The controller waits for the owned process to exit;
+a successful interrupt request alone is not a stop confirmation. Turns default to
+a two-minute timeout (`--timeout-ms`, maximum ten minutes), with **zero automatic
+inference retries**. Provider-internal retries may still occur within that deadline.
+No prompt is automatically replayed after a failure. An unconfirmed shutdown leaves
+the session in `recovery_required`; `session-recover <id>` proceeds only when the
+recorded controller and provider PIDs no longer exist on the execution host. It
+refuses unknown liveness and does not kill processes. Reused PIDs conservatively
+block recovery. Ordinary completed or interrupted turns can be resumed by sending
+another message.
+
+The conversations are intended for supplied text. Claude has no general execution
+tools; Codex uses a read-only sandbox with shell, integrations and editing approvals
+disabled. This is not yet a repository execution or tool-process-tree supervisor.
+Live sessions do not create task acceptance evidence or slice commits.
+
+The Claude adapter uses the pinned official Agent SDK and its bundled executable.
+`GRAMPUS_CLAUDE_COMMAND` can select a compatible installed executable instead.
+`doctor` continues to inspect the installed Claude CLI, which may differ from the
+SDK's bundled version. Both adapters verify subscription authentication before
+sending a prompt.
+
+Run the repeatable live probes explicitly; they consume subscription usage:
+
+```sh
+npm run probe -- codex
+npm run probe -- claude
+```
+
+Each probe uses a temporary directory and separate controller processes to test
+questions, answers, context retention, review findings on a supplied buggy snippet,
+interruption and resumption. It prints the retained journal location. The ordinary
+test suite does not call either provider or require authentication.
+
+Task commands store data outside the checkout: `%LOCALAPPDATA%/Grampus` on Windows,
+`~/Library/Application Support/Grampus` on macOS, or
+`${XDG_STATE_HOME:-~/.local/state}/grampus` on Linux. Set `GRAMPUS_HOME` or pass
+`--db <path>` to select another location. No cleanup or retention expiry is enabled
+yet. Reports contain task content; inspect them before sharing.
+
+## Development
+
+```sh
+npm run check
+npm run build
+npm test
+```
+
+TypeScript compiles to `dist/`; Node supplies SQLite, process handling and the test
+runner. The live Claude adapter adds the official `@anthropic-ai/claude-agent-sdk`
+runtime dependency, pinned in the lockfile. Node 24 may emit an experimental SQLite
+warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1 journals migrate
+to schema 2 without losing task data. The first-slice executable cannot reopen a
+migrated journal, so retain backups if you need to run an older checkout.
+
+- [Implementation sequence and acceptance examples](docs/IMPLEMENTATION.md)
+- [Integration evidence and remaining validation](docs/INTEGRATION-EVIDENCE.md)
+- [Architecture and state contracts](docs/ARCHITECTURE.md)
+- [Where to resume next session](docs/NEXT-SESSION.md)
+
+The workflow API currently supports one slice per task. It is a trusted controller
+boundary, not an API for accepting unvalidated provider messages. Artifact references
+and check evidence are supplied by the caller; real workspace hashing and command
+execution belong to the next integration slice. Process ownership must be established
+before invoking recovery. There is no shared worker scheduler or recovery daemon yet.

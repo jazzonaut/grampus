@@ -1,0 +1,26 @@
+{
+  "name": "grampus",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local coding-agent workflow controller",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "start": "node dist/src/cli.js",
+    "doctor": "node dist/src/cli.js doctor",
+    "demo": "node dist/src/cli.js demo",
+    "probe": "node dist/src/probe.js"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.302"
+  }
+}
