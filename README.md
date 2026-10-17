@@ -6,12 +6,12 @@ The design targets Windows, macOS, and Linux, with complete operation both with 
 
 The [design and decision record](DESIGN.md) captures the requirements agreed during discovery, proposed architecture, and remaining implementation questions.
 
-Current state: the durable controller, live conversations and standalone workspace
+Current state: the durable controller, live conversations and Git/Orca workspace
 creation are implemented.
 They include a SQLite journal, versioned task approval, completion gates, Codex and
 Claude conversations, structured questions and review findings, interruption,
-reconnection, local integration discovery and journaled Git worktree creation.
-Agent-driven repository changes, Orca workspaces, scheduling, the dashboard and
+reconnection, local integration discovery and journaled worktree creation.
+Agent-driven repository changes, execution ownership, scheduling, the dashboard and
 installers remain to be built.
 
 ## Try the first slice
@@ -132,8 +132,7 @@ npm start -- workspace-inspect <workspace-id>
 npm start -- workspace-recover <workspace-id>
 ```
 
-Use this command for standalone repositories. Orca-owned workspaces need the future
-Orca adapter; `--orca` is explicitly refused. The destination must not exist, its
+Use this form for standalone repositories. The destination must not exist, its
 parent must exist, and it must be outside existing worktrees and Git metadata.
 Grampus pins the base to a commit, creates `grampus/<task-id>`, and locks the worktree
 with its workspace id. Dirty and untracked files in the source checkout stay there.
@@ -154,6 +153,43 @@ ownership are future work. Workspace readiness does not imply task completion or
 permission for an agent to edit files. Local workspace journals contain operational
 paths and process identities; keep them out of commits and shared documentation.
 
+## Orca workspaces
+
+For a repository already registered in the running local Orca app:
+
+```sh
+npm start -- workspace-new <task-id> 1 --orca --repo . --base main
+npm start -- workspace-show <workspace-id>
+npm start -- workspace-inspect <workspace-id>
+# Only after failed or interrupted creation:
+npm start -- workspace-recover <workspace-id>
+```
+
+The base ref is explicit and resolved to a commit before creation. Orca chooses the
+path and branch, so omit `--path`. Grampus requests an independent worktree with
+`--no-parent --setup skip`, without requesting an agent or changing the active view.
+Orca may create default terminal tabs according to its settings. Git checkout
+filters/hooks still follow repository configuration.
+
+Grampus reserves the task before calling Orca. It records the returned full worktree
+id, stable instance identity, path and branch, then checks the actual Git checkout.
+It uses Orca CLI operations for creation and identity lookup, with read-only Git
+inspection; it does not add a Git lock or mutate Orca metadata behind the app.
+CLI capability checks and local identity validation reject unsupported responses.
+
+A CLI timeout does not prove Orca stopped creating the checkout. Creation is never
+replayed. If a reply is lost, recovery looks for exactly one worktree with the saved
+request name and marker, verifies its pinned base and clean contents, and records
+its identity. Missing, ambiguous, incomplete or mismatched results remain blocked.
+Once recorded, the instance identity must continue to match even if a checkout is
+recreated at the same path. Ordinary display-name/comment changes are allowed after
+identity capture. `ready` confirms the checkout, not an agent execution lease or
+completion of every Orca background activity. Remote Orca hosts are not supported.
+
+The executable is resolved once per client from `ORCA_CLI_COMMAND`, then `orca-dev`
+in a development session, otherwise `orca-ide` on Linux or `orca` elsewhere. There
+is no automatic executable fallback, application startup, creation retry or cleanup.
+
 ## Development
 
 ```sh
@@ -165,8 +201,8 @@ npm test
 TypeScript compiles to `dist/`; Node supplies SQLite, process handling and the test
 runner. The live Claude adapter adds the official `@anthropic-ai/claude-agent-sdk`
 runtime dependency, pinned in the lockfile. Node 24 may emit an experimental SQLite
-warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1 and 2 journals
-migrate to schema 3 without losing task or session data. Older executables cannot reopen a
+warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1–3 journals
+migrate to schema 4 without losing task, session or workspace data. Older executables cannot reopen a
 migrated journal, so retain backups if you need to run an older checkout.
 
 - [Implementation sequence and acceptance examples](docs/IMPLEMENTATION.md)

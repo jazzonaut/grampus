@@ -10,11 +10,12 @@ sequence. Product requirements that appear there are not automatically implement
 flowchart TD
     CLI[Terminal commands] --> Workflow[Task workflow]
     CLI --> Sessions[Conversation runner]
-    CLI --> Workspaces[Standalone workspaces]
+    CLI --> Workspaces[Workspace lifecycle]
     Workflow --> Store[SQLite state and journals]
     Sessions --> Store
     Workspaces --> Store
     Workspaces --> Git[Git worktree lifecycle]
+    Workspaces --> Orca[Orca CLI worktree lifecycle]
     Sessions --> Codex[Codex app-server over stdio]
     Sessions --> Claude[Claude Agent SDK]
     Store --> Report[Task Markdown report]
@@ -30,7 +31,8 @@ Connecting them with task versions and workspace ownership is the next major ste
 | `src/store.ts` | SQLite schema, transactions, state snapshots and journal access |
 | `src/workflow.ts` | Versioned brief approval, attempts, evidence, decisions and completion |
 | `src/sessions.ts` | Claim a conversation, persist events, run one turn, stop and reconcile |
-| `src/workspaces.ts` | Reserve a task workspace, create a standalone Git worktree, inspect and reconcile |
+| `src/workspaces.ts` | Reserve a task workspace, create through Git or Orca, inspect and reconcile |
+| `src/orca.ts` | Resolve the Orca executable, validate local CLI responses and stable worktree identities |
 | `src/agents/types.ts` | Provider contract, reply validation, usage fields and subscription environment |
 | `src/agents/codex.ts` | Installed Codex app-server initialization, threads, turns and notifications |
 | `src/agents/claude.ts` | Official SDK streaming input, authentication, results and process shutdown |
@@ -48,7 +50,7 @@ has been built.
 
 ## Persistence
 
-Schema version 3 contains six tables:
+Schema version 4 contains six tables:
 
 | Table | Contents |
 | --- | --- |
@@ -56,7 +58,7 @@ Schema version 3 contains six tables:
 | `events` | Ordered task events with requirement version, timestamp, type and JSON data |
 | `sessions` | Grampus session id and current JSON state |
 | `session_events` | Ordered conversation events with timestamp, type and JSON data |
-| `workspaces` | Workspace state with unique task id and canonical destination key |
+| `workspaces` | Workspace state with unique task id and destination/reservation key |
 | `workspace_events` | Ordered workspace lifecycle events with timestamp, type and JSON data |
 
 State changes and associated events share a `BEGIN IMMEDIATE` transaction. SQLite
@@ -64,8 +66,13 @@ uses WAL, full synchronous writes, foreign keys and a five-second busy timeout.
 History is append-only through the application interface. State is loaded from
 snapshots rather than reconstructed by replaying events.
 
-Version 1 and 2 journals gain the missing tables without losing history. Unknown
-schema versions are refused. Older executables cannot open version 3 journals. Default
+Version 1–3 journals gain the missing tables without losing history. Version 4 adds
+Orca-aware workspace state: path/branch may be null until identity capture. The
+unique key initially reserves the Orca repository/request name, then atomically
+changes to the canonical destination. Standalone records retain their shape. The
+version bump prevents older code from treating a pending Orca operation as a local
+Git process. Unknown schema versions are refused. Older executables cannot open
+version 4 journals. Default
 storage is outside the checkout; see [README.md](../README.md) for portable paths
 and overrides. Retention expiry, backup tooling, settings transfer and task export/
 import have not been implemented. Markdown task reports are the current export.
@@ -146,8 +153,38 @@ produce acceptance evidence or reserve the workspace for agent execution.
 Git runs without a shell and with a 30-second timeout. Inherited `GIT_*` environment
 overrides are stripped so the explicit repository determines the index and worktree;
 repository/user Git configuration still applies. Normal checkout hooks and filters
-may run. Their process trees are not supervised by this slice. Orca-owned worktrees,
-agent/session association, worker leases and shared scheduling remain separate work.
+may run. Their process trees are not supervised by this slice. Agent/session
+association, worker leases and shared scheduling remain separate work.
+
+## Orca workspace lifecycle
+
+Orca is the authority for its tracked worktrees. The adapter checks the installed
+CLI's creation controls, resolves the registered Git repository, and validates local
+worktree identity responses before mutation. An explicit base ref is pinned to a
+commit. A task reservation and unique request name/marker are durable before the
+single `worktree create` call. Orca selects path and branch; Grampus requests no parent,
+skips Orca setup hooks and does not request an agent or activate the view.
+
+The response is validated and bound to the reservation before readiness checks.
+Grampus records the full worktree id, stable identity key and instance id, plus the
+observed path and branch. Inspection requires those identities, Orca's local host,
+the repository's Git common directory and actual worktree registration to match.
+No raw Git writes or extra Git locks are applied to Orca worktrees.
+
+CLI exit/timeout is not Orca host completion. Recovery first excludes another live
+Grampus controller, then uses Orca's read-only list/show interfaces. An uncaptured
+identity requires exactly one matching name and marker from a complete local listing,
+with the exact requested base ref. Captured identity is looked up directly and cannot
+be replaced by a new instance at the same path. All creation recovery additionally
+requires a clean checkout at the pinned commit and the current approved task version.
+Unknown outcomes remain reserved; no create call is replayed.
+
+The fixed CLI deadline is 120 seconds. There is no automatic application start,
+executable fallback, host switching, creation retry or workspace removal. Normal
+Orca terminal defaults and Git hooks/filters can still have side effects. Readiness
+does not prove all host background activity finished, and provides no execution
+lease or tool-process supervision. Remote hosts are rejected. Task/session linkage,
+execution ownership and version rebinding remain future work.
 
 ## Conversation lifecycle
 
@@ -223,7 +260,7 @@ CLI persistence, process transport, sessions and Codex notification handling.
 Both providers also passed explicit live probes; see
 [INTEGRATION-EVIDENCE.md](INTEGRATION-EVIDENCE.md) for versions and observed behavior.
 
-Only Windows has been tested. Orca worktrees, workspace release/rebinding, shared scheduling, task/session
+Only Windows has been tested. Workspace release/rebinding, shared scheduling, task/session
 association, real check runners, tool approvals, review arbitration, slice commits,
 delivery integration, dashboard, installers and platform CI remain outstanding.
 The implementation itself has not had an independent review.

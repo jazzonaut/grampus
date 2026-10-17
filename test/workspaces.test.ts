@@ -40,8 +40,10 @@ function fixture(t: { after(fn: () => void): void }) {
 }
 
 function save(store: Store, workspace: Workspace): void {
+  assert.ok(workspace.path);
+  const path = workspace.path;
   store.transaction(() => store.saveWorkspace(workspace.id, workspace.taskId,
-    process.platform === 'win32' ? workspace.path.toLowerCase() : workspace.path, workspace));
+    process.platform === 'win32' ? path.toLowerCase() : path, workspace));
 }
 
 test('creates a locked worktree at the recorded base without touching dirty source changes', async t => {
@@ -105,6 +107,7 @@ test('two controllers cannot reserve the same task and a moving base is pinned t
     assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
     assert.equal(workspaces.list().length, 1);
     const created = workspaces.list()[0]!;
+    assert.ok(created.path);
     assert.equal((await workspaces.inspect(created.id)).head, base);
     assert.equal(readFileSync(join(created.path, 'greeting.txt'), 'utf8'), 'hello\n');
   } finally { secondStore.close(); }
@@ -209,11 +212,11 @@ test('revising a task preserves its workspace but makes the old version unusable
   assert.throws(() => workflow.start(task.id, agent), /earlier task version/);
 });
 
-test('workspace CLI persists state across processes and explicitly refuses the Orca mode', t => {
+test('workspace CLI persists state across processes and refuses Orca path overrides', t => {
   const { repo, db, task, destination } = fixture(t);
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
   const run = (...args: string[]) => execFileSync(process.execPath, [cli, '--db', db, ...args], { encoding: 'utf8', windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-  assert.throws(() => run('workspace-new', task.id, '1', '--repo', repo, '--path', destination, '--orca'), /Orca-owned/);
+  assert.throws(() => run('workspace-new', task.id, '1', '--repo', repo, '--path', destination, '--orca'), /Orca chooses/);
   const workspace = JSON.parse(run('workspace-new', task.id, '1', '--repo', repo, '--path', destination)) as Workspace;
   assert.equal(JSON.parse(run('workspace-inspect', workspace.id)).dirty, false);
   assert.equal(JSON.parse(run('workspace-show', workspace.id)).workspace.phase, 'ready');

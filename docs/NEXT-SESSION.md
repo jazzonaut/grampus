@@ -1,7 +1,7 @@
 # Resume Grampus implementation
 
 Checkpoint: 17 October 2026, after the durable controller, live conversation and
-standalone workspace creation slices. The user continued implementation in the
+standalone and Orca workspace creation slices. The user continued implementation in the
 same session and authorized pushing the repository.
 
 ## Read first
@@ -19,7 +19,7 @@ Default delivery remains local unless the user authorizes an external action.
 
 ## Completed
 
-- TypeScript/Node controller, SQLite schema 3, journal-derived Markdown task report.
+- TypeScript/Node controller, SQLite schema 4, journal-derived Markdown task report.
 - Task briefs, exact-version approval, attempts, provisional decisions, four
   completion gates, stale-result rejection and explicit recovery states.
 - Live Codex app-server and Claude Agent SDK conversations with subscription
@@ -29,8 +29,11 @@ Default delivery remains local unless the user authorizes an external action.
 - CLI demonstration, discovery commands and repeatable opt-in live probes.
 - Standalone worktree creation with exact-version approval, durable task/path
   reservations, canonical paths, pinned base, ownership lock, inspection and recovery.
-- 57 offline tests passed on Windows with Node 24.22.0 and 25.8.1. New tests include
-  real Git and a controller process crash.
+- Local Orca worktree creation through its CLI, stable instance verification and
+  recovery of a lost reply through request-marker discovery without creation replay.
+- 66 offline tests passed on Windows with Node 24.22.0 and 25.8.1, including real Git,
+  controller crashes and Orca protocol fixtures. Live Orca 1.4.229 creation and
+  recovery passed; temporary probe worktrees were removed through Orca.
 - Both live probes passed question/answer, context across controller restarts,
   supplied-code review findings, interruption and resumption with earlier context.
 
@@ -46,13 +49,13 @@ contains the durable summary, and the probe script can reproduce the checks.
 Start with the existing source and a small concrete plan. Do not rebuild the
 controller or broaden into the dashboard first.
 
-1. Extend the existing standalone workspace lifecycle with an Orca adapter and an
-   explicit execution lease. Creation ownership and Git locks are not worker leases.
+1. Add an explicit execution lease to the existing Git/Orca workspace lifecycle.
+   Creation ownership, Git locks and Orca instance identities are not worker leases.
    Define safe release/rebinding for changed briefs; failed reservations currently
    stay blocked for investigation. Keep workspaces separate from agent lifecycle.
-   Use Orca's supported
-   worktree interfaces when Orca owns a checkout; validate those controls rather
-   than assuming parity with the standalone path.
+   Keep using Orca's supported interfaces when Orca owns a checkout. Its CLI exiting
+   does not prove all host background activities stopped; validate execution controls
+   separately rather than assuming parity with standalone processes.
 2. Link each implementation/review session to a task version and attempt. Persist
    the intended operation before starting it so an ambiguous launch is reconciled
    rather than duplicated. Decide how a changed brief invalidates session results.
@@ -87,6 +90,11 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
   response. Missing or mismatched results remain reserved; no creation replay,
   workspace removal or task-version rebinding is available yet. Git hooks/filters
   use normal repository configuration and their process trees are not supervised.
+- Orca creation requires an explicit base ref and chooses its own path/branch. Its
+  default terminal settings still apply with setup skipped. Unknown create outcomes
+  stay reserved until exact discovery succeeds; no create retry or host cancellation
+  is implemented. Remote hosts are rejected, and the adapter never changes Orca-owned
+  worktrees through raw Git writes.
 - Retention, safe-checkpoint transfer, installer packaging, platform CI, browser
   dashboard, notifications, Linear and opt-in PR delivery are still outstanding.
 - Keep subscription authentication as the default. Do not silently enable API

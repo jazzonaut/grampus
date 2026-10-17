@@ -5,20 +5,30 @@ import { hostname } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { Store } from './store.js';
 import type { Task } from './workflow.js';
+import { OrcaCli, type OrcaWorkspaceClient, type OrcaWorktree } from './orca.js';
 
 export interface Workspace {
   id: string;
   taskId: string;
   version: number;
-  adapter: 'git';
+  adapter: 'git' | 'orca';
   repository: string;
   commonDirectory: string;
-  path: string;
-  branch: string;
+  path: string | null;
+  branch: string | null;
   baseCommit: string;
   host: string;
   phase: 'creating' | 'ready' | 'recovery_required';
   owner: { controllerPid: number; gitPid: number | null; exitConfirmed: boolean } | null;
+  orca?: { repoId: string; name: string; marker: string; identityKey: string | null; instanceId: string | null; worktreeId: string | null };
+}
+
+type LocatedWorkspace = Workspace & { path: string; branch: string };
+
+function reservationKey(workspace: Workspace): string {
+  if (workspace.path) return pathKey(workspace.path);
+  if (!workspace.orca) throw new Error('Workspace has no destination or Orca reservation');
+  return `orca:${workspace.orca.repoId}:${workspace.orca.name}`;
 }
 
 interface Worktree { path: string; head?: string; branch?: string; locked?: string }
@@ -73,9 +83,9 @@ function alive(pid: number): boolean {
   catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
 }
 
-/** Standalone worktrees only. The journal reserves a task/path before Git mutates anything. */
+/** Journal intent before asking Git or Orca to create a worktree; never replay creation. */
 export class Workspaces {
-  constructor(private readonly store: Store) {}
+  constructor(private readonly store: Store, private readonly orca: OrcaWorkspaceClient = new OrcaCli()) {}
   get(id: string): Workspace { return this.store.workspace<Workspace>(id); }
   list(): Workspace[] { return this.store.workspaces<Workspace>(); }
 
@@ -83,7 +93,7 @@ export class Workspaces {
     return this.store.transaction(() => {
       const workspace = this.get(id);
       const data = action(workspace);
-      this.store.saveWorkspace(id, workspace.taskId, pathKey(workspace.path), workspace);
+      this.store.saveWorkspace(id, workspace.taskId, reservationKey(workspace), workspace);
       this.store.appendWorkspace(id, type, data ?? {});
       return workspace;
     });
@@ -98,7 +108,7 @@ export class Workspaces {
     return task;
   }
 
-  async create(taskId: string, version: number, repository: string, destination: string, base = 'HEAD'): Promise<Workspace> {
+  async create(taskId: string, version: number, repository: string, destination: string, base = 'HEAD'): Promise<LocatedWorkspace> {
     this.approved(taskId, version);
     const root = realpathSync.native((await git(resolve(repository), ['rev-parse', '--show-toplevel'])).trim());
     const commonDirectory = realpathSync.native((await git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim());
@@ -112,12 +122,12 @@ export class Workspaces {
       throw new Error('Workspace destination must be outside existing worktrees and Git metadata');
     }
     const baseCommit = (await git(root, ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`])).trim();
-    const workspace: Workspace = { id: randomUUID(), taskId, version, adapter: 'git', repository: root,
+    const workspace: LocatedWorkspace = { id: randomUUID(), taskId, version, adapter: 'git', repository: root,
       commonDirectory, path, branch: `grampus/${taskId}`, baseCommit, host: hostname(), phase: 'creating',
       owner: { controllerPid: process.pid, gitPid: null, exitConfirmed: false } };
     this.store.transaction(() => {
       this.approved(taskId, version);
-      if (this.list().some(item => item.taskId === taskId || pathKey(item.path) === pathKey(path))) {
+      if (this.list().some(item => item.taskId === taskId || (item.path && pathKey(item.path) === pathKey(path)))) {
         throw new Error('Task or destination already has a workspace reservation; inspect or recover it');
       }
       this.store.saveWorkspace(workspace.id, taskId, pathKey(path), workspace);
@@ -132,7 +142,7 @@ export class Workspaces {
         this.change(workspace.id, 'git.exited', current => { current.owner!.exitConfirmed = true; });
       }
       await this.verifyCreation(workspace);
-      return this.change(workspace.id, 'workspace.ready', current => { current.phase = 'ready'; current.owner = null; });
+      return this.change(workspace.id, 'workspace.ready', current => { current.phase = 'ready'; current.owner = null; }) as LocatedWorkspace;
     } catch (error) {
       this.change(workspace.id, 'workspace.recovery_required', current => {
         current.phase = 'recovery_required';
@@ -142,11 +152,76 @@ export class Workspaces {
     }
   }
 
+  async createOrca(taskId: string, version: number, repository: string, base: string): Promise<LocatedWorkspace> {
+    this.approved(taskId, version);
+    if (!base.trim()) throw new Error('Orca creation requires an explicit base ref');
+    const root = realpathSync.native((await git(resolve(repository), ['rev-parse', '--show-toplevel'])).trim());
+    const commonDirectory = realpathSync.native((await git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim());
+    const repo = await this.orca.preflight(root);
+    const orcaCommon = realpathSync.native((await git(repo.path, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim());
+    if (pathKey(commonDirectory) !== pathKey(orcaCommon)) throw new Error('Orca repository does not match the requested Git repository');
+    const baseCommit = (await git(root, ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`])).trim();
+    const id = randomUUID();
+    const workspace: Workspace = { id, taskId, version, adapter: 'orca', repository: root, commonDirectory,
+      path: null, branch: null, baseCommit, host: hostname(), phase: 'creating',
+      owner: { controllerPid: process.pid, gitPid: null, exitConfirmed: false },
+      orca: { repoId: repo.id, name: `grampus-${id}`, marker: `grampus-workspace:${id}`, identityKey: null, instanceId: null, worktreeId: null } };
+    this.store.transaction(() => {
+      this.approved(taskId, version);
+      if (this.list().some(item => item.taskId === taskId)) throw new Error('Task already has a workspace reservation; inspect or recover it');
+      this.store.saveWorkspace(id, taskId, reservationKey(workspace), workspace);
+      this.store.appendWorkspace(id, 'workspace.requested', workspace);
+    });
+    try {
+      const result = await this.orca.create(root, { repoId: repo.id, name: workspace.orca!.name, marker: workspace.orca!.marker, baseCommit });
+      this.bindOrca(id, result);
+      await this.verifyCreation(this.get(id));
+      return this.change(id, 'workspace.ready', current => { current.phase = 'ready'; current.owner = null; }) as LocatedWorkspace;
+    } catch (error) {
+      this.change(id, 'workspace.recovery_required', current => {
+        current.phase = 'recovery_required';
+        return { reason: error instanceof Error ? error.message : String(error), replayed: false };
+      });
+      throw new Error(`Workspace ${id} needs recovery; Orca creation must not be replayed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private bindOrca(id: string, result: OrcaWorktree): void {
+    this.change(id, 'orca.identity_recorded', current => {
+      const orca = current.orca!;
+      if (result.repoId !== orca.repoId || result.name !== orca.name || result.comment !== orca.marker
+        || result.baseRef !== current.baseCommit || result.isMain || result.archived) throw new Error('Orca result does not match the workspace request');
+      if (orca.identityKey && (orca.identityKey !== result.identityKey || orca.instanceId !== result.instanceId || orca.worktreeId !== result.id)) {
+        throw new Error('Orca workspace instance changed');
+      }
+      const path = realpathSync.native(result.path);
+      if (contains(current.repository, path) || contains(current.commonDirectory, path)) throw new Error('Orca returned a nested workspace');
+      current.path = path;
+      current.branch = result.branch.slice('refs/heads/'.length);
+      orca.identityKey = result.identityKey;
+      orca.instanceId = result.instanceId;
+      orca.worktreeId = result.id;
+      return { identityKey: result.identityKey, worktreeId: result.id };
+    });
+  }
+
   async inspect(id: string): Promise<{ workspace: Workspace; head: string; dirty: boolean; taskCurrent: boolean }> {
     const workspace = this.get(id);
     if (workspace.host !== hostname()) throw new Error('Inspect this workspace on its execution host');
-    const entry = (await worktrees(workspace.repository)).find(item => pathKey(item.path) === pathKey(workspace.path));
-    if (!entry || entry.branch !== `refs/heads/${workspace.branch}` || entry.locked !== `grampus:${id}`) {
+    if (!workspace.path || !workspace.branch) throw new Error('Workspace destination is unknown; recover its Orca identity first');
+    if (workspace.adapter === 'orca') {
+      const orca = workspace.orca;
+      if (!orca?.identityKey) throw new Error('Orca workspace identity is unknown');
+      const result = await this.orca.show(workspace.repository, orca.identityKey);
+      if (result.identityKey !== orca.identityKey || result.instanceId !== orca.instanceId || result.id !== orca.worktreeId
+        || result.repoId !== orca.repoId || result.isMain || result.archived
+        || pathKey(realpathSync.native(result.path)) !== pathKey(workspace.path) || result.branch !== `refs/heads/${workspace.branch}`) {
+        throw new Error('Orca workspace instance, repository or branch changed');
+      }
+    }
+    const workspacePath = workspace.path;
+    const entry = (await worktrees(workspace.repository)).find(item => pathKey(item.path) === pathKey(workspacePath));
+    if (!entry || entry.branch !== `refs/heads/${workspace.branch}` || (workspace.adapter === 'git' && entry.locked !== `grampus:${id}`)) {
       throw new Error('Workspace registration, branch or ownership lock does not match');
     }
     const top = realpathSync.native((await git(workspace.path, ['rev-parse', '--show-toplevel'])).trim());
@@ -173,15 +248,22 @@ export class Workspaces {
       if (current.phase === 'ready' || !current.owner) throw new Error('Workspace does not need recovery');
       if (current.host !== hostname()) throw new Error('Recover this workspace on its execution host');
       if (alive(current.owner.controllerPid) && current.owner.controllerPid !== process.pid) throw new Error('Previous workspace controller is alive or unverifiable');
-      if (!current.owner.exitConfirmed && (current.owner.gitPid === null || alive(current.owner.gitPid))) {
+      if (current.adapter === 'git' && !current.owner.exitConfirmed && (current.owner.gitPid === null || alive(current.owner.gitPid))) {
         throw new Error('Git exit is unconfirmed; do not create a duplicate workspace');
       }
       if (current.phase === 'creating' && current.owner.controllerPid === process.pid) throw new Error('Workspace creation is still owned by this controller');
       current.phase = 'creating';
-      current.owner = { controllerPid: process.pid, gitPid: null, exitConfirmed: true };
+      current.owner = { controllerPid: process.pid, gitPid: null, exitConfirmed: current.adapter === 'git' };
     });
     try {
-      await this.verifyCreation(workspace);
+      if (workspace.adapter === 'orca' && !workspace.orca?.identityKey) {
+        const orca = workspace.orca!;
+        const matches = (await this.orca.list(workspace.repository, orca.repoId))
+          .filter(item => item.name === orca.name && item.comment === orca.marker);
+        if (matches.length !== 1) throw new Error('Orca creation outcome is unknown or ambiguous; reservation retained without replay');
+        this.bindOrca(id, matches[0]!);
+      }
+      await this.verifyCreation(this.get(id));
       return this.change(id, 'workspace.recovered', current => {
         current.phase = 'ready'; current.owner = null; return { replayed: false };
       });

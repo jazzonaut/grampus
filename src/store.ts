@@ -31,7 +31,7 @@ export class Store {
     this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
     const version = this.db.prepare('PRAGMA user_version').get()?.user_version;
-    if (version !== 0 && version !== 1 && version !== 2 && version !== 3) {
+    if (version !== 0 && version !== 1 && version !== 2 && version !== 3 && version !== 4) {
       this.db.close();
       throw new Error(`Unsupported journal schema version: ${version}`);
     }
@@ -70,7 +70,7 @@ export class Store {
         data TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS workspace_events_workspace ON workspace_events(workspace_id, sequence);
-      PRAGMA user_version = 3;
+      PRAGMA user_version = 4;
       COMMIT;
     `);
   }
@@ -155,7 +155,7 @@ export class Store {
   }
 
   saveWorkspace(id: string, taskId: string, pathKey: string, state: unknown): void {
-    this.db.prepare('INSERT INTO workspaces(id, task_id, path_key, state) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state')
+    this.db.prepare('INSERT INTO workspaces(id, task_id, path_key, state) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET path_key = excluded.path_key, state = excluded.state')
       .run(id, taskId, pathKey, JSON.stringify(state));
   }
 

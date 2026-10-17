@@ -52,9 +52,9 @@ review. Live agent probes, if run, only establish the specific capabilities obse
    Retries are bounded at zero automatic inference retries until task-level budgets
    and replay rules are implemented. Native tool approval routing is deferred to
    workspace execution; questions currently use structured final replies.
-2. **Workspaces and execution — standalone creation implemented:** durable task/path
-   reservations, pinned base commits, locked worktrees, inspection and conservative
-   creation recovery. Orca-owned worktrees, execution ownership, shared concurrency,
+2. **Workspaces and execution — Git and Orca creation implemented:** durable task/path
+   reservations, pinned base commits, standalone locks or Orca instance identities,
+   inspection and conservative creation recovery. Execution ownership, shared concurrency,
    real checks and sequential commits remain. Validate stopping on Windows before
    extending claims.
 3. **One real task:** run a tiny coding task through both agents, independently
@@ -109,5 +109,23 @@ existing/nested destinations, pinned bases, Git failure, lost responses, real pr
 exit before the ready transaction commits, uncertain liveness, dirty recovery,
 changed lock identity, stale task versions and schema 2 migration.
 
-Next: Orca workspace adapter, task/attempt/session association and execution leases,
+Next: task/attempt/session association and execution leases,
 then narrowly scoped repository commands and evidence tied to inspected artifacts.
+
+## Orca workspace slice
+
+The local Orca adapter uses the installed CLI, validated against its bundled guide
+and help. It creates a task worktree through Orca with an explicit pinned base, skips
+Orca setup hooks and requests no agent. Orca controls path and branch selection.
+Schema 4 permits an unbound Orca reservation, then captures the returned full id and
+stable instance identity before checking the actual Git worktree.
+
+Recovery does not equate CLI exit with server completion. A lost reply is reconciled
+through exact request-marker discovery followed by identity and Git verification;
+there is no creation replay. Missing, ambiguous, incomplete, remote or mismatched
+results stay blocked. The adapter does not change Orca metadata through raw Git.
+
+Validation includes protocol fixtures backed by real Git repositories and a live
+local Orca probe with a deliberately discarded response and a fresh recovery process.
+Execution leases, task/attempt/session links and controlled repository commands are
+the next slice; workspace readiness is not authorization to run an agent.

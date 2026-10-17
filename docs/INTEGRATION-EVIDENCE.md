@@ -120,9 +120,33 @@ The expanded suite passed **57 tests on Node 24.22.0 and 25.8.1 on Windows**, us
 Native path canonicalization was required to match Git and Node paths on Windows,
 including short/long directory aliases. Fixture Git configuration fixes line endings
 locally without changing the user's Git configuration. Live provider probes were not
-repeated because this slice does not change either provider adapter. Orca workspaces,
-arbitrary tool-tree supervision and independent review
-of Grampus remain unverified.
+repeated because this slice does not change either provider adapter. Orca workspaces
+were not validated in this standalone slice; see the subsequent evidence below.
+
+## Orca workspace validation
+
+**66 tests passed on Node 24.22.0 and 25.8.1 on Windows.** Nine additional tests cover
+Orca protocol validation with real temporary Git repositories: host-chosen names,
+pinned bases, lost replies, missing/duplicate/truncated discovery, instance changes,
+dirty recovery, compatibility/approval gates, shared reservations and schema 3 migration.
+
+Installed Orca **1.4.229** was checked against its bundled `orca-cli` guide and command
+help. A live creation probe confirmed the response includes a full worktree id,
+stable local instance identity and exact base ref. Orca controls its branch naming;
+the adapter records the observed name rather than predicting it.
+
+The Grampus adapter then created a live worktree with an approved fixture brief,
+explicit base commit, no agent request and Orca setup skipped. Its successful create
+reply was deliberately discarded at the adapter boundary. A separate controller
+reopened the journal, discovered the exact request marker, verified the clean pinned
+checkout, and reached `ready` without replaying creation. Both clean probes were
+removed through Orca after checking their default terminals were unused shells.
+Local journals and identities remain ignored; no personal paths are included here.
+
+This validates local Orca checkout creation and recovery, not agent execution leases,
+host-operation cancellation, arbitrary tool-tree supervision, remote hosts or task
+completion. Provider inference probes were not repeated. Independent review of the
+Grampus implementation and macOS/Linux validation remain outstanding.
 
 ## Primary references consulted
 

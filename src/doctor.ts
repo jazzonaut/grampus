@@ -1,4 +1,5 @@
 import { command, RpcProcess } from './process.js';
+import { orcaExecutable } from './orca.js';
 
 export interface Capability {
   component: string;
@@ -13,9 +14,7 @@ async function inspect(component: string, check: () => Promise<Record<string, un
   }
 }
 
-export function orcaExecutable(): string {
-  return process.env.ORCA_CLI_COMMAND ?? (process.env.ORCA_DEV_REPO_ROOT ? 'orca-dev' : process.platform === 'linux' ? 'orca-ide' : 'orca');
-}
+export { orcaExecutable } from './orca.js';
 
 export async function doctor(includeOrca: boolean): Promise<Capability[]> {
   const checks = [

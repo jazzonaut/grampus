@@ -20,7 +20,8 @@ const help = `Grampus — local agent controller
   list                           List stored tasks
   show <task-id>                  Show a task and completion blockers
   report <task-id>                Print a Markdown report from the journal
-  workspace-new <task-id> <version>  Create a standalone worktree (--repo, --path, optional --base)
+  workspace-new <task-id> <version>  Create a worktree (--repo, --path, optional --base)
+                                  Orca mode: --orca --repo <path> --base <ref>; omit --path
   workspace-list                 List workspace reservations
   workspace-show <id>             Show saved workspace state and journal
   workspace-inspect <id>          Verify Git identity and show current HEAD/dirty state
@@ -65,16 +66,21 @@ async function main(): Promise<void> {
   }
   if (action.startsWith('workspace-')) {
     if (!['workspace-new', 'workspace-list', 'workspace-show', 'workspace-inspect', 'workspace-recover'].includes(action)) throw new Error('Unknown workspace command');
-    if (values.orca) throw new Error('Orca-owned workspaces require the future Orca adapter; this command is standalone only');
     if (action !== 'workspace-list' && !id) throw new Error(`${action} requires an argument`);
     const store = new Store(values.db ?? defaultDatabasePath());
     try {
       const workspaces = new Workspaces(store);
       if (action === 'workspace-new') {
-        if (!values.repo || !values.path) throw new Error('workspace-new requires --repo and --path');
+        if (values.orca && values.path) throw new Error('Orca chooses the workspace destination; omit --path');
+        if (!values.repo) throw new Error('workspace-new requires --repo');
+        if (values.orca && !values.base) throw new Error('Orca workspace creation requires --base to pin the starting ref');
+        if (!values.orca && !values.path) throw new Error('Standalone workspace creation requires --path');
         const expectedVersion = Number(version);
         if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new Error('A positive integer version is required');
-        console.log(JSON.stringify(await workspaces.create(id!, expectedVersion, values.repo, values.path, values.base), null, 2));
+        const created = values.orca
+          ? await workspaces.createOrca(id!, expectedVersion, values.repo, values.base!)
+          : await workspaces.create(id!, expectedVersion, values.repo, values.path!, values.base);
+        console.log(JSON.stringify(created, null, 2));
       }
       if (action === 'workspace-list') console.log(JSON.stringify(workspaces.list(), null, 2));
       if (action === 'workspace-show') console.log(JSON.stringify({ workspace: workspaces.get(id!), events: store.workspaceEvents(id!) }, null, 2));
