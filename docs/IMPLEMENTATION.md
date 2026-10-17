@@ -270,4 +270,23 @@ structured reply tools, exact scope, stale policy/provider refusal, questions,
 uncertain shutdown, actual controller death during a file-writing fixture tool,
 pre-dispatch recovery and schema migration. A live Claude native edit followed by
 Codex review, real checks and verified local delivery passed. Codex editing, Orca
-editing and broader file operations remain the next integration steps.
+editing and broader file operations remained the next integration steps at that checkpoint.
+
+## Scoped native Codex patches
+
+Codex now shares the supervised implementation worker, editing-only session mode,
+scope comparison and receipt recovery. The worker supplies approved file contents;
+shell access stays disabled. App-server thread setup requires read-only mode,
+untrusted approvals and client review, and checks the returned configuration before
+inference. A synchronous RPC request handler validates pending file-change items
+against the current thread/turn, existing approved paths and update-only semantics.
+Authorization must be journaled before a one-item acceptance is returned. Broader
+grants, duplicate/stale requests, commands and other permission requests are rejected.
+
+No schema migration is needed beyond schema 9. The native task probe adds
+`--native-codex`, with Codex implementation and independent Claude review. A live run
+passed actual editing, regression, simplification, review, exact-output acceptance
+and verified local commit delivery. Offline tests cover whole-patch refusal, failed
+journaling, stale/repeated approvals, interruption, RPC request-id collisions and
+Codex's shared implementation lease. Orca integration, broader file operations and
+more representative live tasks remain outstanding.

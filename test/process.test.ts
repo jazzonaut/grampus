@@ -61,3 +61,22 @@ test('RPC timeout does not accept an unrelated result', async () => {
   try { await assert.rejects(rpc.request('missing', {}, 100), /timeout/); }
   finally { await rpc.close(); }
 });
+
+test('RPC server requests fail closed and cannot resolve a client request with a colliding id', async () => {
+  for (const mode of ['missing', 'throw', 'allowed']) {
+    const rpc = new RpcProcess(process.execPath, ['-e', `
+      const send = value => console.log(JSON.stringify(value));
+      require('node:readline').createInterface({input:process.stdin}).on('line', line => {
+        const message = JSON.parse(line);
+        if (message.method === 'outer') send({id:message.id,method:'approval',params:{}});
+        else {
+          if (${JSON.stringify(mode)} === 'allowed' ? message.result?.decision !== 'decline' : !message.error) process.exit(3);
+          send({id:message.id,result:'outer completed'});
+        }
+      });
+    `]);
+    if (mode !== 'missing') rpc.onRequest(() => { if (mode === 'throw') throw new Error('Journal unavailable'); return { decision: 'decline' }; });
+    try { assert.equal(await rpc.request('outer', {}), 'outer completed'); }
+    finally { await rpc.close(); }
+  }
+});

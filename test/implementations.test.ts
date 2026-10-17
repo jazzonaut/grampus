@@ -13,7 +13,7 @@ import { Executions } from '../src/executions.js';
 import { Sessions, runSession } from '../src/sessions.js';
 import { Checks } from '../src/checks.js';
 import { Implementations, type ImplementationRun } from '../src/implementations.js';
-import { authorizeEditTool, prepareEditing, validateEditPolicy } from '../src/edit-policy.js';
+import { authorizeEditTool, authorizeFileChanges, editingFileContext, prepareEditing, validateEditPolicy } from '../src/edit-policy.js';
 import { runCheckProcess, type CheckProcessOptions } from '../src/check-process.js';
 import type { ExecutionLease } from '../src/execution-state.js';
 import type { Reply } from '../src/agents/types.js';
@@ -89,12 +89,40 @@ test('out-of-scope writes cannot become a successful implementation reply', wind
   assert.equal(f.workflow.get(f.task.id).phase, 'failed'); assert.equal(readFileSync(join(f.workspace.path!, 'other.txt'), 'utf8'), 'unauthorized');
 });
 
-test('stale policies refuse provider dispatch and unsupported provider sessions cannot acquire editing leases', windows, async t => {
+test('stale policies refuse dispatch and conversation sessions cannot acquire editing leases', windows, async t => {
   const f = await fixture(t); let called = false; writeFileSync(join(f.workspace.path!, 'other.txt'), 'new content');
   const run = await f.implementations.run(f.execution.id, f.policy, undefined, {}, async options => { called = true; return fakeResult(options); });
   assert.equal(called, false); assert.equal(run.dispatch, 'not_requested'); assert.equal(run.phase, 'failed');
-  const g = await fixture(t, 'codex'); await assert.rejects(g.implementations.run(g.execution.id, g.policy), /fresh Claude/);
+  const g = await fixture(t, 'codex');
+  const session = new Sessions(g.store).get(g.execution.sessionId); session.providerSessionId = 'conversation-thread'; g.store.saveSession(session.id, session);
+  await assert.rejects(g.implementations.run(g.execution.id, g.policy), /fresh session/);
   assert.equal(g.store.lease(g.workspace.id), null); assert.deepEqual(g.store.implementations(g.execution.id), []);
+});
+
+test('Codex patch policy validates the whole change set and fails closed on journal errors', async t => {
+  const f = await fixture(t, 'codex');
+  const update = { path: 'greeting.js', kind: { type: 'update', move_path: null }, diff: '-hello\n+hello world' };
+  const authorize = (changes: unknown) => authorizeFileChanges(f.context, changes, () => {});
+  assert.equal(authorize([update]), true);
+  for (const changes of [[], [update, { ...update, path: 'other.txt' }], [update, update],
+    [{ ...update, path: '../outside' }], [{ ...update, path: 'AGENTS.md' }],
+    [{ ...update, kind: { type: 'add' } }], [{ ...update, kind: { type: 'delete' } }],
+    [{ ...update, kind: { type: 'update', move_path: 'other.txt' } }],
+    [{ ...update, kind: { type: 'update', movePath: 'other.txt' } }],
+    [{ ...update, diff: '\0' }], [{ ...update, diff: 'a'.repeat(256 * 1024 + 1) }]]) assert.equal(authorize(changes), false);
+  assert.equal(authorizeFileChanges(f.context, [update], () => { throw new Error('Journal unavailable'); }), false);
+  assert.deepEqual(JSON.parse(editingFileContext(f.context)), [{ path: 'greeting.js', content: "console.log('hello');\n" }]);
+});
+
+test('fresh Codex implementation uses the shared supervised editing lease and settlement', windows, async t => {
+  const f = await fixture(t, 'codex');
+  const run = await f.implementations.run(f.execution.id, f.policy, undefined, {}, async options => {
+    assert.equal(new Sessions(f.store).get(f.execution.sessionId).mode, 'editing');
+    assert.equal(f.store.lease<ExecutionLease>(f.workspace.id)?.kind, 'implementation');
+    writeFileSync(join(f.workspace.path!, 'greeting.js'), "console.log('hello world');\n"); return fakeResult(options);
+  });
+  assert.equal(run.phase, 'completed', run.error ?? undefined);
+  assert.equal(f.workflow.get(f.task.id).phase, 'running'); assert.equal(f.store.lease(f.workspace.id), null);
 });
 
 test('native questions resume only with complete answers and a newly acknowledged policy', windows, async t => {

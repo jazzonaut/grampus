@@ -41,6 +41,38 @@ export function prepareEditing(context: EditingContext): void {
   for (const path of context.policy.files) checkedFile(context, path);
 }
 
+/** Codex has no shell/read tool in editing mode; supply bounded approved text. */
+export function editingFileContext(context: EditingContext): string {
+  const content = JSON.stringify(context.policy.files.map(path => {
+    const file = checkedFile(context, path);
+    return { path: file.path, content: file.bytes.toString('utf8') };
+  }));
+  if (Buffer.byteLength(content) > 768 * 1024) throw new Error('Editable file context exceeds 768 KiB');
+  return content;
+}
+
+/** Authorize the entire proposed native patch, never a subset or future patches. */
+export function authorizeFileChanges(context: EditingContext, changes: unknown, emit: (event: AgentEvent) => void): boolean {
+  const paths: string[] = [];
+  try {
+    if (!Array.isArray(changes) || !changes.length || changes.length > 64) throw new Error('Patch requires 1–64 existing file updates');
+    for (const change of changes) {
+      if (!change || typeof change !== 'object' || Object.keys(change).some(field => !['path', 'kind', 'diff'].includes(field))
+        || typeof change.path !== 'string' || !change.kind || change.kind.type !== 'update' || change.kind.move_path != null
+        || Object.keys(change.kind).some(field => !['type', 'move_path'].includes(field))
+        || typeof change.diff !== 'string' || change.diff.includes('\0') || Buffer.byteLength(change.diff) > 256 * 1024) throw new Error('Only bounded text updates without additions, deletions or moves are allowed');
+      const file = checkedFile(context, change.path);
+      if (!context.policy.files.some(path => key(path) === key(file.path)) || paths.some(path => key(path) === key(file.path))) throw new Error('Patch file is unapproved or repeated');
+      paths.push(file.path);
+    }
+    emit({ type: 'tool.authorized', data: { tool: 'apply_patch', paths } });
+    return true;
+  } catch (error) {
+    try { emit({ type: 'tool.denied', data: { tool: 'apply_patch', paths, reason: error instanceof Error ? error.message : String(error) } }); } catch { /* Fail closed when the journal is unavailable. */ }
+    return false;
+  }
+}
+
 /** Persist each decision before allowing the SDK to perform file I/O. */
 export function authorizeEditTool(context: EditingContext, name: string, input: unknown, emit: (event: AgentEvent) => void): { allowed: boolean; reason: string } {
   let path: string | null = null;
@@ -81,4 +113,7 @@ export function verifyEditingScope(context: EditingContext, after: RepositorySna
   for (const path of context.policy.files) checkedFile(context, path);
 }
 
-export const editingInstructions = `You are implementing an approved Grampus task. Use only Read, Edit and Write on the supplied repository files. Only explicitly authorized files may be edited. Do not run commands, delegate, use external tools, change repository instructions, or claim tests, acceptance or completion. Follow the supplied repository instructions within this tool policy. Return the supplied JSON response format: kind=message with a concise change summary, or kind=question with stable question ids and choices if consequential information is missing. Include text, questions and findings; unused arrays are empty.`;
+export function implementationInstructions(toolPolicy: string): string {
+  return `You are implementing an approved Grampus task. ${toolPolicy} Only explicitly authorized files may be edited. Do not run commands, delegate, use external tools, change repository instructions, or claim tests, acceptance or completion. Follow the supplied repository instructions within this tool policy. Return the supplied JSON response format: kind=message with a concise change summary, or kind=question with stable question ids and choices if consequential information is missing. Include text, questions and findings; unused arrays are empty.`;
+}
+export const editingInstructions = implementationInstructions('Use only Read, Edit and Write on the supplied repository files.');

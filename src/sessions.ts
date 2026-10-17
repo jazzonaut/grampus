@@ -48,7 +48,7 @@ export class Sessions {
     if (answers !== undefined && (!answers || typeof answers !== 'object' || Array.isArray(answers))) throw new Error('Answers must be a JSON object');
     return this.change(id, session => {
       if (editing) {
-        if (session.provider !== 'claude' || session.providerSessionId && session.mode !== 'editing') throw new Error('Native editing requires a fresh Claude session or an existing editing session');
+        if (session.providerSessionId && session.mode !== 'editing') throw new Error('Native editing requires a fresh session or an existing editing session');
         const execution = this.store.executionForSession<Execution>(id);
         if (execution?.role !== 'implementation') throw new Error('Native editing requires an implementation execution');
         session.mode = 'editing';

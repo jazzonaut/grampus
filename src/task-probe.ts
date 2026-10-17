@@ -14,9 +14,12 @@ import { runSession, Sessions } from './sessions.js';
 import { renderReport } from './report.js';
 
 // Opt-in integration exercise, never part of the offline test suite. Native mode
-// uses supervised Claude file tools; the default applies one allowlisted response.
-const native = process.argv.slice(2).join(' ') === '--live --native';
-if (!native && process.argv.slice(2).join(' ') !== '--live') throw new Error('Usage: npm run probe:task -- --live [--native] (uses Codex and Claude subscriptions)');
+// uses supervised file tools; the default applies one allowlisted response.
+const args = process.argv.slice(2).join(' ');
+const native = ['--live --native', '--live --native-codex'].includes(args);
+if (!native && args !== '--live') throw new Error('Usage: npm run probe:task -- --live [--native|--native-codex] (uses Codex and Claude subscriptions)');
+const implementer = args === '--live --native' ? 'claude' : 'codex';
+const reviewer = implementer === 'claude' ? 'codex' : 'claude';
 if (process.platform !== 'win32') throw new Error('This probe requires Windows command supervision');
 const relativeRoot = join('.grampus', 'task-probes', randomUUID());
 const root = resolve(relativeRoot); const repo = join(root, 'repo');
@@ -36,10 +39,10 @@ async function main(): Promise<void> {
   const workflow = new Workflow(store); const checks = new Checks(store); const executions = new Executions(store);
   const task = workflow.create({ title: 'Greeting live integration pilot', outcome: 'Change the greeting from hello to hello world.',
     criteria: ['Running greeting.js prints exactly hello world followed by one newline.'],
-    plan: `${native ? 'Claude edits greeting.js through its bounded native file tools; Codex independently reviews.' : 'Codex supplies one statement; controller applies it and Claude independently reviews.'} Assess simplification, run regression and exact-output acceptance, then deliver a verified local commit and complete.` });
+    plan: `${native ? `${implementer} edits greeting.js through its bounded native file tools; ${reviewer} independently reviews.` : 'Codex supplies one statement; controller applies it and Claude independently reviews.'} Assess simplification, run regression and exact-output acceptance, then deliver a verified local commit and complete.` });
   workflow.approve(task.id, 1);
   const workspace = await new Workspaces(store).create(task.id, 1, repo, join(root, 'workspace'));
-  const implementation = await executions.create(workspace.id, 1, native ? 'claude' : 'codex');
+  const implementation = await executions.create(workspace.id, 1, implementer);
   console.log(JSON.stringify({ stage: 'implementation', evidence: relativeRoot }));
   let source: string;
   if (native) {
@@ -48,7 +51,7 @@ async function main(): Promise<void> {
     assert.equal(edited.phase, 'completed', edited.error ?? edited.result?.error ?? JSON.stringify(edited.process));
     source = readFileSync(join(workspace.path!, 'greeting.js'), 'utf8').trim();
     assert.ok(store.sessionEvents(implementation.sessionId).some(event => event.type === 'tool.authorized'
-      && ['Edit', 'Write'].includes((event.data as { data: { tool: string } }).data.tool)), 'Native editing must use an authorized write tool');
+      && ['Edit', 'Write', 'apply_patch'].includes((event.data as { data: { tool: string } }).data.tool)), 'Native editing must use an authorized write tool');
   } else {
   const result = await runSession(store, implementation.sessionId,
     'The repository has greeting.js containing console.log(\'hello\'); and AGENTS.md requiring one direct output statement and exact output verification. Supply the complete replacement JavaScript for greeting.js so it prints exactly hello world followed by one newline. Return kind message, and put only the one console.log statement in text (no Markdown). Do not use any tools.', { timeoutMs: 120_000 });
@@ -69,7 +72,7 @@ async function main(): Promise<void> {
   await checks.simplify(implementation.id, { artifact: snapshot.artifact, instructionsDigest: snapshot.instructionsDigest, outcome: 'passed',
     summary: 'Controller inspected the single output statement: no names, duplication, abstraction or unrelated changes to simplify. Regression compares the executed program output to the requested greeting.' });
   console.log(JSON.stringify({ stage: 'independent-review', validation: validation.phase }));
-  const review = await executions.create(workspace.id, 1, native ? 'codex' : 'claude', 'review');
+  const review = await executions.create(workspace.id, 1, reviewer, 'review');
   const reviewed = await runSession(store, review.sessionId, 'Review this tiny greeting change against its approved requirements.', { artifactReview: true, timeoutMs: 120_000 });
   assert.equal(reviewed.status, 'completed', reviewed.error ?? undefined);
   assert.equal(reviewed.reply?.kind, 'review');
@@ -84,10 +87,10 @@ async function main(): Promise<void> {
   assert.equal(git(workspace.path!, 'show', `${commit}:greeting.js`), source);
   writeFileSync(join(root, 'report.md'), renderReport(store, task.id));
   const summary = { passed: true, phase: workflow.get(task.id).phase, commit,
-    implementation: { provider: native ? 'claude' : 'codex', model: new Sessions(store).get(implementation.sessionId).model },
-    review: { provider: native ? 'codex' : 'claude', model: new Sessions(store).get(review.sessionId).model, findings: reviewed.reply!.findings },
+    implementation: { provider: implementer, model: new Sessions(store).get(implementation.sessionId).model },
+    review: { provider: reviewer, model: new Sessions(store).get(review.sessionId).model, findings: reviewed.reply!.findings },
     validation: validation.phase, verification: verified.phase, evidence: relativeRoot,
-    scope: `Standalone Git, ${native ? 'supervised Claude native file editing' : 'controller-applied response'}, live independent review, supervised verified local delivery; no push` };
+    scope: `Standalone Git, ${native ? `supervised ${implementer} native file editing` : 'controller-applied response'}, live independent review, supervised verified local delivery; no push` };
   writeFileSync(join(root, 'result.json'), JSON.stringify(summary, null, 2)); console.log(JSON.stringify(summary, null, 2));
 }
 main().catch(error => { console.error(error instanceof Error ? error.message : String(error)); console.error(`Evidence retained under ${relativeRoot}`); process.exitCode = 1; }).finally(() => store.close());

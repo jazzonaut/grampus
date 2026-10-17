@@ -503,18 +503,19 @@ verifies identity and freshness, not the semantic quality of the caller's judgme
 The opt-in standalone task probe applies only an allowlisted one-line Codex response,
 then exercises real checks, simplification, live Claude review, exact-output
 acceptance and supervised local delivery. Its `--native` variant uses supervised
-Claude file tools and independent Codex review.
+Claude file tools and independent Codex review; `--native-codex` uses Codex patches
+and independent Claude review.
 
 ## Native implementation contract
 
 `execution-implement` claims an approved standalone implementation execution and
-marks its fresh Claude session as editing-only. It snapshots current content and
+marks its fresh Claude or Codex session as editing-only. It snapshots current content and
 checks an explicit policy's artifact/instruction digests and existing writable paths.
 Intent and dispatch are persisted before the Windows supervisor launches a worker.
 The worker reconnects the exact provider session, verifies the snapshot again and
 supplies the approved brief, permitted files and discovered repository instructions.
 
-The SDK exposes only Read, Edit and Write, with a global PreToolUse hook checking
+The Claude SDK exposes only Read, Edit and Write, with a global PreToolUse hook checking
 every request and a permission callback as an additional check. StructuredOutput
 is separately allowed after reply-schema validation. Tool decisions are journaled
 before permission. Invalid paths, unknown tools/options, non-text/oversized files,
@@ -522,6 +523,20 @@ links, control files and unapproved writes are denied. Settings sources and MCP
 servers remain disabled, safe mode remains set, and the provider cannot run shell,
 delegation or external tools. These are provider-tool restrictions, not an OS sandbox;
 file-path inspection and execution are not atomic against external editors.
+
+Codex remains in a read-only sandbox with shell/integrations disabled. Thread start
+or resume explicitly routes approvals to the client and verifies the returned policy,
+reviewer and sandbox before starting inference. Approved file contents are supplied
+as bounded JSON (768 KiB total). The RPC transport defaults to rejecting server
+requests; its synchronous handler grants only a single `accept` for a current
+`item/fileChange/requestApproval`. It matches thread/turn/item identities to a pending
+fileChange item, incorporates pre-approval patch updates, validates the whole change
+set and journals the decision before responding. A turn permits at most 64 distinct
+patch items. Decisions consume the item; completion and interruption invalidate
+pending approvals. Duplicates, stale identities, root grants, unknown fields,
+additions/deletions/moves and unapproved paths are denied. Commands are declined;
+other tool/permission requests receive the default RPC error. No session-wide grant
+is sent. Ordinary conversation sessions cannot switch to native editing.
 
 The parent owns the session/workspace lease while the worker writes fenced provider
 events into the same durable journal. The complete provider process tree runs in the
@@ -540,11 +555,11 @@ even after a lost successful result; it never retries inference or accepts task 
 Pre-dispatch recovery runs no tools. Missing settlement proof retains ownership.
 
 Current scope is existing UTF-8 files, at most 256 KiB each and 64 writable paths.
-New files/deletion, native Codex editing, Orca editing, other platforms and provider
+New files/deletion, Orca editing, other platforms and provider
 shell tools are not enabled. References: Claude [permission evaluation](https://code.claude.com/docs/en/agent-sdk/permissions)
 and [tool hooks](https://code.claude.com/docs/en/agent-sdk/hooks); Codex
-[app-server approvals](https://learn.chatgpt.com/docs/app-server) were inspected for
-future adapter work but no Codex write grants were enabled.
+[app-server approvals](https://learn.chatgpt.com/docs/app-server) and schemas generated
+from the installed app-server define the scoped patch protocol.
 
 ## Local delivery contract
 

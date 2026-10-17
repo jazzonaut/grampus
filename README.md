@@ -17,8 +17,8 @@ recovery without replaying Git writes.
 They include a SQLite journal, versioned task approval, completion gates, Codex and
 Claude conversations, structured questions and review findings, interruption,
 reconnection, local integration discovery and journaled worktree creation.
-Supervised Claude file editing is available for explicitly named existing text files
-in standalone Windows workspaces. Codex editing, broader tools, scheduling, the dashboard
+Supervised Claude and Codex file editing is available for explicitly named existing text files
+in standalone Windows workspaces. Broader tools, Orca editing/delivery, scheduling, the dashboard
 and installers remain to be built.
 
 ## Try the first slice
@@ -244,7 +244,7 @@ no shared worker limit or heartbeat takeover. Explicit checks use the same lease
 
 ## Native file implementation
 
-Prepare a fresh Claude implementation execution, inspect its snapshot and read the
+Prepare a fresh Claude or Codex implementation execution, inspect its snapshot and read the
 discovered repository instructions. Then supply an explicit per-turn policy:
 
 ```sh
@@ -262,15 +262,23 @@ npm start -- implementation-show <implementation-run-id>
 }
 ```
 
-Only Claude, standalone Git workspaces and Windows supervision are currently supported.
+Use `codex` instead of `claude` to select Codex. Both providers require standalone Git
+workspaces and Windows supervision for this mode.
 The policy names 1–64 existing relative text-file paths; each file is limited to 256 KiB.
 Claude may read snapshot-visible text files and use native `Edit`/`Write` on authorized
 paths. New files, deletion, binary files, links, Git metadata and repository instruction
 or provider-configuration files are outside this initial mode. Repository instructions
 are supplied in the prompt, with their digest verified before provider connection.
 
-Every file-tool request is checked by an SDK hook and its decision journaled before
-permission is granted. Shell, delegation, web and MCP tools are not exposed. The SDK's
+Claude file-tool requests are checked by an SDK hook and their decisions journaled
+before permission is granted. Codex receives the approved file contents in its prompt
+(at most 768 KiB of encoded context) and uses native `apply_patch`. Grampus checks every
+proposed patch against the active thread, turn and approved paths before granting a
+single-use approval. Additions, deletion, moves, root/session grants and stale or
+repeated requests are denied. Codex must confirm read-only sandbox mode and approval
+routing to the controller before a turn starts.
+
+Shell, delegation, web and MCP tools are not exposed. The Claude SDK's
 internal `StructuredOutput` tool is permitted only for a validated final reply. Ordinary
 conversations and reviewers retain their tool restrictions. Editing sessions cannot be
 resumed through `session-send`; keep using `execution-implement` with a fresh snapshot
@@ -506,6 +514,8 @@ npm run build
 npm run probe:task -- --live
 # Claude native editing followed by independent Codex review:
 npm run probe:task -- --live --native
+# Codex native editing followed by independent Claude review:
+npm run probe:task -- --live --native-codex
 ```
 
 This opt-in Windows probe uses both subscriptions. It creates an isolated greeting
@@ -521,8 +531,9 @@ Failures retain evidence for investigation and do not trigger inference retries.
 The pilot retains local journals, reports and worktrees, which can contain operational
 paths; keep them out of commits. It demonstrates a bounded controller-applied change
 and verified delivery. `--native` instead lets Claude edit the greeting through its
-authorized file tools and uses Codex as reviewer; the controller does not apply a
-model-proposed source string in that mode. The full Orca workflow remains work.
+authorized file tools and uses Codex as reviewer. `--native-codex` uses approved Codex
+patches and Claude review. Both native variants leave source editing to the provider.
+The full Orca workflow remains work.
 Delivery crash recovery is tested separately with real Git and offline gate fixtures.
 
 ## Development

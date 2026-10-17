@@ -3,7 +3,7 @@
 Checkpoint: 17 October 2026, after durable state, conversations, Git/Orca workspaces,
 task-linked session ownership, recoverable Windows checks, artifact review,
 exact-output acceptance verification, explicit simplification and supervised local
-delivery and supervised Claude native file editing with live standalone task pilots.
+delivery and supervised Claude/Codex native file editing with live standalone task pilots.
 The user continued implementation in the
 same session and authorized pushing the repository.
 
@@ -53,7 +53,12 @@ Default delivery remains local unless the user authorizes an external action.
   journaling, whole-process-tree supervision, post-turn scope checks and receipt-only
   recovery. The native live pilot used Claude edits and independent Codex review,
   then real validation, acceptance and verified local delivery.
-- 137 offline tests passed on Windows with Node 24.22.0 and 25.8.1, covering real Git,
+- Native Codex implementation uses the same supervised lifecycle. Per-item patch
+  approvals verify thread/turn/item identity, the complete update-only file set and
+  durable authorization. Read-only mode and client approval routing are confirmed;
+  root/session grants, commands and other permission requests are refused. The live
+  Codex edit → Claude review → checks → verified local delivery pilot passed.
+- 144 offline tests passed on Windows with Node 24.22.0 and 25.8.1, covering real Git,
   controller crashes, Orca protocol fixtures, lease races, rollback, uncertain startup,
   stale bindings, real command results, timeouts, detached descendants, controller/
   supervisor crashes, receipt recovery, stale artifacts, review context, output
@@ -65,7 +70,8 @@ Default delivery remains local unless the user authorizes an external action.
 The demo is synthetic and offline reviewers are fixtures. The opt-in standalone
 `npm run probe:task -- --live` now reaches completion with both live providers and
 all gates. Its default mode applies a single allowlisted Codex response; `--native`
-uses actual Claude Read/Edit/Write tools and Codex review. Standalone delivery and
+uses actual Claude Read/Edit/Write tools and Codex review; `--native-codex` uses Codex
+patches and Claude review. Standalone delivery and
 its explicit recovery path are implemented; local probe
 evidence remains under ignored `.grampus/task-probes/`. Do not commit those journals,
 reports or fixture repositories. The full live task has not been repeated through
@@ -78,16 +84,16 @@ unverified. Temporary journals, generated schemas, local probe transcripts and
 dependency/build directories are intentionally not committed. The evidence document
 contains the durable summary, and the probe script can reproduce the checks.
 
-## Next implementation slice: Codex tools and Orca integration
+## Next implementation slice: Orca integration and broader tasks
 
 Start with the existing source and a small concrete plan. Do not rebuild the
 controller or broaden into the dashboard first.
 
-1. Extend native editing to Codex with verified approval scoping and process-tree
-   supervision. Claude now supports a bounded file-only mode; Codex still rejects
-   editing contexts. Do not broaden shell tools or writable roots implicitly. Consider
-   explicit new-file/deletion policies and meaningful multi-file tasks after that.
-2. Extend verified delivery to Orca through its supported interfaces, then address
+1. Extend native editing and verified delivery to Orca through its supported
+   interfaces. Both providers now support bounded standalone editing on Windows.
+   Preserve process-tree supervision and explicit tool scope; do not broaden shell
+   tools or writable roots implicitly.
+2. Address explicit new-file/deletion policies, meaningful multi-file tasks,
    multi-slice continuation and no-change outcomes. Standalone delivery already binds
    the checked digest to the exact commit. Recovery needs a terminal receipt after
    dispatch; failed/uncertain operations never trigger commit replay or Git resets.
@@ -116,11 +122,14 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
 - Execution records now link tasks, versions, attempts and sessions. There is no
   automatic scheduler or end-to-end repository task runner yet. Successful conversations
   leave implementation open; they cannot create a successful artifact or pass a gate.
-- `execution-implement` supports only Claude on standalone Windows workspaces, with
+- `execution-implement` supports Claude and Codex on standalone Windows workspaces, with
   explicit existing-file policies (1–64 paths, UTF-8 files at most 256 KiB each).
-  SDK hooks check/journal file decisions; StructuredOutput only validates the final
-  reply. No shell, external tools, delegation, new files/deletion, control-file edits
-  or Codex writes. Instructions are supplied and hashed; scope is checked after exit.
+  Claude SDK hooks check/journal file decisions; StructuredOutput only validates the
+  final reply. Codex uses one-item patch approvals and a bounded supplied text context
+  (768 KiB encoded), with at most 64 patch items per turn. No shell, external tools,
+  delegation, new files/deletion or control-file edits. Instructions are supplied and
+  hashed; scope is checked after exit. Ordinary provider conversations cannot be reused
+  for editing; create a fresh implementation session.
   A provider tool policy is not an OS filesystem sandbox. Editing sessions require
   implementation commands and cannot resume via ordinary session-send.
 - Native implementation uses a supervised worker and receipt recovery, never

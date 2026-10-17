@@ -351,10 +351,10 @@ its controller, confirms terminal receipt and supervisor exit, and recovers as
 interrupted with the partial edit intact. Recovery neither repeats the write nor
 accepts implementation success. Pre-dispatch recovery invokes no tool.
 
-The live provider run itself was not interrupted. This mode is limited to Claude,
+The live provider run itself was not interrupted. At that checkpoint the mode was limited to Claude,
 standalone Windows workspaces and existing UTF-8 files. It is an application tool
 policy, not an OS filesystem sandbox; external edits can race path checks. Native
-Codex editing, Orca editing, shell tools and wider file operations remain disabled.
+Codex editing, Orca editing, shell tools and wider file operations remained disabled.
 Grampus itself has not had independent review. Operational paths, journals, provider
 transcripts and fixture repositories remain local and ignored.
 
@@ -362,6 +362,34 @@ Implementation references: Claude [SDK hooks](https://code.claude.com/docs/en/ag
 and [permissions](https://code.claude.com/docs/en/agent-sdk/permissions). OpenAI Docs
 skill guidance was used to inspect [Codex app-server approvals](https://learn.chatgpt.com/docs/app-server)
 for the future adapter; no Codex editing permissions were enabled in this slice.
+
+## Native Codex editing and independent Claude review
+
+On 17 October 2026, `npm run probe:task -- --live --native-codex` passed on Windows
+using Codex app-server 0.163.0 (`gpt-6.1-sol`) and Claude `claude-opus-5-5`. Codex
+changed the greeting through a journaled native apply_patch approval. Claude reviewed
+the captured artifact with no findings. Real regression, explicit simplification,
+exact-output acceptance and supervised verified local delivery passed. A second
+explicit fresh pilot also passed after adding returned-policy checks for the
+read-only sandbox and client approval routing. No fixture branch was pushed.
+
+The implementation follows the official [app-server approval flow](https://learn.chatgpt.com/docs/app-server)
+and the installed generated schemas, including the snake-case `move_path` update
+field and the meaning of `grantRoot`. Each request is bound to a pending patch in
+the active thread/turn. Only approved existing file updates receive a one-item
+acceptance, after journaling. Root/session grants, repeated requests, additions,
+deletions, moves, commands and other permission requests are rejected. The worker
+supplies editable text in the prompt, so no shell read tool is required.
+
+All 144 offline tests passed on Windows with Node 24.22.0 and 25.8.1. Seven new tests
+cover whole-patch validation, journaling failures, shared Codex lease/settlement,
+stale/foreign/repeated approvals, interruption and server/client RPC id collisions.
+The existing controller-death, process-tree and receipt recovery tests still pass;
+these use fixture tools. The live provider pilots were not interrupted and only
+changed a one-line greeting. Orca editing/delivery, wider file operations and other
+platforms remain unverified. Grampus itself still has not had independent review.
+Generated schemas, operational paths, journals, transcripts and fixture repositories
+remain ignored local evidence.
 
 ## Primary references consulted
 

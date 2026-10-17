@@ -27,6 +27,7 @@ export class RpcProcess {
   private stopped = false;
   private readonly listeners = new Set<(message: RpcMessage) => void>();
   private readonly failures = new Set<(error: Error) => void>();
+  private serverRequest: ((message: RpcMessage) => unknown) | null = null;
   private readonly pending = new Map<number, {
     resolve: (value: unknown) => void;
     reject: (error: Error) => void;
@@ -52,7 +53,13 @@ export class RpcProcess {
       try { for (const listener of this.listeners) listener(message); }
       catch (error) { this.fail(error instanceof Error ? error : new Error(String(error))); return; }
       if (message.method && message.id !== undefined) {
-        this.child.stdin.write(`${JSON.stringify({ id: message.id, error: { code: -32601, message: 'Client does not accept server requests' } })}\n`);
+        // Synchronous handlers must persist authorization before returning it.
+        // Undefined, exceptions and a stopped transport never authorize work.
+        let result: unknown;
+        try { if (!this.stopped) result = this.serverRequest?.(message); } catch { result = undefined; }
+        this.child.stdin.write(`${JSON.stringify(result === undefined
+          ? { id: message.id, error: { code: -32601, message: 'Client does not accept this server request' } }
+          : { id: message.id, result })}\n`);
         return;
       }
       if (typeof message.id !== 'number') return;
@@ -84,6 +91,12 @@ export class RpcProcess {
   onFailure(listener: (error: Error) => void): () => void {
     this.failures.add(listener);
     return () => this.failures.delete(listener);
+  }
+
+  onRequest(handler: (message: RpcMessage) => unknown): () => void {
+    if (this.serverRequest) throw new Error('RPC server request handler already registered');
+    this.serverRequest = handler;
+    return () => { if (this.serverRequest === handler) this.serverRequest = null; };
   }
 
   get pid(): number | undefined { return this.child.pid; }

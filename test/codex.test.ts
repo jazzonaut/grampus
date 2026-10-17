@@ -3,9 +3,13 @@ import assert from 'node:assert/strict';
 import { RpcProcess } from '../src/process.js';
 import { CodexSession } from '../src/agents/codex.js';
 import type { AgentEvent } from '../src/agents/types.js';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { EditingContext } from '../src/edit-policy.js';
 
 const reply = { kind: 'message', text: 'fixture', questions: [], findings: [] };
-function fixture(behavior: string, events: AgentEvent[] = [], onEvent: (event: AgentEvent) => void = () => {}) {
+function fixture(behavior: string, events: AgentEvent[] = [], onEvent: (event: AgentEvent) => void = () => {}, editing?: EditingContext) {
   const script = `
     const send = value => console.log(JSON.stringify(value));
     const reply = ${JSON.stringify(reply)};
@@ -16,8 +20,93 @@ function fixture(behavior: string, events: AgentEvent[] = [], onEvent: (event: A
     });
   `;
   const rpc = new RpcProcess(process.execPath, ['-e', script]);
-  return new CodexSession(rpc, 'thread-1', event => { events.push(event); onEvent(event); });
+  return new CodexSession(rpc, 'thread-1', event => { events.push(event); onEvent(event); }, editing);
 }
+
+function editingFixture(t: { after(fn: () => void): void }): EditingContext {
+  const cwd = mkdtempSync(join(tmpdir(), 'grampus-codex-patch-'));
+  writeFileSync(join(cwd, 'file.txt'), 'before\n');
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const artifact = `sha256:${'a'.repeat(64)}`; const instructionsDigest = 'b'.repeat(64);
+  return { cwd, policy: { artifact, instructionsDigest, files: ['file.txt'] }, snapshot: {
+    artifact, instructionsDigest, head: 'fixture', index: '', diff: [], instructions: [],
+    files: [{ path: 'file.txt', sha256: 'a'.repeat(64), executable: false }],
+  } };
+}
+
+const proposed = { id: 'patch-1', type: 'fileChange', status: 'inProgress',
+  changes: [{ path: 'file.txt', kind: { type: 'update', move_path: null }, diff: '-before\n+after' }] };
+const approval = { threadId: 'thread-1', turnId: 'turn-1', itemId: 'patch-1', grantRoot: null };
+
+// Have the fake server assert the response it actually received on the wire.
+async function approvalCase(editing: EditingContext | undefined, setup: string, params: unknown, expected: string, events: AgentEvent[] = [], onEvent = (_event: AgentEvent) => {}) {
+  const agent = fixture(`
+    if (r.method === 'turn/start') {
+      note('turn/started', { turn: { id: 'turn-1' } });
+      ${setup}
+      send({ id: 'approval-1', method: 'item/fileChange/requestApproval', params: ${JSON.stringify(params)} });
+      send({ id: r.id, result: { turn: { id: 'turn-1' } } });
+    }
+    if (r.id === 'approval-1') {
+      if ((r.result?.decision ?? (r.error ? 'error' : 'missing')) !== ${JSON.stringify(expected)}) process.exit(3);
+      note('item/completed', { item: { type: 'agentMessage', text: JSON.stringify(reply) } });
+      note('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
+    }
+  `, events, onEvent, editing);
+  try { assert.equal((await agent.turn('Edit the file')).status, 'completed'); }
+  finally { await agent.close(); }
+}
+
+const startPatch = `note('item/started', { turnId: 'turn-1', item: ${JSON.stringify(proposed)} });`;
+
+test('Codex approves only a current proposed patch and persists its authorization first', async t => {
+  const context = editingFixture(t); const events: AgentEvent[] = [];
+  await approvalCase(context, startPatch, approval, 'accept', events);
+  assert.deepEqual(events.find(event => event.type === 'tool.authorized')?.data, { tool: 'apply_patch', paths: ['file.txt'] });
+  await approvalCase(undefined, startPatch, approval, 'error');
+  await approvalCase(context, startPatch, approval, 'decline', [], event => { if (event.type === 'tool.authorized') throw new Error('Journal unavailable'); });
+});
+
+test('Codex rejects missing, foreign, completed, duplicate and broader patch approvals', async t => {
+  const context = editingFixture(t);
+  for (const params of [{ ...approval, threadId: 'foreign' }, { ...approval, turnId: 'stale' },
+    { ...approval, itemId: 'unknown' }, { ...approval, grantRoot: context.cwd }, { ...approval, permissions: {} }]) {
+    await approvalCase(context, startPatch, params, 'decline');
+  }
+  await approvalCase(context, '', approval, 'decline');
+  await approvalCase(context, startPatch + startPatch, approval, 'decline');
+  await approvalCase(context, startPatch + `note('item/completed', { turnId: 'turn-1', item: ${JSON.stringify(proposed)} });`, approval, 'decline');
+  await approvalCase(context, startPatch + `note('item/fileChange/patchUpdated', { turnId: 'turn-1', itemId: 'patch-1', changes: [{path:'outside.txt',kind:{type:'add'},diff:'new'}] });`, approval, 'decline');
+});
+
+test('Codex never reuses a patch grant, and command or unknown permission requests stay denied', async t => {
+  const agent = fixture(`
+    if (r.method === 'turn/start') {
+      note('turn/started', { turn: { id: 'turn-1' } }); ${startPatch}
+      send({ id: r.id, result: { turn: { id: 'turn-1' } } });
+      send({ id: 'first', method: 'item/fileChange/requestApproval', params: ${JSON.stringify(approval)} });
+    }
+    if (r.id === 'first') {
+      if (r.result?.decision !== 'accept') process.exit(3);
+      send({ id: 'second', method: 'item/fileChange/requestApproval', params: ${JSON.stringify(approval)} });
+    }
+    if (r.id === 'second') {
+      if (r.result?.decision !== 'decline') process.exit(4);
+      send({ id: 'command', method: 'item/commandExecution/requestApproval', params: ${JSON.stringify(approval)} });
+    }
+    if (r.id === 'command') {
+      if (r.result?.decision !== 'decline') process.exit(5);
+      send({ id: 'permissions', method: 'item/permissions/requestApproval', params: ${JSON.stringify(approval)} });
+    }
+    if (r.id === 'permissions') {
+      if (!r.error) process.exit(6);
+      note('item/completed', { item: { type: 'agentMessage', text: JSON.stringify(reply) } });
+      note('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
+    }
+  `, [], undefined, editingFixture(t));
+  try { assert.equal((await agent.turn('Edit')).status, 'completed'); }
+  finally { await agent.close(); }
+});
 
 test('Codex handles notifications arriving before turn/start acknowledgement and ignores other threads', async () => {
   const events: AgentEvent[] = [];
@@ -62,6 +151,29 @@ test('Codex interruption requires a terminal notification, not just the RPC rece
     await agent.interrupt();
     assert.equal(finished, false);
     assert.equal((await output).status, 'interrupted');
+  } finally { await agent.close(); }
+});
+
+test('Codex stops granting patches as soon as interruption is requested', async t => {
+  let notifyStarted!: () => void;
+  const started = new Promise<void>(resolve => { notifyStarted = resolve; });
+  const agent = fixture(`
+    if (r.method === 'turn/start') {
+      note('turn/started', { turn: { id: 'turn-1' } }); ${startPatch}
+      send({ id: r.id, result: { turn: { id: 'turn-1' } } });
+    }
+    if (r.method === 'turn/interrupt') {
+      send({ id: 'late-approval', method: 'item/fileChange/requestApproval', params: ${JSON.stringify(approval)} });
+      send({ id: r.id, result: {} });
+    }
+    if (r.id === 'late-approval') {
+      if (r.result?.decision !== 'decline') process.exit(3);
+      note('turn/completed', { turn: { id: 'turn-1', status: 'interrupted' } });
+    }
+  `, [], event => { if (event.type === 'turn.started') notifyStarted(); }, editingFixture(t));
+  try {
+    const result = agent.turn('Edit'); await started; await agent.interrupt();
+    assert.equal((await result).status, 'interrupted');
   } finally { await agent.close(); }
 });
 
