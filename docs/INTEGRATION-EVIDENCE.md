@@ -326,6 +326,43 @@ live pilot was not interrupted; crash recovery uses real Git with offline eviden
 Grampus itself still has not had independent review. Local journals/reports and
 provider transcripts remain ignored and are not committed.
 
+## Native Claude editing and independent Codex review
+
+On 17 October 2026, `npm run probe:task -- --live --native` completed on Windows
+with Claude `claude-opus-5-5` implementing the greeting through authorized native
+Read/Edit tools and Codex `gpt-6.1-sol` reviewing the resulting artifact with no
+findings. The controller did not apply a model-produced source string. Real
+regression, exact-output acceptance and verified local delivery passed, producing
+a local fixture commit and journal-derived report. Neither fixture branch was pushed.
+
+The first run changed the intended file but failed before completion: the SDK invoked
+its internal StructuredOutput tool and the initial file-only hook denied it. The
+failed run and its edit were preserved. The adapter now accepts that formatting tool
+only after validating the reply schema; a fresh explicit run then passed. No automatic
+inference retry or failure-to-success rewriting occurred. Offline tests cover both
+valid and malformed formatting requests.
+
+All 137 offline tests passed on Windows with Node 24.22.0 and 25.8.1. Native editing
+tests use explicit fixtures, not live provider inference. They exercise scope and
+tool decisions, hard links, malformed/oversized inputs, journaling failure, state
+and provider restrictions, questions, uncertain shutdown and schema 8 migration.
+An actual controller-kill fixture waits for a supervised tool to change a file, kills
+its controller, confirms terminal receipt and supervisor exit, and recovers as
+interrupted with the partial edit intact. Recovery neither repeats the write nor
+accepts implementation success. Pre-dispatch recovery invokes no tool.
+
+The live provider run itself was not interrupted. This mode is limited to Claude,
+standalone Windows workspaces and existing UTF-8 files. It is an application tool
+policy, not an OS filesystem sandbox; external edits can race path checks. Native
+Codex editing, Orca editing, shell tools and wider file operations remain disabled.
+Grampus itself has not had independent review. Operational paths, journals, provider
+transcripts and fixture repositories remain local and ignored.
+
+Implementation references: Claude [SDK hooks](https://code.claude.com/docs/en/agent-sdk/hooks)
+and [permissions](https://code.claude.com/docs/en/agent-sdk/permissions). OpenAI Docs
+skill guidance was used to inspect [Codex app-server approvals](https://learn.chatgpt.com/docs/app-server)
+for the future adapter; no Codex editing permissions were enabled in this slice.
+
 ## Primary references consulted
 
 The delivery slice also consulted Git's official [git-add](https://git-scm.com/docs/git-add)

@@ -245,3 +245,29 @@ atomic journal rollback and schema migration. The live standalone pilot now uses
 this delivery path. Orca delivery, native editing policy, multi-slice scheduling and
 non-Windows supervision remain work. Git references consulted:
 [staging](https://git-scm.com/docs/git-add) and [commit behavior](https://git-scm.com/docs/git-commit).
+
+## Supervised native file implementation
+
+Schema 9 adds implementation turns with explicit file policies, before/after snapshots,
+dispatch boundaries and supervisor results. `execution-implement` requires a fresh
+or continuing Claude editing session attached to an approved standalone execution.
+Current content and instruction digests acknowledge the exact requested scope.
+
+The Claude SDK exposes Read/Edit/Write behind a global PreToolUse hook and permission
+callback. Decisions are journaled before granting access; control paths, links,
+non-text/oversized files, unapproved writes and other tools are denied. The internal
+StructuredOutput tool receives separate reply validation. The adapter supplies the
+approved brief and repository instructions; no shell or external tool is enabled.
+
+A supervised worker owns the provider and all ordinary descendants. Shutdown proof
+precedes scope comparison and session/lease settlement. Success keeps implementation
+running; all task evidence gates remain separate. `implementation-recover` requires
+a terminal receipt after dispatch and always records interruption without inference
+replay. Editing sessions cannot use ordinary conversation recovery or resume commands.
+
+Ten new tests exercise path/format policies, hard links, failed decision journaling,
+structured reply tools, exact scope, stale policy/provider refusal, questions,
+uncertain shutdown, actual controller death during a file-writing fixture tool,
+pre-dispatch recovery and schema migration. A live Claude native edit followed by
+Codex review, real checks and verified local delivery passed. Codex editing, Orca
+editing and broader file operations remain the next integration steps.

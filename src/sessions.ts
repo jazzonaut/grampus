@@ -11,6 +11,7 @@ import { captureRepository, reviewContext } from './repository-evidence.js';
 import { parseReply, type AgentEvent, type AgentSession, type Connector, type Provider, type Reply, type TurnResult } from './agents/types.js';
 
 export interface Session {
+  mode?: 'editing';
   id: string;
   provider: Provider;
   providerSessionId: string | null;
@@ -43,9 +44,15 @@ export class Sessions {
     });
   }
 
-  claim(id: string, prompt: string, answers?: Record<string, string>): { session: Session; prompt: string; runId: string } {
+  claim(id: string, prompt: string, answers?: Record<string, string>, editing = false): { session: Session; prompt: string; runId: string } {
     if (answers !== undefined && (!answers || typeof answers !== 'object' || Array.isArray(answers))) throw new Error('Answers must be a JSON object');
     return this.change(id, session => {
+      if (editing) {
+        if (session.provider !== 'claude' || session.providerSessionId && session.mode !== 'editing') throw new Error('Native editing requires a fresh Claude session or an existing editing session');
+        const execution = this.store.executionForSession<Execution>(id);
+        if (execution?.role !== 'implementation') throw new Error('Native editing requires an implementation execution');
+        session.mode = 'editing';
+      } else if (session.mode === 'editing') throw new Error('Use execution-implement to continue an editing session');
       if (['running', 'stop_requested', 'recovery_required'].includes(session.phase)) throw new Error('Session already owned or needs recovery; no automatic replay');
       if (session.phase === 'awaiting_answer') {
         const questions = session.lastReply!.questions;
@@ -57,11 +64,11 @@ export class Sessions {
       } else if (answers) throw new Error('Session has no pending questions');
       if (!prompt.trim()) throw new Error('Prompt must not be empty');
       session.run = { id: randomUUID(), controllerPid: process.pid, host: hostname(), providerPid: null };
-      claimExecution(this.store, session, session.run.id);
+      claimExecution(this.store, session, session.run.id, editing ? 'implementation' : 'conversation');
       const execution = this.store.executionForSession<Execution>(id);
       if (execution) {
         const task = this.store.get<Task>(execution.taskId);
-        prompt = `Approved task context (conversation only; do not claim repository execution or completion):\n${JSON.stringify({
+        prompt = `Approved task context (${editing ? 'native file editing; do not claim validation or completion' : 'conversation only; do not claim repository execution or completion'}):\n${JSON.stringify({
           brief: task.brief, version: execution.version, attemptId: execution.attemptId, role: execution.role, artifact: execution.artifact,
         })}\n\nUser turn:\n${prompt}`;
       }
@@ -134,6 +141,7 @@ export class Sessions {
 
   recover(id: string, alive = processAlive): void {
     this.change(id, session => {
+      if (session.mode === 'editing') throw new Error('Native editing requires implementation-recover with supervisor settlement proof');
       if (!session.run || !['running', 'stop_requested', 'recovery_required'].includes(session.phase)) throw new Error('Session does not need recovery');
       if (session.run.host !== hostname()) throw new Error('Reconcile this session on its execution host');
       if (alive(session.run.controllerPid)) throw new Error('Previous controller is still alive or unverifiable');

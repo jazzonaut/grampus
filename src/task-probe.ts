@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { Store } from './store.js';
 import { Workflow } from './workflow.js';
@@ -9,12 +9,14 @@ import { Workspaces } from './workspaces.js';
 import { Executions } from './executions.js';
 import { Checks } from './checks.js';
 import { Deliveries } from './deliveries.js';
+import { Implementations } from './implementations.js';
 import { runSession, Sessions } from './sessions.js';
 import { renderReport } from './report.js';
 
-// Opt-in integration exercise, never part of the offline test suite. The controller
-// applies one allowlisted response; this does not enable native provider file tools.
-if (process.argv.slice(2).join(' ') !== '--live') throw new Error('Usage: npm run probe:task -- --live (uses Codex and Claude subscriptions)');
+// Opt-in integration exercise, never part of the offline test suite. Native mode
+// uses supervised Claude file tools; the default applies one allowlisted response.
+const native = process.argv.slice(2).join(' ') === '--live --native';
+if (!native && process.argv.slice(2).join(' ') !== '--live') throw new Error('Usage: npm run probe:task -- --live [--native] (uses Codex and Claude subscriptions)');
 if (process.platform !== 'win32') throw new Error('This probe requires Windows command supervision');
 const relativeRoot = join('.grampus', 'task-probes', randomUUID());
 const root = resolve(relativeRoot); const repo = join(root, 'repo');
@@ -34,19 +36,30 @@ async function main(): Promise<void> {
   const workflow = new Workflow(store); const checks = new Checks(store); const executions = new Executions(store);
   const task = workflow.create({ title: 'Greeting live integration pilot', outcome: 'Change the greeting from hello to hello world.',
     criteria: ['Running greeting.js prints exactly hello world followed by one newline.'],
-    plan: 'Codex supplies one statement; controller validates and applies it. Assess simplification, run a regression check, obtain independent Claude review, verify exact stdout, then deliver a verified local commit and complete.' });
+    plan: `${native ? 'Claude edits greeting.js through its bounded native file tools; Codex independently reviews.' : 'Codex supplies one statement; controller applies it and Claude independently reviews.'} Assess simplification, run regression and exact-output acceptance, then deliver a verified local commit and complete.` });
   workflow.approve(task.id, 1);
   const workspace = await new Workspaces(store).create(task.id, 1, repo, join(root, 'workspace'));
-  const implementation = await executions.create(workspace.id, 1, 'codex');
+  const implementation = await executions.create(workspace.id, 1, native ? 'claude' : 'codex');
   console.log(JSON.stringify({ stage: 'implementation', evidence: relativeRoot }));
+  let source: string;
+  if (native) {
+    const before = await checks.snapshot(implementation.id);
+    const edited = await new Implementations(store).run(implementation.id, { artifact: before.artifact, instructionsDigest: before.instructionsDigest, files: ['greeting.js'] });
+    assert.equal(edited.phase, 'completed', edited.error ?? edited.result?.error ?? JSON.stringify(edited.process));
+    source = readFileSync(join(workspace.path!, 'greeting.js'), 'utf8').trim();
+    assert.ok(store.sessionEvents(implementation.sessionId).some(event => event.type === 'tool.authorized'
+      && ['Edit', 'Write'].includes((event.data as { data: { tool: string } }).data.tool)), 'Native editing must use an authorized write tool');
+  } else {
   const result = await runSession(store, implementation.sessionId,
     'The repository has greeting.js containing console.log(\'hello\'); and AGENTS.md requiring one direct output statement and exact output verification. Supply the complete replacement JavaScript for greeting.js so it prints exactly hello world followed by one newline. Return kind message, and put only the one console.log statement in text (no Markdown). Do not use any tools.', { timeoutMs: 120_000 });
   assert.equal(result.status, 'completed', result.error ?? 'Implementation conversation did not complete');
   assert.equal(result.reply?.kind, 'message');
-  const source = result.reply!.text.trim();
+  source = result.reply!.text.trim();
   assert.match(source, /^console\.log\((['"])hello world\1\);?$/, 'Only the single allowlisted output statement may be applied');
   writeFileSync(join(workspace.path!, 'greeting.js'), `${source}\n`);
   store.append(task.id, 1, 'probe.response_applied', { sessionId: implementation.sessionId, file: 'greeting.js', source, policy: 'Single allowlisted output statement; native provider tools disabled' });
+  }
+  assert.match(source, /^console\.log\((['"])hello world\1\);?$/, 'Pilot expects a direct output statement');
   const snapshot = await checks.snapshot(implementation.id);
   const spec = { name: 'Greeting regression', file: process.execPath,
     args: ['-e', "const {execFileSync}=require('node:child_process');require('node:assert/strict').equal(execFileSync(process.execPath,['greeting.js'],{encoding:'utf8'}),'hello world\\n');"],
@@ -54,9 +67,9 @@ async function main(): Promise<void> {
   const validation = await checks.run(implementation.id, spec); assert.equal(validation.phase, 'passed', validation.error ?? undefined);
   await checks.finish(implementation.id, validation.id);
   await checks.simplify(implementation.id, { artifact: snapshot.artifact, instructionsDigest: snapshot.instructionsDigest, outcome: 'passed',
-    summary: 'Controller inspected the allowlisted single output statement: no names, duplication, abstraction or unrelated changes to simplify. Regression compares the executed program output to the requested greeting.' });
+    summary: 'Controller inspected the single output statement: no names, duplication, abstraction or unrelated changes to simplify. Regression compares the executed program output to the requested greeting.' });
   console.log(JSON.stringify({ stage: 'independent-review', validation: validation.phase }));
-  const review = await executions.create(workspace.id, 1, 'claude', 'review');
+  const review = await executions.create(workspace.id, 1, native ? 'codex' : 'claude', 'review');
   const reviewed = await runSession(store, review.sessionId, 'Review this tiny greeting change against its approved requirements.', { artifactReview: true, timeoutMs: 120_000 });
   assert.equal(reviewed.status, 'completed', reviewed.error ?? undefined);
   assert.equal(reviewed.reply?.kind, 'review');
@@ -71,10 +84,10 @@ async function main(): Promise<void> {
   assert.equal(git(workspace.path!, 'show', `${commit}:greeting.js`), source);
   writeFileSync(join(root, 'report.md'), renderReport(store, task.id));
   const summary = { passed: true, phase: workflow.get(task.id).phase, commit,
-    implementation: { provider: 'codex', model: new Sessions(store).get(implementation.sessionId).model },
-    review: { provider: 'claude', model: new Sessions(store).get(review.sessionId).model, findings: reviewed.reply!.findings },
+    implementation: { provider: native ? 'claude' : 'codex', model: new Sessions(store).get(implementation.sessionId).model },
+    review: { provider: native ? 'codex' : 'claude', model: new Sessions(store).get(review.sessionId).model, findings: reviewed.reply!.findings },
     validation: validation.phase, verification: verified.phase, evidence: relativeRoot,
-    scope: 'Standalone Git, controller-applied allowlisted response, live independent review, supervised verified local delivery; no native provider editing or push' };
+    scope: `Standalone Git, ${native ? 'supervised Claude native file editing' : 'controller-applied response'}, live independent review, supervised verified local delivery; no push` };
   writeFileSync(join(root, 'result.json'), JSON.stringify(summary, null, 2)); console.log(JSON.stringify(summary, null, 2));
 }
 main().catch(error => { console.error(error instanceof Error ? error.message : String(error)); console.error(`Evidence retained under ${relativeRoot}`); process.exitCode = 1; }).finally(() => store.close());

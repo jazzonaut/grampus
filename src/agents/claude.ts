@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { authorizeEditTool, editingInstructions } from '../edit-policy.js';
 import { query, type AccountInfo, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { instructions, replySchema, parseReply, subscriptionEnvironment, numeric, type AgentSession, type ConnectOptions, type TurnResult, type Usage } from './types.js';
 
@@ -51,11 +52,23 @@ class ClaudeSession implements AgentSession {
   constructor(private readonly options: ConnectOptions) {
     this.sessionId = options.providerSessionId ?? randomUUID();
     this.query = query({ prompt: this.input, options: {
-      cwd: options.cwd, tools: [], permissionMode: 'default', settingSources: [], mcpServers: {},
-      strictMcpConfig: true, systemPrompt: instructions, outputFormat: { type: 'json_schema', schema: replySchema },
-      maxTurns: 4, includePartialMessages: true,
+      cwd: options.cwd, tools: options.editing ? ['Read', 'Edit', 'Write'] : [], permissionMode: 'default', settingSources: [], mcpServers: {},
+      strictMcpConfig: true, systemPrompt: options.editing ? editingInstructions : instructions, outputFormat: { type: 'json_schema', schema: replySchema },
+      maxTurns: options.editing ? 12 : 4, includePartialMessages: true,
+      ...(options.editing ? { hooks: { PreToolUse: [{ hooks: [async input => {
+        if (input.hook_event_name !== 'PreToolUse') return {};
+        const decision = authorizeEditTool(options.editing!, input.tool_name, input.tool_input, options.emit);
+        return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: decision.allowed ? 'allow' as const : 'deny' as const, permissionDecisionReason: decision.reason } };
+      }] }] } } : {}),
       env: { ...subscriptionEnvironment(), CLAUDE_CODE_SAFE_MODE: '1', CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' },
-      canUseTool: async () => ({ behavior: 'deny', message: 'Grampus conversation sessions do not execute tools' }),
+      canUseTool: async (name, input) => {
+        if (options.editing) {
+          const decision = authorizeEditTool(options.editing, name, input, options.emit);
+          if (decision.allowed) return { behavior: 'allow', updatedInput: input };
+          return { behavior: 'deny', message: decision.reason };
+        }
+        return { behavior: 'deny', message: 'Grampus conversation sessions do not execute tools' };
+      },
       ...(options.providerSessionId ? { resume: options.providerSessionId } : { sessionId: this.sessionId }),
       ...(options.model ? { model: options.model } : {}),
       ...(process.env.GRAMPUS_CLAUDE_COMMAND ? { pathToClaudeCodeExecutable: process.env.GRAMPUS_CLAUDE_COMMAND } : {}),

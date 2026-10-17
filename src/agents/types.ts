@@ -63,6 +63,7 @@ export interface AgentSession {
 }
 
 export interface ConnectOptions {
+  editing?: import('../edit-policy.js').EditingContext;
   cwd: string;
   providerSessionId: string | null;
   model: string | null;

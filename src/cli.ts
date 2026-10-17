@@ -14,6 +14,7 @@ import { Executions } from './executions.js';
 import type { Execution } from './execution-state.js';
 import { Checks, type CheckSpec } from './checks.js';
 import { Deliveries } from './deliveries.js';
+import { Implementations } from './implementations.js';
 
 const help = `Grampus — local agent controller
 
@@ -42,6 +43,9 @@ const help = `Grampus — local agent controller
   execution-review <id>           Review a verified artifact (review execution; optional --answers-file)
   execution-complete <id>         Recheck artifact and require every completion gate
   execution-deliver <id> <file.json> Commit checked content locally and complete (Windows, standalone)
+  execution-implement <id> <file.json> Run supervised Claude file editing with an explicit policy
+  implementation-show <id>        Show native editing scope, snapshots and result
+  implementation-recover <id>     Confirm native tool shutdown without replaying inference
   delivery-show <id>              Show retained delivery request and process result
   delivery-recover <id>           Reconcile interrupted delivery without replaying Git writes
   execution-recover <id>          Recover a read-only operation after its controller exits
@@ -113,7 +117,7 @@ async function main(): Promise<void> {
     return;
   }
   if (action.startsWith('execution-')) {
-    if (!['execution-new', 'execution-list', 'execution-show', 'execution-close', 'execution-snapshot', 'execution-check', 'execution-finish', 'execution-simplify', 'execution-verify', 'execution-review', 'execution-complete', 'execution-deliver', 'execution-recover'].includes(action)) throw new Error('Unknown execution command');
+    if (!['execution-new', 'execution-list', 'execution-show', 'execution-close', 'execution-snapshot', 'execution-check', 'execution-finish', 'execution-simplify', 'execution-verify', 'execution-review', 'execution-complete', 'execution-deliver', 'execution-implement', 'execution-recover'].includes(action)) throw new Error('Unknown execution command');
     if (action !== 'execution-list' && !id) throw new Error(`${action} requires an argument`);
     const store = new Store(values.db ?? defaultDatabasePath());
     try {
@@ -130,7 +134,7 @@ async function main(): Promise<void> {
       if (action === 'execution-show') {
         const execution = executions.get(id!);
         console.log(JSON.stringify({ execution, session: new Sessions(store).get(execution.sessionId),
-          lease: store.lease(execution.workspaceId), checks: store.checks(id!), deliveries: store.deliveries(id!), events: store.executionEvents(id!) }, null, 2));
+          lease: store.lease(execution.workspaceId), checks: store.checks(id!), implementations: store.implementations(id!), deliveries: store.deliveries(id!), events: store.executionEvents(id!) }, null, 2));
       }
       if (action === 'execution-close') { executions.close(id!); console.log(JSON.stringify(executions.get(id!), null, 2)); }
       if (action === 'execution-snapshot') console.log(JSON.stringify(await checks.snapshot(id!), null, 2));
@@ -153,6 +157,18 @@ async function main(): Promise<void> {
           const delivery = await new Deliveries(store).run(id!, JSON.parse(readFileSync(version, 'utf8')), abort.signal);
           console.log(JSON.stringify(delivery, null, 2));
           if (delivery.phase !== 'delivered') process.exitCode = delivery.phase === 'interrupted' ? 130 : 1;
+        } finally { process.off('SIGINT', stop); }
+      }
+      if (action === 'execution-implement') {
+        if (!version) throw new Error('execution-implement requires an edit policy file');
+        const abort = new AbortController(); const stop = () => abort.abort(); process.on('SIGINT', stop);
+        try {
+          const result = await new Implementations(store).run(id!, JSON.parse(readFileSync(version, 'utf8')),
+            values['prompt-file'] ? readFileSync(values['prompt-file'], 'utf8') : undefined,
+            { signal: abort.signal, ...(values['timeout-ms'] ? { timeoutMs: Number(values['timeout-ms']) } : {}),
+              ...(values['answers-file'] ? { answers: JSON.parse(readFileSync(values['answers-file'], 'utf8')) } : {}) });
+          console.log(JSON.stringify(result, null, 2));
+          if (result.phase !== 'completed') process.exitCode = result.phase === 'interrupted' ? 130 : 1;
         } finally { process.off('SIGINT', stop); }
       }
       if (action === 'execution-finish') {
@@ -185,6 +201,16 @@ async function main(): Promise<void> {
           if (result.status !== 'completed' || result.reply?.findings.some(item => item.severity === 'blocking')) process.exitCode = result.status === 'interrupted' ? 130 : 1;
         } finally { process.off('SIGINT', stop); }
       }
+    } finally { store.close(); }
+    return;
+  }
+  if (action === 'implementation-show' || action === 'implementation-recover') {
+    if (!id) throw new Error(`${action} requires an id`);
+    const store = new Store(values.db ?? defaultDatabasePath());
+    try {
+      const implementations = new Implementations(store);
+      const result = action === 'implementation-show' ? implementations.get(id) : await implementations.recover(id);
+      console.log(JSON.stringify(result, null, 2));
     } finally { store.close(); }
     return;
   }

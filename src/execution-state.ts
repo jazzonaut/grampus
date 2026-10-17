@@ -26,7 +26,7 @@ export interface ExecutionLease {
   runId: string;
   controllerPid: number;
   host: string;
-  kind?: 'conversation' | 'snapshot' | 'check' | 'submission' | 'simplification' | 'verification' | 'completion' | 'delivery';
+  kind?: 'conversation' | 'snapshot' | 'check' | 'submission' | 'simplification' | 'verification' | 'completion' | 'delivery' | 'implementation';
   readOnlyRecovery?: true;
 }
 

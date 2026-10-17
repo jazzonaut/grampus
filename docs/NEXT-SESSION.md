@@ -3,7 +3,8 @@
 Checkpoint: 17 October 2026, after durable state, conversations, Git/Orca workspaces,
 task-linked session ownership, recoverable Windows checks, artifact review,
 exact-output acceptance verification, explicit simplification and supervised local
-delivery with a live standalone task pilot. The user continued implementation in the
+delivery and supervised Claude native file editing with live standalone task pilots.
+The user continued implementation in the
 same session and authorized pushing the repository.
 
 ## Read first
@@ -21,7 +22,7 @@ Default delivery remains local unless the user authorizes an external action.
 
 ## Completed
 
-- TypeScript/Node controller, SQLite schema 8, journal-derived Markdown task report.
+- TypeScript/Node controller, SQLite schema 9, journal-derived Markdown task report.
 - Task briefs, exact-version approval, attempts, provisional decisions, four
   completion gates, stale-result rejection and explicit recovery states.
 - Live Codex app-server and Claude Agent SDK conversations with subscription
@@ -48,7 +49,11 @@ Default delivery remains local unless the user authorizes an external action.
 - Supervised standalone Windows delivery verifies staged bytes and final commit,
   index, working files and instructions; durable receipt recovery adopts only an
   exact successful commit without replay. The live pilot now uses this path.
-- 127 offline tests passed on Windows with Node 24.22.0 and 25.8.1, covering real Git,
+- Native Claude implementation with explicit snapshot-bound file policies, per-tool
+  journaling, whole-process-tree supervision, post-turn scope checks and receipt-only
+  recovery. The native live pilot used Claude edits and independent Codex review,
+  then real validation, acceptance and verified local delivery.
+- 137 offline tests passed on Windows with Node 24.22.0 and 25.8.1, covering real Git,
   controller crashes, Orca protocol fixtures, lease races, rollback, uncertain startup,
   stale bindings, real command results, timeouts, detached descendants, controller/
   supervisor crashes, receipt recovery, stale artifacts, review context, output
@@ -59,33 +64,35 @@ Default delivery remains local unless the user authorizes an external action.
 
 The demo is synthetic and offline reviewers are fixtures. The opt-in standalone
 `npm run probe:task -- --live` now reaches completion with both live providers and
-all gates. Its controller applies only a single allowlisted output statement; it
-does not enable native provider editing. Standalone delivery and its explicit
-recovery path are implemented; local probe
+all gates. Its default mode applies a single allowlisted Codex response; `--native`
+uses actual Claude Read/Edit/Write tools and Codex review. Standalone delivery and
+its explicit recovery path are implemented; local probe
 evidence remains under ignored `.grampus/task-probes/`. Do not commit those journals,
 reports or fixture repositories. The full live task has not been repeated through
 Orca or with a mid-task controller crash. Offline delivery fixtures now exercise
 actual controller exits before dispatch and after commit, followed by recovery.
+Native editing fixtures also kill a controller during a running file-writing tool,
+confirm the supervisor receipt and preserve partial edits without replay.
 The implementation itself has not had independent review. macOS and Linux remain
 unverified. Temporary journals, generated schemas, local probe transcripts and
 dependency/build directories are intentionally not committed. The evidence document
 contains the durable summary, and the probe script can reproduce the checks.
 
-## Next implementation slice: provider tools and Orca delivery
+## Next implementation slice: Codex tools and Orca integration
 
 Start with the existing source and a small concrete plan. Do not rebuild the
 controller or broaden into the dashboard first.
 
-1. Define native provider tool authorization and repository-rule application before
-   enabling agent edits. The check interface takes explicit trusted command JSON and
-   acknowledges discovered `AGENTS.md`/`CLAUDE.md`; it is not an agent tool policy.
-   Continue to keep successful conversational replies separate from task evidence.
+1. Extend native editing to Codex with verified approval scoping and process-tree
+   supervision. Claude now supports a bounded file-only mode; Codex still rejects
+   editing contexts. Do not broaden shell tools or writable roots implicitly. Consider
+   explicit new-file/deletion policies and meaningful multi-file tasks after that.
 2. Extend verified delivery to Orca through its supported interfaces, then address
    multi-slice continuation and no-change outcomes. Standalone delivery already binds
    the checked digest to the exact commit. Recovery needs a terminal receipt after
    dispatch; failed/uncertain operations never trigger commit replay or Git resets.
-3. Extend the live pilot to native provider edits once their policy is defined,
-   demonstrate mid-task interruption/recovery, and repeat through Orca. Keep semantic
+3. Extend the live native pilot beyond a greeting, demonstrate a live-provider
+   mid-task interruption/recovery, and repeat through Orca. Keep semantic
    simplification assessment explicit and choose checks that demonstrate the outcome.
 4. Define safe workspace release/rebinding for changed briefs and a recovery path for
    unknown provider PIDs. Failed reservations currently stay blocked for investigation.
@@ -109,8 +116,17 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
 - Execution records now link tasks, versions, attempts and sessions. There is no
   automatic scheduler or end-to-end repository task runner yet. Successful conversations
   leave implementation open; they cannot create a successful artifact or pass a gate.
-- Native provider tool approvals and repository-rule application need design and
-  validation before enabling writes. Current conversation restrictions are deliberate.
+- `execution-implement` supports only Claude on standalone Windows workspaces, with
+  explicit existing-file policies (1–64 paths, UTF-8 files at most 256 KiB each).
+  SDK hooks check/journal file decisions; StructuredOutput only validates the final
+  reply. No shell, external tools, delegation, new files/deletion, control-file edits
+  or Codex writes. Instructions are supplied and hashed; scope is checked after exit.
+  A provider tool policy is not an OS filesystem sandbox. Editing sessions require
+  implementation commands and cannot resume via ordinary session-send.
+- Native implementation uses a supervised worker and receipt recovery, never
+  conversation PID-only recovery. Unknown shutdown keeps the lease; explicit recovery
+  records interruption and preserves edits, requiring a fresh execution attempt.
+  Successful native replies leave implementation running with all gates outstanding.
 - Explicit independent artifact review and real acceptance checks are implemented;
   same-provider fallback is recorded. There is no automatic two-round arbitration or
   review/implementation scheduling. Review supports at most 256 KiB of snapshot-visible
@@ -134,7 +150,7 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
   checked raw bytes are rejected; hook effects may leave an unaccepted commit. Failed
   deliveries preserve files/index/locks for investigation rather than resetting them.
   A successful receipt plus exact commit/content proof permits explicit recovery;
-  missing receipts retain ownership. Native provider editing remains disabled.
+  missing receipts retain ownership. Native shell execution remains disabled.
 - Content digests omit ignored dependencies/build outputs and external environment/
   services. Snapshots use two matching reads, not an atomic filesystem snapshot.
   Symlinks, submodules and unresolved indexes are unsupported. Keep command specs

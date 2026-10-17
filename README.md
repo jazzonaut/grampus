@@ -17,8 +17,9 @@ recovery without replaying Git writes.
 They include a SQLite journal, versioned task approval, completion gates, Codex and
 Claude conversations, structured questions and review findings, interruption,
 reconnection, local integration discovery and journaled worktree creation.
-Agent-driven repository changes, scheduling, the dashboard and
-installers remain to be built.
+Supervised Claude file editing is available for explicitly named existing text files
+in standalone Windows workspaces. Codex editing, broader tools, scheduling, the dashboard
+and installers remain to be built.
 
 ## Try the first slice
 
@@ -229,7 +230,8 @@ release of an active or uncertain lease.
 
 A successful conversation keeps the implementation attempt open. It does not claim
 repository edits, accept evidence or complete a task. Provider tools retain their
-current conversation restrictions. Review sessions use `--role review` and require a
+current conversation restrictions. Native editing uses the separate command below.
+Review sessions use `--role review` and require a
 successful current artifact from `execution-finish` or the trusted workflow API.
 Same-provider review also requires
 `--fallback-reason <text>`, and always gets a fresh session. Review replies do not
@@ -239,6 +241,60 @@ explicit artifact review command below. Closed, revised or superseded bindings c
 Ownership applies to participating Grampus sessions sharing one journal. It does not
 lock out editors, other journals or agents launched separately through Orca. There is
 no shared worker limit or heartbeat takeover. Explicit checks use the same lease.
+
+## Native file implementation
+
+Prepare a fresh Claude implementation execution, inspect its snapshot and read the
+discovered repository instructions. Then supply an explicit per-turn policy:
+
+```sh
+npm start -- execution-new <workspace-id> 1 claude
+npm start -- execution-snapshot <implementation-execution-id>
+npm start -- execution-implement <implementation-execution-id> edit-policy.json
+npm start -- implementation-show <implementation-run-id>
+```
+
+```json
+{
+  "artifact": "<current sha256:...>",
+  "instructionsDigest": "<digest from execution-snapshot>",
+  "files": ["src/greeting.js"]
+}
+```
+
+Only Claude, standalone Git workspaces and Windows supervision are currently supported.
+The policy names 1–64 existing relative text-file paths; each file is limited to 256 KiB.
+Claude may read snapshot-visible text files and use native `Edit`/`Write` on authorized
+paths. New files, deletion, binary files, links, Git metadata and repository instruction
+or provider-configuration files are outside this initial mode. Repository instructions
+are supplied in the prompt, with their digest verified before provider connection.
+
+Every file-tool request is checked by an SDK hook and its decision journaled before
+permission is granted. Shell, delegation, web and MCP tools are not exposed. The SDK's
+internal `StructuredOutput` tool is permitted only for a validated final reply. Ordinary
+conversations and reviewers retain their tool restrictions. Editing sessions cannot be
+resumed through `session-send`; keep using `execution-implement` with a fresh snapshot
+policy. For pending questions, add `--answers-file answers.json`. Optional
+`--prompt-file` and `--timeout-ms` flags provide task steering and a bounded deadline.
+
+The provider runs inside the Windows supervised process tree. After confirmed exit,
+Grampus records before/after snapshots and checks that only authorized file contents
+changed. Successful replies leave implementation running, with no gates passed: run
+checks, submit, assess simplification, obtain independent review, verify acceptance and
+deliver separately. Failed/interrupted edits are retained and need a fresh execution
+attempt. There is no automatic rollback or inference replay.
+
+```sh
+# After the previous controller has exited:
+npm start -- implementation-recover <implementation-run-id>
+```
+
+Recovery requires a matching supervisor receipt after dispatch; dead provider PIDs
+alone are insufficient. It records interruption, preserves partial edits and releases
+ownership only after settled process proof. A pre-dispatch crash can recover without
+a receipt. Missing proof stays blocked. The policy controls provider tools rather
+than providing an OS filesystem sandbox; external editors can still race file checks.
+Provider session caches and local journals remain private operational data.
 
 ## Repository checks and implementation submission
 
@@ -298,7 +354,8 @@ new check. Commands are never replayed automatically.
 A lost controller/supervisor retains the durable lease until explicit recovery.
 Normal descendants are covered, but work delegated to an existing
 service, WMI, a scheduler or an external agent is outside the job. macOS/Linux command
-supervision and provider-driven repository editing remain outstanding.
+supervision and provider shell execution remain outstanding. Native file editing
+uses its own supervised path above.
 
 ## Recover an interrupted operation
 
@@ -447,6 +504,8 @@ without running Git. Recovery never replays staging or commit.
 ```sh
 npm run build
 npm run probe:task -- --live
+# Claude native editing followed by independent Codex review:
+npm run probe:task -- --live --native
 ```
 
 This opt-in Windows probe uses both subscriptions. It creates an isolated greeting
@@ -461,7 +520,9 @@ report. No fixture branch is pushed.
 Failures retain evidence for investigation and do not trigger inference retries.
 The pilot retains local journals, reports and worktrees, which can contain operational
 paths; keep them out of commits. It demonstrates a bounded controller-applied change
-and verified delivery. Native agent editing and the full Orca workflow remain work.
+and verified delivery. `--native` instead lets Claude edit the greeting through its
+authorized file tools and uses Codex as reviewer; the controller does not apply a
+model-proposed source string in that mode. The full Orca workflow remains work.
 Delivery crash recovery is tested separately with real Git and offline gate fixtures.
 
 ## Development
@@ -475,8 +536,8 @@ npm test
 TypeScript compiles to `dist/`; Node supplies SQLite, process handling and the test
 runner. The live Claude adapter adds the official `@anthropic-ai/claude-agent-sdk`
 runtime dependency, pinned in the lockfile. Node 24 may emit an experimental SQLite
-warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1–7 journals
-migrate to schema 8 without losing task, session or workspace data. Older executables cannot reopen a
+warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1–8 journals
+migrate to schema 9 without losing task, session or workspace data. Older executables cannot reopen a
 migrated journal, so retain backups if you need to run an older checkout.
 
 - [Implementation sequence and acceptance examples](docs/IMPLEMENTATION.md)

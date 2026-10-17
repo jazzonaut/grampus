@@ -14,6 +14,11 @@ flowchart TD
     CLI --> Executions[Task and session bindings]
     CLI --> Checks[Repository checks and submission]
     CLI --> Deliveries[Local commit delivery]
+    CLI --> Implementations[Native file implementation]
+    Implementations --> Store
+    Implementations --> Sessions
+    Implementations --> Workspaces
+    Implementations --> Job
     Deliveries --> Store
     Deliveries --> Workspaces
     Deliveries --> Workflow
@@ -50,6 +55,9 @@ conversation reply to repository changes, evidence acceptance or task completion
 | `src/executions.ts` | Atomically prepare and close versioned task/attempt/session bindings |
 | `src/execution-state.ts` | Validate bindings, acquire/fence workspace leases and settle linked task outcomes |
 | `src/checks.ts` | Lease repository operations, capture evidence, execute explicit checks and submit implementation |
+| `src/implementations.ts`, `src/implementation-worker.ts` | Supervise native editing turns and reconcile process-tree settlement |
+| `src/edit-policy.ts` | Validate explicit edit scope, authorize file tools and check resulting changes |
+| `src/deliveries.ts`, `src/delivery-worker.ts`, `src/delivery-git.ts` | Bind reviewed content to local commits and recover delivery |
 | `src/artifacts.ts` | Hash repository inputs and retain structured changes and discovered instructions |
 | `src/check-process.ts` | Control the Windows supervisor and retain bounded command output |
 | `src/check-host.ts` | Hidden detached host that forwards controller lifetime to the native helper |
@@ -73,7 +81,7 @@ has been built.
 
 ## Persistence
 
-Schema version 8 contains eleven tables:
+Schema version 9 contains twelve tables:
 
 | Table | Contents |
 | --- | --- |
@@ -88,6 +96,7 @@ Schema version 8 contains eleven tables:
 | `execution_leases` | One current owner per workspace, with unique execution/run id |
 | `checks` | Command specification, before/after snapshots, process ids and result per execution |
 | `deliveries` | Checked snapshot, commit request, dispatch boundary, process settlement and accepted commit |
+| `implementations` | Per-turn edit policy, dispatch boundary, process proof, provider result and before/after snapshots |
 
 State changes and associated events share a `BEGIN IMMEDIATE` transaction. Nested
 synchronous operations use savepoints so execution preparation can compose task and
@@ -96,7 +105,7 @@ uses WAL, full synchronous writes, foreign keys and a five-second busy timeout.
 History is append-only through the application interface. State is loaded from
 snapshots rather than reconstructed by replaying events.
 
-Version 1–7 journals gain the missing tables without losing history. Version 4 added
+Version 1–8 journals gain the missing tables without losing history. Version 4 added
 Orca-aware workspace state: path/branch may be null until identity capture. The
 unique key initially reserves the Orca repository/request name, then atomically
 changes to the canonical destination. Standalone records retain their shape. The
@@ -107,8 +116,10 @@ submission leases. Version 7 adds durable dispatch boundaries and receipt refere
 read-only recovery markers, verification/completion operation kinds and acceptance
 expectations. These extend JSON state without new tables. Missing legacy proof fields
 are never inferred. Version 8 adds deliveries and a distinct delivery lease; older
-read-only recovery cannot release it. Unknown schema versions are refused. Older executables cannot open
-version 8 journals. Default
+read-only recovery cannot release it. Version 9 adds native implementation records,
+an implementation lease kind and persistent editing-session mode. Older recovery
+code cannot open this schema and mistake provider PID absence for tool-tree exit.
+Unknown schema versions are refused. Older executables cannot open version 9 journals. Default
 storage is outside the checkout; see [README.md](../README.md) for portable paths
 and overrides. Retention expiry, backup tooling, settings transfer and task export/
 import have not been implemented. Markdown task reports are the current export.
@@ -491,7 +502,49 @@ verifies identity and freshness, not the semantic quality of the caller's judgme
 
 The opt-in standalone task probe applies only an allowlisted one-line Codex response,
 then exercises real checks, simplification, live Claude review, exact-output
-acceptance and supervised local delivery. It does not enable native provider editing.
+acceptance and supervised local delivery. Its `--native` variant uses supervised
+Claude file tools and independent Codex review.
+
+## Native implementation contract
+
+`execution-implement` claims an approved standalone implementation execution and
+marks its fresh Claude session as editing-only. It snapshots current content and
+checks an explicit policy's artifact/instruction digests and existing writable paths.
+Intent and dispatch are persisted before the Windows supervisor launches a worker.
+The worker reconnects the exact provider session, verifies the snapshot again and
+supplies the approved brief, permitted files and discovered repository instructions.
+
+The SDK exposes only Read, Edit and Write, with a global PreToolUse hook checking
+every request and a permission callback as an additional check. StructuredOutput
+is separately allowed after reply-schema validation. Tool decisions are journaled
+before permission. Invalid paths, unknown tools/options, non-text/oversized files,
+links, control files and unapproved writes are denied. Settings sources and MCP
+servers remain disabled, safe mode remains set, and the provider cannot run shell,
+delegation or external tools. These are provider-tool restrictions, not an OS sandbox;
+file-path inspection and execution are not atomic against external editors.
+
+The parent owns the session/workspace lease while the worker writes fenced provider
+events into the same durable journal. The complete provider process tree runs in the
+Windows Job Object. Confirmed exit is followed by a snapshot comparison: only named
+file contents may change; HEAD, index, file membership, modes and instruction digest
+must remain unchanged. A successful result keeps the attempt running and creates no
+validation, review or acceptance evidence. The result and lease settlement are atomic.
+Partial or rejected edits stay on disk for investigation.
+
+Editing sessions cannot switch to ordinary conversation/resume commands. Questions
+continue through the implementation command with answers and a newly acknowledged
+policy. Failure/interruption requires a fresh attempt. Native recovery rejects
+PID-only conversation recovery and needs an absent same-host controller plus a
+matching supervisor receipt after dispatch. Recovery always records interruption,
+even after a lost successful result; it never retries inference or accepts task gates.
+Pre-dispatch recovery runs no tools. Missing settlement proof retains ownership.
+
+Current scope is existing UTF-8 files, at most 256 KiB each and 64 writable paths.
+New files/deletion, native Codex editing, Orca editing, other platforms and provider
+shell tools are not enabled. References: Claude [permission evaluation](https://code.claude.com/docs/en/agent-sdk/permissions)
+and [tool hooks](https://code.claude.com/docs/en/agent-sdk/hooks); Codex
+[app-server approvals](https://learn.chatgpt.com/docs/app-server) were inspected for
+future adapter work but no Codex write grants were enabled.
 
 ## Local delivery contract
 
@@ -531,6 +584,6 @@ Both providers also passed explicit live probes; see
 [INTEGRATION-EVIDENCE.md](INTEGRATION-EVIDENCE.md) for versions and observed behavior.
 
 Only Windows has been tested. Workspace release/rebinding, shared scheduling,
-other-platform check runners, provider tool approvals, review arbitration, Orca delivery,
+other-platform check runners, broader provider tools, review arbitration, Orca delivery,
 multi-slice scheduling, dashboard, installers and platform CI remain outstanding.
 The implementation itself has not had an independent review.

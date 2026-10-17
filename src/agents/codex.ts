@@ -2,6 +2,7 @@ import { RpcProcess, type RpcMessage } from '../process.js';
 import { instructions, replySchema, parseReply, subscriptionEnvironment, numeric, type AgentSession, type ConnectOptions, type TurnResult, type Usage } from './types.js';
 
 export async function connectCodex(options: ConnectOptions): Promise<AgentSession> {
+  if (options.editing) throw new Error('Codex native editing is not enabled');
   options.signal.throwIfAborted();
   const disabled = ['shell_tool', 'unified_exec', 'apps', 'plugins', 'hooks', 'multi_agent', 'browser_use', 'computer_use', 'image_generation', 'goals', 'code_mode'];
   const rpc = new RpcProcess(process.env.GRAMPUS_CODEX_COMMAND ?? 'codex', [

@@ -34,7 +34,7 @@ export class Store {
     this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
     const version = this.db.prepare('PRAGMA user_version').get()?.user_version;
-    if (![0, 1, 2, 3, 4, 5, 6, 7, 8].includes(Number(version))) {
+    if (![0, 1, 2, 3, 4, 5, 6, 7, 8, 9].includes(Number(version))) {
       this.db.close();
       throw new Error(`Unsupported journal schema version: ${version}`);
     }
@@ -102,7 +102,12 @@ export class Store {
         execution_id TEXT NOT NULL REFERENCES executions(id),
         state TEXT NOT NULL
       );
-      PRAGMA user_version = 8;
+      CREATE TABLE IF NOT EXISTS implementations (
+        id TEXT PRIMARY KEY,
+        execution_id TEXT NOT NULL REFERENCES executions(id),
+        state TEXT NOT NULL
+      );
+      PRAGMA user_version = 9;
       COMMIT;
     `);
   }
@@ -270,6 +275,20 @@ export class Store {
     const row = this.db.prepare('SELECT state FROM deliveries WHERE id = ?').get(id);
     if (!row) throw new Error(`Delivery not found: ${id}`);
     return JSON.parse(String(row.state)) as T;
+  }
+
+  implementation<T>(id: string): T {
+    const row = this.db.prepare('SELECT state FROM implementations WHERE id = ?').get(id);
+    if (!row) throw new Error(`Implementation run not found: ${id}`);
+    return JSON.parse(String(row.state)) as T;
+  }
+
+  implementations<T>(executionId: string): T[] {
+    return this.db.prepare('SELECT state FROM implementations WHERE execution_id = ? ORDER BY rowid').all(executionId).map(row => JSON.parse(String(row.state)) as T);
+  }
+
+  saveImplementation(id: string, executionId: string, state: unknown): void {
+    this.db.prepare('INSERT INTO implementations(id, execution_id, state) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state').run(id, executionId, JSON.stringify(state));
   }
 
   deliveries<T>(executionId: string): T[] {
