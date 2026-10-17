@@ -2,8 +2,8 @@
 
 Checkpoint: 17 October 2026, after durable state, conversations, Git/Orca workspaces,
 task-linked session ownership, recoverable Windows checks, artifact review,
-exact-output acceptance verification, explicit simplification and a live standalone
-task pilot. The user continued implementation in the
+exact-output acceptance verification, explicit simplification and supervised local
+delivery with a live standalone task pilot. The user continued implementation in the
 same session and authorized pushing the repository.
 
 ## Read first
@@ -21,7 +21,7 @@ Default delivery remains local unless the user authorizes an external action.
 
 ## Completed
 
-- TypeScript/Node controller, SQLite schema 7, journal-derived Markdown task report.
+- TypeScript/Node controller, SQLite schema 8, journal-derived Markdown task report.
 - Task briefs, exact-version approval, attempts, provisional decisions, four
   completion gates, stale-result rejection and explicit recovery states.
 - Live Codex app-server and Claude Agent SDK conversations with subscription
@@ -45,7 +45,10 @@ Default delivery remains local unless the user authorizes an external action.
 - Live standalone pilot: Codex supplied an allowlisted greeting response, controller
   applied it, Claude independently reviewed it, real regression and exact-output
   verification passed, all gates completed, and a local fixture commit/report was made.
-- 114 offline tests passed on Windows with Node 24.22.0 and 25.8.1, covering real Git,
+- Supervised standalone Windows delivery verifies staged bytes and final commit,
+  index, working files and instructions; durable receipt recovery adopts only an
+  exact successful commit without replay. The live pilot now uses this path.
+- 127 offline tests passed on Windows with Node 24.22.0 and 25.8.1, covering real Git,
   controller crashes, Orca protocol fixtures, lease races, rollback, uncertain startup,
   stale bindings, real command results, timeouts, detached descendants, controller/
   supervisor crashes, receipt recovery, stale artifacts, review context, output
@@ -57,16 +60,18 @@ Default delivery remains local unless the user authorizes an external action.
 The demo is synthetic and offline reviewers are fixtures. The opt-in standalone
 `npm run probe:task -- --live` now reaches completion with both live providers and
 all gates. Its controller applies only a single allowlisted output statement; it
-does not enable native provider editing or general recoverable delivery. Local probe
+does not enable native provider editing. Standalone delivery and its explicit
+recovery path are implemented; local probe
 evidence remains under ignored `.grampus/task-probes/`. Do not commit those journals,
-reports or fixture repositories. The full task has not been repeated through Orca
-or with a mid-task controller crash; narrower recovery tests/probes already exist.
+reports or fixture repositories. The full live task has not been repeated through
+Orca or with a mid-task controller crash. Offline delivery fixtures now exercise
+actual controller exits before dispatch and after commit, followed by recovery.
 The implementation itself has not had independent review. macOS and Linux remain
 unverified. Temporary journals, generated schemas, local probe transcripts and
 dependency/build directories are intentionally not committed. The evidence document
 contains the durable summary, and the probe script can reproduce the checks.
 
-## Next implementation slice: provider tools and delivery
+## Next implementation slice: provider tools and Orca delivery
 
 Start with the existing source and a small concrete plan. Do not rebuild the
 controller or broaden into the dashboard first.
@@ -75,10 +80,10 @@ controller or broaden into the dashboard first.
    enabling agent edits. The check interface takes explicit trusted command JSON and
    acknowledges discovered `AGENTS.md`/`CLAUDE.md`; it is not an agent tool policy.
    Continue to keep successful conversational replies separate from task evidence.
-2. Define delivery binding and recovery before automating slice commits. The live
-   pilot commits explicitly after completion and journals that fact; staging and HEAD
-   change the digest. General delivery needs to prove the committed tree matches
-   checked content and reconcile interrupted staging/commit without blind replay.
+2. Extend verified delivery to Orca through its supported interfaces, then address
+   multi-slice continuation and no-change outcomes. Standalone delivery already binds
+   the checked digest to the exact commit. Recovery needs a terminal receipt after
+   dispatch; failed/uncertain operations never trigger commit replay or Git resets.
 3. Extend the live pilot to native provider edits once their policy is defined,
    demonstrate mid-task interruption/recovery, and repeat through Orca. Keep semantic
    simplification assessment explicit and choose checks that demonstrate the outcome.
@@ -123,6 +128,13 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
   PowerShell `Add-Type`; `src/native` accompanies the compiled JS checkout. Preserve
   `<database>.checks/` with the journal. Receipts/output remain local and ignored by Git;
   they trust the local account, and there is no retention cleanup yet.
+- `execution-deliver` runs before task completion, requires all gates and only supports
+  standalone Windows workspaces. It stages the complete checked content and preserves
+  configured identity/hooks/signing. Filters or line-ending normalization that alter
+  checked raw bytes are rejected; hook effects may leave an unaccepted commit. Failed
+  deliveries preserve files/index/locks for investigation rather than resetting them.
+  A successful receipt plus exact commit/content proof permits explicit recovery;
+  missing receipts retain ownership. Native provider editing remains disabled.
 - Content digests omit ignored dependencies/build outputs and external environment/
   services. Snapshots use two matching reads, not an atomic filesystem snapshot.
   Symlinks, submodules and unresolved indexes are unsupported. Keep command specs

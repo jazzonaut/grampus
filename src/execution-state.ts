@@ -26,7 +26,7 @@ export interface ExecutionLease {
   runId: string;
   controllerPid: number;
   host: string;
-  kind?: 'conversation' | 'snapshot' | 'check' | 'submission' | 'simplification' | 'verification' | 'completion';
+  kind?: 'conversation' | 'snapshot' | 'check' | 'submission' | 'simplification' | 'verification' | 'completion' | 'delivery';
   readOnlyRecovery?: true;
 }
 
@@ -69,7 +69,7 @@ export function claimExecution(store: Store, session: Session, runId: string, ki
     throw new Error('Execution workspace identity or version does not match');
   }
   if (execution.role === 'implementation') {
-    const submitted = ['snapshot', 'simplification', 'verification', 'completion'].includes(kind)
+    const submitted = ['snapshot', 'simplification', 'verification', 'completion', 'delivery'].includes(kind)
       && ['awaiting_verification', 'awaiting_decision'].includes(task.phase) && task.attempt.outcome === 'succeeded';
     if ((!submitted && (task.phase !== 'running' || task.attempt.outcome !== 'running')) || task.attempt.agent.sessionId !== session.id) {
       throw new Error('Implementation attempt is settled; create a fresh execution attempt');

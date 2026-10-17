@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { Store } from './store.js';
 import { Workflow } from './workflow.js';
 import { Workspaces } from './workspaces.js';
 import { Executions } from './executions.js';
 import { Checks } from './checks.js';
+import { Deliveries } from './deliveries.js';
 import { runSession, Sessions } from './sessions.js';
 import { renderReport } from './report.js';
 
@@ -33,7 +34,7 @@ async function main(): Promise<void> {
   const workflow = new Workflow(store); const checks = new Checks(store); const executions = new Executions(store);
   const task = workflow.create({ title: 'Greeting live integration pilot', outcome: 'Change the greeting from hello to hello world.',
     criteria: ['Running greeting.js prints exactly hello world followed by one newline.'],
-    plan: 'Codex supplies one statement; controller validates and applies it. Assess simplification, run a regression check, obtain independent Claude review, verify exact stdout, complete and commit locally.' });
+    plan: 'Codex supplies one statement; controller validates and applies it. Assess simplification, run a regression check, obtain independent Claude review, verify exact stdout, then deliver a verified local commit and complete.' });
   workflow.approve(task.id, 1);
   const workspace = await new Workspaces(store).create(task.id, 1, repo, join(root, 'workspace'));
   const implementation = await executions.create(workspace.id, 1, 'codex');
@@ -62,20 +63,18 @@ async function main(): Promise<void> {
   assert.ok(!reviewed.reply!.findings.some(finding => finding.severity === 'blocking'), 'Blocking review findings require resolution; no automatic retry');
   const verified = await checks.run(implementation.id, { ...spec, name: 'Greeting acceptance', args: ['greeting.js'], criteria: task.brief.criteria, expectedStdout: 'hello world\n' });
   assert.equal(verified.phase, 'passed', verified.error ?? undefined);
-  await checks.complete(implementation.id);
-  // Probe delivery is explicit here, not a general Grampus commit/recovery service.
-  assert.equal(readFileSync(join(workspace.path!, 'greeting.js'), 'utf8'), `${source}\n`);
-  git(workspace.path!, 'add', 'greeting.js'); git(workspace.path!, 'commit', '-m', 'Print the requested greeting');
-  const commit = git(workspace.path!, 'rev-parse', 'HEAD');
+  const delivery = await new Deliveries(store).run(implementation.id, { artifact: snapshot.artifact,
+    instructionsDigest: snapshot.instructionsDigest, message: 'Print the requested greeting', timeoutMs: 30_000 });
+  assert.equal(delivery.phase, 'delivered', delivery.error ?? undefined);
+  const commit = delivery.commit!;
   assert.equal(git(workspace.path!, 'status', '--porcelain'), '');
   assert.equal(git(workspace.path!, 'show', `${commit}:greeting.js`), source);
-  store.append(task.id, 1, 'probe.local_commit', { commit, checkedArtifact: snapshot.artifact, note: 'Post-completion local probe commit; staging and HEAD change the snapshot digest. No general delivery recovery or push.' });
   writeFileSync(join(root, 'report.md'), renderReport(store, task.id));
   const summary = { passed: true, phase: workflow.get(task.id).phase, commit,
     implementation: { provider: 'codex', model: new Sessions(store).get(implementation.sessionId).model },
     review: { provider: 'claude', model: new Sessions(store).get(review.sessionId).model, findings: reviewed.reply!.findings },
     validation: validation.phase, verification: verified.phase, evidence: relativeRoot,
-    scope: 'Standalone Git, controller-applied allowlisted response, live independent review, local commit; no native provider editing or automatic delivery recovery' };
+    scope: 'Standalone Git, controller-applied allowlisted response, live independent review, supervised verified local delivery; no native provider editing or push' };
   writeFileSync(join(root, 'result.json'), JSON.stringify(summary, null, 2)); console.log(JSON.stringify(summary, null, 2));
 }
 main().catch(error => { console.error(error instanceof Error ? error.message : String(error)); console.error(`Evidence retained under ${relativeRoot}`); process.exitCode = 1; }).finally(() => store.close());

@@ -221,3 +221,27 @@ report. Provider-native editing remains disabled. The local probe commit is jour
 after completion; general delivery binding, crash recovery and Orca repetition remain
 separate work. Tests cover CLI persistence, stale content/instructions, each assessment
 outcome, invalid roles and controller-crash recovery without resurrecting an old pass.
+
+## Supervised local delivery
+
+Schema 8 adds delivery records and a dedicated workspace lease. `execution-deliver`
+validates all gates and current content, persists dispatch intent, and supervises a
+worker that stages and commits using normal repository configuration. Raw staged
+blobs, paths and modes must match the checked snapshot before commit. The final
+commit, index, working files and repository instructions are verified before accepting
+delivery and task completion atomically. An operation marker and exact parent/message
+bind the local commit to the durable request. No remote delivery is requested.
+
+`delivery-show` preserves diagnostics; `delivery-recover` requires settled process
+proof and never replays Git writes. It can accept a successful command's existing
+verified commit after controller loss. Unsuccessful commands, mismatches and missing
+receipts cannot produce acceptance. Staged changes, hook effects and unaccepted
+commits remain available for investigation. There is no automatic reset or amend.
+
+Tests cover binary/new/deleted files, executable modes, configured identity, gate and
+snapshot refusal, normalization, hook changes, timeout, absent receipts, actual
+controller exits before dispatch and after commit, changed content/commit on recovery,
+atomic journal rollback and schema migration. The live standalone pilot now uses
+this delivery path. Orca delivery, native editing policy, multi-slice scheduling and
+non-Windows supervision remain work. Git references consulted:
+[staging](https://git-scm.com/docs/git-add) and [commit behavior](https://git-scm.com/docs/git-commit).

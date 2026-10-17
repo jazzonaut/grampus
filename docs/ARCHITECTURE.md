@@ -13,6 +13,11 @@ flowchart TD
     CLI --> Workspaces[Workspace lifecycle]
     CLI --> Executions[Task and session bindings]
     CLI --> Checks[Repository checks and submission]
+    CLI --> Deliveries[Local commit delivery]
+    Deliveries --> Store
+    Deliveries --> Workspaces
+    Deliveries --> Workflow
+    Deliveries --> Job
     Checks --> Workspaces
     Checks --> Workflow
     Checks --> Store
@@ -68,7 +73,7 @@ has been built.
 
 ## Persistence
 
-Schema version 7 contains ten tables:
+Schema version 8 contains eleven tables:
 
 | Table | Contents |
 | --- | --- |
@@ -82,6 +87,7 @@ Schema version 7 contains ten tables:
 | `execution_events` | Ordered binding, lease and turn outcome events |
 | `execution_leases` | One current owner per workspace, with unique execution/run id |
 | `checks` | Command specification, before/after snapshots, process ids and result per execution |
+| `deliveries` | Checked snapshot, commit request, dispatch boundary, process settlement and accepted commit |
 
 State changes and associated events share a `BEGIN IMMEDIATE` transaction. Nested
 synchronous operations use savepoints so execution preparation can compose task and
@@ -90,7 +96,7 @@ uses WAL, full synchronous writes, foreign keys and a five-second busy timeout.
 History is append-only through the application interface. State is loaded from
 snapshots rather than reconstructed by replaying events.
 
-Version 1–6 journals gain the missing tables without losing history. Version 4 added
+Version 1–7 journals gain the missing tables without losing history. Version 4 added
 Orca-aware workspace state: path/branch may be null until identity capture. The
 unique key initially reserves the Orca repository/request name, then atomically
 changes to the canonical destination. Standalone records retain their shape. The
@@ -100,8 +106,9 @@ records. Version 6 adds checks and distinguishes conversation, snapshot, check a
 submission leases. Version 7 adds durable dispatch boundaries and receipt references,
 read-only recovery markers, verification/completion operation kinds and acceptance
 expectations. These extend JSON state without new tables. Missing legacy proof fields
-are never inferred. Unknown schema versions are refused. Older executables cannot open
-version 7 journals. Default
+are never inferred. Version 8 adds deliveries and a distinct delivery lease; older
+read-only recovery cannot release it. Unknown schema versions are refused. Older executables cannot open
+version 8 journals. Default
 storage is outside the checkout; see [README.md](../README.md) for portable paths
 and overrides. Retention expiry, backup tooling, settings transfer and task export/
 import have not been implemented. Markdown task reports are the current export.
@@ -483,10 +490,39 @@ Recovery releases ownership without manufacturing an assessment. The controller
 verifies identity and freshness, not the semantic quality of the caller's judgment.
 
 The opt-in standalone task probe applies only an allowlisted one-line Codex response,
-then exercises real checks, simplification, live Claude review and exact-output
-acceptance. A local fixture commit and report follow completion. This harness does
-not implement native editing or a recoverable delivery state machine. HEAD/index
-change on commit, so general delivery must bind checked content to the committed tree.
+then exercises real checks, simplification, live Claude review, exact-output
+acceptance and supervised local delivery. It does not enable native provider editing.
+
+## Local delivery contract
+
+`execution-deliver` requires every gate on the current submitted artifact before
+claiming a delivery lease. The standalone Windows worker runs under the same Job
+Object supervisor as checks. Intent and dispatch boundaries are durable before any
+Git write. It uses normal staging/commit configuration, with no identity overrides,
+and checks staged paths, modes and raw blob hashes against the submitted snapshot.
+Windows retains indexed executable modes; new files use mode 100644. Git filters
+that transform checked bytes fail this initial strict comparison.
+
+An exact parent, branch, message and operation marker identify the resulting commit.
+The controller verifies its full tree and index plus unchanged working file hashes
+and instruction digest. Git object inspection uses raw blobs/commit data, avoiding
+filtered diff and signature helpers. Task completion and accepted delivery commit
+share a transaction with lease release. Original evidence remains bound to its
+pre-commit digest; the delivery record maps that evidence to the verified commit.
+
+Recovery first requires an absent same-host controller and, for dispatched work,
+a matching terminal supervisor receipt. It claims reconciliation ownership before
+asynchronous inspection. A successful settled command can be accepted only after
+all commit/content checks pass again. Other settled outcomes release ownership as
+interrupted/failed without accepting a commit. Missing proof remains blocked; no Git
+write is replayed. A crash before dispatch releases the lease without invoking Git.
+
+Failures preserve staged changes and any unaccepted commit, including hook effects;
+there is no automatic rollback, amend or lock removal. A rejected artifact needs
+fresh implementation and gates. The supervisor covers ordinary tool descendants,
+not external services. Git configuration/hooks and the local journal remain trusted.
+Concurrent external editors are not locked out. Orca delivery, other platforms,
+multi-slice scheduling and no-change delivery are not implemented.
 
 `npm test` builds and runs offline tests against temporary databases, subprocesses
 and protocol fixtures. It does not invoke live models. Test files cover workflow,
@@ -495,6 +531,6 @@ Both providers also passed explicit live probes; see
 [INTEGRATION-EVIDENCE.md](INTEGRATION-EVIDENCE.md) for versions and observed behavior.
 
 Only Windows has been tested. Workspace release/rebinding, shared scheduling,
-other-platform check runners, provider tool approvals, review arbitration, slice commits,
-delivery integration, dashboard, installers and platform CI remain outstanding.
+other-platform check runners, provider tool approvals, review arbitration, Orca delivery,
+multi-slice scheduling, dashboard, installers and platform CI remain outstanding.
 The implementation itself has not had an independent review.

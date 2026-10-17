@@ -34,7 +34,7 @@ export class Store {
     this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
     const version = this.db.prepare('PRAGMA user_version').get()?.user_version;
-    if (![0, 1, 2, 3, 4, 5, 6, 7].includes(Number(version))) {
+    if (![0, 1, 2, 3, 4, 5, 6, 7, 8].includes(Number(version))) {
       this.db.close();
       throw new Error(`Unsupported journal schema version: ${version}`);
     }
@@ -97,7 +97,12 @@ export class Store {
         execution_id TEXT NOT NULL REFERENCES executions(id),
         state TEXT NOT NULL
       );
-      PRAGMA user_version = 7;
+      CREATE TABLE IF NOT EXISTS deliveries (
+        id TEXT PRIMARY KEY,
+        execution_id TEXT NOT NULL REFERENCES executions(id),
+        state TEXT NOT NULL
+      );
+      PRAGMA user_version = 8;
       COMMIT;
     `);
   }
@@ -259,6 +264,20 @@ export class Store {
   acquireLease(workspaceId: string, executionId: string, runId: string, state: unknown): void {
     this.db.prepare('INSERT INTO execution_leases(workspace_id, execution_id, run_id, state) VALUES (?, ?, ?, ?)')
       .run(workspaceId, executionId, runId, JSON.stringify(state));
+  }
+
+  delivery<T>(id: string): T {
+    const row = this.db.prepare('SELECT state FROM deliveries WHERE id = ?').get(id);
+    if (!row) throw new Error(`Delivery not found: ${id}`);
+    return JSON.parse(String(row.state)) as T;
+  }
+
+  deliveries<T>(executionId: string): T[] {
+    return this.db.prepare('SELECT state FROM deliveries WHERE execution_id = ? ORDER BY rowid').all(executionId).map(row => JSON.parse(String(row.state)) as T);
+  }
+
+  saveDelivery(id: string, executionId: string, state: unknown): void {
+    this.db.prepare('INSERT INTO deliveries(id, execution_id, state) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state').run(id, executionId, JSON.stringify(state));
   }
 
   releaseLease(workspaceId: string, executionId: string, runId: string): void {

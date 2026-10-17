@@ -290,7 +290,47 @@ review, not native provider editing or review of Grampus itself. The full pilot 
 not exercise Orca or a mid-task crash. Its post-completion commit changes HEAD/index;
 general commit binding, interruption recovery and delivery integration remain work.
 
+## Supervised local delivery and recovery
+
+On 17 October 2026, the standalone live pilot passed again using the new delivery
+service: Codex `gpt-6.1-sol` supplied the allowlisted greeting change and Claude
+`claude-opus-5-5` reviewed its verified snapshot with no findings. Real regression
+and exact-output acceptance passed. The supervised worker staged and committed the
+change; the controller verified the commit, index, working content and instructions
+before atomically recording delivery and task completion. The configured personal
+Git identity was preserved. No fixture branch was pushed.
+
+The full offline suite passed 127 tests on Windows with Node 24.22.0 and 25.8.1.
+Thirteen delivery tests cover exact bytes including binary/add/delete operations,
+executable mode preservation, identity, CLI delivery, stale/missing gate rejection,
+Git line-ending conversion refusal, hook changes, timeout, missing receipts,
+controller exits before dispatch and after commit, mismatched content and replaced
+commits during recovery, completion/journal rollback and migration from schema 7.
+Gate evidence in these delivery tests is explicitly supplied by trusted fixtures;
+the live pilot supplies separate provider integration evidence.
+
+The post-commit crash test leaves the task awaiting verification and the lease
+retained. A fresh CLI controller checks the terminal supervisor receipt and exact
+existing commit, completes the task, and verifies that history still contains only
+the baseline plus one delivery commit. Pre-dispatch recovery invokes no Git writes.
+Absent receipt proof leaves ownership blocked. A settled command with changed
+content or an unexpected commit cannot complete the task.
+
+Schema 8 retains the submitted snapshot and maps its original digest to the accepted
+commit. Git hooks/signing/configuration remain active. This strict initial path rejects
+normalization that changes reviewed raw bytes and preserves failed staging/commits
+for investigation; there is no automatic rollback, amend, lock removal or retry.
+Only standalone Windows delivery is supported. Native editing, Orca delivery,
+multi-slice scheduling and cross-platform supervision remain unimplemented. The full
+live pilot was not interrupted; crash recovery uses real Git with offline evidence.
+Grampus itself still has not had independent review. Local journals/reports and
+provider transcripts remain ignored and are not committed.
+
 ## Primary references consulted
+
+The delivery slice also consulted Git's official [git-add](https://git-scm.com/docs/git-add)
+and [git-commit](https://git-scm.com/docs/git-commit) documentation for index updates,
+message files, hooks and empty-commit behavior.
 
 - [Codex app-server protocol](https://learn.chatgpt.com/docs/app-server)
 - [Claude Code programmatic execution](https://code.claude.com/docs/en/headless)

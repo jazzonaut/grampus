@@ -12,6 +12,8 @@ repository checks on Windows now produce content-bound validation evidence, with
 receipt-based recovery, artifact reviews and exact-output acceptance checks.
 An explicit simplification checkpoint and a live standalone greeting pilot now
 exercise all gates, with a controller-applied Codex response and Claude review.
+Supervised local delivery binds checked content to a commit and supports explicit
+recovery without replaying Git writes.
 They include a SQLite journal, versioned task approval, completion gates, Codex and
 Claude conversations, structured questions and review findings, interruption,
 reconnection, local integration discovery and journaled worktree creation.
@@ -391,6 +393,55 @@ so a lost or failed newer run cannot leave an older pass current.
 Completion verifies the artifact again and requires every existing gate and decision.
 These commands do not invent simplification assessments, commit code or push task branches.
 
+## Deliver a checked artifact locally
+
+Once every gate passes, use delivery instead of `execution-complete` to make a local
+commit and complete the task together. This initial path requires Windows and a
+standalone Git implementation execution; Orca delivery is not enabled.
+
+```sh
+npm start -- execution-deliver <implementation-execution-id> delivery.json
+npm start -- delivery-show <delivery-id>
+# After an interrupted controller has exited:
+npm start -- delivery-recover <delivery-id>
+```
+
+```json
+{
+  "artifact": "<submitted sha256:...>",
+  "instructionsDigest": "<digest from execution-snapshot>",
+  "message": "Implement the approved change",
+  "timeoutMs": 120000
+}
+```
+
+Keep the specification and journal outside the task worktree. Delivery claims its
+workspace, rechecks all gates and the snapshot, and journals intent before dispatch.
+The supervised worker stages the whole checked worktree, verifies every staged
+path, raw blob and mode, then runs Git commit using the repository's configured
+identity, hooks and signing settings. A unique `Grampus-Delivery` marker is added to
+the commit message. No push is requested. Empty commits are not created.
+
+The controller verifies the resulting commit's parent, marker/message, complete tree,
+index, working files and instructions. Only a matching result with confirmed successful
+process exit records delivery and task completion in one database transaction.
+The delivery record connects the original checked digest to the final commit even
+though staging and HEAD change the snapshot digest.
+
+Git normalization or clean filters that change checked bytes are rejected before
+commit. Hook changes may be detected after a commit already exists. Failures retain
+the index, files and any commit for investigation; Grampus does not reset, amend,
+delete Git lock files or rerun delivery. Changes that invalidate the artifact require
+a new implementation attempt and repeated gates. Git hooks retain their normal
+effects; work delegated to external services is outside process supervision.
+
+An uncertain exit retains ownership. Explicit recovery requires an absent controller
+on the same host and, after dispatch, a matching supervisor receipt proving process
+settlement. A successful receipt permits inspection and acceptance of the exact
+existing commit. An interrupted/failed command is not accepted even if a commit
+exists. Missing proof stays blocked. A proven pre-dispatch crash releases ownership
+without running Git. Recovery never replays staging or commit.
+
 ## Live standalone task pilot
 
 ```sh
@@ -403,15 +454,15 @@ repository under ignored `.grampus/task-probes/`, copies your configured Git ide
 into that fixture, and approves a fixed one-line task. Codex supplies the replacement;
 the controller applies it only if it matches the one permitted output statement.
 It records an explicit simplification assessment, runs real checks, requests a fresh
-Claude artifact review, verifies exact stdout and completes the task. It then makes
-a local fixture commit and saves a journal-derived report. No fixture branch is pushed.
+Claude artifact review, verifies exact stdout, then uses supervised delivery to make
+and verify a local fixture commit before completing the task and saving a journal-derived
+report. No fixture branch is pushed.
 
 Failures retain evidence for investigation and do not trigger inference retries.
 The pilot retains local journals, reports and worktrees, which can contain operational
-paths; keep them out of commits. It demonstrates a bounded controller-applied change,
-not general native agent editing, automatic commit recovery or the full Orca workflow.
-The post-completion commit changes HEAD/index and therefore the snapshot digest;
-general delivery needs an explicit binding between checked content and the final commit.
+paths; keep them out of commits. It demonstrates a bounded controller-applied change
+and verified delivery. Native agent editing and the full Orca workflow remain work.
+Delivery crash recovery is tested separately with real Git and offline gate fixtures.
 
 ## Development
 
@@ -424,8 +475,8 @@ npm test
 TypeScript compiles to `dist/`; Node supplies SQLite, process handling and the test
 runner. The live Claude adapter adds the official `@anthropic-ai/claude-agent-sdk`
 runtime dependency, pinned in the lockfile. Node 24 may emit an experimental SQLite
-warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1–6 journals
-migrate to schema 7 without losing task, session or workspace data. Older executables cannot reopen a
+warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1–7 journals
+migrate to schema 8 without losing task, session or workspace data. Older executables cannot reopen a
 migrated journal, so retain backups if you need to run an older checkout.
 
 - [Implementation sequence and acceptance examples](docs/IMPLEMENTATION.md)
