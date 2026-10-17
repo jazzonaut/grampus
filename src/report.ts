@@ -17,7 +17,7 @@ export function renderReport(store: Store, id: string): string {
     `Task: ${task.id}  `,
     `State: ${task.phase}  `,
     `Requirements version: ${task.version}; approved version: ${task.approvedVersion ?? 'none'}  `,
-    'Usage and billed cost: unknown (not collected in this slice).',
+    'Usage and billed cost: unknown (not aggregated; inspect linked session journals where available).',
     '',
     prose(task.brief.outcome),
     '',

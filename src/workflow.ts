@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Store } from './store.js';
 import type { Workspace } from './workspaces.js';
+import { assertTaskExecutionIdle } from './execution-state.js';
 
 export interface Brief {
   title: string;
@@ -96,6 +97,7 @@ export class Workflow {
   }
 
   private workspaceSettled(task: Task, requireCurrent = false): void {
+    assertTaskExecutionIdle(this.store, task.id);
     const workspace = this.store.workspaces<Workspace>().find(item => item.taskId === task.id);
     if (!workspace) return;
     if (workspace.phase !== 'ready') throw new Error('Settle or reconcile workspace creation first');
@@ -168,6 +170,7 @@ export class Workflow {
         this.event(task, 'result.ignored', { reason: 'stale, duplicate, or interrupted attempt', result });
         return false;
       }
+      assertTaskExecutionIdle(this.store, id);
       task.attempt.outcome = outcome;
       task.attempt.artifact = artifact || null;
       task.phase = outcome === 'failed' ? 'failed'
@@ -190,6 +193,7 @@ export class Workflow {
         this.event(task, 'evidence.ignored', { reason: 'stale attempt, artifact, or state', evidence });
         return false;
       }
+      assertTaskExecutionIdle(this.store, id);
       if (task.evidence.some(item => item.id === evidence.id)) {
         this.event(task, 'evidence.ignored', { reason: 'duplicate evidence id', evidence });
         return false;
@@ -253,6 +257,7 @@ export class Workflow {
       if (!['stop_requested', 'recovery_required'].includes(task.phase) || task.attempt?.id !== attemptId) {
         throw new Error('No matching attempt awaiting stop confirmation');
       }
+      assertTaskExecutionIdle(this.store, id);
       task.attempt.outcome = 'stopped';
       task.phase = 'stopped';
       this.event(task, 'stop.confirmed', { attemptId, evidence });
@@ -265,6 +270,7 @@ export class Workflow {
       const recovered: string[] = [];
       for (const task of this.list()) {
         if (!['running', 'stop_requested'].includes(task.phase)) continue;
+        assertTaskExecutionIdle(this.store, task.id);
         task.phase = 'recovery_required';
         task.attempt!.outcome = 'uncertain';
         this.event(task, 'recovery.required', { attemptId: task.attempt!.id, reason: 'Previous execution must be reconciled; process liveness unknown' });
@@ -278,6 +284,9 @@ export class Workflow {
   blockers(id: string): string[] {
     const task = this.get(id);
     const reasons: string[] = [];
+    if (this.store.workspaces<Workspace>().some(workspace => workspace.taskId === id && this.store.lease(workspace.id))) {
+      reasons.push('Workspace execution is active or needs recovery');
+    }
     if (task.approvedVersion !== task.version) reasons.push('Current plan is not approved');
     if (!['awaiting_verification', 'awaiting_decision', 'complete'].includes(task.phase)
       || task.attempt?.outcome !== 'succeeded') reasons.push('Implementation has not finished successfully');

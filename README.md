@@ -6,12 +6,12 @@ The design targets Windows, macOS, and Linux, with complete operation both with 
 
 The [design and decision record](DESIGN.md) captures the requirements agreed during discovery, proposed architecture, and remaining implementation questions.
 
-Current state: the durable controller, live conversations and Git/Orca workspace
-creation are implemented.
+Current state: the durable controller, live conversations, Git/Orca workspaces and
+task-linked sessions with exclusive workspace ownership are implemented.
 They include a SQLite journal, versioned task approval, completion gates, Codex and
 Claude conversations, structured questions and review findings, interruption,
 reconnection, local integration discovery and journaled worktree creation.
-Agent-driven repository changes, execution ownership, scheduling, the dashboard and
+Agent-driven repository changes, command/check execution, scheduling, the dashboard and
 installers remain to be built.
 
 ## Try the first slice
@@ -148,8 +148,8 @@ a 30-second timeout; this is not supervision of arbitrary hook/filter process tr
 
 Inspection reports current HEAD, tracked/untracked changes and whether the recorded
 task version remains approved. A revised task retains its old workspace but cannot
-start a new attempt with that stale version. Rebinding, release/removal and execution
-ownership are future work. Workspace readiness does not imply task completion or
+start a new attempt with that stale version. Rebinding and release/removal are future
+work. Workspace readiness does not imply task completion or
 permission for an agent to edit files. Local workspace journals contain operational
 paths and process identities; keep them out of commits and shared documentation.
 
@@ -190,6 +190,49 @@ The executable is resolved once per client from `ORCA_CLI_COMMAND`, then `orca-d
 in a development session, otherwise `orca-ide` on Linux or `orca` elsewhere. There
 is no automatic executable fallback, application startup, creation retry or cleanup.
 
+## Task-linked sessions and execution ownership
+
+Prepare a fresh implementation session for an approved workspace and task version:
+
+```sh
+npm start -- execution-new <workspace-id> 1 codex
+# Use the sessionId returned above:
+npm start -- session-send <session-id> "Clarify the implementation steps."
+npm start -- execution-show <execution-id>
+npm start -- execution-list
+# When idle, close the execution and stop its unfinished attempt:
+npm start -- execution-close <execution-id>
+```
+
+Preparation atomically creates an attempt, a fresh session and their permanent link.
+It does not call a model. Each turn receives the approved brief, version, attempt
+and role as context. `session-answer` handles pending questions as before. Each turn
+claims the workspace before inspecting its current Git/Orca identity and connecting
+the provider. No two linked sessions can run there at once in the same journal;
+different task workspaces can run independently. Unlinked sessions inside a managed
+workspace are refused, and older active sessions also block a new owner.
+
+The lease stays held until provider shutdown is confirmed. An uncertain shutdown or
+startup retains it, with no expiry or automatic replay. Use `session-recover` only
+after the recorded controller and provider have exited; unknown PIDs remain blocked.
+Recovery releases the session and workspace ownership together. A failed/interrupted
+implementation attempt needs a new `execution-new` command with a fresh attempt and
+session; its old linked session cannot silently resume that settled attempt. Ordinary
+unlinked conversations still support explicit resume. `execution-close` never forces
+release of an active or uncertain lease.
+
+A successful conversation keeps the implementation attempt open. It does not claim
+repository edits, accept evidence or complete a task. Provider tools retain their
+current conversation restrictions. Review sessions use `--role review` and require a
+successful current artifact supplied through the trusted workflow API; a real CLI
+artifact/check runner is still to come. Same-provider review also requires
+`--fallback-reason <text>`, and always gets a fresh session. Review replies do not
+automatically satisfy review gates. Closed, revised or superseded bindings cannot run.
+
+Ownership applies to participating Grampus sessions sharing one journal. It does not
+lock out editors, other journals or agents launched separately through Orca. There is
+no shared worker limit, heartbeat takeover or arbitrary tool-process supervision yet.
+
 ## Development
 
 ```sh
@@ -201,8 +244,8 @@ npm test
 TypeScript compiles to `dist/`; Node supplies SQLite, process handling and the test
 runner. The live Claude adapter adds the official `@anthropic-ai/claude-agent-sdk`
 runtime dependency, pinned in the lockfile. Node 24 may emit an experimental SQLite
-warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1–3 journals
-migrate to schema 4 without losing task, session or workspace data. Older executables cannot reopen a
+warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1–4 journals
+migrate to schema 5 without losing task, session or workspace data. Older executables cannot reopen a
 migrated journal, so retain backups if you need to run an older checkout.
 
 - [Implementation sequence and acceptance examples](docs/IMPLEMENTATION.md)

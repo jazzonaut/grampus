@@ -148,6 +148,34 @@ host-operation cancellation, arbitrary tool-tree supervision, remote hosts or ta
 completion. Provider inference probes were not repeated. Independent review of the
 Grampus implementation and macOS/Linux validation remain outstanding.
 
+## Linked-session ownership validation
+
+**85 tests passed on Node 24.22.0 and 25.8.1 on Windows.** The ownership tests use real
+temporary Git repositories, SQLite journals, separate controller processes and
+provider/Orca protocol fixtures. They verify:
+
+- Atomic task/attempt/session preparation and rollback of nested journal writes.
+- Approved prompt context, questions across restarts, and observed model identity.
+- Exclusive ownership between review sessions and concurrent independent workspaces.
+- Lease release only after confirmed shutdown, with stale results unable to release
+  a newer run's ownership.
+- Real controller-crash recovery after both recorded PIDs exit; unknown startup/PIDs
+  retain the lease without replay.
+- Interruption racing with success, malformed replies and workspace inspection
+  failure before provider dispatch.
+- Orca instance replacement, legacy unlinked sessions, stale bindings, review fallback,
+  idle closure, CLI persistence and schema 4 migration.
+
+A regression test reproduced a startup cancellation gap: an unresolved connector
+without an observed PID was previously treated as stopped. The runner now tracks
+pending startup explicitly and retains recovery state. A connection arriving late
+is closed without receiving the prompt. This is covered without live inference.
+
+Live provider and Orca probes were not repeated for this slice. The new ownership
+behavior is verified with process/protocol fixtures, not an end-to-end repository
+coding task. Arbitrary tool-process supervision, shared worker budgets, artifact/check
+execution, independent review of Grampus and macOS/Linux validation remain outstanding.
+
 ## Primary references consulted
 
 - [Codex app-server protocol](https://learn.chatgpt.com/docs/app-server)

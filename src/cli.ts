@@ -10,6 +10,8 @@ import { renderReport } from './report.js';
 import { Sessions, runSession } from './sessions.js';
 import type { Provider } from './agents/types.js';
 import { Workspaces } from './workspaces.js';
+import { Executions } from './executions.js';
+import type { Execution } from './execution-state.js';
 
 const help = `Grampus — local agent controller
 
@@ -26,6 +28,10 @@ const help = `Grampus — local agent controller
   workspace-show <id>             Show saved workspace state and journal
   workspace-inspect <id>          Verify Git identity and show current HEAD/dirty state
   workspace-recover <id>          Reconcile interrupted creation without replaying Git
+  execution-new <workspace-id> <version> <codex|claude>  Start a linked attempt (--role implementation|review)
+  execution-list                 List linked task/session executions
+  execution-show <id>            Show linked session, workspace lease and execution events
+  execution-close <id>           Close an idle execution; never force-release a lease
   session-new <codex|claude>      Create a conversation (--cwd, optional --model)
   session-send <id> <prompt>      Run one live turn (or use --prompt-file <path>)
   session-answer <id> <file.json> Answer pending question ids with a JSON object
@@ -44,6 +50,7 @@ async function main(): Promise<void> {
     options: { db: { type: 'string' }, orca: { type: 'boolean', default: false }, help: { type: 'boolean', short: 'h' },
       cwd: { type: 'string' }, model: { type: 'string' }, 'prompt-file': { type: 'string' },
       repo: { type: 'string' }, path: { type: 'string' }, base: { type: 'string' },
+      role: { type: 'string' }, 'fallback-reason': { type: 'string' },
       'timeout-ms': { type: 'string' }, 'interrupt-after-ms': { type: 'string' } },
   });
   const [action, id, version] = positionals;
@@ -89,6 +96,29 @@ async function main(): Promise<void> {
     } finally { store.close(); }
     return;
   }
+  if (action.startsWith('execution-')) {
+    if (!['execution-new', 'execution-list', 'execution-show', 'execution-close'].includes(action)) throw new Error('Unknown execution command');
+    if (action !== 'execution-list' && !id) throw new Error(`${action} requires an argument`);
+    const store = new Store(values.db ?? defaultDatabasePath());
+    try {
+      const executions = new Executions(store);
+      if (action === 'execution-new') {
+        const expectedVersion = Number(version);
+        if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new Error('A positive integer version is required');
+        const execution = await executions.create(id!, expectedVersion, positionals[3] as Provider,
+          (values.role ?? 'implementation') as Execution['role'], values.model ?? null, values['fallback-reason'] ?? null);
+        console.log(JSON.stringify(execution, null, 2));
+      }
+      if (action === 'execution-list') console.log(JSON.stringify(executions.list(), null, 2));
+      if (action === 'execution-show') {
+        const execution = executions.get(id!);
+        console.log(JSON.stringify({ execution, session: new Sessions(store).get(execution.sessionId),
+          lease: store.lease(execution.workspaceId), events: store.executionEvents(id!) }, null, 2));
+      }
+      if (action === 'execution-close') { executions.close(id!); console.log(JSON.stringify(executions.get(id!), null, 2)); }
+    } finally { store.close(); }
+    return;
+  }
   if (action.startsWith('session-')) {
     if (!['session-new', 'session-send', 'session-answer', 'session-show', 'session-list', 'session-recover'].includes(action)) throw new Error('Unknown session command');
     if (action !== 'session-list' && !id) throw new Error(`${action} requires an argument`);
@@ -97,7 +127,7 @@ async function main(): Promise<void> {
       const sessions = new Sessions(store);
       if (action === 'session-new') console.log(JSON.stringify(sessions.create(id as Provider, values.cwd ?? process.cwd(), values.model ?? null), null, 2));
       if (action === 'session-list') console.log(JSON.stringify(store.sessions(), null, 2));
-      if (action === 'session-show') console.log(JSON.stringify({ session: sessions.get(id!), events: store.sessionEvents(id!) }, null, 2));
+      if (action === 'session-show') console.log(JSON.stringify({ session: sessions.get(id!), execution: store.executionForSession(id!), events: store.sessionEvents(id!) }, null, 2));
       if (action === 'session-recover') { sessions.recover(id!); console.log(JSON.stringify(sessions.get(id!), null, 2)); }
       if (action === 'session-send' || action === 'session-answer') {
         const abort = new AbortController();

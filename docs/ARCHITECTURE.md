@@ -11,6 +11,10 @@ flowchart TD
     CLI[Terminal commands] --> Workflow[Task workflow]
     CLI --> Sessions[Conversation runner]
     CLI --> Workspaces[Workspace lifecycle]
+    CLI --> Executions[Task and session bindings]
+    Executions --> Workflow
+    Executions --> Sessions
+    Executions --> Workspaces
     Workflow --> Store[SQLite state and journals]
     Sessions --> Store
     Workspaces --> Store
@@ -21,9 +25,9 @@ flowchart TD
     Store --> Report[Task Markdown report]
 ```
 
-Tasks and conversations are currently separate records. There is no automatic path
-from a conversation reply to task execution, evidence acceptance or completion.
-Connecting them with task versions and workspace ownership is the next major step.
+Executions link task attempts to fresh conversation sessions and a workspace. Their
+turns acquire exclusive workspace leases. There is still no automatic path from a
+conversation reply to repository changes, evidence acceptance or task completion.
 
 | File | Responsibility |
 | --- | --- |
@@ -33,6 +37,8 @@ Connecting them with task versions and workspace ownership is the next major ste
 | `src/sessions.ts` | Claim a conversation, persist events, run one turn, stop and reconcile |
 | `src/workspaces.ts` | Reserve a task workspace, create through Git or Orca, inspect and reconcile |
 | `src/orca.ts` | Resolve the Orca executable, validate local CLI responses and stable worktree identities |
+| `src/executions.ts` | Atomically prepare and close versioned task/attempt/session bindings |
+| `src/execution-state.ts` | Validate bindings, acquire/fence workspace leases and settle linked task outcomes |
 | `src/agents/types.ts` | Provider contract, reply validation, usage fields and subscription environment |
 | `src/agents/codex.ts` | Installed Codex app-server initialization, threads, turns and notifications |
 | `src/agents/claude.ts` | Official SDK streaming input, authentication, results and process shutdown |
@@ -50,7 +56,7 @@ has been built.
 
 ## Persistence
 
-Schema version 4 contains six tables:
+Schema version 5 contains nine tables:
 
 | Table | Contents |
 | --- | --- |
@@ -60,19 +66,25 @@ Schema version 4 contains six tables:
 | `session_events` | Ordered conversation events with timestamp, type and JSON data |
 | `workspaces` | Workspace state with unique task id and destination/reservation key |
 | `workspace_events` | Ordered workspace lifecycle events with timestamp, type and JSON data |
+| `executions` | Immutable task/version/attempt/workspace/session links, role and open/closed state |
+| `execution_events` | Ordered binding, lease and turn outcome events |
+| `execution_leases` | One current owner per workspace, with unique execution/run id |
 
-State changes and associated events share a `BEGIN IMMEDIATE` transaction. SQLite
+State changes and associated events share a `BEGIN IMMEDIATE` transaction. Nested
+synchronous operations use savepoints so execution preparation can compose task and
+session APIs atomically. An outer failure rolls back their state and journals. SQLite
 uses WAL, full synchronous writes, foreign keys and a five-second busy timeout.
 History is append-only through the application interface. State is loaded from
 snapshots rather than reconstructed by replaying events.
 
-Version 1–3 journals gain the missing tables without losing history. Version 4 adds
+Version 1–4 journals gain the missing tables without losing history. Version 4 added
 Orca-aware workspace state: path/branch may be null until identity capture. The
 unique key initially reserves the Orca repository/request name, then atomically
 changes to the canonical destination. Standalone records retain their shape. The
 version bump prevents older code from treating a pending Orca operation as a local
-Git process. Unknown schema versions are refused. Older executables cannot open
-version 4 journals. Default
+Git process. Version 5 adds execution bindings and leases without changing prior
+records. Unknown schema versions are refused. Older executables cannot open
+version 5 journals. Default
 storage is outside the checkout; see [README.md](../README.md) for portable paths
 and overrides. Retention expiry, backup tooling, settings transfer and task export/
 import have not been implemented. Markdown task reports are the current export.
@@ -153,8 +165,8 @@ produce acceptance evidence or reserve the workspace for agent execution.
 Git runs without a shell and with a 30-second timeout. Inherited `GIT_*` environment
 overrides are stripped so the explicit repository determines the index and worktree;
 repository/user Git configuration still applies. Normal checkout hooks and filters
-may run. Their process trees are not supervised by this slice. Agent/session
-association, worker leases and shared scheduling remain separate work.
+may run. Their process trees are not supervised by this slice. Task-linked turns use
+the execution ownership mechanism below; shared scheduling remains separate work.
 
 ## Orca workspace lifecycle
 
@@ -183,8 +195,59 @@ The fixed CLI deadline is 120 seconds. There is no automatic application start,
 executable fallback, host switching, creation retry or workspace removal. Normal
 Orca terminal defaults and Git hooks/filters can still have side effects. Readiness
 does not prove all host background activity finished, and provides no execution
-lease or tool-process supervision. Remote hosts are rejected. Task/session linkage,
-execution ownership and version rebinding remain future work.
+lease or tool-process supervision. Remote hosts are rejected. Version rebinding
+remains future work; task-linked turns acquire a separate execution lease below.
+
+## Execution bindings and workspace ownership
+
+`Executions.create()` inspects the workspace and verifies its exact approved version.
+One transaction creates a fresh session, starts an implementation attempt (or selects
+the current successful attempt for review), and journals the permanent binding.
+Review records pin the attempt's artifact reference and require a recorded reason
+for same-provider fallback. Preparing a binding makes no inference call.
+
+`Sessions.claim()` checks the binding's version, attempt, role, workspace and session
+directory. It atomically claims the session and inserts a workspace lease containing
+execution/session/run ids, controller PID and host. The workspace primary key and
+unique execution/run ids prevent duplicate owners across controllers sharing the DB.
+Another active or uncertain session in that directory also blocks acquisition,
+including legacy unlinked sessions. New unlinked sessions there cannot bypass the
+lease. Different workspace ids remain independently runnable.
+
+The runner verifies current Git/Orca identity while holding the lease, before provider
+connection. Each prompt includes the approved brief and binding context, saved with
+the turn request. Cancellation during workspace inspection prevents provider dispatch
+and waits for the bounded inspection commands to settle. Provider session/model
+identity stays in the session; the task's implementation model is updated when observed.
+For linked attempts, `Agent.sessionId` is the Grampus session id; the provider's resume
+id remains a separate session field. `provider-default` labels an unresolved model
+request until an observed model arrives. `headAtCreation` is informational, not
+verified implementation evidence.
+
+Settlement fences on the exact session run and lease token. Session state, linked task
+outcome, journal events and lease release commit together. A successful conversation
+does not finish an implementation attempt. Failure marks it failed; confirmed interrupt
+or recovery marks it stopped. Review outcomes leave implementation evidence unchanged.
+Unconfirmed exit retains the lease and marks the session, plus an implementation task,
+as requiring recovery. A startup promise still pending after cancellation is uncertain
+even if no PID was observed. A late connection is closed without receiving the prompt;
+that alone does not erase the retained recovery state.
+
+There is no expiry or heartbeat takeover. Recovery requires absent controller and
+provider PIDs on their recorded host, then releases both owners in one transaction.
+Unknown/reused/live PIDs remain blocked. Late events cannot release a newer run's
+lease. Task revision, replacement attempts, completion, direct result/evidence writes
+and generic task recovery cannot bypass active/uncertain execution ownership.
+
+Idle execution closure can stop its unfinished implementation attempt and permanently
+disable that session binding; it cannot force-release a lease. Questions retain the
+same attempt/session across ordinary turns. Failed/interrupted implementation attempts
+require fresh execution preparation, preserving old contexts as history. A task
+revision or replacement attempt invalidates older bindings without rewriting them.
+
+This is cooperative ownership within one journal, not a filesystem lock against
+editors, external Orca agents or other journals. There is no global worker limit,
+repository command runner, tool-process-tree supervision or automatic evidence.
 
 ## Conversation lifecycle
 
@@ -249,8 +312,8 @@ Usage events are cumulative provider-session snapshots, not increments to sum.
 Keep the most recent applicable snapshot. Token counting semantics differ between
 providers; this is not a cross-provider billing ledger. Claude exposes an estimated
 USD amount. Codex cost and actual billed cost remain unknown. Missing measurements
-remain `null`, and task reports still say usage is unknown because conversations
-are not yet associated with tasks.
+remain `null`. Task reports still say usage is unknown because aggregation across
+linked sessions is not implemented; provider snapshots remain in session journals.
 
 ## Verification and current boundaries
 
@@ -260,7 +323,7 @@ CLI persistence, process transport, sessions and Codex notification handling.
 Both providers also passed explicit live probes; see
 [INTEGRATION-EVIDENCE.md](INTEGRATION-EVIDENCE.md) for versions and observed behavior.
 
-Only Windows has been tested. Workspace release/rebinding, shared scheduling, task/session
-association, real check runners, tool approvals, review arbitration, slice commits,
+Only Windows has been tested. Workspace release/rebinding, shared scheduling,
+real check runners, tool approvals, review arbitration, slice commits,
 delivery integration, dashboard, installers and platform CI remain outstanding.
 The implementation itself has not had an independent review.

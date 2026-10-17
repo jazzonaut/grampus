@@ -54,7 +54,8 @@ review. Live agent probes, if run, only establish the specific capabilities obse
    workspace execution; questions currently use structured final replies.
 2. **Workspaces and execution — Git and Orca creation implemented:** durable task/path
    reservations, pinned base commits, standalone locks or Orca instance identities,
-   inspection and conservative creation recovery. Execution ownership, shared concurrency,
+   inspection and conservative creation recovery. Task/attempt/session bindings and
+   exclusive per-workspace turn ownership are also implemented. Shared concurrency,
    real checks and sequential commits remain. Validate stopping on Windows before
    extending claims.
 3. **One real task:** run a tiny coding task through both agents, independently
@@ -109,8 +110,8 @@ existing/nested destinations, pinned bases, Git failure, lost responses, real pr
 exit before the ready transaction commits, uncertain liveness, dirty recovery,
 changed lock identity, stale task versions and schema 2 migration.
 
-Next: task/attempt/session association and execution leases,
-then narrowly scoped repository commands and evidence tied to inspected artifacts.
+The subsequent slices add task/session bindings and execution leases, then narrowly
+scoped repository commands and evidence tied to inspected artifacts.
 
 ## Orca workspace slice
 
@@ -127,5 +128,29 @@ results stay blocked. The adapter does not change Orca metadata through raw Git.
 
 Validation includes protocol fixtures backed by real Git repositories and a live
 local Orca probe with a deliberately discarded response and a fresh recovery process.
-Execution leases, task/attempt/session links and controlled repository commands are
-the next slice; workspace readiness is not authorization to run an agent.
+Execution leases and task/attempt/session links follow below. Workspace readiness
+alone is not authorization to run an agent.
+
+## Linked-session ownership slice
+
+Schema 5 adds execution bindings, execution events and one durable lease per workspace.
+Preparation atomically links an approved task version, attempt, fresh session and
+workspace using nested SQLite savepoints. Both implementation and independent-review
+roles are represented; same-provider review records its fallback reason. No inference
+starts during preparation, and no conversation result creates acceptance evidence.
+
+Each linked turn claims the workspace before checking its current identity and
+connecting the provider. Successful replies keep implementation open; failed/stopped
+attempts require a fresh binding. Confirmed settlement releases session and workspace
+ownership together. Uncertain startup/shutdown retains ownership without expiry or
+replay. Recovery checks process absence; late runs cannot release newer ownership.
+Unlinked sessions and legacy active sessions cannot bypass managed workspace ownership.
+
+Validation uses real Git repositories, separate controller processes and protocol
+fixtures: nested rollback, version/role validation, competing review sessions, parallel
+independent workspaces, question continuation, interruption, malformed replies, failed
+inspection, uncertain startup/shutdown, process-crash recovery, Orca identity replacement,
+CLI persistence and schema 4 migration. Current adapters remain conversation-restricted.
+
+Next: controlled repository commands and artifact/check evidence, followed by bounded
+worker scheduling and the first real task through all completion gates.

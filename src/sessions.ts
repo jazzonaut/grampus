@@ -4,6 +4,9 @@ import { resolve } from 'node:path';
 import { statSync } from 'node:fs';
 import { Store } from './store.js';
 import { connectAgent } from './agents/index.js';
+import { Workspaces } from './workspaces.js';
+import { claimExecution, requireExecutionLease, settleExecution, stopExecution, type Execution } from './execution-state.js';
+import type { Task } from './workflow.js';
 import { parseReply, type AgentEvent, type AgentSession, type Connector, type Provider, type Reply, type TurnResult } from './agents/types.js';
 
 export interface Session {
@@ -53,6 +56,14 @@ export class Sessions {
       } else if (answers) throw new Error('Session has no pending questions');
       if (!prompt.trim()) throw new Error('Prompt must not be empty');
       session.run = { id: randomUUID(), controllerPid: process.pid, host: hostname(), providerPid: null };
+      claimExecution(this.store, session, session.run.id);
+      const execution = this.store.executionForSession<Execution>(id);
+      if (execution) {
+        const task = this.store.get<Task>(execution.taskId);
+        prompt = `Approved task context (conversation only; do not claim repository execution or completion):\n${JSON.stringify({
+          brief: task.brief, version: execution.version, attemptId: execution.attemptId, role: execution.role, artifact: execution.artifact,
+        })}\n\nUser turn:\n${prompt}`;
+      }
       session.phase = 'running';
       this.store.appendSession(id, 'turn.requested', { runId: session.run.id, prompt, autoRetries: 0 });
       return { session: structuredClone(session), prompt, runId: session.run.id };
@@ -64,12 +75,21 @@ export class Sessions {
       if (session.run?.id !== runId || !['running', 'stop_requested'].includes(session.phase)) {
         this.store.appendSession(id, 'event.ignored', { runId, eventType: event.type }); return false;
       }
+      const execution = requireExecutionLease(this.store, session, runId);
       if (event.type === 'session.connected') {
         const data = event.data as { providerSessionId: string; model: string | null };
         if (typeof data.providerSessionId !== 'string' || !data.providerSessionId) throw new Error('Missing provider session identity');
         if (session.providerSessionId && session.providerSessionId !== data.providerSessionId) throw new Error('Provider session identity changed');
         session.providerSessionId = data.providerSessionId;
         if (data.model) session.model = data.model;
+        if (execution?.role === 'implementation' && data.model) {
+          const task = this.store.get<Task>(execution.taskId);
+          if (task.attempt?.id === execution.attemptId && task.version === execution.version) {
+            task.attempt.agent.model = data.model;
+            this.store.save(task.id, task);
+            this.store.append(task.id, task.version, 'execution.model_observed', { executionId: execution.id, model: data.model });
+          }
+        }
       }
       if (event.type === 'process.started') {
         const pid = (event.data as { pid?: number }).pid;
@@ -83,6 +103,7 @@ export class Sessions {
   stop(id: string, runId: string, reason: string): void {
     this.change(id, session => {
       if (session.run?.id !== runId || session.phase !== 'running') return;
+      stopExecution(this.store, session, runId, reason);
       session.phase = 'stop_requested';
       this.store.appendSession(id, 'stop.requested', { runId, reason });
     });
@@ -94,7 +115,10 @@ export class Sessions {
         this.store.appendSession(id, 'result.ignored', { runId }); return;
       }
       this.store.appendSession(id, 'turn.result', { runId, result, exitConfirmed });
-      if (!exitConfirmed) { session.phase = 'recovery_required'; return; }
+      if (!exitConfirmed) {
+        settleExecution(this.store, session, runId, result.status, false);
+        session.phase = 'recovery_required'; return;
+      }
       this.store.appendSession(id, 'process.exit_confirmed', { runId });
       if (session.phase === 'stop_requested' || result.status === 'interrupted') session.phase = 'interrupted';
       else if (result.status === 'failed') session.phase = 'failed';
@@ -102,6 +126,7 @@ export class Sessions {
         session.lastReply = parseReply(result.reply);
         session.phase = session.lastReply.kind === 'question' ? 'awaiting_answer' : 'idle';
       }
+      settleExecution(this.store, session, runId, session.phase === 'interrupted' ? 'interrupted' : result.status, true);
       session.run = null;
     });
   }
@@ -113,6 +138,7 @@ export class Sessions {
       if (alive(session.run.controllerPid)) throw new Error('Previous controller is still alive or unverifiable');
       if (session.run.providerPid === null || alive(session.run.providerPid)) throw new Error('Provider exit is unconfirmed; do not start a duplicate session');
       this.store.appendSession(id, 'session.recovered', { runId: session.run.id, evidence: 'Controller and recorded provider PIDs no longer exist', replayed: false });
+      settleExecution(this.store, session, session.run.id, 'interrupted', true);
       session.phase = 'interrupted';
       session.run = null;
     });
@@ -133,7 +159,7 @@ export interface RunOptions {
 }
 
 /** Each CLI invocation owns one process, closes it, and retains a resumable provider id. */
-export async function runSession(store: Store, id: string, prompt: string, options: RunOptions = {}, connect: Connector = connectAgent): Promise<TurnResult> {
+export async function runSession(store: Store, id: string, prompt: string, options: RunOptions = {}, connect: Connector = connectAgent, workspaces = new Workspaces(store)): Promise<TurnResult> {
   const timeout = options.timeoutMs ?? 120_000;
   if (!Number.isSafeInteger(timeout) || timeout < 100 || timeout > 600_000) throw new Error('Timeout must be between 100 and 600000 ms');
   if (options.interruptAfterMs !== undefined && (!Number.isSafeInteger(options.interruptAfterMs) || options.interruptAfterMs < 1)) throw new Error('Interrupt delay must be a positive integer');
@@ -142,6 +168,7 @@ export async function runSession(store: Store, id: string, prompt: string, optio
   let agent: AgentSession | null = null;
   let stopped = false;
   let connectionFinished = false;
+  let connectionPending = false;
   let connectorClosed = false;
   let processStarted = false;
   const connectionAbort = new AbortController();
@@ -174,13 +201,23 @@ export async function runSession(store: Store, id: string, prompt: string, optio
   let result: TurnResult = { status: 'failed', reply: null, usage: null, error: 'Turn did not complete' };
   let exitConfirmed = false;
   try {
-    const connection = connect(claim.session.provider, { cwd: claim.session.cwd, providerSessionId: claim.session.providerSessionId,
-      model: claim.session.model, signal: connectionAbort.signal, emit }).then(value => { agent = value; connectionFinished = true; return value; });
+    const execution = store.executionForSession<Execution>(id);
+    if (execution) {
+      const inspected = await workspaces.inspect(execution.workspaceId);
+      if (!inspected.taskCurrent) throw new Error('Execution task version changed before dispatch');
+      if (stopped) throw new Error('Interrupted before provider connection');
+    }
+    connectionPending = true;
+    const connection = Promise.resolve().then(() => connect(claim.session.provider, { cwd: claim.session.cwd, providerSessionId: claim.session.providerSessionId,
+      model: claim.session.model, signal: connectionAbort.signal, emit })).then(value => {
+      connectionPending = false; agent = value; connectionFinished = true; return value;
+    }, error => { connectionPending = false; throw error; });
     // If startup outlives the deadline, close it when it eventually returns. Never send a prompt.
     void connection.then(async value => { if (stopped) await value.close(); }).catch(() => {});
     const connected = await Promise.race([connection, stopSignal.then(() => null)]);
     if (connected && !stopped) {
       result = await Promise.race([connected.turn(claim.prompt), stopSignal.then((): TurnResult => ({ status: 'interrupted', reply: null, usage: null, error: 'Interrupted before a final provider result' }))]);
+      if (result.status === 'completed') result.reply = parseReply(result.reply);
     } else result = { status: 'interrupted', reply: null, usage: null, error: 'Interrupted during connection' };
   } catch (error) {
     result = { status: stopped ? 'interrupted' : 'failed', reply: null, usage: null, error: error instanceof Error ? error.message : String(error) };
@@ -189,10 +226,10 @@ export async function runSession(store: Store, id: string, prompt: string, optio
     options.signal?.removeEventListener('abort', aborted);
     try {
       if (agent) { await (agent as AgentSession).close(); exitConfirmed = true; }
-      else exitConfirmed = connectorClosed || !processStarted;
+      else exitConfirmed = connectorClosed || (!processStarted && !connectionPending);
     } catch (error) { result = { ...result, status: 'failed', error: `Process shutdown unconfirmed: ${error instanceof Error ? error.message : String(error)}` }; }
     if (stopped) { result.status = 'interrupted'; result.reply = null; }
-    if (!connectionFinished && stopped && !connectorClosed && processStarted) exitConfirmed = false;
+    if (!connectorClosed && (connectionPending || (!connectionFinished && stopped && processStarted))) exitConfirmed = false;
     sessions.settle(id, claim.runId, result, exitConfirmed);
   }
   return result;

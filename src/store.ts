@@ -24,6 +24,7 @@ export interface JournalEvent {
 /** All state changes and their evidence are committed in the same transaction. */
 export class Store {
   private readonly db: DatabaseSync;
+  private transactionDepth = 0;
 
   constructor(path: string) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
@@ -31,7 +32,7 @@ export class Store {
     this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
     const version = this.db.prepare('PRAGMA user_version').get()?.user_version;
-    if (version !== 0 && version !== 1 && version !== 2 && version !== 3 && version !== 4) {
+    if (![0, 1, 2, 3, 4, 5].includes(Number(version))) {
       this.db.close();
       throw new Error(`Unsupported journal schema version: ${version}`);
     }
@@ -70,20 +71,44 @@ export class Store {
         data TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS workspace_events_workspace ON workspace_events(workspace_id, sequence);
-      PRAGMA user_version = 4;
+      CREATE TABLE IF NOT EXISTS executions (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(id),
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+        session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id),
+        state TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS execution_events (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        execution_id TEXT NOT NULL REFERENCES executions(id),
+        at TEXT NOT NULL, type TEXT NOT NULL, data TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS execution_events_execution ON execution_events(execution_id, sequence);
+      CREATE TABLE IF NOT EXISTS execution_leases (
+        workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id),
+        execution_id TEXT NOT NULL UNIQUE REFERENCES executions(id),
+        run_id TEXT NOT NULL UNIQUE,
+        state TEXT NOT NULL
+      );
+      PRAGMA user_version = 5;
       COMMIT;
     `);
   }
 
   transaction<T>(action: () => T): T {
-    this.db.exec('BEGIN IMMEDIATE');
+    const depth = this.transactionDepth;
+    const savepoint = `nested_${depth}`;
+    this.db.exec(depth === 0 ? 'BEGIN IMMEDIATE' : `SAVEPOINT ${savepoint}`);
+    this.transactionDepth++;
     try {
       const result = action();
-      this.db.exec('COMMIT');
+      this.db.exec(depth === 0 ? 'COMMIT' : `RELEASE ${savepoint}`);
       return result;
     } catch (error) {
-      this.db.exec('ROLLBACK');
+      this.db.exec(depth === 0 ? 'ROLLBACK' : `ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
       throw error;
+    } finally {
+      this.transactionDepth--;
     }
   }
 
@@ -169,5 +194,53 @@ export class Store {
     return this.db.prepare('SELECT * FROM workspace_events WHERE workspace_id = ? ORDER BY sequence').all(id).map(row => ({
       sequence: Number(row.sequence), at: String(row.at), type: String(row.type), data: JSON.parse(String(row.data)) as unknown,
     }));
+  }
+
+  execution<T>(id: string): T {
+    const row = this.db.prepare('SELECT state FROM executions WHERE id = ?').get(id);
+    if (!row) throw new Error(`Execution not found: ${id}`);
+    return JSON.parse(String(row.state)) as T;
+  }
+
+  executionForSession<T>(id: string): T | null {
+    const row = this.db.prepare('SELECT state FROM executions WHERE session_id = ?').get(id);
+    return row ? JSON.parse(String(row.state)) as T : null;
+  }
+
+  executions<T>(): T[] {
+    return this.db.prepare('SELECT state FROM executions ORDER BY rowid').all().map(row => JSON.parse(String(row.state)) as T);
+  }
+
+  saveExecution(id: string, taskId: string, workspaceId: string, sessionId: string, state: unknown): void {
+    this.db.prepare('INSERT INTO executions(id, task_id, workspace_id, session_id, state) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state')
+      .run(id, taskId, workspaceId, sessionId, JSON.stringify(state));
+  }
+
+  appendExecution(id: string, type: string, data: unknown): void {
+    this.db.prepare('INSERT INTO execution_events(execution_id, at, type, data) VALUES (?, ?, ?, ?)')
+      .run(id, new Date().toISOString(), type, JSON.stringify(data));
+  }
+
+  executionEvents(id: string): { sequence: number; at: string; type: string; data: unknown }[] {
+    this.execution(id);
+    return this.db.prepare('SELECT * FROM execution_events WHERE execution_id = ? ORDER BY sequence').all(id).map(row => ({
+      sequence: Number(row.sequence), at: String(row.at), type: String(row.type), data: JSON.parse(String(row.data)) as unknown,
+    }));
+  }
+
+  lease<T>(workspaceId: string): T | null {
+    const row = this.db.prepare('SELECT state FROM execution_leases WHERE workspace_id = ?').get(workspaceId);
+    return row ? JSON.parse(String(row.state)) as T : null;
+  }
+
+  acquireLease(workspaceId: string, executionId: string, runId: string, state: unknown): void {
+    this.db.prepare('INSERT INTO execution_leases(workspace_id, execution_id, run_id, state) VALUES (?, ?, ?, ?)')
+      .run(workspaceId, executionId, runId, JSON.stringify(state));
+  }
+
+  releaseLease(workspaceId: string, executionId: string, runId: string): void {
+    const result = this.db.prepare('DELETE FROM execution_leases WHERE workspace_id = ? AND execution_id = ? AND run_id = ?')
+      .run(workspaceId, executionId, runId);
+    if (result.changes !== 1) throw new Error('Execution lease no longer matches this run');
   }
 }

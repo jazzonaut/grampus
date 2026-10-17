@@ -9,6 +9,9 @@ import { Store } from '../src/store.js';
 import { Workflow } from '../src/workflow.js';
 import { Workspaces, type Workspace } from '../src/workspaces.js';
 import { OrcaCli, type OrcaTransport } from '../src/orca.js';
+import { Executions } from '../src/executions.js';
+import { runSession } from '../src/sessions.js';
+import type { Connector } from '../src/agents/types.js';
 
 const brief = { title: 'Orca fixture', outcome: 'Isolate checkout', criteria: ['Base preserved'], plan: 'Create then inspect' };
 function git(cwd: string, ...args: string[]): string {
@@ -188,4 +191,23 @@ test('schema 3 standalone workspaces survive the Orca-aware schema upgrade', asy
     assert.deepEqual(upgraded.workspace<Workspace>(created.id), created);
     assert.equal(upgraded.workspaceEvents(created.id).length, 1);
   } finally { upgraded.close(); }
+});
+
+test('Orca execution holds a lease during identity inspection and refuses a replaced instance before dispatch', async t => {
+  const { repo, store, task, workspaces, state } = fixture(t);
+  const workspace = await workspaces.createOrca(task.id, 1, repo, 'main');
+  const execution = await new Executions(store, workspaces).create(workspace.id, 1, 'codex');
+  let turns = 0;
+  const connector: Connector = async () => {
+    assert.ok(store.lease(workspace.id));
+    return { turn: async () => { turns++; return { status: 'completed', reply: { kind: 'message', text: 'Fixture', questions: [], findings: [] }, usage: null, error: null }; },
+      interrupt: async () => {}, close: async () => { assert.ok(store.lease(workspace.id)); } };
+  };
+  assert.equal((await runSession(store, execution.sessionId, 'First', {}, connector, workspaces)).status, 'completed');
+  assert.equal(store.lease(workspace.id), null);
+  state.worktree!.instanceId = 'replacement';
+  state.worktree!.identity = { key: 'wt2:local:replacement', instanceId: 'replacement', executionHostId: 'local' };
+  assert.equal((await runSession(store, execution.sessionId, 'Second', {}, connector, workspaces)).status, 'failed');
+  assert.equal(turns, 1);
+  assert.equal(store.lease(workspace.id), null);
 });
