@@ -391,6 +391,54 @@ platforms remain unverified. Grampus itself still has not had independent review
 Generated schemas, operational paths, journals, transcripts and fixture repositories
 remain ignored local evidence.
 
+## Local Orca native editing and verified delivery
+
+At the 18 October 2026 checkpoint, `npm run probe:task -- --live --native-codex --orca`
+passed on Windows with Orca 1.4.229. The pilot registered an isolated fixture
+repository, created a worktree through Orca and pinned its stable local instance.
+Codex `gpt-6.1-sol` performed an authorized native edit; Claude `claude-opus-5-5`
+reviewed the captured artifact with no findings. Real regression, explicit
+simplification, exact-output acceptance and supervised verified local commit
+delivery passed. The configured personal Git identity was preserved; no fixture
+branch was pushed.
+
+The installed version-matched `orca-cli` guide, CLI help and agent command schema
+were inspected. They expose worktree lifecycle and identity operations but no Git
+commit command. This slice keeps Orca authoritative for its workspace lifecycle
+and runs ordinary staging/committing inside Grampus's Windows Job Object. Provider
+processes also remain Grampus-owned; this does not exercise Orca agent-launch,
+terminal coordination, remote hosts or Orca-host mutation cancellation.
+
+All 42 targeted tests passed. All 151 offline tests also passed on Node 24.22.0 and
+25.8.1. New fixtures cover both native providers in Orca workspaces, replaced/archived
+instances before and after edits, worker-side identity checks before staging and
+commit, altered durable bindings, post-commit replacement, and lost-reply recovery
+with a real supervisor receipt. Recovery accepts only the original instance and
+existing exact commit, without writing again. These are simulated Orca identity
+responses around real temporary Git repositories and supervised processes.
+
+The initial overlapping full-suite runs passed all tests on Node 25 but produced
+two Node 24 fixture failures: an existing controller-crash recovery refused a PID
+as live/unverifiable, and an Orca lost-reply test recovered an interrupted writer
+instead of the successful write that fixture expected. Both passed in isolation;
+the Node 24 full suite then passed when run separately. The lost-reply test now
+asserts the writer's result before testing adoption, so future failures expose the
+underlying settlement outcome. No timeout, PID guard or receipt requirement was
+relaxed. The original failures' exact cause remains unconfirmed; retained local logs
+record them, and complete runtime suites should be run sequentially.
+
+After the live task, its exact instance, clean checkout, retained commit and absent
+Grampus lease were verified. The default Orca terminal contained only an unused
+PowerShell prompt. The fixture worktree was removed through Orca without force;
+subsequent listing and filesystem inspection confirmed removal. Its repository
+registration, commit, journal and report remain local. Operational paths and fixture
+data are ignored and not committed.
+
+The live task remains a one-line greeting and was not interrupted mid-turn. Broader
+tasks, live-provider recovery, Orca-managed session coordination and independent
+review of Grampus itself remain outstanding. External editors and separately launched
+Orca agents are not fenced by a Grampus journal lease.
+
 ## Primary references consulted
 
 The delivery slice also consulted Git's official [git-add](https://git-scm.com/docs/git-add)

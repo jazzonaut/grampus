@@ -18,7 +18,7 @@ They include a SQLite journal, versioned task approval, completion gates, Codex 
 Claude conversations, structured questions and review findings, interruption,
 reconnection, local integration discovery and journaled worktree creation.
 Supervised Claude and Codex file editing is available for explicitly named existing text files
-in standalone Windows workspaces. Broader tools, Orca editing/delivery, scheduling, the dashboard
+in standalone and local Orca Windows workspaces. Broader tools, scheduling, the dashboard
 and installers remain to be built.
 
 ## Try the first slice
@@ -180,8 +180,11 @@ filters/hooks still follow repository configuration.
 
 Grampus reserves the task before calling Orca. It records the returned full worktree
 id, stable instance identity, path and branch, then checks the actual Git checkout.
-It uses Orca CLI operations for creation and identity lookup, with read-only Git
-inspection; it does not add a Git lock or mutate Orca metadata behind the app.
+It uses Orca CLI operations for creation and identity lookup; it does not add a Git
+lock or mutate Orca metadata behind the app. Native editing, checks and local commit
+delivery use Grampus-owned supervised processes inside the verified checkout. Orca
+does not independently launch or schedule those agents. Git staging and committing
+are ordinary repository operations; worktree lifecycle remains under Orca's control.
 CLI capability checks and local identity validation reject unsupported responses.
 
 A CLI timeout does not prove Orca stopped creating the checkout. Creation is never
@@ -262,8 +265,9 @@ npm start -- implementation-show <implementation-run-id>
 }
 ```
 
-Use `codex` instead of `claude` to select Codex. Both providers require standalone Git
-workspaces and Windows supervision for this mode.
+Use `codex` instead of `claude` to select Codex. Both providers support standalone Git
+and local Orca workspaces on Windows. Orca identity is checked before dispatch, again
+inside the worker and after process settlement; replaced or archived instances fail.
 The policy names 1–64 existing relative text-file paths; each file is limited to 256 KiB.
 Claude may read snapshot-visible text files and use native `Edit`/`Write` on authorized
 paths. New files, deletion, binary files, links, Git metadata and repository instruction
@@ -461,8 +465,8 @@ These commands do not invent simplification assessments, commit code or push tas
 ## Deliver a checked artifact locally
 
 Once every gate passes, use delivery instead of `execution-complete` to make a local
-commit and complete the task together. This initial path requires Windows and a
-standalone Git implementation execution; Orca delivery is not enabled.
+commit and complete the task together. This path requires a standalone Git or local
+Orca implementation execution on Windows.
 
 ```sh
 npm start -- execution-deliver <implementation-execution-id> delivery.json
@@ -493,6 +497,15 @@ process exit records delivery and task completion in one database transaction.
 The delivery record connects the original checked digest to the final commit even
 though staging and HEAD change the snapshot digest.
 
+For Orca, the durable request also binds the execution, workspace and stable instance
+identity. The worker checks that binding and its lease, and asks Orca to verify the
+instance before staging and before committing. Final verification and recovery check
+the original Orca identity again. A replaced, archived or unavailable workspace cannot
+be accepted; files and any unaccepted commit remain available for investigation.
+No Orca terminal, agent-launch, metadata-edit or worktree-lifecycle mutation is sent
+during editing or delivery. Grampus supervises the processes it starts; separately
+launched Orca agents and external editors are outside that ownership.
+
 Git normalization or clean filters that change checked bytes are rejected before
 commit. Hook changes may be detected after a commit already exists. Failures retain
 the index, files and any commit for investigation; Grampus does not reset, amend,
@@ -507,7 +520,7 @@ existing commit. An interrupted/failed command is not accepted even if a commit
 exists. Missing proof stays blocked. A proven pre-dispatch crash releases ownership
 without running Git. Recovery never replays staging or commit.
 
-## Live standalone task pilot
+## Live task pilot
 
 ```sh
 npm run build
@@ -516,6 +529,8 @@ npm run probe:task -- --live
 npm run probe:task -- --live --native
 # Codex native editing followed by independent Claude review:
 npm run probe:task -- --live --native-codex
+# Repeat with a local Orca-created worktree:
+npm run probe:task -- --live --native-codex --orca
 ```
 
 This opt-in Windows probe uses both subscriptions. It creates an isolated greeting
@@ -533,7 +548,12 @@ paths; keep them out of commits. It demonstrates a bounded controller-applied ch
 and verified delivery. `--native` instead lets Claude edit the greeting through its
 authorized file tools and uses Codex as reviewer. `--native-codex` uses approved Codex
 patches and Claude review. Both native variants leave source editing to the provider.
-The full Orca workflow remains work.
+`--orca` registers the isolated fixture repository with the running local Orca app
+and creates its worktree through Orca. It retains the fixture and reports the stable
+workspace identity; remove a finished probe worktree through Orca, never raw Git.
+Orca's repository registration and local evidence remain for inspection. Remote-host
+overrides are refused by this probe. It exercises Grampus-owned provider processes
+in an Orca workspace, not Orca's agent-launch or terminal-coordination APIs.
 Delivery crash recovery is tested separately with real Git and offline gate fixtures.
 
 ## Development

@@ -34,7 +34,10 @@ export function verifyTree(cwd: string, snapshot: RepositorySnapshot, tree?: str
   }
 }
 
-export interface DeliveryRequest { id: string; cwd: string; branch: string; base: string; message: string; snapshot: RepositorySnapshot }
+export interface DeliveryRequest {
+  id: string; cwd: string; branch: string; base: string; message: string; snapshot: RepositorySnapshot;
+  orca?: { database: string; executionId: string; workspaceId: string; identityKey: string };
+}
 export function deliveryMessage(request: DeliveryRequest): string { return `${request.message.trim()}\n\nGrampus-Delivery: ${request.id}\n`; }
 export function verifyCommit(request: DeliveryRequest): string {
   const { cwd, snapshot } = request;

@@ -72,7 +72,7 @@ export class Implementations {
     const sessions = new Sessions(this.store); let claimedPrompt = '';
     const run = this.store.transaction(() => {
       const execution = this.store.execution<Execution>(executionId);
-      if (execution.role !== 'implementation' || this.workspaces.get(execution.workspaceId).adapter !== 'git') throw new Error('Native implementation currently requires a standalone implementation execution');
+      if (execution.role !== 'implementation') throw new Error('Native implementation requires an implementation execution');
       const claim = sessions.claim(execution.sessionId, prompt, options.answers, true); claimedPrompt = claim.prompt;
       const run: ImplementationRun = { id: claim.runId, executionId, policy, phase: 'running', dispatch: 'not_requested', before: null, after: null,
         receipt: null, supervisorPid: null, toolPid: null, process: null, result: null, error: null };

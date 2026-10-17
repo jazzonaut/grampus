@@ -56,6 +56,7 @@ conversation reply to repository changes, evidence acceptance or task completion
 | `src/execution-state.ts` | Validate bindings, acquire/fence workspace leases and settle linked task outcomes |
 | `src/checks.ts` | Lease repository operations, capture evidence, execute explicit checks and submit implementation |
 | `src/implementations.ts`, `src/implementation-worker.ts` | Supervise native editing turns and reconcile process-tree settlement |
+| `src/delivery-operation.ts` | Stage and commit checked content inside the supervised writer, with Orca identity/lease checks |
 | `src/edit-policy.ts` | Validate explicit edit scope, authorize file tools and check resulting changes |
 | `src/deliveries.ts`, `src/delivery-worker.ts`, `src/delivery-git.ts` | Bind reviewed content to local commits and recover delivery |
 | `src/artifacts.ts` | Hash repository inputs and retain structured changes and discovered instructions |
@@ -217,7 +218,11 @@ The response is validated and bound to the reservation before readiness checks.
 Grampus records the full worktree id, stable identity key and instance id, plus the
 observed path and branch. Inspection requires those identities, Orca's local host,
 the repository's Git common directory and actual worktree registration to match.
-No raw Git writes or extra Git locks are applied to Orca worktrees.
+No raw Git worktree lifecycle writes or extra Git locks are applied to Orca worktrees.
+Grampus-owned native editing and supervised Git staging/commits are supported inside
+the verified checkout. Orca remains the authority for creation, identity, archival
+and removal. The installed CLI has no commit command; ordinary Git commits run under
+Grampus supervision and do not change Orca metadata or start Orca-managed agents.
 
 CLI exit/timeout is not Orca host completion. Recovery first excludes another live
 Grampus controller, then uses Orca's read-only list/show interfaces. An uncaptured
@@ -508,7 +513,7 @@ and independent Claude review.
 
 ## Native implementation contract
 
-`execution-implement` claims an approved standalone implementation execution and
+`execution-implement` claims an approved standalone or local Orca implementation execution and
 marks its fresh Claude or Codex session as editing-only. It snapshots current content and
 checks an explicit policy's artifact/instruction digests and existing writable paths.
 Intent and dispatch are persisted before the Windows supervisor launches a worker.
@@ -555,7 +560,7 @@ even after a lost successful result; it never retries inference or accepts task 
 Pre-dispatch recovery runs no tools. Missing settlement proof retains ownership.
 
 Current scope is existing UTF-8 files, at most 256 KiB each and 64 writable paths.
-New files/deletion, Orca editing, other platforms and provider
+New files/deletion, other platforms and provider
 shell tools are not enabled. References: Claude [permission evaluation](https://code.claude.com/docs/en/agent-sdk/permissions)
 and [tool hooks](https://code.claude.com/docs/en/agent-sdk/hooks); Codex
 [app-server approvals](https://learn.chatgpt.com/docs/app-server) and schemas generated
@@ -564,12 +569,22 @@ from the installed app-server define the scoped patch protocol.
 ## Local delivery contract
 
 `execution-deliver` requires every gate on the current submitted artifact before
-claiming a delivery lease. The standalone Windows worker runs under the same Job
+claiming a delivery lease. The Windows worker runs under the same Job
 Object supervisor as checks. Intent and dispatch boundaries are durable before any
 Git write. It uses normal staging/commit configuration, with no identity overrides,
 and checks staged paths, modes and raw blob hashes against the submitted snapshot.
 Windows retains indexed executable modes; new files use mode 100644. Git filters
 that transform checked bytes fail this initial strict comparison.
+
+For Orca workspaces, the request adds a durable journal/execution/workspace/instance
+binding. The worker reads the saved delivery request and rejects any mismatch, stale
+lease, closed execution or unready workspace. It asks Orca to inspect the exact local
+instance before snapshot collection, before staging and before committing. The
+parent's final snapshots and recovery also verify Orca identity. Read-only Orca CLI
+calls run inside the supervised tree; CLI exit is never used as proof that an Orca
+host mutation stopped, because no host mutation is requested during this operation.
+The optional request binding is additive; existing standalone schema 9 deliveries
+remain readable and recoverable without migration.
 
 An exact parent, branch, message and operation marker identify the resulting commit.
 The controller verifies its full tree and index plus unchanged working file hashes
@@ -589,7 +604,7 @@ Failures preserve staged changes and any unaccepted commit, including hook effec
 there is no automatic rollback, amend or lock removal. A rejected artifact needs
 fresh implementation and gates. The supervisor covers ordinary tool descendants,
 not external services. Git configuration/hooks and the local journal remain trusted.
-Concurrent external editors are not locked out. Orca delivery, other platforms,
+Concurrent external editors and Orca agents are not locked out. Other platforms,
 multi-slice scheduling and no-change delivery are not implemented.
 
 `npm test` builds and runs offline tests against temporary databases, subprocesses
@@ -599,6 +614,6 @@ Both providers also passed explicit live probes; see
 [INTEGRATION-EVIDENCE.md](INTEGRATION-EVIDENCE.md) for versions and observed behavior.
 
 Only Windows has been tested. Workspace release/rebinding, shared scheduling,
-other-platform check runners, broader provider tools, review arbitration, Orca delivery,
+other-platform check runners, broader provider tools, review arbitration, Orca session coordination,
 multi-slice scheduling, dashboard, installers and platform CI remain outstanding.
 The implementation itself has not had an independent review.

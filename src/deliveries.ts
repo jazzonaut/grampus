@@ -73,9 +73,8 @@ export class Deliveries {
       receipt: null, supervisorPid: null, toolPid: null, result: null, commit: null, error: null };
     const execution = this.store.transaction(() => {
       const execution = this.store.execution<Execution>(executionId);
-      const workspace = this.workspaces.get(execution.workspaceId);
       const workflow = new Workflow(this.store); const task = workflow.get(execution.taskId);
-      if (execution.role !== 'implementation' || workspace.adapter !== 'git') throw new Error('Delivery requires a standalone Git implementation execution');
+      if (execution.role !== 'implementation') throw new Error('Delivery requires an implementation execution');
       const blockers = workflow.blockers(task.id);
       if (blockers.length || task.phase === 'complete' || task.attempt?.artifact !== spec.artifact) throw new Error(`Delivery requires the current submitted artifact and every gate: ${blockers.join('; ')}`);
       const session = new Sessions(this.store).get(execution.sessionId);
@@ -90,6 +89,10 @@ export class Deliveries {
       const branch = gitText(workspace.path!, 'symbolic-ref', 'HEAD');
       if (branch !== `refs/heads/${workspace.branch}`) throw new Error('Delivery branch differs from workspace ownership');
       delivery.request = { id: delivery.id, cwd: workspace.path!, branch, base: workspace.baseCommit, message: spec.message, snapshot };
+      if (workspace.adapter === 'orca') {
+        if (this.store.path === ':memory:' || !workspace.orca?.identityKey) throw new Error('Orca delivery requires a durable journal and known workspace identity');
+        delivery.request.orca = { database: this.store.path, executionId, workspaceId: workspace.id, identityKey: workspace.orca.identityKey };
+      }
       delivery.receipt = allocateReceipt(this.store, delivery.id);
       const requestFile = join(delivery.receipt.directory, 'delivery.json'); writeFileSync(requestFile, JSON.stringify(delivery.request));
       this.store.transaction(() => { this.fence(delivery); delivery.dispatch = 'requested'; this.save(delivery, 'delivery.dispatched'); });

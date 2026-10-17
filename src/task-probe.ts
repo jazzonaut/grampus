@@ -12,12 +12,16 @@ import { Deliveries } from './deliveries.js';
 import { Implementations } from './implementations.js';
 import { runSession, Sessions } from './sessions.js';
 import { renderReport } from './report.js';
+import { orcaExecutable } from './orca.js';
 
 // Opt-in integration exercise, never part of the offline test suite. Native mode
 // uses supervised file tools; the default applies one allowlisted response.
-const args = process.argv.slice(2).join(' ');
+const flags = process.argv.slice(2);
+const orca = flags.includes('--orca');
+const args = flags.filter(flag => flag !== '--orca').join(' ');
 const native = ['--live --native', '--live --native-codex'].includes(args);
-if (!native && args !== '--live') throw new Error('Usage: npm run probe:task -- --live [--native|--native-codex] (uses Codex and Claude subscriptions)');
+if ((!native && args !== '--live') || flags.filter(flag => flag === '--orca').length > 1) throw new Error('Usage: npm run probe:task -- --live [--native|--native-codex] [--orca] (uses Codex and Claude subscriptions)');
+if (orca && (process.env.ORCA_PAIRING_CODE || process.env.ORCA_ENVIRONMENT)) throw new Error('The Orca probe requires the local runtime without remote overrides');
 const implementer = args === '--live --native' ? 'claude' : 'codex';
 const reviewer = implementer === 'claude' ? 'codex' : 'claude';
 if (process.platform !== 'win32') throw new Error('This probe requires Windows command supervision');
@@ -41,7 +45,14 @@ async function main(): Promise<void> {
     criteria: ['Running greeting.js prints exactly hello world followed by one newline.'],
     plan: `${native ? `${implementer} edits greeting.js through its bounded native file tools; ${reviewer} independently reviews.` : 'Codex supplies one statement; controller applies it and Claude independently reviews.'} Assess simplification, run regression and exact-output acceptance, then deliver a verified local commit and complete.` });
   workflow.approve(task.id, 1);
-  const workspace = await new Workspaces(store).create(task.id, 1, repo, join(root, 'workspace'));
+  if (orca) {
+    const response = JSON.parse(execFileSync(orcaExecutable(), ['repo', 'add', '--path', repo, '--json'],
+      { encoding: 'utf8', windowsHide: true, timeout: 120_000, stdio: 'pipe' })) as { ok?: boolean };
+    assert.equal(response.ok, true, 'Orca fixture repository registration failed');
+  }
+  const workspaces = new Workspaces(store);
+  const workspace = orca ? await workspaces.createOrca(task.id, 1, repo, 'main')
+    : await workspaces.create(task.id, 1, repo, join(root, 'workspace'));
   const implementation = await executions.create(workspace.id, 1, implementer);
   console.log(JSON.stringify({ stage: 'implementation', evidence: relativeRoot }));
   let source: string;
@@ -87,10 +98,11 @@ async function main(): Promise<void> {
   assert.equal(git(workspace.path!, 'show', `${commit}:greeting.js`), source);
   writeFileSync(join(root, 'report.md'), renderReport(store, task.id));
   const summary = { passed: true, phase: workflow.get(task.id).phase, commit,
+    workspace: { adapter: workspace.adapter, identityKey: workspace.orca?.identityKey ?? null },
     implementation: { provider: implementer, model: new Sessions(store).get(implementation.sessionId).model },
     review: { provider: reviewer, model: new Sessions(store).get(review.sessionId).model, findings: reviewed.reply!.findings },
     validation: validation.phase, verification: verified.phase, evidence: relativeRoot,
-    scope: `Standalone Git, ${native ? `supervised ${implementer} native file editing` : 'controller-applied response'}, live independent review, supervised verified local delivery; no push` };
+    scope: `${orca ? 'Local Orca worktree with Grampus-owned processes' : 'Standalone Git'}, ${native ? `supervised ${implementer} native file editing` : 'controller-applied response'}, live independent review, supervised verified local delivery; no push` };
   writeFileSync(join(root, 'result.json'), JSON.stringify(summary, null, 2)); console.log(JSON.stringify(summary, null, 2));
 }
 main().catch(error => { console.error(error instanceof Error ? error.message : String(error)); console.error(`Evidence retained under ${relativeRoot}`); process.exitCode = 1; }).finally(() => store.close());

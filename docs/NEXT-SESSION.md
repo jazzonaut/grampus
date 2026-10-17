@@ -1,9 +1,10 @@
 # Resume Grampus implementation
 
-Checkpoint: 17 October 2026, after durable state, conversations, Git/Orca workspaces,
+Checkpoint: 18 October 2026, after durable state, conversations, Git/Orca workspaces,
 task-linked session ownership, recoverable Windows checks, artifact review,
 exact-output acceptance verification, explicit simplification and supervised local
-delivery and supervised Claude/Codex native file editing with live standalone task pilots.
+delivery and supervised Claude/Codex native file editing with live standalone and
+local Orca task pilots.
 The user continued implementation in the
 same session and authorized pushing the repository.
 
@@ -58,7 +59,13 @@ Default delivery remains local unless the user authorizes an external action.
   durable authorization. Read-only mode and client approval routing are confirmed;
   root/session grants, commands and other permission requests are refused. The live
   Codex edit → Claude review → checks → verified local delivery pilot passed.
-- 144 offline tests passed on Windows with Node 24.22.0 and 25.8.1, covering real Git,
+- Native editing and supervised local delivery now support local Orca workspaces.
+  Orca owns lifecycle/identity; Grampus owns provider processes and ordinary Git
+  staging/commits. Worker-side delivery fences and repeated Orca identity checks
+  reject replaced/archived instances before staging, before commit and at acceptance.
+  A live Codex edit → Claude review → checks → verified local commit pilot passed
+  in an Orca-created worktree. Its temporary worktree was removed through Orca.
+- 151 offline tests passed on Windows with Node 24.22.0 and 25.8.1, covering real Git,
   controller crashes, Orca protocol fixtures, lease races, rollback, uncertain startup,
   stale bindings, real command results, timeouts, detached descendants, controller/
   supervisor crashes, receipt recovery, stale artifacts, review context, output
@@ -67,15 +74,16 @@ Default delivery remains local unless the user authorizes an external action.
 - Both live probes passed question/answer, context across controller restarts,
   supplied-code review findings, interruption and resumption with earlier context.
 
-The demo is synthetic and offline reviewers are fixtures. The opt-in standalone
+The demo is synthetic and offline reviewers are fixtures. The opt-in
 `npm run probe:task -- --live` now reaches completion with both live providers and
 all gates. Its default mode applies a single allowlisted Codex response; `--native`
 uses actual Claude Read/Edit/Write tools and Codex review; `--native-codex` uses Codex
-patches and Claude review. Standalone delivery and
+patches and Claude review. Add `--orca` to create a local Orca fixture workspace.
+Standalone and local Orca delivery and
 its explicit recovery path are implemented; local probe
 evidence remains under ignored `.grampus/task-probes/`. Do not commit those journals,
-reports or fixture repositories. The full live task has not been repeated through
-Orca or with a mid-task controller crash. Offline delivery fixtures now exercise
+reports or fixture repositories. The live greeting task passed through Orca, but
+has not been repeated with a mid-task controller crash. Offline delivery fixtures exercise
 actual controller exits before dispatch and after commit, followed by recovery.
 Native editing fixtures also kill a controller during a running file-writing tool,
 confirm the supervisor receipt and preserve partial edits without replay.
@@ -84,22 +92,22 @@ unverified. Temporary journals, generated schemas, local probe transcripts and
 dependency/build directories are intentionally not committed. The evidence document
 contains the durable summary, and the probe script can reproduce the checks.
 
-## Next implementation slice: Orca integration and broader tasks
+## Next implementation slice: broader tasks and recovery pilots
 
 Start with the existing source and a small concrete plan. Do not rebuild the
 controller or broaden into the dashboard first.
 
-1. Extend native editing and verified delivery to Orca through its supported
-   interfaces. Both providers now support bounded standalone editing on Windows.
-   Preserve process-tree supervision and explicit tool scope; do not broaden shell
-   tools or writable roots implicitly.
-2. Address explicit new-file/deletion policies, meaningful multi-file tasks,
-   multi-slice continuation and no-change outcomes. Standalone delivery already binds
+1. Extend the live native pilot beyond a greeting, starting with a meaningful
+   multi-file change. Both providers now support bounded standalone/local Orca
+   editing and delivery on Windows. Preserve process-tree supervision and explicit
+   scope; do not broaden shell tools or writable roots implicitly.
+2. Address explicit new-file/deletion policies, multi-slice continuation and
+   no-change outcomes. Local delivery already binds
    the checked digest to the exact commit. Recovery needs a terminal receipt after
    dispatch; failed/uncertain operations never trigger commit replay or Git resets.
-3. Extend the live native pilot beyond a greeting, demonstrate a live-provider
-   mid-task interruption/recovery, and repeat through Orca. Keep semantic
-   simplification assessment explicit and choose checks that demonstrate the outcome.
+3. Demonstrate a live-provider mid-task interruption/recovery, including in an Orca
+   workspace. Keep semantic simplification assessment explicit and choose checks
+   that demonstrate the outcome.
 4. Define safe workspace release/rebinding for changed briefs and a recovery path for
    unknown provider PIDs. Failed reservations currently stay blocked for investigation.
    Keep using Orca's supported interfaces for Orca-owned state; its CLI exiting does
@@ -122,7 +130,7 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
 - Execution records now link tasks, versions, attempts and sessions. There is no
   automatic scheduler or end-to-end repository task runner yet. Successful conversations
   leave implementation open; they cannot create a successful artifact or pass a gate.
-- `execution-implement` supports Claude and Codex on standalone Windows workspaces, with
+- `execution-implement` supports Claude and Codex on standalone/local Orca Windows workspaces, with
   explicit existing-file policies (1–64 paths, UTF-8 files at most 256 KiB each).
   Claude SDK hooks check/journal file decisions; StructuredOutput only validates the
   final reply. Codex uses one-item patch approvals and a bounded supplied text context
@@ -153,13 +161,16 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
   PowerShell `Add-Type`; `src/native` accompanies the compiled JS checkout. Preserve
   `<database>.checks/` with the journal. Receipts/output remain local and ignored by Git;
   they trust the local account, and there is no retention cleanup yet.
-- `execution-deliver` runs before task completion, requires all gates and only supports
-  standalone Windows workspaces. It stages the complete checked content and preserves
+- `execution-deliver` runs before task completion, requires all gates and supports
+  standalone and local Orca Windows workspaces. It stages checked content and preserves
   configured identity/hooks/signing. Filters or line-ending normalization that alter
   checked raw bytes are rejected; hook effects may leave an unaccepted commit. Failed
   deliveries preserve files/index/locks for investigation rather than resetting them.
   A successful receipt plus exact commit/content proof permits explicit recovery;
   missing receipts retain ownership. Native shell execution remains disabled.
+  Orca delivery adds a journal/execution/workspace/instance binding and checks it in
+  the worker before Git writes. Identity failure after a commit leaves an unaccepted
+  commit and no task completion. Existing schema 9 standalone receipts still work.
 - Content digests omit ignored dependencies/build outputs and external environment/
   services. Snapshots use two matching reads, not an atomic filesystem snapshot.
   Symlinks, submodules and unresolved indexes are unsupported. Keep command specs
@@ -179,8 +190,15 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
 - Orca creation requires an explicit base ref and chooses its own path/branch. Its
   default terminal settings still apply with setup skipped. Unknown create outcomes
   stay reserved until exact discovery succeeds; no create retry or host cancellation
-  is implemented. Remote hosts are rejected, and the adapter never changes Orca-owned
-  worktrees through raw Git writes.
+  is implemented. Remote hosts are rejected. Orca-owned lifecycle and metadata are
+  never changed through raw Git; ordinary staging/commits use Grampus's supervised
+  writer because the installed CLI exposes no commit API. Editing and delivery do
+  not launch agents through Orca or send terminal input. Orca session coordination
+  remains unimplemented; other Orca agents can still race Grampus operations.
+- `probe:task -- --live --native-codex --orca` registers an isolated fixture repository
+  and creates its worktree through Orca. It retains evidence and reports the instance
+  key. Remove only verified finished fixture worktrees through Orca; the registration,
+  fixture repository and journal remain local. No automatic fixture cleanup exists.
 - Retention, safe-checkpoint transfer, installer packaging, platform CI, browser
   dashboard, notifications, Linear and opt-in PR delivery are still outstanding.
 - Keep subscription authentication as the default. Do not silently enable API
@@ -196,6 +214,11 @@ npm ci
 npm test
 npm run doctor
 ```
+
+Run complete Node-version suites sequentially on Windows. Overlapping Node 24/25
+suites produced two recovery-fixture failures at this checkpoint; isolated checks
+and a separate Node 24 full run passed. The exact cause was not established, and
+PID/receipt recovery guards were not weakened. See the integration evidence.
 
 If working through Orca, also run `npm run doctor -- --orca`. Read its installed,
 version-matched CLI guide before manipulating Orca-owned state. Live probes are

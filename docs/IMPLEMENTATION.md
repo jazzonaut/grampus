@@ -289,4 +289,28 @@ passed actual editing, regression, simplification, review, exact-output acceptan
 and verified local commit delivery. Offline tests cover whole-patch refusal, failed
 journaling, stale/repeated approvals, interruption, RPC request-id collisions and
 Codex's shared implementation lease. Orca integration, broader file operations and
-more representative live tasks remain outstanding.
+more representative live tasks remained outstanding at that checkpoint.
+
+## Native editing and local delivery in Orca workspaces
+
+Both native providers now use the existing supervised implementation path in local
+Orca workspaces. The parent and worker check Orca's stable instance identity through
+the supported CLI; successful settlement still checks content scope and passes no
+completion gates. Grampus remains the sole owner of these provider processes.
+
+Delivery now supports local Orca workspaces using the supervised Git writer. The
+version-matched CLI exposes worktree lifecycle and identity operations but no commit
+command. Ordinary Git staging/committing is therefore separate from Orca-owned
+lifecycle: no raw worktree add/remove/lock or Orca metadata mutation is introduced.
+The delivery request binds the durable journal, execution, workspace and instance.
+The worker revalidates the request, lease and Orca identity before staging and before
+commit. Final acceptance and receipt recovery require the original identity as well
+as the exact checked commit. Failed/replaced instances preserve files and commits.
+
+The live task probe adds `--orca`, creating its fixture through Orca while retaining
+Grampus process supervision and existing provider policies. Offline fixtures exercise
+both providers, identity changes before dispatch and after editing, worker checks
+before staging/commit, altered request bindings, post-commit replacement and receipt
+recovery without replay. Schema 9 remains compatible; Orca delivery bindings are
+additive. Orca-managed agent/session coordination, remote hosts and broader task
+operations remain separate work.

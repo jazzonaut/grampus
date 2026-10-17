@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
@@ -12,6 +12,14 @@ import { OrcaCli, type OrcaTransport } from '../src/orca.js';
 import { Executions } from '../src/executions.js';
 import { runSession } from '../src/sessions.js';
 import type { Connector } from '../src/agents/types.js';
+import { Sessions } from '../src/sessions.js';
+import { Checks } from '../src/checks.js';
+import { Implementations } from '../src/implementations.js';
+import { Deliveries } from '../src/deliveries.js';
+import { deliverRepository } from '../src/delivery-operation.js';
+import type { DeliveryRequest } from '../src/delivery-git.js';
+import { runCheckProcess, type CheckProcessOptions, type CheckProcessResult } from '../src/check-process.js';
+import type { ExecutionLease } from '../src/execution-state.js';
 
 const brief = { title: 'Orca fixture', outcome: 'Isolate checkout', criteria: ['Base preserved'], plan: 'Create then inspect' };
 function git(cwd: string, ...args: string[]): string {
@@ -210,4 +218,149 @@ test('Orca execution holds a lease during identity inspection and refuses a repl
   assert.equal((await runSession(store, execution.sessionId, 'Second', {}, connector, workspaces)).status, 'failed');
   assert.equal(turns, 1);
   assert.equal(store.lease(workspace.id), null);
+});
+
+const windows = { skip: process.platform !== 'win32' };
+async function implementationFixture(t: { after(fn: () => void): void }, provider: 'claude' | 'codex' = 'codex') {
+  const f = fixture(t);
+  const workspace = await f.workspaces.createOrca(f.task.id, 1, f.repo, 'main');
+  const execution = await new Executions(f.store, f.workspaces).create(workspace.id, 1, provider);
+  const checks = new Checks(f.store, f.workspaces); const snapshot = await checks.snapshot(execution.id);
+  const policy = { artifact: snapshot.artifact, instructionsDigest: snapshot.instructionsDigest, files: ['greeting.txt'] };
+  return { ...f, workspace, execution, checks, snapshot, policy, implementations: new Implementations(f.store, f.workspaces) };
+}
+function editedResult(options: CheckProcessOptions) {
+  writeFileSync(join(options.cwd, 'greeting.txt'), 'hello world\n');
+  writeFileSync(join(options.receipt!.directory, 'result.json'), JSON.stringify({ id: options.receipt!.checkId,
+    result: { status: 'completed', reply: { kind: 'message', text: 'Fixture edited greeting', questions: [], findings: [] }, usage: null, error: null } }));
+  return { reason: 'exited', exitCode: 0, exitConfirmed: true, stdout: '', stderr: '', outputTruncated: false };
+}
+
+test('both native providers can edit an Orca workspace without changing its lifecycle or accepting gates', windows, async t => {
+  for (const provider of ['claude', 'codex'] as const) {
+    const f = await implementationFixture(t, provider);
+    const run = await f.implementations.run(f.execution.id, f.policy, undefined, {}, async options => {
+      assert.equal(f.store.lease<ExecutionLease>(f.workspace.id)?.kind, 'implementation');
+      return editedResult(options);
+    });
+    assert.equal(run.phase, 'completed', run.error ?? undefined);
+    assert.equal(f.workflow.get(f.task.id).phase, 'running'); assert.deepEqual(f.workflow.get(f.task.id).evidence, []);
+    assert.equal(new Sessions(f.store).get(f.execution.sessionId).mode, 'editing');
+    assert.equal(f.store.lease(f.workspace.id), null);
+    assert.equal(git(f.workspace.path, 'rev-parse', 'HEAD'), f.workspace.baseCommit);
+    assert.ok(f.requests.every(args => ['repo', 'worktree'].includes(args[0]!) && !['set', 'rm'].includes(args[1]!)));
+  }
+});
+
+test('Orca editing refuses changed identity before dispatch and cannot accept edits after archival', windows, async t => {
+  const f = await implementationFixture(t); let dispatched = false;
+  f.state.worktree!.instanceId = 'replacement';
+  const rejected = await f.implementations.run(f.execution.id, f.policy, undefined, {}, async options => { dispatched = true; return editedResult(options); });
+  assert.equal(dispatched, false); assert.equal(rejected.phase, 'failed'); assert.equal(rejected.dispatch, 'not_requested');
+  const g = await implementationFixture(t);
+  const edited = await g.implementations.run(g.execution.id, g.policy, undefined, {}, async options => {
+    const result = editedResult(options); g.state.worktree!.isArchived = true; return result;
+  });
+  assert.equal(edited.phase, 'failed'); assert.match(edited.error!, /changed/);
+  assert.equal(readFileSync(join(g.workspace.path, 'greeting.txt'), 'utf8'), 'hello world\n');
+  assert.equal(g.store.lease(g.workspace.id), null); // Exit is proven; failed edits stay intact.
+});
+
+async function deliveryFixture(t: { after(fn: () => void): void }) {
+  const f = await implementationFixture(t);
+  writeFileSync(join(f.workspace.path, 'greeting.txt'), 'hello world\n');
+  const snapshot = await f.checks.snapshot(f.execution.id);
+  f.workflow.finish(f.task.id, f.execution.attemptId, 1, 'succeeded', snapshot.artifact, 'Trusted fixture submission');
+  for (const kind of ['validation', 'simplification', 'review', 'verification'] as const) f.workflow.record(f.task.id, {
+    id: kind, kind, artifact: snapshot.artifact, version: 1, attemptId: f.execution.attemptId, outcome: 'passed', source: 'controller',
+    summary: 'Offline fixture gates; no live inference', criteria: f.task.brief.criteria,
+    ...(kind === 'review' ? { agent: { provider: 'claude' as const, model: 'fixture', sessionId: 'independent-fixture' } } : {}) });
+  return { ...f, snapshot, deliveries: new Deliveries(f.store, f.workspaces),
+    spec: { artifact: snapshot.artifact, instructionsDigest: snapshot.instructionsDigest, message: 'Deliver Orca fixture', timeoutMs: 15000 } };
+}
+
+// Simulate only Orca's identity RPC. The real writer still runs inside the Job Object.
+async function supervisedOrcaWriter(f: Awaited<ReturnType<typeof deliveryFixture>>, options: CheckProcessOptions) {
+  const identityFile = join(f.root, 'orca-identity.json'); writeFileSync(identityFile, JSON.stringify(f.state.worktree));
+  const url = (name: string) => JSON.stringify(new URL(`../src/${name}.js`, import.meta.url).href);
+  const script = `import {readFileSync} from 'node:fs'; import {deliverRepository} from ${url('delivery-operation')};
+    import {Workspaces} from ${url('workspaces')}; import {OrcaCli} from ${url('orca')};
+    const request=JSON.parse(readFileSync(process.argv[1],'utf8'));
+    const client=new OrcaCli(async()=>JSON.stringify({ok:true,result:{worktree:JSON.parse(readFileSync(process.argv[2],'utf8'))}}));
+    console.log(await deliverRepository(request,process.argv[1]+'.message',store=>new Workspaces(store,client)));`;
+  return runCheckProcess({ ...options, args: ['--input-type=module', '-e', script, options.args[1]!, identityFile] });
+}
+
+test('Orca delivery runs the supervised Git writer, preserves identity and completes exact checked content', windows, async t => {
+  const f = await deliveryFixture(t);
+  const delivery = await f.deliveries.run(f.execution.id, f.spec, undefined, options => supervisedOrcaWriter(f, options));
+  assert.equal(delivery.phase, 'delivered', JSON.stringify(delivery));
+  assert.equal(delivery.request?.orca?.identityKey, f.workspace.orca!.identityKey);
+  assert.equal(git(f.workspace.path, 'show', '-s', '--format=%an <%ae> / %cn <%ce>'), 'Fixture <fixture@invalid> / Fixture <fixture@invalid>');
+  assert.equal(git(f.workspace.path, 'status', '--porcelain'), '');
+  assert.equal(f.workflow.get(f.task.id).phase, 'complete'); assert.equal(f.store.lease(f.workspace.id), null);
+});
+
+test('Orca delivery worker rechecks ownership before staging and before commit', windows, async t => {
+  for (const changeAt of [1, 3]) {
+    const f = await deliveryFixture(t); let observations = 0;
+    const delivery = await f.deliveries.run(f.execution.id, f.spec, undefined, async options => {
+      const request = JSON.parse(readFileSync(options.args[1]!, 'utf8')) as DeliveryRequest;
+      await assert.rejects(deliverRepository(request, join(f.root, 'message'), store => {
+        const workspaces = new Workspaces(store, f.client); const inspect = workspaces.inspect.bind(workspaces);
+        workspaces.inspect = async (...args) => { if (++observations === changeAt) f.state.worktree!.isArchived = true; return inspect(...args); };
+        return workspaces;
+      }), /changed/);
+      return { reason: 'exited', exitCode: 1, exitConfirmed: true, stdout: '', stderr: 'Fixture identity changed', outputTruncated: false };
+    });
+    assert.equal(delivery.phase, 'failed'); assert.equal(git(f.workspace.path, 'rev-parse', 'HEAD'), f.snapshot.head);
+    assert.equal(git(f.workspace.path, 'diff', '--cached', '--name-only'), changeAt === 1 ? '' : 'greeting.txt');
+    assert.equal(f.workflow.get(f.task.id).phase, 'awaiting_verification');
+  }
+});
+
+test('Orca writer rejects a request that differs from the durable delivery binding', windows, async t => {
+  const f = await deliveryFixture(t);
+  const delivery = await f.deliveries.run(f.execution.id, f.spec, undefined, async options => {
+    const request = JSON.parse(readFileSync(options.args[1]!, 'utf8')) as DeliveryRequest;
+    request.orca!.identityKey = 'wt2:local:replacement';
+    await assert.rejects(deliverRepository(request, join(f.root, 'message'), store => new Workspaces(store, f.client)), /no longer owns/);
+    return { reason: 'exited', exitCode: 1, exitConfirmed: true, stdout: '', stderr: '', outputTruncated: false };
+  });
+  assert.equal(delivery.phase, 'failed'); assert.equal(git(f.workspace.path, 'diff', '--cached', '--name-only'), '');
+});
+
+test('Orca identity replacement after a confirmed commit cannot complete the task', windows, async t => {
+  const f = await deliveryFixture(t);
+  const delivery = await f.deliveries.run(f.execution.id, f.spec, undefined, async options => {
+    const result = await supervisedOrcaWriter(f, options); f.state.worktree!.isArchived = true; return result;
+  });
+  assert.equal(delivery.phase, 'failed'); assert.equal(delivery.commit, null);
+  assert.notEqual(git(f.workspace.path, 'rev-parse', 'HEAD'), f.snapshot.head);
+  assert.equal(f.workflow.get(f.task.id).phase, 'awaiting_verification'); assert.equal(f.store.lease(f.workspace.id), null);
+});
+
+test('Orca lost-reply delivery recovery needs a receipt and the original workspace identity', windows, async t => {
+  for (const replaced of [false, true]) {
+    const f = await deliveryFixture(t);
+    let writerResult: CheckProcessResult | undefined;
+    const delivery = await f.deliveries.run(f.execution.id, f.spec, undefined, async options => {
+      writerResult = await supervisedOrcaWriter(f, options); throw new Error('Fixture lost controller reply');
+    });
+    assert.equal(writerResult?.reason, 'exited', JSON.stringify(writerResult));
+    assert.equal(writerResult?.exitCode, 0, JSON.stringify(writerResult));
+    assert.equal(delivery.phase, 'recovery_required');
+    const head = git(f.workspace.path, 'rev-parse', 'HEAD');
+    const pid = Number(execFileSync(process.execPath, ['-e', 'console.log(process.pid)'], { encoding: 'utf8', windowsHide: true }));
+    const lease = f.store.lease<ExecutionLease>(f.workspace.id)!;
+    f.store.transaction(() => {
+      f.store.releaseLease(f.workspace.id, f.execution.id, lease.runId);
+      f.store.acquireLease(f.workspace.id, f.execution.id, lease.runId, { ...lease, controllerPid: pid });
+    });
+    if (replaced) f.state.worktree!.isArchived = true;
+    const recovered = await f.deliveries.recover(delivery.id);
+    assert.equal(recovered.phase, replaced ? 'failed' : 'delivered');
+    assert.equal(f.workflow.get(f.task.id).phase, replaced ? 'awaiting_verification' : 'complete');
+    assert.equal(git(f.workspace.path, 'rev-parse', 'HEAD'), head); assert.equal(f.store.lease(f.workspace.id), null);
+  }
 });
