@@ -32,7 +32,7 @@ export class Store {
     this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
     const version = this.db.prepare('PRAGMA user_version').get()?.user_version;
-    if (![0, 1, 2, 3, 4, 5].includes(Number(version))) {
+    if (![0, 1, 2, 3, 4, 5, 6].includes(Number(version))) {
       this.db.close();
       throw new Error(`Unsupported journal schema version: ${version}`);
     }
@@ -90,7 +90,12 @@ export class Store {
         run_id TEXT NOT NULL UNIQUE,
         state TEXT NOT NULL
       );
-      PRAGMA user_version = 5;
+      CREATE TABLE IF NOT EXISTS checks (
+        id TEXT PRIMARY KEY,
+        execution_id TEXT NOT NULL REFERENCES executions(id),
+        state TEXT NOT NULL
+      );
+      PRAGMA user_version = 6;
       COMMIT;
     `);
   }
@@ -231,6 +236,22 @@ export class Store {
   lease<T>(workspaceId: string): T | null {
     const row = this.db.prepare('SELECT state FROM execution_leases WHERE workspace_id = ?').get(workspaceId);
     return row ? JSON.parse(String(row.state)) as T : null;
+  }
+
+  check<T>(id: string): T {
+    const row = this.db.prepare('SELECT state FROM checks WHERE id = ?').get(id);
+    if (!row) throw new Error(`Check not found: ${id}`);
+    return JSON.parse(String(row.state)) as T;
+  }
+
+  checks<T>(executionId: string): T[] {
+    return this.db.prepare('SELECT state FROM checks WHERE execution_id = ? ORDER BY rowid').all(executionId)
+      .map(row => JSON.parse(String(row.state)) as T);
+  }
+
+  saveCheck(id: string, executionId: string, state: unknown): void {
+    this.db.prepare('INSERT INTO checks(id, execution_id, state) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state')
+      .run(id, executionId, JSON.stringify(state));
   }
 
   acquireLease(workspaceId: string, executionId: string, runId: string, state: unknown): void {

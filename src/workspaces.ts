@@ -54,7 +54,7 @@ function git(cwd: string, args: string[], started?: (pid: number | null) => void
   for (const key of Object.keys(env)) if (key.startsWith('GIT_') && key !== 'GIT_TERMINAL_PROMPT') delete env[key];
   return new Promise((resolveResult, reject) => {
     let startupError: unknown;
-    const child = execFile('git', ['-C', cwd, ...args], { env, windowsHide: true, encoding: 'utf8', timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
+    const child = execFile('git', ['-c', 'core.fsmonitor=false', '-C', cwd, ...args], { env, windowsHide: true, encoding: 'utf8', timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
       if (startupError) reject(startupError);
       else if (error) reject(new Error(`Git ${args[0]} failed (${error.code ?? error.signal ?? 'unknown'}); inspect workspace state before retrying`));
       else resolveResult(stdout);
@@ -205,7 +205,7 @@ export class Workspaces {
     });
   }
 
-  async inspect(id: string): Promise<{ workspace: Workspace; head: string; dirty: boolean; taskCurrent: boolean }> {
+  async inspect(id: string, includeStatus = true): Promise<{ workspace: Workspace; head: string; dirty: boolean | null; taskCurrent: boolean }> {
     const workspace = this.get(id);
     if (workspace.host !== hostname()) throw new Error('Inspect this workspace on its execution host');
     if (!workspace.path || !workspace.branch) throw new Error('Workspace destination is unknown; recover its Orca identity first');
@@ -230,7 +230,7 @@ export class Workspaces {
       throw new Error('Workspace repository identity does not match');
     }
     const head = (await git(workspace.path, ['rev-parse', '--verify', 'HEAD'])).trim();
-    const dirty = (await git(workspace.path, ['status', '--porcelain=v1', '--untracked-files=all'])).length !== 0;
+    const dirty = includeStatus ? (await git(workspace.path, ['status', '--porcelain=v1', '--untracked-files=all'])).length !== 0 : null;
     const task = this.store.get<Task>(workspace.taskId);
     return { workspace, head, dirty, taskCurrent: task.version === workspace.version && task.approvedVersion === workspace.version };
   }

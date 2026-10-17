@@ -55,9 +55,9 @@ review. Live agent probes, if run, only establish the specific capabilities obse
 2. **Workspaces and execution — Git and Orca creation implemented:** durable task/path
    reservations, pinned base commits, standalone locks or Orca instance identities,
    inspection and conservative creation recovery. Task/attempt/session bindings and
-   exclusive per-workspace turn ownership are also implemented. Shared concurrency,
-   real checks and sequential commits remain. Validate stopping on Windows before
-   extending claims.
+   exclusive per-workspace turn ownership are also implemented. Explicit Windows
+   checks now supervise tool descendants and bind validation to repository snapshots.
+   Provider-driven edits, shared concurrency, recovery and sequential commits remain.
 3. **One real task:** run a tiny coding task through both agents, independently
    inspect output, interrupt/recover, and repeat with and without Orca. Complete
    this milestone only when those real cases pass.
@@ -152,5 +152,29 @@ independent workspaces, question continuation, interruption, malformed replies, 
 inspection, uncertain startup/shutdown, process-crash recovery, Orca identity replacement,
 CLI persistence and schema 4 migration. Current adapters remain conversation-restricted.
 
-Next: controlled repository commands and artifact/check evidence, followed by bounded
-worker scheduling and the first real task through all completion gates.
+## Repository check slice
+
+Schema 6 adds retained check specifications, snapshots, process identities and results.
+`execution-snapshot`, `execution-check`, `check-show` and `execution-finish` provide
+an explicit command path without enabling provider repository tools. The caller reads
+the repository instructions and selects a concrete command tied to the current content
+and instruction digests. Snapshot collection preserves raw file changes and avoids
+Git clean filters, external diff drivers and fsmonitor hooks on this path.
+
+The Windows helper uses atomic Job Object assignment and kill-on-close ownership.
+Normal exit, failure, timeout, interruption, remaining descendants and missing
+supervisor confirmation have distinct outcomes. Only confirmed tree exit releases
+ownership. Unknown shutdown and controller crashes cannot replay work or use
+conversation recovery to free the lease.
+
+Submission requires the latest passing check and a matching fresh content snapshot.
+It atomically marks implementation successful and records validation. It does not
+satisfy simplification, independent review or acceptance verification. Fixture tests
+implement a greeting change and verify its actual output, then exercise stale inputs,
+changed instructions, command mutations, failures, rollback, controller/supervisor
+crashes, detached descendants, Unicode arguments, output limits, CLI restarts and
+schema migration. Platform support for this helper is currently Windows only.
+
+Next: check/snapshot ownership recovery, artifact-aware independent review and explicit
+acceptance checks, then provider tool policies and one real task through all gates.
+Workspace release/rebinding, bounded scheduling and other-platform supervisors remain.

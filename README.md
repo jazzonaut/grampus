@@ -7,11 +7,12 @@ The design targets Windows, macOS, and Linux, with complete operation both with 
 The [design and decision record](DESIGN.md) captures the requirements agreed during discovery, proposed architecture, and remaining implementation questions.
 
 Current state: the durable controller, live conversations, Git/Orca workspaces and
-task-linked sessions with exclusive workspace ownership are implemented.
+task-linked sessions with exclusive workspace ownership are implemented. Explicit
+repository checks on Windows now produce content-bound validation evidence.
 They include a SQLite journal, versioned task approval, completion gates, Codex and
 Claude conversations, structured questions and review findings, interruption,
 reconnection, local integration discovery and journaled worktree creation.
-Agent-driven repository changes, command/check execution, scheduling, the dashboard and
+Agent-driven repository changes, scheduling, the dashboard and
 installers remain to be built.
 
 ## Try the first slice
@@ -92,7 +93,7 @@ another message.
 
 The conversations are intended for supplied text. Claude has no general execution
 tools; Codex uses a read-only sandbox with shell, integrations and editing approvals
-disabled. This is not yet a repository execution or tool-process-tree supervisor.
+disabled. Conversation processes remain separate from the explicit check runner below.
 Live sessions do not create task acceptance evidence or slice commits.
 
 The Claude adapter uses the pinned official Agent SDK and its bundled executable.
@@ -224,14 +225,75 @@ release of an active or uncertain lease.
 A successful conversation keeps the implementation attempt open. It does not claim
 repository edits, accept evidence or complete a task. Provider tools retain their
 current conversation restrictions. Review sessions use `--role review` and require a
-successful current artifact supplied through the trusted workflow API; a real CLI
-artifact/check runner is still to come. Same-provider review also requires
+successful current artifact from `execution-finish` or the trusted workflow API.
+Same-provider review also requires
 `--fallback-reason <text>`, and always gets a fresh session. Review replies do not
 automatically satisfy review gates. Closed, revised or superseded bindings cannot run.
 
 Ownership applies to participating Grampus sessions sharing one journal. It does not
 lock out editors, other journals or agents launched separately through Orca. There is
-no shared worker limit, heartbeat takeover or arbitrary tool-process supervision yet.
+no shared worker limit or heartbeat takeover. Explicit checks use the same lease.
+
+## Repository checks and implementation submission
+
+The initial check runner requires Windows 10 or later and Windows PowerShell with
+`Add-Type` available. It executes a caller-selected command in an implementation
+workspace. It does not invoke an agent or interpret repository instructions for you.
+
+```sh
+npm start -- execution-snapshot <execution-id>
+# Read the returned instructions and diff; prepare a check specification outside the workspace.
+npm start -- execution-check <execution-id> <check.json>
+npm start -- check-show <check-id>
+# Explicitly submit implementation once the latest check passes:
+npm start -- execution-finish <execution-id> <check-id>
+```
+
+The check JSON has exactly these fields:
+
+```json
+{
+  "name": "Greeting regression check",
+  "file": "<absolute path to node.exe>",
+  "args": ["--test", "test/greeting.test.js"],
+  "timeoutMs": 120000,
+  "artifact": "<sha256:... from execution-snapshot>",
+  "instructionsDigest": "<digest from execution-snapshot>"
+}
+```
+
+Choose a command that follows the repository rules and approved plan. `file` must
+name an existing absolute executable; arguments are passed literally, without an
+implicit shell. Scripts need their interpreter. The command inherits the local
+environment and runs at the workspace root. Keep the specification outside the
+workspace so editing it does not invalidate its own artifact digest. This is a trusted
+local command interface, not a provider tool approval policy or a sandbox.
+
+Snapshots include HEAD, the index, baseline/tracked/nonignored untracked file hashes,
+and structured changes with old/new bytes (text or base64). Root and Git-visible
+nested `AGENTS.md`/`CLAUDE.md`, plus inherited ancestor copies, are shown and hashed.
+Copying the instruction digest acknowledges that snapshot; it does not establish
+semantic compliance. Other rule/skill formats still require caller interpretation.
+Ignored build outputs/dependencies, external services and environment values are not
+part of the digest. Symlinks, submodules and unresolved indexes are currently refused.
+
+Each check journals intent and claims the workspace before dispatch. Windows Job
+Objects supervise ordinary descendants. A timeout, interruption, nonzero exit, leftover
+child process, changed repository input or unknown shutdown cannot pass. The journal
+retains up to 64 KiB per output stream and flags truncation; output exceeding a monitored
+2 MiB combined threshold stops the job. These are diagnostics, not an output oracle.
+
+`execution-finish` rechecks the current content and accepts only the latest passing
+check from that execution. It marks implementation successful and records validation;
+simplification, independent review and acceptance verification remain separate gates.
+Failed/interrupted checks keep the implementation open for an explicit correction and
+new check. Commands are never replayed automatically.
+
+A lost controller/supervisor retains the durable lease even if the OS later kills
+the job. There is no check/snapshot lease recovery command yet; conversation recovery
+cannot release it. Normal descendants are covered, but work delegated to an existing
+service, WMI, a scheduler or an external agent is outside the job. macOS/Linux command
+supervision and provider-driven repository editing remain outstanding.
 
 ## Development
 
@@ -244,8 +306,8 @@ npm test
 TypeScript compiles to `dist/`; Node supplies SQLite, process handling and the test
 runner. The live Claude adapter adds the official `@anthropic-ai/claude-agent-sdk`
 runtime dependency, pinned in the lockfile. Node 24 may emit an experimental SQLite
-warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1–4 journals
-migrate to schema 5 without losing task, session or workspace data. Older executables cannot reopen a
+warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1–5 journals
+migrate to schema 6 without losing task, session or workspace data. Older executables cannot reopen a
 migrated journal, so retain backups if you need to run an older checkout.
 
 - [Implementation sequence and acceptance examples](docs/IMPLEMENTATION.md)
@@ -254,7 +316,8 @@ migrated journal, so retain backups if you need to run an older checkout.
 - [Where to resume next session](docs/NEXT-SESSION.md)
 
 The workflow API currently supports one slice per task. It is a trusted controller
-boundary, not an API for accepting unvalidated provider messages. Artifact references
-and check evidence are supplied by the caller; real workspace hashing and command
-execution belong to the next integration slice. Process ownership must be established
+boundary, not an API for accepting unvalidated provider messages. Its direct evidence
+methods still trust the caller; the check CLI adds verified repository hashing and
+command evidence. Check selection and coverage remain caller responsibilities.
+Process ownership must be established
 before invoking recovery. There is no shared worker scheduler or recovery daemon yet.

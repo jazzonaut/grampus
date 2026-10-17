@@ -12,6 +12,7 @@ import type { Provider } from './agents/types.js';
 import { Workspaces } from './workspaces.js';
 import { Executions } from './executions.js';
 import type { Execution } from './execution-state.js';
+import { Checks, type CheckSpec } from './checks.js';
 
 const help = `Grampus — local agent controller
 
@@ -32,6 +33,10 @@ const help = `Grampus — local agent controller
   execution-list                 List linked task/session executions
   execution-show <id>            Show linked session, workspace lease and execution events
   execution-close <id>           Close an idle execution; never force-release a lease
+  execution-snapshot <id>        Inspect repository content, diff and instruction digest
+  execution-check <id> <file.json>  Run an explicit check against that snapshot (Windows)
+  execution-finish <id> <check-id> Submit implementation with the latest passing check
+  check-show <id>                Show retained command, snapshots and output
   session-new <codex|claude>      Create a conversation (--cwd, optional --model)
   session-send <id> <prompt>      Run one live turn (or use --prompt-file <path>)
   session-answer <id> <file.json> Answer pending question ids with a JSON object
@@ -42,7 +47,7 @@ const help = `Grampus — local agent controller
 Use --db <path> for persistent task commands, or GRAMPUS_HOME for the data directory.
 Live sessions use existing subscriptions. Ctrl+C requests interruption and waits for process exit.
 --timeout-ms defaults to 120000; --interrupt-after-ms exercises cancellation after turn start.
-The demo remains synthetic. Repository execution and scheduling are not implemented yet.`;
+The demo remains synthetic. Provider tools and unattended scheduling remain disabled.`;
 
 async function main(): Promise<void> {
   const { positionals, values } = parseArgs({
@@ -97,11 +102,12 @@ async function main(): Promise<void> {
     return;
   }
   if (action.startsWith('execution-')) {
-    if (!['execution-new', 'execution-list', 'execution-show', 'execution-close'].includes(action)) throw new Error('Unknown execution command');
+    if (!['execution-new', 'execution-list', 'execution-show', 'execution-close', 'execution-snapshot', 'execution-check', 'execution-finish'].includes(action)) throw new Error('Unknown execution command');
     if (action !== 'execution-list' && !id) throw new Error(`${action} requires an argument`);
     const store = new Store(values.db ?? defaultDatabasePath());
     try {
       const executions = new Executions(store);
+      const checks = new Checks(store);
       if (action === 'execution-new') {
         const expectedVersion = Number(version);
         if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new Error('A positive integer version is required');
@@ -113,10 +119,34 @@ async function main(): Promise<void> {
       if (action === 'execution-show') {
         const execution = executions.get(id!);
         console.log(JSON.stringify({ execution, session: new Sessions(store).get(execution.sessionId),
-          lease: store.lease(execution.workspaceId), events: store.executionEvents(id!) }, null, 2));
+          lease: store.lease(execution.workspaceId), checks: store.checks(id!), events: store.executionEvents(id!) }, null, 2));
       }
       if (action === 'execution-close') { executions.close(id!); console.log(JSON.stringify(executions.get(id!), null, 2)); }
+      if (action === 'execution-snapshot') console.log(JSON.stringify(await checks.snapshot(id!), null, 2));
+      if (action === 'execution-finish') {
+        if (!version) throw new Error('execution-finish requires a check id');
+        await checks.finish(id!, version);
+        console.log(JSON.stringify(new Workflow(store).get(executions.get(id!).taskId), null, 2));
+      }
+      if (action === 'execution-check') {
+        if (!version) throw new Error('execution-check requires a check specification file');
+        const abort = new AbortController();
+        const stop = () => { console.error('Stop requested; waiting for the owned tool processes to exit.'); abort.abort(); };
+        process.on('SIGINT', stop);
+        try {
+          const check = await checks.run(id!, JSON.parse(readFileSync(version, 'utf8')) as CheckSpec, abort.signal);
+          console.log(JSON.stringify(check, null, 2));
+          if (check.phase !== 'passed') process.exitCode = check.phase === 'interrupted' ? 130 : 1;
+        } finally { process.off('SIGINT', stop); }
+      }
     } finally { store.close(); }
+    return;
+  }
+  if (action === 'check-show') {
+    if (!id) throw new Error('check-show requires an id');
+    const store = new Store(values.db ?? defaultDatabasePath());
+    try { console.log(JSON.stringify(new Checks(store).get(id), null, 2)); }
+    finally { store.close(); }
     return;
   }
   if (action.startsWith('session-')) {

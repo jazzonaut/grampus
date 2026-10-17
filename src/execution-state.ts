@@ -26,6 +26,7 @@ export interface ExecutionLease {
   runId: string;
   controllerPid: number;
   host: string;
+  kind?: 'conversation' | 'snapshot' | 'check' | 'submission';
 }
 
 function canonical(path: string, allowMissing = false): string {
@@ -44,8 +45,8 @@ export function assertTaskExecutionIdle(store: Store, taskId: string): void {
   }
 }
 
-/** Called only within the session claim transaction, before any provider connection. */
-export function claimExecution(store: Store, session: Session, runId: string): void {
+/** Called within an ownership transaction, before any provider or command dispatch. */
+export function claimExecution(store: Store, session: Session, runId: string, kind: NonNullable<ExecutionLease['kind']> = 'conversation'): void {
   const execution = store.executionForSession<Execution>(session.id);
   if (!execution) {
     const cwd = canonical(session.cwd);
@@ -82,10 +83,10 @@ export function claimExecution(store: Store, session: Session, runId: string): v
     const part = relative(directory, canonical(other.cwd, true));
     return part === '' || (part !== '..' && !part.startsWith(`..${sep}`) && !isAbsolute(part));
   })) throw new Error('Workspace has another active or uncertain session; reconcile it first');
-  const lease: ExecutionLease = { executionId: execution.id, sessionId: session.id, runId, controllerPid: process.pid, host: hostname() };
+  const lease: ExecutionLease = { executionId: execution.id, sessionId: session.id, runId, controllerPid: process.pid, host: hostname(), kind };
   store.acquireLease(workspace.id, execution.id, runId, lease);
   store.appendExecution(execution.id, 'lease.acquired', lease);
-  store.append(task.id, task.version, 'execution.turn_requested', { executionId: execution.id, sessionId: session.id, runId, role: execution.role });
+  store.append(task.id, task.version, kind === 'conversation' ? 'execution.turn_requested' : 'execution.operation_requested', { executionId: execution.id, sessionId: session.id, runId, role: execution.role, kind });
 }
 
 export function requireExecutionLease(store: Store, session: Session, runId: string): Execution | null {

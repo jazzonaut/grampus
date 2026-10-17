@@ -173,8 +173,46 @@ is closed without receiving the prompt. This is covered without live inference.
 
 Live provider and Orca probes were not repeated for this slice. The new ownership
 behavior is verified with process/protocol fixtures, not an end-to-end repository
-coding task. Arbitrary tool-process supervision, shared worker budgets, artifact/check
-execution, independent review of Grampus and macOS/Linux validation remain outstanding.
+coding task. At that checkpoint, tool-process supervision and artifact/check execution
+remained outstanding; the subsequent slice below adds an explicit Windows check path.
+Shared worker budgets, independent review of Grampus and macOS/Linux validation remain
+outstanding.
+
+## Repository check and submission validation
+
+**101 tests passed on Node 24.22.0 and 25.8.1 on Windows.** Sixteen new tests use real
+Git worktrees, SQLite journals and Windows subprocesses, plus injected outcomes for
+transaction/uncertainty boundaries. No live provider inference or live Orca operation
+was needed for this slice.
+
+- A fixture greeting change is checked by executing the real script and asserting
+  exact output. The check retains old/new content, output, exit status and process
+  identities. Explicit submission passes validation while other completion gates
+  continue to block the task.
+- Snapshots distinguish index changes, nonignored untracked files and inherited rules;
+  ignored generated output is excluded. Stale content/instruction digests prevent
+  dispatch. Unsupported submodules and invalid command options are refused.
+- Nonzero exits, repository-changing commands and newer failed checks cannot be
+  presented as passed validation. Submission rechecks the artifact, and a journal
+  failure rolls back both implementation success and evidence.
+- Check, conversation and closure operations compete for the same durable lease.
+  Intent is present before dispatch. Unknown shutdown persists across reopening and
+  cannot be cleared through conversation recovery.
+- Real timeout and cancellation terminate tools. A tool leaving a detached child
+  receives a failed result, even with exit zero; its descendant is terminated.
+  Excessive output stops the job and retained diagnostics are bounded.
+- Killing the controller closes the supervisor's input and terminates its job, while
+  leaving the journal lease held. Killing the supervisor also terminates the job but
+  never manufactures exit confirmation. Unicode and shell-like argument strings
+  round-trip literally, and a failed executable launch is recorded.
+- CLI snapshot/check/show/submission works across separate processes without inference;
+  schema 5 migration preserves existing execution records.
+
+These checks establish the Windows helper's ordinary child-process behavior, not a
+sandbox or supervision of work delegated to services, WMI or external agents. Command
+selection and acceptance coverage are still trusted caller choices. Snapshot/check
+recovery, provider-driven edits, artifact-aware review, post-submission revalidation,
+other-platform supervision and a complete independently reviewed task remain to do.
 
 ## Primary references consulted
 
@@ -183,5 +221,8 @@ execution, independent review of Grampus and macOS/Linux validation remain outst
 - [Claude SDK streaming input and lifecycle](https://code.claude.com/docs/en/agent-sdk/streaming-vs-single-mode)
 - [Claude SDK user input interfaces](https://code.claude.com/docs/en/agent-sdk/user-input)
 - [Node.js SQLite binding and stability](https://nodejs.org/api/sqlite.html)
+- [Windows Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+- [Atomic process/job assignment](https://devblogs.microsoft.com/oldnewthing/20230209-00/?p=107812/)
+- [Process creation attributes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute)
 - Local Orca guide: `orca skills get orca-cli --json`, resolved through
   `ORCA_CLI_COMMAND`; installed CLI help for agent launch and worktree discovery.

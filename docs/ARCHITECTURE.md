@@ -12,6 +12,11 @@ flowchart TD
     CLI --> Sessions[Conversation runner]
     CLI --> Workspaces[Workspace lifecycle]
     CLI --> Executions[Task and session bindings]
+    CLI --> Checks[Repository checks and submission]
+    Checks --> Workspaces
+    Checks --> Workflow
+    Checks --> Store
+    Checks --> Job[Windows job supervisor]
     Executions --> Workflow
     Executions --> Sessions
     Executions --> Workspaces
@@ -39,6 +44,10 @@ conversation reply to repository changes, evidence acceptance or task completion
 | `src/orca.ts` | Resolve the Orca executable, validate local CLI responses and stable worktree identities |
 | `src/executions.ts` | Atomically prepare and close versioned task/attempt/session bindings |
 | `src/execution-state.ts` | Validate bindings, acquire/fence workspace leases and settle linked task outcomes |
+| `src/checks.ts` | Lease repository operations, capture evidence, execute explicit checks and submit implementation |
+| `src/artifacts.ts` | Hash repository inputs and retain structured changes and discovered instructions |
+| `src/check-process.ts` | Control the Windows supervisor and retain bounded command output |
+| `src/native/check.ps1`, `src/native/check.cs` | Compile and run the Windows Job Object helper |
 | `src/agents/types.ts` | Provider contract, reply validation, usage fields and subscription environment |
 | `src/agents/codex.ts` | Installed Codex app-server initialization, threads, turns and notifications |
 | `src/agents/claude.ts` | Official SDK streaming input, authentication, results and process shutdown |
@@ -56,7 +65,7 @@ has been built.
 
 ## Persistence
 
-Schema version 5 contains nine tables:
+Schema version 6 contains ten tables:
 
 | Table | Contents |
 | --- | --- |
@@ -69,6 +78,7 @@ Schema version 5 contains nine tables:
 | `executions` | Immutable task/version/attempt/workspace/session links, role and open/closed state |
 | `execution_events` | Ordered binding, lease and turn outcome events |
 | `execution_leases` | One current owner per workspace, with unique execution/run id |
+| `checks` | Command specification, before/after snapshots, process ids and result per execution |
 
 State changes and associated events share a `BEGIN IMMEDIATE` transaction. Nested
 synchronous operations use savepoints so execution preparation can compose task and
@@ -77,14 +87,15 @@ uses WAL, full synchronous writes, foreign keys and a five-second busy timeout.
 History is append-only through the application interface. State is loaded from
 snapshots rather than reconstructed by replaying events.
 
-Version 1–4 journals gain the missing tables without losing history. Version 4 added
+Version 1–5 journals gain the missing tables without losing history. Version 4 added
 Orca-aware workspace state: path/branch may be null until identity capture. The
 unique key initially reserves the Orca repository/request name, then atomically
 changes to the canonical destination. Standalone records retain their shape. The
 version bump prevents older code from treating a pending Orca operation as a local
 Git process. Version 5 adds execution bindings and leases without changing prior
-records. Unknown schema versions are refused. Older executables cannot open
-version 5 journals. Default
+records. Version 6 adds checks and distinguishes conversation, snapshot, check and
+submission leases. Unknown schema versions are refused. Older executables cannot open
+version 6 journals. Default
 storage is outside the checkout; see [README.md](../README.md) for portable paths
 and overrides. Retention expiry, backup tooling, settings transfer and task export/
 import have not been implemented. Markdown task reports are the current export.
@@ -116,7 +127,8 @@ This checks caller-supplied identities, not independent proof of provider isolat
 
 The latest accepted evidence of each kind determines that gate. Earlier failed or
 skipped checks remain in the journal. The initial API does not enforce a complete
-chronological review pipeline or run named repository checks. Validation and
+chronological review pipeline. The explicit check runner supplies named command
+results to this API. Validation and
 verification cannot be established by an agent claim alone; synthetic evidence is
 accepted only on tasks permanently marked synthetic.
 
@@ -124,8 +136,8 @@ Revising a settled task increments its version, removes approval and current att
 evidence, and preserves pending decisions. An implementation retry receives a new
 attempt id and clears the current evidence. Late, duplicate or mismatched results
 are recorded as ignored. Evidence from a previous artifact cannot validate the new
-artifact. Artifact references are currently supplied by trusted callers; hashing,
-Git inspection and check execution are not implemented.
+artifact. Direct API callers still supply trusted references; the check CLI uses
+verified content digests and actual command exit results before submission.
 
 `Workflow.recover()` marks running or stop-requested attempts as uncertain. Its
 caller must establish that the previous controller no longer owns the work; this
@@ -246,8 +258,73 @@ require fresh execution preparation, preserving old contexts as history. A task
 revision or replacement attempt invalidates older bindings without rewriting them.
 
 This is cooperative ownership within one journal, not a filesystem lock against
-editors, external Orca agents or other journals. There is no global worker limit,
-repository command runner, tool-process-tree supervision or automatic evidence.
+editors, external Orca agents or other journals. There is no global worker limit.
+The repository check runner shares these leases and supplies validation evidence.
+
+## Repository checks and content evidence
+
+`Checks` reuses the exact task/version/attempt/session/workspace binding. Snapshot,
+check and submission operations claim the workspace under a distinct run id and
+lease kind; conversation claims cannot bypass them. Check specifications are trusted
+caller input, not parsed provider replies. An implementation role and current running
+attempt are required for check execution and submission.
+
+Before dispatch, capture the current Git/Orca identity and two matching repository
+snapshots. Each snapshot binds HEAD, index entries, raw bytes of baseline/tracked and
+nonignored untracked files, and discovered instructions into a SHA-256 digest. The
+structured diff preserves changed files' old/new bytes and Git blob identities.
+Binary content is base64. Deleted files are explicit. Git plumbing reads the tree
+and blobs without clean filters, textconv or external diff drivers. Identity checks
+omit `git status` on this path, and Git fsmonitor is disabled for inspection commands.
+
+Root and Git-visible nested `AGENTS.md`/`CLAUDE.md` plus ancestor copies are displayed
+and hashed. The specification must contain both the inspected artifact and instruction
+digest. This detects stale inputs; interpreting instructions and selecting sufficient
+checks remains the caller's responsibility. Ignored dependencies/generated output,
+external services, environment variables, additional rule formats and external editors
+are outside this guarantee. The snapshot is two matching reads, not an atomic OS
+snapshot or a proof that a command never temporarily changed a file. Regular files and
+a resolved index are required; submodules and symlinks are refused. Limits are 32 MiB
+per input file, 128 MiB of input bytes and 4 MiB of retained structured changes.
+
+The command request and before-snapshot are durable before dispatch. The initial
+supervisor runs on Windows 10+ through Windows PowerShell `Add-Type`, using checked-in
+C# and no new npm runtime dependency. It creates the tool directly inside an unnamed
+Job Object via `PROC_THREAD_ATTRIBUTE_JOB_LIST`, avoiding the suspended-process
+assignment gap. Kill-on-close is enabled, breakaway is disabled, and only tool stdin
+(NUL) and output handles are inherited. Arguments use Windows CRT quoting; no shell
+is implied. The workspace root is the working directory; the environment is inherited.
+
+The supervisor observes timeout, controller pipe closure and cancellation. It checks
+the job's active process count, terminates remaining descendants, and confirms zero
+before reporting settlement. A tool that exits zero but leaves children is a failed
+check. A helper crash closes the job handle but supplies no controller confirmation:
+the durable lease remains. Job ownership covers ordinary child creation; delegating
+to a service, WMI or an external agent is outside this boundary. It is not a sandbox.
+
+Keep the first 64 KiB from each output stream, with truncation flagged. A monitored
+2 MiB combined disk-output threshold stops the job (polling may overshoot that
+threshold). The tool deadline is 100–600000 ms, plus a bounded helper startup/shutdown
+allowance. Temporary output is removed after collection when possible. Controller
+crashes can leave temporary diagnostics; no retention cleaner is implemented.
+
+Confirmed failures/interruption release the lease and leave implementation open for
+an explicit new command. Unconfirmed dispatch/shutdown retains the lease and marks
+recovery required; a controller crash may leave the durable check marked running.
+There is no command replay, check/snapshot recovery, PID-only force-release or
+macOS/Linux supervisor yet. Existing conversation recovery cannot release these leases.
+
+Passing requires exit code zero, normal tool/job exit and unchanged before/after
+inputs. `execution-finish` then checks current content again and accepts only the
+latest passing result from that execution. Releasing its lease, finishing the attempt
+and recording controller validation are one transaction. Newer failed/interrupted
+checks cannot be hidden by selecting an older passing one. This is an explicit caller
+decision that implementation is ready, not automatic acceptance verification. The
+other three completion gates remain unsatisfied. Native provider repository tools,
+review orchestration and post-submission artifact revalidation remain future work.
+
+Windows lifecycle references: [Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+and [atomic job assignment at process creation](https://devblogs.microsoft.com/oldnewthing/20230209-00/?p=107812/).
 
 ## Conversation lifecycle
 
