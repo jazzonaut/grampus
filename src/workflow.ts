@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Store } from './store.js';
+import type { Workspace } from './workspaces.js';
 
 export interface Brief {
   title: string;
@@ -94,6 +95,13 @@ export class Workflow {
     this.store.append(task.id, task.version, type, data);
   }
 
+  private workspaceSettled(task: Task, requireCurrent = false): void {
+    const workspace = this.store.workspaces<Workspace>().find(item => item.taskId === task.id);
+    if (!workspace) return;
+    if (workspace.phase !== 'ready') throw new Error('Settle or reconcile workspace creation first');
+    if (requireCurrent && workspace.version !== task.version) throw new Error('Workspace belongs to an earlier task version');
+  }
+
   create(brief: Brief, synthetic = false): Task {
     validateBrief(brief);
     const task: Task = {
@@ -112,6 +120,7 @@ export class Workflow {
     this.change(id, task => {
       if (task.version !== expectedVersion) throw new Error('Version conflict');
       if (unsettled(task)) throw new Error('Settle or reconcile active work before revising');
+      this.workspaceSettled(task);
       task.version++;
       task.brief = structuredClone(brief);
       task.approvedVersion = null;
@@ -137,6 +146,7 @@ export class Workflow {
     validateAgent(agent);
     return this.change(id, task => {
       if (task.approvedVersion !== task.version) throw new Error('Current plan needs approval');
+      this.workspaceSettled(task, true);
       if (!['ready', 'stopped', 'failed', 'awaiting_verification', 'awaiting_decision'].includes(task.phase)) {
         throw new Error('Task cannot start in its current state');
       }

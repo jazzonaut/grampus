@@ -1,8 +1,8 @@
 # Resume Grampus implementation
 
-Checkpoint: 17 October 2026, after the durable controller and live conversation
-slices. This document preserves the next starting point; it does not authorize
-implementation during the documentation/commit session.
+Checkpoint: 17 October 2026, after the durable controller, live conversation and
+standalone workspace creation slices. The user continued implementation in the
+same session and authorized pushing the repository.
 
 ## Read first
 
@@ -19,7 +19,7 @@ Default delivery remains local unless the user authorizes an external action.
 
 ## Completed
 
-- TypeScript/Node controller, SQLite schema 2, journal-derived Markdown task report.
+- TypeScript/Node controller, SQLite schema 3, journal-derived Markdown task report.
 - Task briefs, exact-version approval, attempts, provisional decisions, four
   completion gates, stale-result rejection and explicit recovery states.
 - Live Codex app-server and Claude Agent SDK conversations with subscription
@@ -27,8 +27,10 @@ Default delivery remains local unless the user authorizes an external action.
 - One active controller per conversation, deadlines, stop requests, confirmed owned
   process exit, conservative recovery and zero automatic inference retries.
 - CLI demonstration, discovery commands and repeatable opt-in live probes.
-- 45 offline tests passed on Windows with Node 24.22.0 and 25.8.1. The final source
-  was rebuilt and all 45 tests rerun before the initial commit.
+- Standalone worktree creation with exact-version approval, durable task/path
+  reservations, canonical paths, pinned base, ownership lock, inspection and recovery.
+- 57 offline tests passed on Windows with Node 24.22.0 and 25.8.1. New tests include
+  real Git and a controller process crash.
 - Both live probes passed question/answer, context across controller restarts,
   supplied-code review findings, interruption and resumption with earlier context.
 
@@ -44,8 +46,11 @@ contains the durable summary, and the probe script can reproduce the checks.
 Start with the existing source and a small concrete plan. Do not rebuild the
 controller or broaden into the dashboard first.
 
-1. Define workspace identity, base commit, branch, host ownership and lifecycle.
-   Keep Git worktree management separate from agent lifecycle. Use Orca's supported
+1. Extend the existing standalone workspace lifecycle with an Orca adapter and an
+   explicit execution lease. Creation ownership and Git locks are not worker leases.
+   Define safe release/rebinding for changed briefs; failed reservations currently
+   stay blocked for investigation. Keep workspaces separate from agent lifecycle.
+   Use Orca's supported
    worktree interfaces when Orca owns a checkout; validate those controls rather
    than assuming parity with the standalone path.
 2. Link each implementation/review session to a task version and attempt. Persist
@@ -78,6 +83,10 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
   are not chosen. Probe models are observed defaults, not product presets.
 - Unknown provider PIDs and reused/live PIDs block recovery. There is no automatic
   process adoption, force-stop command or heartbeat mechanism.
+- Workspace creation recovery can adopt a verified clean worktree after a lost
+  response. Missing or mismatched results remain reserved; no creation replay,
+  workspace removal or task-version rebinding is available yet. Git hooks/filters
+  use normal repository configuration and their process trees are not supervised.
 - Retention, safe-checkpoint transfer, installer packaging, platform CI, browser
   dashboard, notifications, Linear and opt-in PR delivery are still outstanding.
 - Keep subscription authentication as the default. Do not silently enable API

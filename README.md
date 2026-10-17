@@ -6,11 +6,13 @@ The design targets Windows, macOS, and Linux, with complete operation both with 
 
 The [design and decision record](DESIGN.md) captures the requirements agreed during discovery, proposed architecture, and remaining implementation questions.
 
-Current state: the durable controller and live conversation slices are implemented.
+Current state: the durable controller, live conversations and standalone workspace
+creation are implemented.
 They include a SQLite journal, versioned task approval, completion gates, Codex and
 Claude conversations, structured questions and review findings, interruption,
-reconnection, and local integration discovery. Agent-driven repository changes,
-worktree scheduling, the dashboard, and installers remain to be built.
+reconnection, local integration discovery and journaled Git worktree creation.
+Agent-driven repository changes, Orca workspaces, scheduling, the dashboard and
+installers remain to be built.
 
 ## Try the first slice
 
@@ -117,6 +119,41 @@ Task commands store data outside the checkout: `%LOCALAPPDATA%/Grampus` on Windo
 `--db <path>` to select another location. No cleanup or retention expiry is enabled
 yet. Reports contain task content; inspect them before sharing.
 
+## Standalone workspaces
+
+After approving a real task, create its isolated Git worktree from a committed base:
+
+```sh
+npm start -- workspace-new <task-id> 1 --repo . --path ../grampus-task --base HEAD
+npm start -- workspace-list
+npm start -- workspace-show <workspace-id>
+npm start -- workspace-inspect <workspace-id>
+# Only after failed or interrupted creation:
+npm start -- workspace-recover <workspace-id>
+```
+
+Use this command for standalone repositories. Orca-owned workspaces need the future
+Orca adapter; `--orca` is explicitly refused. The destination must not exist, its
+parent must exist, and it must be outside existing worktrees and Git metadata.
+Grampus pins the base to a commit, creates `grampus/<task-id>`, and locks the worktree
+with its workspace id. Dirty and untracked files in the source checkout stay there.
+Git's normal checkout configuration, including filters and hooks, still applies.
+
+One reservation per task and destination is recorded in the selected journal before
+Git starts. A failed or interrupted creation is never automatically retried or
+removed. Recovery confirms process exit and adopts only the registered branch,
+ownership lock and clean recorded base. Unknown or live PIDs block recovery;
+missing checkouts, mismatched identity and dirty contents require investigation.
+`workspace-show` remains usable even if Git inspection fails. Git subprocesses have
+a 30-second timeout; this is not supervision of arbitrary hook/filter process trees.
+
+Inspection reports current HEAD, tracked/untracked changes and whether the recorded
+task version remains approved. A revised task retains its old workspace but cannot
+start a new attempt with that stale version. Rebinding, release/removal and execution
+ownership are future work. Workspace readiness does not imply task completion or
+permission for an agent to edit files. Local workspace journals contain operational
+paths and process identities; keep them out of commits and shared documentation.
+
 ## Development
 
 ```sh
@@ -128,8 +165,8 @@ npm test
 TypeScript compiles to `dist/`; Node supplies SQLite, process handling and the test
 runner. The live Claude adapter adds the official `@anthropic-ai/claude-agent-sdk`
 runtime dependency, pinned in the lockfile. Node 24 may emit an experimental SQLite
-warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1 journals migrate
-to schema 2 without losing task data. The first-slice executable cannot reopen a
+warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1 and 2 journals
+migrate to schema 3 without losing task or session data. Older executables cannot reopen a
 migrated journal, so retain backups if you need to run an older checkout.
 
 - [Implementation sequence and acceptance examples](docs/IMPLEMENTATION.md)

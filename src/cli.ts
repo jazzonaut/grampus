@@ -9,6 +9,7 @@ import { runDemo } from './demo.js';
 import { renderReport } from './report.js';
 import { Sessions, runSession } from './sessions.js';
 import type { Provider } from './agents/types.js';
+import { Workspaces } from './workspaces.js';
 
 const help = `Grampus — local agent controller
 
@@ -19,6 +20,11 @@ const help = `Grampus — local agent controller
   list                           List stored tasks
   show <task-id>                  Show a task and completion blockers
   report <task-id>                Print a Markdown report from the journal
+  workspace-new <task-id> <version>  Create a standalone worktree (--repo, --path, optional --base)
+  workspace-list                 List workspace reservations
+  workspace-show <id>             Show saved workspace state and journal
+  workspace-inspect <id>          Verify Git identity and show current HEAD/dirty state
+  workspace-recover <id>          Reconcile interrupted creation without replaying Git
   session-new <codex|claude>      Create a conversation (--cwd, optional --model)
   session-send <id> <prompt>      Run one live turn (or use --prompt-file <path>)
   session-answer <id> <file.json> Answer pending question ids with a JSON object
@@ -36,6 +42,7 @@ async function main(): Promise<void> {
     allowPositionals: true,
     options: { db: { type: 'string' }, orca: { type: 'boolean', default: false }, help: { type: 'boolean', short: 'h' },
       cwd: { type: 'string' }, model: { type: 'string' }, 'prompt-file': { type: 'string' },
+      repo: { type: 'string' }, path: { type: 'string' }, base: { type: 'string' },
       'timeout-ms': { type: 'string' }, 'interrupt-after-ms': { type: 'string' } },
   });
   const [action, id, version] = positionals;
@@ -54,6 +61,26 @@ async function main(): Promise<void> {
     try { console.log(renderReport(store, taskId)); }
     finally { store.close(); }
     console.log(`\nRetained demo database: ${path}`);
+    return;
+  }
+  if (action.startsWith('workspace-')) {
+    if (!['workspace-new', 'workspace-list', 'workspace-show', 'workspace-inspect', 'workspace-recover'].includes(action)) throw new Error('Unknown workspace command');
+    if (values.orca) throw new Error('Orca-owned workspaces require the future Orca adapter; this command is standalone only');
+    if (action !== 'workspace-list' && !id) throw new Error(`${action} requires an argument`);
+    const store = new Store(values.db ?? defaultDatabasePath());
+    try {
+      const workspaces = new Workspaces(store);
+      if (action === 'workspace-new') {
+        if (!values.repo || !values.path) throw new Error('workspace-new requires --repo and --path');
+        const expectedVersion = Number(version);
+        if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new Error('A positive integer version is required');
+        console.log(JSON.stringify(await workspaces.create(id!, expectedVersion, values.repo, values.path, values.base), null, 2));
+      }
+      if (action === 'workspace-list') console.log(JSON.stringify(workspaces.list(), null, 2));
+      if (action === 'workspace-show') console.log(JSON.stringify({ workspace: workspaces.get(id!), events: store.workspaceEvents(id!) }, null, 2));
+      if (action === 'workspace-inspect') console.log(JSON.stringify(await workspaces.inspect(id!), null, 2));
+      if (action === 'workspace-recover') console.log(JSON.stringify(await workspaces.recover(id!), null, 2));
+    } finally { store.close(); }
     return;
   }
   if (action.startsWith('session-')) {

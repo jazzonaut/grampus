@@ -52,9 +52,11 @@ review. Live agent probes, if run, only establish the specific capabilities obse
    Retries are bounded at zero automatic inference retries until task-level budgets
    and replay rules are implemented. Native tool approval routing is deferred to
    workspace execution; questions currently use structured final replies.
-2. **Workspaces and execution:** standalone Git worktrees and Orca-owned worktrees,
-   exactly one execution owner, shared concurrency, real checks and sequential
-   commits. Validate ownership and stopping on Windows before extending claims.
+2. **Workspaces and execution — standalone creation implemented:** durable task/path
+   reservations, pinned base commits, locked worktrees, inspection and conservative
+   creation recovery. Orca-owned worktrees, execution ownership, shared concurrency,
+   real checks and sequential commits remain. Validate stopping on Windows before
+   extending claims.
 3. **One real task:** run a tiny coding task through both agents, independently
    inspect output, interrupt/recover, and repeat with and without Orca. Complete
    this milestone only when those real cases pass.
@@ -90,3 +92,22 @@ Acceptance checks: live question/answer across separate controllers, context and
 review findings after reconnection, a cancelled turn followed by successful resume;
 offline tests for schema migration, concurrent ownership, crash reconciliation,
 late events, malformed output, provider failure, deadlines and unconfirmed exits.
+
+## Standalone workspace slice
+
+Authorized by the user's request to continue implementation in the same session.
+Schema 3 adds workspace state and events, retaining task and conversation history.
+The CLI creates an isolated worktree only for an exact approved real task version.
+It journals intent before launching Git, pins the base commit, preserves the source
+checkout and records a unique branch/lock. Recovery inspects an existing result
+without repeating a possibly completed operation. Failed operations retain their
+reservations; automatic cleanup and rebinding are deliberately not provided yet.
+
+Acceptance checks use actual temporary Git repositories and separate CLI/controller
+processes: dirty source preservation, competing reservations, incorrect approval,
+existing/nested destinations, pinned bases, Git failure, lost responses, real process
+exit before the ready transaction commits, uncertain liveness, dirty recovery,
+changed lock identity, stale task versions and schema 2 migration.
+
+Next: Orca workspace adapter, task/attempt/session association and execution leases,
+then narrowly scoped repository commands and evidence tied to inspected artifacts.

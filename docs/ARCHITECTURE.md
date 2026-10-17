@@ -10,8 +10,11 @@ sequence. Product requirements that appear there are not automatically implement
 flowchart TD
     CLI[Terminal commands] --> Workflow[Task workflow]
     CLI --> Sessions[Conversation runner]
+    CLI --> Workspaces[Standalone workspaces]
     Workflow --> Store[SQLite state and journals]
     Sessions --> Store
+    Workspaces --> Store
+    Workspaces --> Git[Git worktree lifecycle]
     Sessions --> Codex[Codex app-server over stdio]
     Sessions --> Claude[Claude Agent SDK]
     Store --> Report[Task Markdown report]
@@ -27,6 +30,7 @@ Connecting them with task versions and workspace ownership is the next major ste
 | `src/store.ts` | SQLite schema, transactions, state snapshots and journal access |
 | `src/workflow.ts` | Versioned brief approval, attempts, evidence, decisions and completion |
 | `src/sessions.ts` | Claim a conversation, persist events, run one turn, stop and reconcile |
+| `src/workspaces.ts` | Reserve a task workspace, create a standalone Git worktree, inspect and reconcile |
 | `src/agents/types.ts` | Provider contract, reply validation, usage fields and subscription environment |
 | `src/agents/codex.ts` | Installed Codex app-server initialization, threads, turns and notifications |
 | `src/agents/claude.ts` | Official SDK streaming input, authentication, results and process shutdown |
@@ -44,7 +48,7 @@ has been built.
 
 ## Persistence
 
-Schema version 2 contains four tables:
+Schema version 3 contains six tables:
 
 | Table | Contents |
 | --- | --- |
@@ -52,14 +56,16 @@ Schema version 2 contains four tables:
 | `events` | Ordered task events with requirement version, timestamp, type and JSON data |
 | `sessions` | Grampus session id and current JSON state |
 | `session_events` | Ordered conversation events with timestamp, type and JSON data |
+| `workspaces` | Workspace state with unique task id and canonical destination key |
+| `workspace_events` | Ordered workspace lifecycle events with timestamp, type and JSON data |
 
 State changes and associated events share a `BEGIN IMMEDIATE` transaction. SQLite
 uses WAL, full synchronous writes, foreign keys and a five-second busy timeout.
 History is append-only through the application interface. State is loaded from
 snapshots rather than reconstructed by replaying events.
 
-Version 1 journals gain session tables without losing task history. Unknown schema
-versions are refused. Older version 1 code cannot open version 2 journals. Default
+Version 1 and 2 journals gain the missing tables without losing history. Unknown
+schema versions are refused. Older executables cannot open version 3 journals. Default
 storage is outside the checkout; see [README.md](../README.md) for portable paths
 and overrides. Retention expiry, backup tooling, settings transfer and task export/
 import have not been implemented. Markdown task reports are the current export.
@@ -106,6 +112,42 @@ Git inspection and check execution are not implemented.
 caller must establish that the previous controller no longer owns the work; this
 method does not discover or terminate processes. Stop confirmation requires an
 explicit matching attempt and explanation.
+
+## Standalone workspace lifecycle
+
+`Workspaces.create()` requires a real, ready task and its exact approved version.
+It resolves the repository/common Git directory, canonical destination, immutable
+base commit and generated task branch. The destination is outside registered
+worktrees and Git metadata. Native filesystem canonicalization handles Windows
+short/long path aliases; destination keys also ignore case on Windows.
+
+A transaction reserves the task and destination before invoking `git worktree add`.
+The record includes the host, controller PID, Git PID when observed and whether
+Git's exit was confirmed. Creation locks the worktree with its unique workspace id.
+The controller verifies registration, branch, common directory, clean state and base
+commit before moving `creating` to `ready`. This lock prevents ordinary Git pruning
+and removal; it is not a worker execution lease. Uniqueness is enforced within one
+journal; separate journals do not share a global concurrency limit.
+
+Git failures retain the reservation in `recovery_required`. After a controller crash,
+the state may still say `creating`. Recovery claims the record transactionally,
+requires absent prior processes (or a confirmed Git exit after this controller's own
+failed operation), and inspects Git without replaying creation. An unknown Git PID,
+live or reused PIDs and another host block reconciliation. A completed checkout can
+be adopted only if its original identity, clean base and approved version still match.
+Missing, dirty or mismatched checkouts remain reserved for manual investigation.
+
+Revising or starting an attempt is blocked while workspace creation is unsettled.
+A ready workspace survives brief revision, but its old version cannot authorize a
+new attempt. Automatic rebinding and release/removal are not implemented. Inspection
+can report changed HEAD and dirty state without resetting user changes; it does not
+produce acceptance evidence or reserve the workspace for agent execution.
+
+Git runs without a shell and with a 30-second timeout. Inherited `GIT_*` environment
+overrides are stripped so the explicit repository determines the index and worktree;
+repository/user Git configuration still applies. Normal checkout hooks and filters
+may run. Their process trees are not supervised by this slice. Orca-owned worktrees,
+agent/session association, worker leases and shared scheduling remain separate work.
 
 ## Conversation lifecycle
 
@@ -181,7 +223,7 @@ CLI persistence, process transport, sessions and Codex notification handling.
 Both providers also passed explicit live probes; see
 [INTEGRATION-EVIDENCE.md](INTEGRATION-EVIDENCE.md) for versions and observed behavior.
 
-Only Windows has been tested. Worktree management, shared scheduling, task/session
+Only Windows has been tested. Orca worktrees, workspace release/rebinding, shared scheduling, task/session
 association, real check runners, tool approvals, review arbitration, slice commits,
 delivery integration, dashboard, installers and platform CI remain outstanding.
 The implementation itself has not had an independent review.

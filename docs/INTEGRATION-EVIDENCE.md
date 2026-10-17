@@ -105,6 +105,25 @@ Final validation for this slice: **45 tests passed on Node 24.22.0 and 25.8.1 on
 Windows**, plus both live provider probes. No independent review of the Grampus
 implementation has been performed.
 
+## Standalone workspace validation
+
+The expanded suite passed **57 tests on Node 24.22.0 and 25.8.1 on Windows**, using Git
+2.55.0.windows.5. Twelve additional tests use real temporary repositories and cover:
+
+- Locked worktree creation at a pinned commit while preserving dirty source files.
+- Approval/version checks, synthetic-task refusal, invalid/nested destinations.
+- Competing controllers, durable reservations and no automatic replay after failure.
+- Successful recovery after an actual controller exits inside the ready transaction.
+- Unknown/live process refusal, host checks and preservation of dirty recovery state.
+- Ownership-lock mismatch, stale task versions, CLI restarts and schema 2 migration.
+
+Native path canonicalization was required to match Git and Node paths on Windows,
+including short/long directory aliases. Fixture Git configuration fixes line endings
+locally without changing the user's Git configuration. Live provider probes were not
+repeated because this slice does not change either provider adapter. Orca workspaces,
+arbitrary tool-tree supervision and independent review
+of Grampus remain unverified.
+
 ## Primary references consulted
 
 - [Codex app-server protocol](https://learn.chatgpt.com/docs/app-server)

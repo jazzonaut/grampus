@@ -31,7 +31,7 @@ export class Store {
     this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
     const version = this.db.prepare('PRAGMA user_version').get()?.user_version;
-    if (version !== 0 && version !== 1 && version !== 2) {
+    if (version !== 0 && version !== 1 && version !== 2 && version !== 3) {
       this.db.close();
       throw new Error(`Unsupported journal schema version: ${version}`);
     }
@@ -56,7 +56,21 @@ export class Store {
         data TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS session_events_session ON session_events(session_id, sequence);
-      PRAGMA user_version = 2;
+      CREATE TABLE IF NOT EXISTS workspaces (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id),
+        path_key TEXT NOT NULL UNIQUE,
+        state TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS workspace_events (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+        at TEXT NOT NULL,
+        type TEXT NOT NULL,
+        data TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS workspace_events_workspace ON workspace_events(workspace_id, sequence);
+      PRAGMA user_version = 3;
       COMMIT;
     `);
   }
@@ -126,6 +140,33 @@ export class Store {
   sessionEvents(id: string): { sequence: number; at: string; type: string; data: unknown }[] {
     this.session(id);
     return this.db.prepare('SELECT * FROM session_events WHERE session_id = ? ORDER BY sequence').all(id).map(row => ({
+      sequence: Number(row.sequence), at: String(row.at), type: String(row.type), data: JSON.parse(String(row.data)) as unknown,
+    }));
+  }
+
+  workspace<T>(id: string): T {
+    const row = this.db.prepare('SELECT state FROM workspaces WHERE id = ?').get(id);
+    if (!row) throw new Error(`Workspace not found: ${id}`);
+    return JSON.parse(String(row.state)) as T;
+  }
+
+  workspaces<T>(): T[] {
+    return this.db.prepare('SELECT state FROM workspaces ORDER BY rowid').all().map(row => JSON.parse(String(row.state)) as T);
+  }
+
+  saveWorkspace(id: string, taskId: string, pathKey: string, state: unknown): void {
+    this.db.prepare('INSERT INTO workspaces(id, task_id, path_key, state) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state')
+      .run(id, taskId, pathKey, JSON.stringify(state));
+  }
+
+  appendWorkspace(id: string, type: string, data: unknown): void {
+    this.db.prepare('INSERT INTO workspace_events(workspace_id, at, type, data) VALUES (?, ?, ?, ?)')
+      .run(id, new Date().toISOString(), type, JSON.stringify(data));
+  }
+
+  workspaceEvents(id: string): { sequence: number; at: string; type: string; data: unknown }[] {
+    this.workspace(id);
+    return this.db.prepare('SELECT * FROM workspace_events WHERE workspace_id = ? ORDER BY sequence').all(id).map(row => ({
       sequence: Number(row.sequence), at: String(row.at), type: String(row.type), data: JSON.parse(String(row.data)) as unknown,
     }));
   }
