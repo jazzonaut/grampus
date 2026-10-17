@@ -21,6 +21,12 @@ export interface CheckSpec {
   criteria?: string[];
   expectedStdout?: string;
 }
+export interface SimplificationAssessment {
+  artifact: string;
+  instructionsDigest: string;
+  outcome: 'passed' | 'failed' | 'skipped';
+  summary: string;
+}
 export interface RepositoryCheck {
   id: string;
   executionId: string;
@@ -86,6 +92,48 @@ export class Checks {
     const execution = this.store.transaction(() => this.claim(executionId, runId, 'snapshot'));
     try { return await this.capture(execution); }
     finally { this.store.transaction(() => this.release(execution, runId)); }
+  }
+
+  /** A trusted caller's assessment, not an inference from checks or review findings. */
+  async simplify(executionId: string, assessment: SimplificationAssessment): Promise<void> {
+    assessment = structuredClone(assessment);
+    if (!assessment || Object.keys(assessment).some(key => !['artifact', 'instructionsDigest', 'outcome', 'summary'].includes(key))
+      || typeof assessment.artifact !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(assessment.artifact)
+      || typeof assessment.instructionsDigest !== 'string' || !/^[a-f0-9]{64}$/.test(assessment.instructionsDigest)
+      || !['passed', 'failed', 'skipped'].includes(assessment.outcome)
+      || typeof assessment.summary !== 'string' || !assessment.summary.trim() || Buffer.byteLength(assessment.summary) > 16 * 1024) {
+      throw new Error('Simplification requires artifact, instructionsDigest, outcome (passed/failed/skipped) and a nonempty summary (at most 16 KiB)');
+    }
+    const runId = randomUUID();
+    const execution = this.store.transaction(() => {
+      const execution = this.store.execution<Execution>(executionId);
+      if (execution.role !== 'implementation') throw new Error('Assess simplification through the implementation execution');
+      const task = this.store.get<Task>(execution.taskId);
+      if (task.attempt?.outcome !== 'succeeded' || !['awaiting_verification', 'awaiting_decision'].includes(task.phase)) {
+        throw new Error('Simplification assessment requires a submitted implementation');
+      }
+      new Workflow(this.store).record(task.id, { id: `${runId}:requested`, attemptId: execution.attemptId, version: execution.version,
+        artifact: task.attempt?.artifact ?? '', kind: 'simplification', outcome: 'skipped', source: 'controller',
+        summary: 'Explicit simplification assessment requested; artifact verification is pending' });
+      return this.claim(executionId, runId, 'simplification');
+    });
+    try {
+      const snapshot = await this.capture(execution);
+      if (snapshot.artifact !== assessment.artifact || snapshot.instructionsDigest !== assessment.instructionsDigest
+        || snapshot.artifact !== this.store.get<Task>(execution.taskId).attempt?.artifact) {
+        throw new Error('Repository or instructions changed; assess the submitted artifact again');
+      }
+      this.store.transaction(() => {
+        this.release(execution, runId);
+        if (!new Workflow(this.store).record(execution.taskId, { id: runId, attemptId: execution.attemptId, version: execution.version,
+          artifact: snapshot.artifact, kind: 'simplification', source: 'controller', outcome: assessment.outcome, summary: assessment.summary })) {
+          throw new Error('Implementation attempt changed before simplification assessment');
+        }
+        this.store.appendExecution(execution.id, 'simplification.assessed', assessment);
+      });
+    } finally {
+      this.store.transaction(() => { if (this.store.lease<ExecutionLease>(execution.workspaceId)?.runId === runId) this.release(execution, runId); });
+    }
   }
 
   async run(executionId: string, spec: CheckSpec, signal?: AbortSignal,

@@ -16,7 +16,7 @@ export class Executions {
     this.store.transaction(() => {
       const execution = this.get(id);
       const lease = this.store.lease<ExecutionLease>(execution.workspaceId);
-      if (lease?.executionId !== id || !lease.readOnlyRecovery || !['snapshot', 'submission', 'completion'].includes(lease.kind ?? '')) {
+      if (lease?.executionId !== id || !lease.readOnlyRecovery || !['snapshot', 'submission', 'simplification', 'completion'].includes(lease.kind ?? '')) {
         throw new Error('No recoverable read-only operation; command and conversation leases require their own recovery');
       }
       requireDeadController(lease);

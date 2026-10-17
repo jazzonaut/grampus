@@ -36,6 +36,7 @@ const help = `Grampus — local agent controller
   execution-snapshot <id>        Inspect repository content, diff and instruction digest
   execution-check <id> <file.json>  Run an explicit check against that snapshot (Windows)
   execution-finish <id> <check-id> Submit implementation with the latest passing check
+  execution-simplify <id> <file.json> Record an explicit assessment of the submitted artifact
   execution-verify <id> <file.json> Check submitted artifact against all named criteria
   execution-review <id>           Review a verified artifact (review execution; optional --answers-file)
   execution-complete <id>         Recheck artifact and require every completion gate
@@ -108,7 +109,7 @@ async function main(): Promise<void> {
     return;
   }
   if (action.startsWith('execution-')) {
-    if (!['execution-new', 'execution-list', 'execution-show', 'execution-close', 'execution-snapshot', 'execution-check', 'execution-finish', 'execution-verify', 'execution-review', 'execution-complete', 'execution-recover'].includes(action)) throw new Error('Unknown execution command');
+    if (!['execution-new', 'execution-list', 'execution-show', 'execution-close', 'execution-snapshot', 'execution-check', 'execution-finish', 'execution-simplify', 'execution-verify', 'execution-review', 'execution-complete', 'execution-recover'].includes(action)) throw new Error('Unknown execution command');
     if (action !== 'execution-list' && !id) throw new Error(`${action} requires an argument`);
     const store = new Store(values.db ?? defaultDatabasePath());
     try {
@@ -129,6 +130,13 @@ async function main(): Promise<void> {
       }
       if (action === 'execution-close') { executions.close(id!); console.log(JSON.stringify(executions.get(id!), null, 2)); }
       if (action === 'execution-snapshot') console.log(JSON.stringify(await checks.snapshot(id!), null, 2));
+      if (action === 'execution-simplify') {
+        if (!version) throw new Error('execution-simplify requires an assessment file');
+        const assessment = JSON.parse(readFileSync(version, 'utf8'));
+        await checks.simplify(id!, assessment);
+        console.log(JSON.stringify(new Workflow(store).get(executions.get(id!).taskId), null, 2));
+        if (assessment.outcome !== 'passed') process.exitCode = 1;
+      }
       if (action === 'execution-recover') { executions.recoverReadOnly(id!); console.log(JSON.stringify(executions.get(id!), null, 2)); }
       if (action === 'execution-complete') {
         await checks.complete(id!);

@@ -199,7 +199,25 @@ review identity, findings/questions, uncertain shutdown, exact-output verificati
 missing output, newer-result invalidation and final completion guards. Provider review
 responses in this slice are protocol fixtures, not a fresh live integration claim.
 
-Next: explicit simplification assessment, native provider tool policies and a small
-real task through all gates and a local commit. Workspace release/rebinding, recovery
+Next: native provider tool policies and general delivery binding/recovery.
+Workspace release/rebinding, recovery
 without receipts/known provider identity, bounded scheduling, richer acceptance
 observations, larger review context and other-platform supervisors remain.
+
+## Explicit simplification and live standalone pilot
+
+`execution-simplify` accepts a bounded explicit assessment tied to the submitted
+artifact and instruction digest. It records a pending gate and acquires a recoverable
+read-only lease atomically, then verifies content before recording the caller's
+passed/failed/skipped assessment. Failed inspection and interrupted reassessment
+leave the newer pending result current. This is a semantic judgment by the caller,
+not an inferred success from a command or an empty review. Schema 7 is unchanged.
+
+The opt-in `probe:task -- --live` exercise obtains a one-line Codex response, applies
+only the allowlisted greeting statement, records simplification, runs a real regression,
+gets independent Claude review, verifies exact stdout and reaches completion. It makes
+a local fixture commit under the configured Git identity and saves a journal-derived
+report. Provider-native editing remains disabled. The local probe commit is journaled
+after completion; general delivery binding, crash recovery and Orca repetition remain
+separate work. Tests cover CLI persistence, stale content/instructions, each assessment
+outcome, invalid roles and controller-crash recovery without resurrecting an old pass.

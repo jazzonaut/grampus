@@ -14,7 +14,8 @@
     "start": "node dist/src/cli.js",
     "doctor": "node dist/src/cli.js doctor",
     "demo": "node dist/src/cli.js demo",
-    "probe": "node dist/src/probe.js"
+    "probe": "node dist/src/probe.js",
+    "probe:task": "node dist/src/task-probe.js"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

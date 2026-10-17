@@ -256,7 +256,39 @@ ownership. The successful crash regression verifies the implemented process arra
 These results do not constitute independent review of Grampus itself, a live full-task
 run, cross-platform process supervision or a proof that a caller's acceptance plan is
 semantically sufficient. Larger/binary repository reviews, native provider edits,
-review arbitration, local slice commits and the simplification UI/API remain work.
+review arbitration, general slice delivery and the simplification UI remained work
+at that checkpoint. The next slice below adds the assessment API and a bounded pilot.
+
+## Explicit simplification and live standalone task
+
+Observed on Windows on 17 October 2026 using Node 25.8.1, Git 2.55.0.windows.5,
+Codex CLI 0.163.0 with ChatGPT authentication and Claude Code 2.1.300 with first-party
+subscription authentication. `npm run build` and `npm run probe:task -- --live` passed.
+
+The pilot created a standalone fixture worktree, approved changing `hello` to
+`hello world`, and obtained the replacement statement from live Codex (`gpt-6.1-sol`).
+The controller checked the response against a single-statement allowlist before
+writing it. A real Node regression executed the changed program and asserted exact
+output. Submission, explicit simplification assessment and fresh live Claude review
+(`claude-opus-5-5`, no findings) passed. A separate acceptance command executed
+`greeting.js`, matched `hello world` plus one newline, and completion verified all gates.
+Observed model names are defaults from this run, not fixed product presets.
+
+The probe made a local fixture commit with the existing configured personal Git
+identity, verified its greeting content and clean status, journaled delivery, and
+rendered a task report. Journals, output, provider transcripts, report and fixture
+repositories are retained locally under ignored `.grampus/task-probes/`; no personal
+paths or raw transcripts are included here. The fixture branch was not pushed.
+
+The full offline suite passed 114 tests on both Node 24.22.0 and 25.8.1. New coverage
+includes explicit assessment outcomes, stale code/instructions superseding older
+passes, role/state validation, CLI persistence and an actual controller exiting
+during reassessment followed by read-only recovery that leaves the gate pending.
+
+This demonstrates a small live task with controller-applied code and independent
+review, not native provider editing or review of Grampus itself. The full pilot did
+not exercise Orca or a mid-task crash. Its post-completion commit changes HEAD/index;
+general commit binding, interruption recovery and delivery integration remain work.
 
 ## Primary references consulted
 

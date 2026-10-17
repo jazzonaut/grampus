@@ -424,10 +424,53 @@ test('completion checks every gate and revalidates artifact before the final tra
   const spec = { ...await f.spec("console.log('hello')"), criteria: ['Print hello'], expectedStdout: 'hello\n' };
   await f.checks.run(f.execution.id, spec);
   await assert.rejects(f.checks.complete(f.execution.id), /simplification/);
-  f.workflow.record(f.task.id, { id: 'fixture-simplification', attemptId: f.execution.attemptId, version: 1, artifact: spec.artifact,
-    kind: 'simplification', source: 'controller', outcome: 'passed', summary: 'Explicit fixture assessment of the one-line implementation' });
+  await f.checks.simplify(f.execution.id, { artifact: spec.artifact, instructionsDigest: spec.instructionsDigest,
+    outcome: 'passed', summary: 'Explicit fixture assessment of the one-line implementation' });
   writeFileSync(join(f.workspace.path!, 'extra.txt'), 'after evidence');
   await assert.rejects(f.checks.complete(f.execution.id), /changed since/); assert.equal(f.workflow.get(f.task.id).phase, 'awaiting_verification');
   rmSync(join(f.workspace.path!, 'extra.txt'));
   await f.checks.complete(f.execution.id); assert.equal(f.workflow.get(f.task.id).phase, 'complete'); assert.equal(f.store.lease(f.workspace.id), null);
+});
+
+test('explicit simplification records all outcomes, rejects stale inputs and supersedes older passes', async t => {
+  const f = await fixture(t); const snapshot = await f.checks.snapshot(f.execution.id);
+  const assessment = { artifact: snapshot.artifact, instructionsDigest: snapshot.instructionsDigest, outcome: 'passed' as const,
+    summary: 'One direct output statement; no duplication or unnecessary abstractions; output assertion exercises the requirement.' };
+  await assert.rejects(f.checks.simplify(f.execution.id, assessment), /submitted/);
+  await submitted(f);
+  await assert.rejects(f.checks.simplify(f.execution.id, { ...assessment, summary: ' ' }), /nonempty/);
+  await f.checks.simplify(f.execution.id, assessment);
+  assert.equal(f.workflow.get(f.task.id).evidence.at(-1)?.outcome, 'passed');
+  await assert.rejects(f.checks.simplify(f.execution.id, { ...assessment, instructionsDigest: '0'.repeat(64) }), /changed/);
+  assert.equal(f.workflow.get(f.task.id).evidence.at(-1)?.outcome, 'skipped');
+  await f.checks.simplify(f.execution.id, assessment);
+  writeFileSync(join(f.workspace.path!, 'greeting.js'), "console.log('changed');\n");
+  await assert.rejects(f.checks.simplify(f.execution.id, assessment), /changed/);
+  assert.equal(f.workflow.get(f.task.id).evidence.at(-1)?.outcome, 'skipped');
+  writeFileSync(join(f.workspace.path!, 'greeting.js'), "console.log('hello');\n");
+  for (const outcome of ['failed', 'skipped'] as const) {
+    await f.checks.simplify(f.execution.id, { ...assessment, outcome });
+    assert.equal(f.workflow.get(f.task.id).evidence.at(-1)?.outcome, outcome);
+    assert.ok(f.workflow.blockers(f.task.id).some(item => item.includes('simplification')));
+  }
+  const review = await f.executions.create(f.workspace.id, 1, 'claude', 'review');
+  await assert.rejects(f.checks.simplify(review.id, assessment), /implementation execution/);
+  assert.equal(f.store.lease(f.workspace.id), null);
+});
+
+test('simplification CLI persists assessment and crashed reassessment recovers without restoring a pass', async t => {
+  const f = await fixture(t); const snapshot = await submitted(f);
+  const assessment = { artifact: snapshot.artifact, instructionsDigest: snapshot.instructionsDigest, outcome: 'passed', summary: 'Direct greeting with useful output coverage.' };
+  const specFile = join(f.root, 'simplification.json'); writeFileSync(specFile, JSON.stringify(assessment));
+  const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+  execFileSync(process.execPath, [cli, 'execution-simplify', f.execution.id, specFile, '--db', f.db], { windowsHide: true, stdio: 'pipe' });
+  assert.equal(f.workflow.get(f.task.id).evidence.at(-1)?.outcome, 'passed');
+  crashDuringInspection(f, `await checks.simplify(${JSON.stringify(f.execution.id)}, ${JSON.stringify(assessment)});`);
+  assert.equal(f.store.lease<ExecutionLease>(f.workspace.id)?.kind, 'simplification');
+  assert.equal(f.workflow.get(f.task.id).evidence.at(-1)?.outcome, 'skipped');
+  f.executions.recoverReadOnly(f.execution.id);
+  assert.equal(f.store.lease(f.workspace.id), null);
+  assert.equal(f.workflow.get(f.task.id).evidence.at(-1)?.outcome, 'skipped');
+  await f.checks.simplify(f.execution.id, assessment as Parameters<Checks['simplify']>[1]);
+  assert.equal(f.workflow.get(f.task.id).evidence.at(-1)?.outcome, 'passed');
 });

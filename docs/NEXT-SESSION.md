@@ -1,8 +1,9 @@
 # Resume Grampus implementation
 
 Checkpoint: 17 October 2026, after durable state, conversations, Git/Orca workspaces,
-task-linked session ownership, recoverable Windows checks, artifact review and
-exact-output acceptance verification. The user continued implementation in the
+task-linked session ownership, recoverable Windows checks, artifact review,
+exact-output acceptance verification, explicit simplification and a live standalone
+task pilot. The user continued implementation in the
 same session and authorized pushing the repository.
 
 ## Read first
@@ -39,7 +40,12 @@ Default delivery remains local unless the user authorizes an external action.
 - Durable supervisor receipts, explicit check/read-only recovery without replay,
   bounded text artifact reviews, criterion-mapped output assertions and completion
   revalidation. New review/verification requests invalidate an older gate pass.
-- 112 offline tests passed on Windows with Node 24.22.0 and 25.8.1, covering real Git,
+- Explicit `execution-simplify` assessment with verified artifact/instruction digests,
+  all three outcomes, newer-request invalidation and read-only crash recovery.
+- Live standalone pilot: Codex supplied an allowlisted greeting response, controller
+  applied it, Claude independently reviewed it, real regression and exact-output
+  verification passed, all gates completed, and a local fixture commit/report was made.
+- 114 offline tests passed on Windows with Node 24.22.0 and 25.8.1, covering real Git,
   controller crashes, Orca protocol fixtures, lease races, rollback, uncertain startup,
   stale bindings, real command results, timeouts, detached descendants, controller/
   supervisor crashes, receipt recovery, stale artifacts, review context, output
@@ -48,37 +54,34 @@ Default delivery remains local unless the user authorizes an external action.
 - Both live probes passed question/answer, context across controller restarts,
   supplied-code review findings, interruption and resumption with earlier context.
 
-The demo is synthetic. Live provider probes use a supplied snippet and conversations;
-they do not prove provider-driven repository execution, full independent review or
-task completion. New check tests execute a real greeting regression in a fixture
-worktree. The artifact-gate fixture reaches completion with a mocked reviewer and
-explicit fixture simplification assessment; it does not prove a full live task through
-both providers and all gates.
+The demo is synthetic and offline reviewers are fixtures. The opt-in standalone
+`npm run probe:task -- --live` now reaches completion with both live providers and
+all gates. Its controller applies only a single allowlisted output statement; it
+does not enable native provider editing or general recoverable delivery. Local probe
+evidence remains under ignored `.grampus/task-probes/`. Do not commit those journals,
+reports or fixture repositories. The full task has not been repeated through Orca
+or with a mid-task controller crash; narrower recovery tests/probes already exist.
 The implementation itself has not had independent review. macOS and Linux remain
 unverified. Temporary journals, generated schemas, local probe transcripts and
 dependency/build directories are intentionally not committed. The evidence document
 contains the durable summary, and the probe script can reproduce the checks.
 
-## Next implementation slice: simplification, provider tools and a real task
+## Next implementation slice: provider tools and delivery
 
 Start with the existing source and a small concrete plan. Do not rebuild the
 controller or broaden into the dashboard first.
 
-1. Expose an explicit simplification assessment tied to the current artifact. It remains
-   available only through the trusted Workflow API; neither a passing command nor a
-   review with no findings should invent that checkpoint. Keep it separate from review
-   arbitration and task completion.
-2. Define native provider tool authorization and repository-rule application before
+1. Define native provider tool authorization and repository-rule application before
    enabling agent edits. The check interface takes explicit trusted command JSON and
    acknowledges discovered `AGENTS.md`/`CLAUDE.md`; it is not an agent tool policy.
    Continue to keep successful conversational replies separate from task evidence.
-3. Run a tiny approved task through implementation, simplification, real checks,
-   independent live review, acceptance verification, local slice commit and report.
-   `execution-review` now supplies the full bounded text snapshot and checks its digest
-   before/after inference. `execution-verify` maps all criteria to a command and exact
-   expected stdout. `execution-complete` verifies current content and all gates. The
-   current fixture proves plumbing, not a live reviewer or meaningful coverage choice.
-   Demonstrate interruption/recovery and repeat with and without Orca.
+2. Define delivery binding and recovery before automating slice commits. The live
+   pilot commits explicitly after completion and journals that fact; staging and HEAD
+   change the digest. General delivery needs to prove the committed tree matches
+   checked content and reconcile interrupted staging/commit without blind replay.
+3. Extend the live pilot to native provider edits once their policy is defined,
+   demonstrate mid-task interruption/recovery, and repeat through Orca. Keep semantic
+   simplification assessment explicit and choose checks that demonstrate the outcome.
 4. Define safe workspace release/rebinding for changed briefs and a recovery path for
    unknown provider PIDs. Failed reservations currently stay blocked for investigation.
    Keep using Orca's supported interfaces for Orca-owned state; its CLI exiting does
@@ -113,7 +116,7 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
   process adoption, force-stop command or heartbeat mechanism.
 - `check-recover` requires a persisted pre-dispatch boundary or matching completion
   receipt plus absent controller/supervisor on the same host. It never accepts a lost
-  success. `execution-recover` handles new read-only snapshot/submission/completion
+  success. `execution-recover` handles new read-only snapshot/submission/simplification/completion
   leases. Legacy missing proofs, a killed supervisor without a receipt and unknown
   provider identity remain blocked. Do not add PID-only force-unlock or replay.
 - The check helper requires Windows 10+, a hidden detached Node host and Windows

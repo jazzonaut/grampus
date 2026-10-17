@@ -10,6 +10,8 @@ Current state: the durable controller, live conversations, Git/Orca workspaces a
 task-linked sessions with exclusive workspace ownership are implemented. Explicit
 repository checks on Windows now produce content-bound validation evidence, with
 receipt-based recovery, artifact reviews and exact-output acceptance checks.
+An explicit simplification checkpoint and a live standalone greeting pilot now
+exercise all gates, with a controller-applied Codex response and Claude review.
 They include a SQLite journal, versioned task approval, completion gates, Codex and
 Claude conversations, structured questions and review findings, interruption,
 reconnection, local integration discovery and journaled worktree creation.
@@ -301,7 +303,7 @@ supervision and provider-driven repository editing remain outstanding.
 ```sh
 npm start -- check-show <check-id>
 npm start -- check-recover <check-id>
-# For a snapshot, submission or completion interrupted before its transaction committed:
+# For a snapshot, submission, simplification or completion interrupted before its transaction committed:
 npm start -- execution-recover <execution-id>
 ```
 
@@ -321,6 +323,30 @@ command lease. Receipt/output directories are retained beside the journal as
 operational data and are trusted like the journal, not a sandbox against its owner.
 
 ## Review and verify a submitted artifact
+
+After submission, explicitly assess names, duplication, unnecessary complexity and
+whether the checks exercise useful behavior. Record that assessment with:
+
+```sh
+npm start -- execution-simplify <implementation-execution-id> simplification.json
+```
+
+```json
+{
+  "artifact": "<submitted sha256:...>",
+  "instructionsDigest": "<digest from execution-snapshot>",
+  "outcome": "passed",
+  "summary": "Describe what you inspected and why further simplification is unnecessary."
+}
+```
+
+The outcome can be `passed`, `failed` or `skipped`; the latter two keep completion
+blocked and return a nonzero CLI status. This is a trusted caller's assessment.
+Grampus verifies its artifact binding, not the judgment in the prose. A new valid
+assessment request makes the gate pending before inspecting content; stale inputs
+or a controller crash cannot restore an older pass. Read-only recovery releases a
+crashed assessment without accepting it. Changes made while simplifying require
+a fresh implementation attempt and validation before assessment of the new artifact.
 
 ```sh
 npm start -- execution-new <workspace-id> 1 claude --role review
@@ -363,8 +389,29 @@ visible. Starting a new review or acceptance check makes the corresponding gate 
 so a lost or failed newer run cannot leave an older pass current.
 
 Completion verifies the artifact again and requires every existing gate and decision.
-Simplification is still an explicit assessment through the trusted workflow API;
-these commands do not invent that assessment, commit code or push task branches.
+These commands do not invent simplification assessments, commit code or push task branches.
+
+## Live standalone task pilot
+
+```sh
+npm run build
+npm run probe:task -- --live
+```
+
+This opt-in Windows probe uses both subscriptions. It creates an isolated greeting
+repository under ignored `.grampus/task-probes/`, copies your configured Git identity
+into that fixture, and approves a fixed one-line task. Codex supplies the replacement;
+the controller applies it only if it matches the one permitted output statement.
+It records an explicit simplification assessment, runs real checks, requests a fresh
+Claude artifact review, verifies exact stdout and completes the task. It then makes
+a local fixture commit and saves a journal-derived report. No fixture branch is pushed.
+
+Failures retain evidence for investigation and do not trigger inference retries.
+The pilot retains local journals, reports and worktrees, which can contain operational
+paths; keep them out of commits. It demonstrates a bounded controller-applied change,
+not general native agent editing, automatic commit recovery or the full Orca workflow.
+The post-completion commit changes HEAD/index and therefore the snapshot digest;
+general delivery needs an explicit binding between checked content and the final commit.
 
 ## Development
 

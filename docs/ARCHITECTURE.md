@@ -360,7 +360,7 @@ a pending task stop becomes stopped. Verification recovery records a skipped gat
 State, evidence, journal events and lease release share one transaction. Legacy checks
 without proof remain blocked, as does a killed supervisor that left no receipt.
 
-`execution-recover` applies only to new snapshot/submission/completion leases marked
+`execution-recover` applies only to new snapshot/submission/simplification/completion leases marked
 as read-only by this protocol. These operations never launch repository-writing tools;
 after controller absence their interrupted reads cannot accept evidence or complete
 a later transaction. Recovery releases their exact lease and records no result. It
@@ -473,6 +473,20 @@ remain `null`. Task reports still say usage is unknown because aggregation acros
 linked sessions is not implemented; provider snapshots remain in session journals.
 
 ## Verification and current boundaries
+
+`execution-simplify` records an explicit trusted assessment of the submitted artifact.
+Its JSON includes artifact and instruction digests, outcome and a bounded nonempty
+summary. A new request records pending evidence and claims a read-only lease in one
+transaction. Matching current content permits the supplied assessment to be recorded
+with lease release atomically; failed inspection or a crash leaves the gate pending.
+Recovery releases ownership without manufacturing an assessment. The controller
+verifies identity and freshness, not the semantic quality of the caller's judgment.
+
+The opt-in standalone task probe applies only an allowlisted one-line Codex response,
+then exercises real checks, simplification, live Claude review and exact-output
+acceptance. A local fixture commit and report follow completion. This harness does
+not implement native editing or a recoverable delivery state machine. HEAD/index
+change on commit, so general delivery must bind checked content to the committed tree.
 
 `npm test` builds and runs offline tests against temporary databases, subprocesses
 and protocol fixtures. It does not invoke live models. Test files cover workflow,
