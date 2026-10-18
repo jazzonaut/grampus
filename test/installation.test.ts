@@ -1,0 +1,149 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const installerUrl = new URL('../../scripts/install.mjs', import.meta.url);
+const installer = await import(installerUrl.href);
+const launcher = fileURLToPath(new URL('../../scripts/installed-launch.mjs', import.meta.url));
+const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+
+test('installer rejects unsupported Node versions and unsafe destinations', t => {
+  for (const version of ['18.20.0', '22.15.0', '23.9.0', 'invalid']) assert.throws(() => installer.requireNode(version), /24 or later/);
+  for (const version of ['24.0.0', '24.22.0', '25.8.1']) installer.requireNode(version);
+  const root = mkdtempSync(join(tmpdir(), 'grampus-installer-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const source = join(root, 'checkout'); mkdirSync(source);
+  assert.throws(() => installer.validateDestination(source, source), /outside the checkout/);
+  assert.throws(() => installer.validateDestination(join(source, 'installed'), source), /outside the checkout/);
+  assert.throws(() => installer.validateDestination(root, source), /outside the checkout/);
+  const unrelated = join(root, 'unrelated'); mkdirSync(unrelated); writeFileSync(join(unrelated, 'keep.txt'), 'keep');
+  assert.throws(() => installer.validateDestination(unrelated, source), /not a Grampus installation/);
+  assert.throws(() => installer.validateDestination(join(root, 'bad;path'), source), /semicolons/);
+  assert.equal(installer.validateDestination(join(root, 'installed with spaces'), source), join(root, 'installed with spaces'));
+  assert.throws(() => installer.removeStage(root, source), /Refusing to remove/);
+  assert.equal(readFileSync(join(unrelated, 'keep.txt'), 'utf8'), 'keep');
+});
+
+test('installed snapshots launch independently, preserve data and switch versions only on activation', t => {
+  const root = mkdtempSync(join(tmpdir(), 'grampus install spaces-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const source = join(root, 'checkout'), installRoot = join(root, 'installed'), data = join(root, 'local data');
+  mkdirSync(join(source, 'src'), { recursive: true }); mkdirSync(join(source, 'scripts'));
+  mkdirSync(join(installRoot, 'versions'), { recursive: true });
+  writeFileSync(join(source, 'package.json'), JSON.stringify({ name: 'grampus', version: '0.1.0', type: 'module' }));
+  writeFileSync(join(source, 'package-lock.json'), '{}'); writeFileSync(join(source, 'tsconfig.json'), '{}');
+  writeFileSync(join(source, 'src', 'fixture.ts'), 'original source'); copyFileSync(launcher, join(source, 'scripts', 'installed-launch.mjs'));
+  const prepare = (id: string, message: string) => {
+    const stage = join(installRoot, 'versions', `.staging-${id}`); mkdirSync(stage);
+    const digest = installer.copySourceSnapshot(source, stage);
+    mkdirSync(join(stage, 'dist', 'src'), { recursive: true });
+    copyFileSync(fileURLToPath(new URL('../src/runtime.js', import.meta.url)), join(stage, 'dist', 'src', 'runtime.js'));
+    copyFileSync(fileURLToPath(new URL('../src/store.js', import.meta.url)), join(stage, 'dist', 'src', 'store.js'));
+    writeFileSync(join(stage, 'dist', 'src', 'cli.js'), `import {versionInformation} from './runtime.js'; console.log(JSON.stringify({...versionInformation(), message: ${JSON.stringify(message)}, cwd: process.cwd(), args: process.argv.slice(2)}));`);
+    const build = { id, version: '0.1.0', commit: null, dirty: true, sourceDigest: digest, builtAt: new Date().toISOString(), source, installRoot };
+    writeFileSync(join(stage, 'grampus-build.json'), JSON.stringify(build));
+    return { stage, build };
+  };
+  const environment: NodeJS.ProcessEnv = { ...process.env, LOCALAPPDATA: data }; delete environment.GRAMPUS_HOME;
+  const run = (path: string, ...args: string[]) => JSON.parse(execFileSync(process.execPath, [path, ...args], { cwd: root, env: environment, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }));
+  const first = prepare('first', 'first version'); installer.activateSnapshot(installRoot, first.stage, first.build);
+  const launch = join(installRoot, 'bin', 'launch.mjs'), firstInfo = run(launch, 'version', 'an argument with spaces');
+  assert.equal(firstInfo.message, 'first version'); assert.equal(firstInfo.channel, 'installed'); assert.equal(firstInfo.dashboardPort, 4317);
+  assert.deepEqual(firstInfo.args, ['version', 'an argument with spaces']); assert.equal(firstInfo.cwd, root);
+  assert.equal(firstInfo.dataDirectory, join(data, 'Grampus', 'installed'));
+  mkdirSync(firstInfo.dataDirectory, { recursive: true }); const sentinel = join(firstInfo.dataDirectory, 'retained.txt'); writeFileSync(sentinel, 'installed task data');
+  writeFileSync(join(source, 'src', 'fixture.ts'), 'new source, not automatically installed');
+  assert.equal(readFileSync(join(installRoot, 'versions', 'first', 'src', 'fixture.ts'), 'utf8'), 'original source');
+  assert.equal(run(launch).message, 'first version');
+  const second = prepare('second', 'second version');
+  assert.equal(run(launch).message, 'first version');
+  installer.activateSnapshot(installRoot, second.stage, second.build);
+  assert.equal(run(launch).message, 'second version');
+  assert.equal(run(join(installRoot, 'versions', 'first', 'dist', 'src', 'cli.js')).message, 'first version');
+  assert.equal(readFileSync(sentinel, 'utf8'), 'installed task data');
+  const failed = prepare('failed', 'must not be selected');
+  writeFileSync(join(failed.stage, 'scripts', 'installed-launch.mjs'), 'invalid launcher');
+  assert.throws(() => installer.activateSnapshot(installRoot, failed.stage, failed.build), /launcher differs/);
+  assert.equal(run(launch).message, 'second version');
+  installer.removeStage(installRoot, failed.stage); assert.equal(existsSync(failed.stage), false);
+  // Even moving the entire development checkout away cannot break installed launches.
+  rmSync(source, { recursive: true }); assert.equal(run(launch).message, 'second version');
+});
+
+test('version commands expose development identity and isolate default data without creating a journal', t => {
+  const root = mkdtempSync(join(tmpdir(), 'grampus-version-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const environment: NodeJS.ProcessEnv = { ...process.env, LOCALAPPDATA: root }; delete environment.GRAMPUS_HOME;
+  const run = (args: string[], env = environment) => execFileSync(process.execPath, [cli, ...args], { cwd: root, env, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  const info = JSON.parse(run(['version', '--json']));
+  assert.equal(info.channel, 'development'); assert.equal(info.dashboardPort, 4318); assert.equal(info.build, null);
+  assert.match(info.dataDirectory, /development/); assert.equal(existsSync(info.dataDirectory), false);
+  assert.match(run(['--version']), /Grampus 0\.1\.0 \(development\)/); assert.equal(run(['-v']), run(['--version']));
+  assert.match(run(['--help']), /update.*checkout/);
+  const overridden = JSON.parse(run(['version', '--json'], { ...environment, GRAMPUS_HOME: join(root, 'explicit') }));
+  assert.equal(overridden.dataDirectory, join(root, 'explicit'));
+});
+
+test('bare CLI opens the dashboard from an unrelated directory and retains explicit database selection', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'grampus-bare-cli-')), db = join(root, 'explicit.sqlite');
+  const child = spawn(process.execPath, [cli, '--no-open', '--port', '0', '--db', db], { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const closed = new Promise<void>(done => child.once('close', () => done()));
+  t.after(async () => { child.kill(); await closed; rmSync(root, { recursive: true, force: true }); });
+  const url = await new Promise<string>((done, reject) => {
+    let output = '', errors = '';
+    const timer = setTimeout(() => reject(new Error(`Dashboard did not start: ${output} ${errors}`)), 15000);
+    child.stdout.on('data', chunk => { output += chunk.toString(); const match = /Grampus dashboard: (http:\/\/[^\s]+)/.exec(output); if (match) { clearTimeout(timer); done(match[1]!); } });
+    child.stderr.on('data', chunk => { errors += chunk.toString(); });
+    child.once('error', error => { clearTimeout(timer); reject(error); });
+    child.once('close', () => { clearTimeout(timer); reject(new Error(`Dashboard exited: ${errors}`)); });
+  });
+  const address = new URL(url);
+  assert.equal((await fetch(address.origin)).status, 200);
+  assert.equal((await fetch(address.origin + '/app.css')).status, 200);
+  const response = await fetch(address.origin + '/api/state', { headers: { Authorization: `Bearer ${address.hash.slice(1)}` } });
+  const state = await response.json() as any;
+  assert.equal(state.journal, db); assert.equal(state.application.channel, 'development'); assert.equal(state.application.version, '0.1.0');
+});
+
+test('missing prerequisite refuses installation before any files or PATH changes', { skip: process.platform !== 'win32' }, t => {
+  const root = mkdtempSync(join(tmpdir(), 'grampus-install-preflight-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const destination = join(root, 'installed');
+  const result = spawnSync(process.execPath, [fileURLToPath(installerUrl), '--yes', '--no-path', '--dir', destination], { env: { ...process.env,
+    GRAMPUS_CODEX_COMMAND: join(root, 'missing-codex.exe'), GRAMPUS_CLAUDE_COMMAND: process.execPath }, encoding: 'utf8', windowsHide: true, timeout: 60000 });
+  assert.equal(result.status, 1); assert.match(result.stderr, /Installation refused.*Codex CLI/); assert.equal(existsSync(destination), false);
+});
+
+test('interactive installer shows its plan and cancellation leaves the destination absent', { skip: process.platform !== 'win32' }, async t => {
+  const root = mkdtempSync(join(tmpdir(), 'grampus-install-prompt-')), destination = join(root, 'installed');
+  const preload = join(root, 'interactive.mjs');
+  // Simulate terminal input without requiring a visible console in the offline suite.
+  writeFileSync(preload, "Object.defineProperty(process.stdin, 'isTTY', { value: true });\n");
+  const child = spawn(process.execPath, ['--import', pathToFileURL(preload).href, fileURLToPath(installerUrl), '--no-path', '--dir', destination], { windowsHide: true, stdio: 'pipe',
+    env: { ...process.env, GRAMPUS_CODEX_COMMAND: process.execPath, GRAMPUS_CLAUDE_COMMAND: process.execPath } });
+  let output = '', errors = '', answered = false;
+  child.stdout.on('data', chunk => { output += chunk.toString(); if (!answered && output.includes('Continue?')) { answered = true; child.stdin.end('n\n'); } });
+  child.stderr.on('data', chunk => { errors += chunk.toString(); });
+  const closed = new Promise<number | null>((done, reject) => { child.once('close', done); child.once('error', reject); });
+  const timer = setTimeout(() => child.kill(), 30000);
+  t.after(async () => { clearTimeout(timer); child.kill(); await closed; rmSync(root, { recursive: true, force: true }); });
+  assert.equal(await closed, 0, errors); assert.match(output, /Task data is separate/); assert.match(output, /Cancelled/);
+  assert.equal(answered, true); assert.equal(existsSync(destination), false);
+});
+
+test('installer refuses concurrent updates instead of changing the active version', { skip: process.platform !== 'win32' }, t => {
+  const root = mkdtempSync(join(tmpdir(), 'grampus-install-lock-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const destination = join(root, 'installed'); mkdirSync(destination);
+  writeFileSync(join(destination, 'grampus-install.json'), JSON.stringify({ application: 'grampus', schema: 1, addToPath: false }));
+  writeFileSync(join(destination, 'current.json'), JSON.stringify({ schema: 1, release: 'keep-current' }));
+  writeFileSync(join(destination, 'install.lock'), JSON.stringify({ pid: process.pid }));
+  const result = spawnSync(process.execPath, [fileURLToPath(installerUrl), '--yes', '--no-path', '--dir', destination], { env: { ...process.env,
+    GRAMPUS_CODEX_COMMAND: process.execPath, GRAMPUS_CLAUDE_COMMAND: process.execPath }, encoding: 'utf8', windowsHide: true, timeout: 60000 });
+  assert.equal(result.status, 1); assert.match(result.stderr, /Another installation may be running/);
+  assert.equal(JSON.parse(readFileSync(join(destination, 'current.json'), 'utf8')).release, 'keep-current');
+});

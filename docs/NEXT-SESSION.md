@@ -1,5 +1,35 @@
 # Resume Grampus implementation
 
+## Local installer and update checkpoint
+
+The user requested an independently installed copy for trials while developing
+this checkout, with existing Node.js 24+, dependency refusal, separate data/ports,
+easy updates and visible versions. `npm run install:local` or `Install-Grampus.cmd`
+provides an interactive Windows per-user installer. It builds copied source with
+locked dependencies in a fresh version folder, prunes build dependencies, checks
+runtime imports/assets and activates through a small selection file. User PATH is
+updated without administrator access. `grampus` opens the dashboard;
+`grampus update [--source <checkout>]` installs an explicit fresh snapshot, and
+`grampus version [--json]` identifies locations and build provenance.
+The checkout launcher is renamed `Grampus-Dev.cmd` so it cannot shadow installed
+`grampus` when invoked from the source folder in Command Prompt.
+
+Installed defaults are data under `Grampus/installed` and port 4317. Development
+uses `Grampus/development/<checkout-id>` and port 4318. Explicit `GRAMPUS_HOME`,
+`--db` and `--port` overrides still apply. Earlier root journals are preserved.
+Versioned processes retain their own worker and asset paths across activation;
+old folders are retained. No fetch/pull, automatic update, journal rollback,
+bundled Node runtime or public release download was added. See
+[INSTALLATION.md](INSTALLATION.md) for operations and recovery limitations.
+
+Ordinary-project trials remain the next release gate. See the integration-evidence
+installation section for actual packaging and regression validation.
+The full Node 25 suite passed all 241 then-existing tests; the final Node 24 suite
+passed all 242. Eight final focused Node 25 tests cover the added prompt case and
+the timeout fixture's process-identity correction. Real installation, successful
+and failed updates, packaged helpers/workers and installed/development dashboard
+coexistence were exercised without model inference.
+
 Checkpoint: 18 October 2026, after durable state, conversations, Git/Orca workspaces,
 task-linked session ownership, recoverable Windows checks, artifact review,
 exact-output acceptance verification, explicit simplification and supervised local
@@ -120,7 +150,7 @@ rebinding, background scheduler or installer was added.
 
 ## Dashboard and conversational kickoff checkpoint
 
-`npm run ui` or the double-click `Grampus.cmd` launcher builds and opens the
+`npm run ui` or the double-click development launcher (now `Grampus-Dev.cmd`) builds and opens the
 loopback dashboard. It shares the CLI journal/controller, presents complete plan
 approval, exact file authorization, explicit simplification, questions, findings,
 check output, retained changes, stop/retry/recovery and downloadable reports.
@@ -469,7 +499,7 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
   Add `--delete-obsolete` to approve removal of an obsolete tracked file; the saved
   oracle checks absence and the checkpoint retains deletion metadata. With
   interruption mode, deletion happens first and recovery preserves that absence.
-- Retention, safe-checkpoint transfer, installer packaging, platform CI,
+- Retention, safe-checkpoint transfer, published release packaging, platform CI,
   notifications, Linear and opt-in PR delivery are still outstanding.
 - Keep subscription authentication as the default. Do not silently enable API
   billing, infer actual billed cost from estimates, or sum cumulative usage events.

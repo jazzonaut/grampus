@@ -1,15 +1,10 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { homedir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
+import { defaultDataDirectory } from './runtime.js';
 
 export function defaultDatabasePath(): string {
-  const base = process.env.GRAMPUS_HOME ?? (process.platform === 'win32'
-    ? join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'Grampus')
-    : process.platform === 'darwin'
-      ? join(homedir(), 'Library', 'Application Support', 'Grampus')
-      : join(process.env.XDG_STATE_HOME ?? join(homedir(), '.local', 'state'), 'grampus'));
-  return join(base, 'journal.sqlite');
+  return join(defaultDataDirectory(), 'journal.sqlite');
 }
 
 export interface JournalEvent {

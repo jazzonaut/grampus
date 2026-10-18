@@ -30,12 +30,26 @@ They include a SQLite journal, versioned task approval, completion gates, Codex 
 Claude conversations, structured questions and review findings, interruption,
 reconnection, local integration discovery and journaled worktree creation.
 Supervised Claude and Codex file editing, creation and deletion is available for explicitly named text files
-in standalone and local Orca Windows workspaces. Broader tools, scheduling
-and installers remain to be built.
+in standalone and local Orca Windows workspaces. A per-user Windows snapshot
+installer now separates installed use from development, with explicit updates.
+Broader tools, scheduling and published release distribution remain to be built.
 
-## Open Grampus
+## Install Grampus
 
-After `npm ci`, double-click **Grampus.cmd** or run:
+Double-click **Install-Grampus.cmd**, or run `npm run install:local` from this
+checkout. The interactive Windows installer checks required tools, builds an
+independent snapshot outside the repo and adds `grampus` to your user PATH.
+Open a new terminal and run `grampus` to open the dashboard, `grampus --version`
+to identify the installed build, or `grampus update` to install a fresh snapshot
+from the recorded checkout. See [installation and updates](docs/INSTALLATION.md).
+
+Installed task data and port 4317 are separate from development data and port 4318.
+You can keep improving this checkout while trying the installed app; source edits
+take effect in the installation only after an explicit update.
+
+## Run from the checkout
+
+After `npm ci`, double-click **Grampus-Dev.cmd** or run:
 
 ```sh
 npm run ui
@@ -45,10 +59,10 @@ The local dashboard opens in your browser. Choose **New task**, enter an
 existing repository and describe the desired change. Discussion, plan approval,
 file authorization, simplification, questions, progress, recovery and reports are
 available in the interface. See [the dashboard walkthrough](docs/DASHBOARD.md).
-This developer distribution supports Windows with explicit, bounded text context
+This local distribution supports Windows with explicit, bounded text context
 inside larger repositories, including unchanged binary assets. See
 [repository context and scale](docs/REPOSITORY-CONTEXT.md). Ordinary-project trials
-and packaging remain release work.
+and release-wide distribution validation remain release work.
 
 ## CLI and integration tools
 
@@ -194,9 +208,12 @@ questions, answers, context retention, review findings on a supplied buggy snipp
 interruption and resumption. It prints the retained journal location. The ordinary
 test suite does not call either provider or require authentication.
 
-Task commands store data outside the checkout: `%LOCALAPPDATA%/Grampus` on Windows,
+Task commands store data outside the checkout, under `%LOCALAPPDATA%/Grampus` on Windows,
 `~/Library/Application Support/Grampus` on macOS, or
-`${XDG_STATE_HOME:-~/.local/state}/grampus` on Linux. Set `GRAMPUS_HOME` or pass
+`${XDG_STATE_HOME:-~/.local/state}/grampus` on Linux. Installed copies use the `installed`
+subdirectory; development uses `development/<checkout-id>`. Earlier journals in the
+root directory are preserved and can be opened explicitly with `--db`.
+Set `GRAMPUS_HOME` or pass
 `--db <path>` to select another location. No cleanup or retention expiry is enabled
 yet. Reports contain task content; inspect them before sharing.
 

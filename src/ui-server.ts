@@ -10,6 +10,7 @@ import { renderReport } from './report.js';
 import { Kickoffs } from './kickoff.js';
 import { boundedRepositoryFiles } from './repository-evidence.js';
 import { Sessions } from './sessions.js';
+import { defaultDashboardPort, versionInformation } from './runtime.js';
 
 interface Job { running: boolean; error: string | null; action: string }
 export interface UiOptions { db: string; port?: number }
@@ -66,7 +67,7 @@ export async function startUi(options: UiOptions) {
       if (request.method === 'GET' && path === '/api/state') {
         const revision = store.revision();
         if (cachedState?.revision !== revision) cachedState = { revision, value: { tasks: store.guidedSummaries(), kickoffs: kickoffs.list() } };
-        json(response, 200, { ...cachedState.value as object, jobs: Object.fromEntries(jobs), journal: store.path }); return;
+        json(response, 200, { ...cachedState.value as object, jobs: Object.fromEntries(jobs), journal: store.path, application: versionInformation() }); return;
       }
       const match = /^\/api\/(tasks|kickoffs)\/([a-f0-9-]+)(?:\/([a-z-]+))?$/.exec(path);
       if (match && request.method === 'GET' && match[1] === 'tasks' && match[3] === 'report') {
@@ -132,7 +133,7 @@ export async function startUi(options: UiOptions) {
     })().catch(error => { if (!response.headersSent) json(response, 400, { error: error instanceof Error ? error.message : String(error) }); else response.end(); });
   });
   server.requestTimeout = 15000; server.headersTimeout = 10000;
-  try { await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(options.port ?? 4317, '127.0.0.1', () => { server.off('error', reject); resolve(); }); }); }
+  try { await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(options.port ?? defaultDashboardPort, '127.0.0.1', () => { server.off('error', reject); resolve(); }); }); }
   catch (error) { store.close(); throw error; }
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Dashboard address unavailable');

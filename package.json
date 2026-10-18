@@ -13,6 +13,7 @@
     "test": "npm run build && node --test dist/test/*.test.js",
     "start": "node dist/src/cli.js",
     "ui": "npm run build && node dist/src/cli.js ui",
+    "install:local": "node scripts/install.mjs",
     "doctor": "node dist/src/cli.js doctor",
     "demo": "node dist/src/cli.js demo",
     "probe": "node dist/src/probe.js",

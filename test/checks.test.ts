@@ -16,6 +16,7 @@ import { Checks, type CheckSpec, type RepositoryCheck } from '../src/checks.js';
 import { runCheckProcess, retainedOutput } from '../src/check-process.js';
 import type { ExecutionLease } from '../src/execution-state.js';
 import type { Connector, Reply } from '../src/agents/types.js';
+import { processAlive } from '../src/check-recovery.js';
 
 const windows = { skip: process.platform !== 'win32' };
 function git(cwd: string, ...args: string[]): string {
@@ -166,11 +167,20 @@ test('rapid zero-exit tools wait for job settlement instead of failing on transi
 
 test('timeout terminates a real tool tree before releasing the workspace', windows, async t => {
   const f = await fixture(t);
-  const spec = await f.spec("const {spawn}=require('node:child_process'); const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'}); console.log(child.pid); setInterval(()=>{},1000);");
-  spec.timeoutMs = 700;
+  const identityModule = JSON.stringify(new URL('../src/process-identity.js', import.meta.url).href);
+  const spec = await f.spec(`const {spawn}=require('node:child_process'); const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
+    import(${identityModule}).then(({inspectProcess}) => console.log(JSON.stringify({ childPid: child.pid, tool: inspectProcess(process.pid), child: inspectProcess(child.pid) })));
+    setInterval(()=>{},1000);`);
+  // Leave time to observe both creation times before the actual timeout. A later
+  // repository capture can give Windows enough time to recycle the exited PIDs.
+  spec.timeoutMs = 5000;
   const check = await f.checks.run(f.execution.id, spec);
   assert.equal(check.phase, 'failed'); assert.equal(check.result?.reason, 'timed_out'); assert.equal(check.result.exitConfirmed, true);
-  assert.equal(alive(check.toolPid!), false); assert.equal(alive(Number(check.result.stdout.trim())), false);
+  const identities = JSON.parse(check.result.stdout.trim()) as { childPid: number; tool: { state: string; startedAt: string }; child: { state: string; startedAt: string } };
+  assert.equal(identities.tool.state, 'present'); assert.equal(identities.child.state, 'present');
+  assert.ok(Number.isSafeInteger(identities.childPid) && identities.childPid > 0);
+  assert.equal(processAlive(check.toolPid!, identities.tool.startedAt), false);
+  assert.equal(processAlive(identities.childPid, identities.child.startedAt), false);
   assert.equal(f.store.lease(f.workspace.id), null); assert.deepEqual(f.workflow.get(f.task.id).evidence, []);
 });
 

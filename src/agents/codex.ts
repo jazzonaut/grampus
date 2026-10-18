@@ -1,4 +1,5 @@
 import { RpcProcess, type RpcMessage } from '../process.js';
+import { applicationVersion } from '../runtime.js';
 import { authorizeFileChanges, implementationInstructions, type EditingContext } from '../edit-policy.js';
 import { instructions, replySchema, parseReply, subscriptionEnvironment, numeric, type AgentSession, type ConnectOptions, type TurnResult, type Usage } from './types.js';
 
@@ -13,7 +14,7 @@ export async function connectCodex(options: ConnectOptions): Promise<AgentSessio
   options.signal.addEventListener('abort', abort, { once: true });
   try {
     options.emit({ type: 'process.started', data: { pid: rpc.pid } });
-    await rpc.request('initialize', { clientInfo: { name: 'grampus', title: 'Grampus', version: '0.1.0' } });
+    await rpc.request('initialize', { clientInfo: { name: 'grampus', title: 'Grampus', version: applicationVersion } });
     rpc.notify('initialized');
     const auth = await rpc.request<{ account: { type: string } | null }>('account/read', { refreshToken: false });
     if (auth.account?.type !== 'chatgpt') throw new Error('Codex requires an existing ChatGPT subscription login');

@@ -42,6 +42,7 @@ test('dashboard requires its local token and origin, rejects stale decisions, an
   assert.equal(rebound, 403);
   assert.equal((await req('/api/tasks', { plan: f.plan })).status, 201);
   const list = await (await req('/api/state')).json() as any, id = list.tasks[0].id;
+  assert.equal(list.application.version, '0.1.0'); assert.equal(list.application.channel, 'development');
   const view = await (await req(`/api/tasks/${id}`)).json() as any;
   assert.equal(view.state.status, 'draft'); assert.equal(view.state.plan.workspace.base, f.git('rev-parse', 'HEAD'));
   assert.equal((await req(`/api/tasks/${id}/approve`, { version: 1, digest: view.state.digest, expected: 'stale' })).status, 400);

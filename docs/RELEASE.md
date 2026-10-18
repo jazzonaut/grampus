@@ -20,7 +20,7 @@ manually coordinating every provider call, check and delivery command.
   commands remain available; they do not yet enforce a global worker limit.
 - Local checked commits and a journal-derived report. The user handles pushing.
 
-macOS/Linux releases, installers, Linear, automatic PR delivery, multi-task
+macOS/Linux releases, published installers, Linear, automatic PR delivery, multi-task
 scheduling and full unattended operation follow this alpha. The broader design
 remains the product direction. A basic interface and clear recovery are part of
 usability, rather than optional polish.
@@ -65,7 +65,7 @@ guided recovery, dashboard ownership/decision binding and native process settlem
 The local dashboard now provides plain-language kickoff against a pinned small
 repository, consequential questions, reviewable generated plans and shared
 task approval/execution controls. It displays instructions, file contents, changes,
-check output, findings, a timeline and downloadable reports. `Grampus.cmd` opens
+check output, findings, a timeline and downloadable reports. `Grampus-Dev.cmd` opens
 the developer distribution without remembering CLI commands. See
 [DASHBOARD.md](DASHBOARD.md).
 
@@ -97,3 +97,14 @@ Offline full suites passed all 235 tests on Node 24 and Node 25. Final focused
 context/dashboard checks also passed all 15 tests on both runtimes after the last
 state-race fixes. See [integration evidence](INTEGRATION-EVIDENCE.md) for the exact
 scope, browser checks, scale timings and remaining release gates.
+
+## Local installation checkpoint
+
+A Windows per-user CLI installer now builds independent versioned snapshots from
+the checkout, checks dependencies before installation and adds `grampus` to user
+PATH. Installed and development copies use separate default data directories and
+ports. `grampus update` explicitly rebuilds from the recorded checkout and activates
+a checked replacement while retaining older version directories and task data.
+CLI and dashboard identify version, mode and installed build. See
+[INSTALLATION.md](INSTALLATION.md). This enables local trials; ordinary-project
+evidence and release-wide review/distribution validation remain required.

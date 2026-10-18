@@ -1,5 +1,74 @@
 # Initial integration evidence
 
+## Local Windows installation and updates — 18 October 2026
+
+The per-user installer was exercised against a real destination outside the source
+checkout. It installed locked dependencies into a copied source snapshot, built
+there, pruned development dependencies and activated a version through the common
+launcher. The real `grampus.cmd` reported the installed version and build from an
+unrelated working directory. No source `dist` or `node_modules` was used by the
+installed application.
+
+An installed-copy smoke trial exercised relative CLI brief paths, persisted approval
+and reporting, native process identity, the real Windows supervised check runner,
+all three dashboard assets and the packaged UI worker. The worker prepared an
+actual guided Git worktree and reached `awaiting_scope` with supplied source text.
+The same installed-distribution smoke also passed on Node 24.22.0, including the
+packaged native helpers and UI worker (`installer-installed-smoke-node24.log`).
+No providers or model inference were used by these smoke operations. External
+provider installation checks used only their version commands.
+
+Updating through the installed `grampus update --yes` selected a new version while
+an already running dashboard continued reporting its original build. The same
+journal retained its stored task. A second update from an isolated source copy
+containing invalid TypeScript failed compilation; the selected working version,
+stored task and old dashboard were unchanged. The trial retained logs and result
+JSON outside the checkout; its invocation scripts and installation pointer are
+ignored under `.grampus/`.
+
+The actual per-user installation also registered its `bin` directory once in user
+PATH and launched by command name from an unrelated directory. Installed and
+development dashboards ran simultaneously on their default ports 4317 and 4318,
+with separate journals and the correct mode/version metadata. Checkout source
+edits did not replace installed files. The development batch launcher is named
+`Grampus-Dev.cmd` to avoid Command Prompt's current-directory lookup shadowing the
+installed command.
+
+Offline installation tests cover version/destination rejection, copied-source
+independence after deleting the fixture checkout, version switching and failed
+activation, data retention, argument/current-directory preservation, explicit data
+overrides, bare dashboard startup, missing prerequisites, prompt cancellation and
+concurrent installer refusal. Prompt cancellation simulates a terminal input flag;
+native terminal interaction is not established by that test. The execution tool's
+PTY launch was unavailable in this environment, so full real installation/update
+trials used explicit `--yes`. No GUI installer or bundled Node runtime was added.
+
+The first complete default-parallel Node 25.8.1 suite passed all 241 then-existing
+tests without failures, cancellations or skips (613.8 seconds). Adding the prompt
+test exposed a Windows `--import` fixture path error, fixed by supplying a file URL.
+The first Node 24.22.0 full run recorded 240 passes and two failures: that fixture
+error and an existing timeout test's PID-only liveness assertion after confirmed
+native settlement (632.8 seconds). The unchanged timeout test passed in isolation.
+PID reuse is a plausible cause given the earlier measured Windows behavior; the
+failed run did not preserve an OS creation time proving the cause. The timeout
+fixture now observes both original process creation times while alive and checks
+those identities after termination, with time for the observations before timeout.
+It still requires a real timeout, confirmed tree shutdown and released ownership;
+no production process/recovery guard changed. All eight focused installer/timeout
+tests then passed on Node 25.8.1 (13.4 seconds).
+
+The final complete default-parallel Node 24.22.0 suite passed all **242 tests**,
+without failures, cancellations or skips (618.3 seconds). The final focused Node
+25 run includes the corrected prompt fixture and stronger timeout identity check;
+the earlier complete Node 25 run covered the other unchanged implementation paths.
+Full runtime suites ran sequentially. Logs are retained under ignored `.grampus/`
+as `installer-full-node25.log`, `installer-full-node24.log` (initial failures),
+`installer-final-focused-node25.log` and `installer-final-full-node24.log`.
+Type checking, installer/launcher/browser JavaScript syntax and whitespace checks
+also passed. These are local packaging/controller trials with offline replies;
+ordinary-project provider trials, release-wide independent review and wider native
+terminal/browser coverage remain release work.
+
 ## Reverse pairing, Orca multi-file delivery and live crash recovery — 18 October 2026
 
 On Windows with Node 25.8.1, the multi-file pilot passed these additional live paths:

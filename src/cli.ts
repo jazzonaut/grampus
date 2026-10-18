@@ -18,9 +18,14 @@ import { Implementations } from './implementations.js';
 import { GuidedTasks } from './guided-tasks.js';
 import { guidedTaskView, renderGuidedTask } from './guided-status.js';
 import type { SimplificationAssessment } from './checks.js';
+import { defaultDashboardPort, updateInstallation, versionInformation, versionLabel } from './runtime.js';
 
 const help = `Grampus — local agent controller
 
+  grampus                        Open the local dashboard
+  --version, -v                  Show version and build
+  version [--json]               Show version, installation and data locations
+  update [--source <checkout>]   Install a new snapshot from the recorded checkout (--yes)
   ui                             Open the local task dashboard (--port, optional --db)
 
   doctor [--orca]                 Check local interfaces; no inference calls
@@ -88,19 +93,27 @@ async function main(): Promise<void> {
       'answers-file': { type: 'string' },
       port: { type: 'string' },
       'no-open': { type: 'boolean' },
+      version: { type: 'boolean', short: 'v' }, source: { type: 'string' }, yes: { type: 'boolean' },
       json: { type: 'boolean' }, details: { type: 'boolean' }, outcome: { type: 'string' }, summary: { type: 'string' },
       repo: { type: 'string' }, path: { type: 'string' }, base: { type: 'string' },
       role: { type: 'string' }, 'fallback-reason': { type: 'string' },
       'timeout-ms': { type: 'string' }, 'interrupt-after-ms': { type: 'string' } },
   });
-  const [action, id, version] = positionals;
-  if (!action || values.help) { console.log(help); return; }
+  const [action = 'ui', id, version] = positionals;
+  if (values.help) { console.log(help); return; }
+  if (values.version || action === 'version') {
+    const info = versionInformation();
+    console.log(values.json ? JSON.stringify(info, null, 2) : values.version ? versionLabel()
+      : `${versionLabel()}\nApplication: ${info.applicationRoot}\nData: ${info.dataDirectory}\nDashboard port: ${info.dashboardPort}\nNode: ${info.node} (${info.nodeExecutable})${info.build ? `\nSource: ${info.build.source}\nCommit: ${info.build.commit ?? 'unavailable'}${info.build.dirty ? ' (local changes)' : ''}\nBuilt: ${info.build.builtAt}\nSource digest: ${info.build.sourceDigest}` : ''}`);
+    return;
+  }
+  if (action === 'update') { await updateInstallation(values.source, values.yes); return; }
   if (action === 'ui') {
-    const port = Number(values.port ?? 4317);
+    const port = Number(values.port ?? defaultDashboardPort);
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Port must be 0–65535');
     const { startUi } = await import('./ui-server.js');
     const ui = await startUi({ db: values.db ?? defaultDatabasePath(), port });
-    console.log(`Grampus dashboard: ${ui.url}\nJournal: ${ui.store.path}\nKeep this terminal open. Ctrl+C closes the dashboard after active actions settle.`);
+    console.log(`${versionLabel()}\nGrampus dashboard: ${ui.url}\nJournal: ${ui.store.path}\nKeep this terminal open. Ctrl+C closes the dashboard after active actions settle.`);
     if (!values['no-open'] && process.platform === 'win32') {
       const { execFile } = await import('node:child_process');
       execFile('rundll32.exe', ['url.dll,FileProtocolHandler', ui.url], { windowsHide: true }, error => { if (error) console.error('Open the dashboard link above in your browser.'); });

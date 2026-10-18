@@ -1,5 +1,6 @@
 import { command, RpcProcess } from './process.js';
 import { orcaExecutable } from './orca.js';
+import { applicationVersion } from './runtime.js';
 
 export interface Capability {
   component: string;
@@ -24,7 +25,7 @@ export async function doctor(includeOrca: boolean): Promise<Capability[]> {
       const version = await command(executable, ['--version']);
       const rpc = new RpcProcess(executable, ['app-server', '--listen', 'stdio://']);
       try {
-        await rpc.request('initialize', { clientInfo: { name: 'grampus', title: 'Grampus', version: '0.1.0' } });
+        await rpc.request('initialize', { clientInfo: { name: 'grampus', title: 'Grampus', version: applicationVersion } });
         rpc.notify('initialized');
         const result = await rpc.request<{ account: { type: string } | null }>('account/read', { refreshToken: false });
         return { version, protocol: 'app-server stdio handshake verified', authType: result.account?.type ?? 'not signed in', inference: 'not tested' };

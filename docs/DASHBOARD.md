@@ -1,13 +1,19 @@
 # Local task dashboard
 
-Double-click `Grampus.cmd` in the checkout, or run `npm run ui`. It builds the
+Run `grampus` after [installing a snapshot](INSTALLATION.md). Its dashboard uses
+port 4317 and task data separate from development. The footer identifies the
+version, build and installed/development mode; `grampus update` installs a fresh
+snapshot explicitly.
+
+For development, double-click `Grampus-Dev.cmd` in the checkout, or run `npm run ui`. It builds the
 application, starts the local controller and opens your browser on Windows.
 Keep the launcher terminal open while using Grampus. The dashboard works in a
 normal browser or Orca's embedded browser.
 
 The developer checkout needs Node 24 or later, Git, `npm ci`, and existing Codex
 and Claude subscription logins. It supports Windows 10 or later. This is the
-first functional alpha interface, not a packaged installer.
+functional alpha interface. The per-user installer uses existing Node.js and CLI
+dependencies; a bundled runtime and published release downloads remain future work.
 
 Choose **New task**, enter the existing repository folder and describe the desired
 change. Choose **Inspect repository context** to review suggested text files,
