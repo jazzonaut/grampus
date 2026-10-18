@@ -738,3 +738,18 @@ directory replacements. The saved check/expected output and deleted-file metadat
 drive ordinary continuation and verified delivery. Combined with interruption mode,
 the observer waits for deletion first, requires the implementation files to remain
 unfinished and checks both retained bytes and absences across receipt recovery.
+
+`--slices` uses a fixed two-slice version of the same brief and fixture. Library
+acceptance has its own oracle; final acceptance reuses that oracle plus all command
+checks. Native scope is one file per slice. Each execution creates a separate
+assessment/checkpoint, and finish intent is fenced per execution rather than once
+for the whole task. Assessment and result files are retained per slice.
+
+After first-slice delivery, `--next <task-id> --db <journal>` verifies pilot origin,
+the unchanged approved brief and ready slice progress. It records intent before
+creating a fresh execution with the original provider/model. The ordinary execution
+API still checks last-delivered HEAD and raw workspace state. A lost next-slice start
+cannot be replayed through this helper; inspect and recover through the normal CLI.
+The helper does not start a later slice automatically, invent simplification passes
+or recover provider work by replay. Sliced mode is separate from file-lifecycle and
+fault-injection variants.

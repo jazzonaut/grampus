@@ -678,6 +678,33 @@ creates its checkout through the supported CLI, preserving the same native tool
 policies, stable instance checks and supervised delivery. Omit `--orca` on finish;
 continuation uses the recorded workspace. Remote Orca overrides are refused.
 
+For the same task delivered as two approved slices:
+
+```sh
+npm run probe:multifile -- --live --slices
+# Inspect summary.cjs and the library oracle, then assess and deliver slice one:
+npm run probe:multifile -- --live --finish <first-execution-id> --db <journal.sqlite> --assessment <assessment-slice-1.json>
+# Only after verified delivery, explicitly start the CLI slice:
+npm run probe:multifile -- --live --next <task-id> --db <journal.sqlite>
+# Inspect the CLI, delivered library and complete oracle, then assess and deliver:
+npm run probe:multifile -- --live --finish <second-execution-id> --db <journal.sqlite> --assessment <assessment-slice-2.json>
+```
+
+`--slices` also accepts `--provider claude` and `--orca` at startup. It cannot
+combine with creation, deletion or fault injection modes. The first slice writes
+only summary.cjs and checks the library contract, preserving the unfinished CLI.
+The second uses a fresh session of the original provider/model and writes only
+cli.cjs, preserving the delivered library. Final independent review and acceptance
+cover the whole task. Each slice retains its own assessment and result file;
+`result.json` and the report show the latest checkpoint.
+
+`--next` requires this helper's original approved brief and a verified first-slice
+delivery. It journals intent before creating the next execution and cannot be
+replayed after an uncertain start. Finish continuation is likewise recorded per
+execution before review. Use ordinary CLI inspection/recovery after interruption;
+neither command retries provider inference or repeats a delivery. Failed/skipped
+simplification assessments never authorize review or the next slice.
+
 Exercise a real controller crash after the first file changes:
 
 ```sh

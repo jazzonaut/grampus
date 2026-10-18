@@ -433,3 +433,21 @@ real controller exits, receipt recovery, no-change outcomes, transaction rollbac
 stale sessions/evidence and changed continuation state. Orca fixtures retain real
 supervised Git operations and replace only the identity RPC. This does not implement
 automatic scheduling, review arbitration, workspace rebinding or non-Windows supervision.
+
+## Repeatable live sequential pilot
+
+The multi-file pilot now accepts `--slices`, dividing its existing criteria and
+write scope into a library slice followed by a CLI/integration slice. Each execution
+pauses for a separate explicit simplification assessment. Finish uses fresh
+other-provider review and the saved oracle; the final slice covers the whole task.
+An explicit `--next` command validates origin, approved brief and delivered progress,
+journals intent and creates the next fresh session. Neither startup nor finish intent
+is replayed after uncertainty. Existing one-slice and file-lifecycle modes remain.
+
+A live standalone Codex → Claude run completed both slices with two verified commits,
+four distinct sessions and four provider turns. Journal/repository proof confirms
+unchanged approval, preserved first-slice code, complete acceptance mapping, a clean
+checkout and refusal of repeated startup/finish without new inference. Both reviews
+retained a nonblocking aggregate-overflow suggestion outside the approved criteria.
+The focused pilot/slice suite passed 14 tests; all 8 pilot tests passed after final
+replay refinements. Reverse pairing and a separate multi-slice Orca-host pilot remain.

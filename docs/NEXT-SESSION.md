@@ -19,6 +19,9 @@ Sequential slice plans now use the same gates and supervised delivery. Intermedi
 delivery readies a fresh slice attempt in the same workspace; final verification
 covers all task criteria. Schema 10 prevents older controllers from completing a
 multi-slice task after its first delivery.
+The multi-file pilot now exposes this through `--slices` and explicit `--next`.
+A live standalone Codex → Claude run completed two slices and verified commits,
+with per-slice simplification, reviews and final whole-task acceptance.
 The user continued implementation in the
 same session and authorized pushing the repository.
 
@@ -144,6 +147,17 @@ Default delivery remains local unless the user authorizes an external action.
   unconfirmed, and no PID/receipt guard was changed. Investigate process identity
   and test-process concurrency before treating default parallel runs as reliable.
 
+- Repeatable live sequential pilot: library-only and then CLI-only scopes, separate
+  checkpoint/assessment/result files, saved slice oracles and per-execution finish
+  fencing. A standalone Codex → Claude run completed both verified commits under
+  the original approval. A separate proof confirmed four distinct sessions/turns,
+  two reviews, exact commit ancestry, library preservation, full final acceptance
+  and replay refusal without journal changes. Each review retained a nonblocking
+  aggregate-overflow suggestion outside the criteria. The focused pilot/slice suite
+  passed 14 tests; all 8 pilot tests passed after final refinements. Build/type and
+  whitespace checks passed. No new full suite, reverse pairing, live multi-slice
+  Orca, Node 24 or other-platform run was made. Operational evidence stays ignored.
+
 The demo is synthetic and offline reviewers are fixtures. The opt-in
 `npm run probe:task -- --live` now reaches completion with both live providers and
 all gates. Its default mode applies a single allowlisted Codex response; `--native`
@@ -170,7 +184,10 @@ controller or broaden into the dashboard first.
 
 1. Multi-slice continuation is implemented through optional approved `slices` and
    per-task progress. Each slice requires fresh gates and delivery; the final slice
-   verifies every task criterion. A live multi-slice provider pilot remains useful.
+   verifies every task criterion. The live standalone Codex → Claude pilot now passes
+   through `probe:multifile -- --live --slices`, per-slice `--finish`, and explicit
+   `--next <task-id> --db <journal>`. Reverse pairing and a live multi-slice Orca
+   run remain useful follow-ups.
    The ordinary CLI explicitly starts the next slice; no scheduler or arbitration
    is implemented. Local delivery binds the checked digest to the exact commit.
    Recovery needs a terminal receipt after dispatch; failed/uncertain operations

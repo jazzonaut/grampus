@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
-import { expectedStdout, fixtureFiles, oracle, obsoleteFile, obsoleteContent, deletionOracle, deletionStdout } from '../src/multifile-fixture.js';
+import { slicedBrief, libraryOracle, libraryStdout, expectedStdout, fixtureFiles, oracle, obsoleteFile, obsoleteContent, deletionOracle, deletionStdout } from '../src/multifile-fixture.js';
 import { Store } from '../src/store.js';
 import { Workflow } from '../src/workflow.js';
 import { Workspaces } from '../src/workspaces.js';
@@ -32,6 +32,10 @@ test('multi-file oracle rejects the baseline and accepts the complete library/co
   const run = () => spawnSync(process.execPath, ['-e', oracle], { cwd: root, encoding: 'utf8', timeout: 30_000, windowsHide: true });
   assert.notEqual(run().status, 0, 'Incomplete baseline must fail');
   writeFileSync(join(root, 'summary.cjs'), library);
+  const libraryOnly = spawnSync(process.execPath, ['-e', libraryOracle], { cwd: root, encoding: 'utf8', timeout: 30_000, windowsHide: true });
+  assert.equal(libraryOnly.status, 0, libraryOnly.stderr);
+  assert.equal(libraryOnly.stdout, libraryStdout);
+  assert.equal(libraryOnly.stderr, '');
   assert.notEqual(run().status, 0, 'Library alone must not satisfy the command criteria');
   writeFileSync(join(root, 'cli.cjs'), command);
   const result = run();
@@ -85,6 +89,40 @@ test('multi-file pilot requires explicit live opt-in and complete continuation a
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /Usage: probe:multifile/);
   }
+});
+
+test('sequential pilot rejects incompatible modes and continuation without its own delivered checkpoint', { skip: process.platform !== 'win32' }, t => {
+  const root = mkdtempSync(join(tmpdir(), 'grampus-sliced-pilot-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const cli = fileURLToPath(new URL('../src/multifile-probe.js', import.meta.url));
+  for (const args of [
+    ['--live', '--slices', '--create-library'], ['--live', '--slices', '--delete-obsolete'],
+    ['--live', '--slices', '--interrupt-after-edit'], ['--live', '--next', ''],
+    ['--live', '--next', 'id'], ['--live', '--next', 'id', '--db', 'missing', '--provider', 'codex'],
+    ['--live', '--next', 'id', '--db', 'missing', '--slices'],
+    ['--live', '--next', 'id', '--db', 'missing', '--assessment', 'missing'],
+    ['--live', '--next', 'id', '--finish', 'id', '--db', 'missing', '--assessment', 'missing'],
+    ['--live', '--finish', 'id', '--db', 'missing', '--assessment', 'missing', '--slices'],
+  ]) {
+    const result = spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8', timeout: 5000, windowsHide: true });
+    assert.ifError(result.error); assert.notEqual(result.status, 0); assert.match(result.stderr, /Usage: probe:multifile/);
+  }
+  const db = join(root, 'journal.sqlite'); const store = new Store(db);
+  try {
+    const workflow = new Workflow(store); const task = workflow.create(slicedBrief); workflow.approve(task.id, 1);
+    const result = spawnSync(process.execPath, [cli, '--live', '--next', task.id, '--db', db], { encoding: 'utf8', timeout: 5000, windowsHide: true });
+    assert.ifError(result.error); assert.notEqual(result.status, 0); assert.match(result.stderr, /no sequential pilot origin/);
+    assert.deepEqual(store.sessions(), []); assert.deepEqual(store.executions(), []);
+    store.append(task.id, 1, 'probe.multifile_started', { slices: true, root, executionId: 'not-created' });
+    const premature = spawnSync(process.execPath, [cli, '--live', '--next', task.id, '--db', db], { encoding: 'utf8', timeout: 5000, windowsHide: true });
+    assert.ifError(premature.error); assert.notEqual(premature.status, 0);
+    assert.deepEqual(store.sessions(), []); assert.deepEqual(store.executions(), []);
+    assert.ok(!store.events(task.id).some(event => event.type === 'probe.multifile_next_requested'));
+    store.append(task.id, 1, 'probe.multifile_next_requested', { sliceIndex: 1 });
+    const repeated = spawnSync(process.execPath, [cli, '--live', '--next', task.id, '--db', db], { encoding: 'utf8', timeout: 5000, windowsHide: true });
+    assert.ifError(repeated.error); assert.notEqual(repeated.status, 0); assert.match(repeated.stderr, /already requested/);
+    assert.deepEqual(store.sessions(), []); assert.deepEqual(store.executions(), []);
+  } finally { store.close(); }
 });
 
 for (const mode of ['existing', 'new', 'delete'] as const) test(`interruption pilot recovers a partial ${mode} file change through a new CLI without replay`, { skip: process.platform !== 'win32' }, async t => {

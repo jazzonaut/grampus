@@ -20,9 +20,8 @@ export const brief = {
 
 // Supplied as a command argument, outside the provider's writable scope. Success
 // output identifies the assertions exercised; errors cannot masquerade as a pass.
-export const oracle = String.raw`
+export const libraryOracle = String.raw`
 const assert = require('node:assert/strict');
-const { spawnSync } = require('node:child_process');
 const { summarize } = require('./summary.cjs');
 const cases = [
   [[], { count: 0, total: 0, min: null, max: null }],
@@ -39,6 +38,10 @@ for (const input of [null, {}, '3', 3, [null], [true], ['2'], [{}], [[]], [NaN],
   assert.throws(() => summarize(input), TypeError);
 }
 console.log('library: empty, single, mixed, negative, immutable, invalid');
+`;
+
+export const oracle = libraryOracle + String.raw`
+const { spawnSync } = require('node:child_process');
 function run(args) {
   const result = spawnSync(process.execPath, ['cli.cjs', ...args], { encoding: 'utf8', timeout: 2000, windowsHide: true });
   assert.ifError(result.error);
@@ -62,9 +65,18 @@ for (const args of [[], ['[]', 'extra'], ['{'], ['null'], ['{}'], ['3'], ['"3"']
 console.log('command: argument count, JSON syntax, invalid values');
 `;
 
-export const expectedStdout = 'library: empty, single, mixed, negative, immutable, invalid\n'
+export const libraryStdout = 'library: empty, single, mixed, negative, immutable, invalid\n';
+export const expectedStdout = libraryStdout
   + 'command: empty, single, mixed, negative\n'
   + 'command: argument count, JSON syntax, invalid values\n';
+
+export const slicedBrief = { ...brief, title: 'Sequential summary library and command pilot',
+  plan: 'Deliver the library first, then implement the CLI in a fresh execution. Each slice pauses for explicit simplification, independent review and verified delivery. Final acceptance covers the complete library and CLI contract.',
+  slices: [
+    { title: 'Summary library', plan: 'Edit only summary.cjs. Implement and verify the library contract; leave cli.cjs for the next slice.', criteria: brief.criteria.slice(0, 2) },
+    { title: 'JSON command and integration', plan: 'Edit only cli.cjs to reuse the delivered library. Review integration and verify every task criterion.', criteria: brief.criteria.slice(2) },
+  ],
+};
 
 export const obsoleteFile = 'obsolete.cjs';
 export const obsoleteContent = 'exports.legacySummary = values => values.length;\n';

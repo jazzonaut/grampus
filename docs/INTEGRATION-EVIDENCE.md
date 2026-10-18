@@ -662,6 +662,53 @@ No new live provider or Orca-host pilot was run. Node 24, macOS and Linux have n
 been run for this slice. No scheduler, arbitration, workspace rebinding, provider
 permission changes or automatic replay was added.
 
+## Live sequential task pilot — 18 October 2026
+
+`probe:multifile -- --live --slices` splits the existing summary task into library
+and CLI slices. Each has its own submitted artifact, skipped assessment template,
+explicit simplification, other-provider review, saved-oracle acceptance and verified
+local delivery. `--next <task-id> --db <journal>` explicitly starts the second slice
+after delivery, retaining the original provider/model and approved brief. Intent is
+journaled before execution creation, and finish continuation is fenced per execution.
+Creation, deletion and interruption variants remain separate from sliced mode.
+
+The standalone live Codex implementation → Claude review pairing completed both
+slices with observed models gpt-6.1-sol and claude-opus-5-5. The first commit changed
+only summary.cjs and left the CLI unfinished. A fresh Codex session then changed only
+cli.cjs, preserving the delivered library blob. Both code/oracle inspections produced
+explicit simplification assessments. Fresh Claude reviews passed each slice; final
+acceptance repeated the library checks plus the complete command contract. The task
+completed after two supervised commits under its original version-1 approval.
+
+A separate journal/repository verification confirmed four distinct sessions and
+exactly four provider turns, two implementation attempts, two independent reviews,
+one workspace, the expected commit parent chain, a clean final checkout and no lease.
+Acceptance mapped two library criteria in the first slice and all four task criteria
+in the final slice. Repeating next-slice startup and both finish commands was refused,
+with unchanged session/execution/task journals and no inference replay. Per-slice
+assessments/results, receipts, the report and verification proof remain ignored under
+the task-probe directory; no fixture repository was pushed.
+
+Each Claude review retained one nonblocking suggestion about aggregate overflow:
+finite inputs can sum to Infinity, which JSON serialization prints as null. The
+approved criteria do not define aggregate overflow behavior; no additional criterion
+or library change was inferred from the suggestion. Reviews cover generated fixture
+code, not independent review of the Grampus implementation.
+
+The focused pilot/slice suite passed 14 tests with no skips on Windows, Node 25.8.1.
+After final replay-message refinements, all 8 pilot tests passed again, including
+real controller-loss recovery in edit/create/delete fixtures. Oracle tests establish
+that the library-only slice passes while the unfinished CLI still fails whole-task
+acceptance. CLI tests refuse incompatible modes, foreign or premature task startup
+and repeated next-slice intent before creating provider sessions. Build/type checking
+and whitespace checks passed. The preceding 191-test full-suite result remains the
+complete baseline; the full suite was not rerun for these pilot-only changes.
+
+Doctor confirmed Git 2.55.0.windows.5, Codex CLI 0.163.0 with ChatGPT authentication
+and Claude Code 2.1.300 with first-party subscription authentication. No separately
+billed API access was enabled. Reverse pairing, multi-slice Orca-host execution,
+Node 24, macOS and Linux were not exercised in this slice.
+
 ## Primary references consulted
 
 The delivery slice also consulted Git's official [git-add](https://git-scm.com/docs/git-add)
