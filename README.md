@@ -23,15 +23,32 @@ Approved briefs can include ordered slices. Each slice needs fresh evidence and
 supervised delivery; the final slice verifies every task criterion.
 A guided Windows CLI now connects those gates with whole-plan approval, exact
 file authorization, explicit simplification, questions, stop/retry controls and
-restart reconciliation. It still starts from an authored JSON brief.
+restart reconciliation. The CLI supports authored JSON briefs.
+The local browser dashboard adds plain-language kickoff and clarification,
+reviewable generated plans, task controls and retained evidence without CLI arguments.
 They include a SQLite journal, versioned task approval, completion gates, Codex and
 Claude conversations, structured questions and review findings, interruption,
 reconnection, local integration discovery and journaled worktree creation.
 Supervised Claude and Codex file editing, creation and deletion is available for explicitly named text files
-in standalone and local Orca Windows workspaces. Broader tools, scheduling, the dashboard
+in standalone and local Orca Windows workspaces. Broader tools, scheduling
 and installers remain to be built.
 
-## Try the first slice
+## Open Grampus
+
+After `npm ci`, double-click **Grampus.cmd** or run:
+
+```sh
+npm run ui
+```
+
+The local dashboard opens in your browser. Choose **New task**, enter a small
+existing repository and describe the desired change. Discussion, plan approval,
+file authorization, simplification, questions, progress, recovery and reports are
+available in the interface. See [the dashboard walkthrough](docs/DASHBOARD.md).
+This developer distribution currently supports Windows and small UTF-8 text
+repositories up to 256 KiB; ordinary-project trials and packaging remain release work.
+
+## CLI and integration tools
 
 For the guided Windows workflow, start with
 [the guided task walkthrough](docs/GUIDED-WORKFLOW.md). It connects the existing

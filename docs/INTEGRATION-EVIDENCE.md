@@ -839,7 +839,89 @@ Build/type and whitespace checks also passed. Provider replies in these new test
 are offline fixtures; no live inference or new Orca-host trial was run for this
 change.
 
-## Primary references consulted
+## Local dashboard and conversational kickoff — 18 October 2026
+
+The Windows developer checkout now has a functional browser interface, opened by
+`Grampus.cmd` or `npm run ui`. It uses the existing journal and guided controller
+for plan approval, file authorization, simplification, questions, retry, stop,
+recovery, independent review, acceptance and verified local delivery. The server
+is loopback-only, checks Host/Origin and a per-launch token, escapes supplied text,
+and uses no hosted assets. Task workers have distinct controller identities.
+
+Kickoff supplies a pinned complete small Git tree to a read-only subscription
+conversation, asks consequential questions and creates reviewable proposals.
+Conversion produces only an unapproved task. Repository/workspace/provider/time
+limit selections remain authoritative. Proposal and question-round digests fence
+stale browser actions; task decisions are rechecked within ownership transactions.
+Failed initial turns resupply full context only on explicit continuation. Revision
+intent invalidates an earlier proposal before provider claim. Batch blob reads
+replace one subprocess per repository file.
+
+The first live browser conversation used Codex to clarify the exact greeting.
+Its approved plan contained a literal newline inside an inline JavaScript string.
+Implementation completed, then regression execution correctly failed and stopped
+before simplification/review/delivery. Files and failed output remain retained.
+Generated CommonJS inline Node checks now receive syntax validation without
+execution before a candidate can become a task; its regression test passes.
+
+A corrected fresh standalone fixture draft completed through the browser:
+Codex `gpt-6.1-sol` implemented one scoped file, the real syntax check passed,
+the retained diff received an explicit simplification assessment, Claude
+`claude-opus-5-5` independently reviewed with no findings, and separate acceptance
+verified exact source bytes, process exit, stdout and stderr. Acceptance printed
+exactly `accepted` plus LF. Supervised delivery verified local commit
+`b8b2bf80364b36b83851b5c6dc9f75c23b22a215`. No push was performed. The original
+failed task and its partial workspace are retained; no approved recipe was
+silently rebound. This is live guided fixture evidence, not an ordinary-project
+trial or evidence for both provider pairings/workspace modes.
+
+Browser checks also confirmed selected-task persistence over reload, recovery from
+a saved selection absent from the journal, the kickoff time-limit control and token
+removal from the address bar. The trial used Orca's embedded Chromium browser.
+Orca pointer/keyboard delivery became inconsistent after a tab reload; later
+actions used the page's DOM buttons/forms through browser evaluation. Full native
+input/accessibility and other-browser coverage remain release validation work.
+Local reports, trial snapshots and screenshots are retained under ignored
+`.grampus/dashboard-live/` and `.grampus/dashboard-final.png`.
+
+Independent Claude source reviews identified and drove fixes to revision/proposal
+freshness, first-turn failure context, user-selected time limits, approval
+transaction binding and repeated question-round binding. Source review is distinct
+from a release-wide independent review and does not itself establish test results.
+Nine new focused offline tests passed, plus the extended independent-review
+question regression. They include real worker/check processes and Git repositories;
+provider replies in those automated tests are explicitly offline fixtures.
+The new cases cover local access/origin checks, stale task/proposal rejection,
+restart persistence, explicit failed assessment, unsupported content, invalid
+generated JavaScript, pre-claim revision intent, failed connection continuation,
+and reused question ids in planner/reviewer sessions. A reopened dashboard refused
+takeover of its original live worker and successfully stopped that worker's actual
+check without replay or delivery.
+
+A final source review confirmed the server-side fixes and exposed preservation of
+typed answers across polling-driven question changes. Browser controls now retain
+the exact decision key/digest/version captured when rendered, and field values
+are retained only within the same decision state. The offline browser regression
+in `test/browser-binding.probe.js` passed all four assertions in the actual
+dashboard: task/planner answers cleared on a new question round, and both forms
+submitted their rendered key even when a newer global cache value existed. The
+probe intercepts HTTP with fixture replies and starts no provider/Git work.
+
+Final default-parallel complete suites passed **all 226 tests** on Windows with
+Node 25.8.1 and Node 24.22.0, with no failures, cancellations or skips. Runtime
+suites ran sequentially and took approximately 367 and 360 seconds respectively.
+The final browser binding correction was also verified with the four assertions
+above against the actual served page. Type checking, build, JavaScript syntax
+checks and whitespace checks passed. Full-suite logs remain ignored under
+`.grampus/dashboard-final-node25.log` and `.grampus/dashboard-final-node24.log`.
+
+Ordinary-project trials remain blocked by the current 256 KiB full-repository
+review limit for the locally inspected repositories. Context selection, remaining
+release trials, clean distribution validation and cross-platform support remain
+outstanding. No scheduler, automatic review repair, recipe rebinding, installer,
+automatic push or PR delivery was added.
+
+## Primary references consulted for earlier slices
 
 The delivery slice also consulted Git's official [git-add](https://git-scm.com/docs/git-add)
 and [git-commit](https://git-scm.com/docs/git-commit) documentation for index updates,

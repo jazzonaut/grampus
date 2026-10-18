@@ -5,8 +5,10 @@ It prepares workspaces and sessions, runs native implementation and validation,
 pauses for explicit simplification, then runs independent review, acceptance and
 verified local delivery. It prints the next command at each checkpoint.
 
-This is an early Windows interface for small text repositories. Conversational
-kickoff, automated review repair/arbitration and the browser interface remain work.
+For plain-language kickoff and on-screen controls, use the
+[local dashboard](DASHBOARD.md). This document describes the authored-plan CLI.
+This is an early Windows interface for small text repositories. Automated review
+repair/arbitration remains work.
 Author and resolve ambiguities in the brief before approving it. Checks and expected
 output must demonstrate the intended behavior; Grampus cannot establish their
 semantic sufficiency merely from their exit code.

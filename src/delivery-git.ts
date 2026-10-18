@@ -4,12 +4,18 @@ import type { RepositorySnapshot } from './artifacts.js';
 
 /** Used inside the supervised writer, and for read-only delivery reconciliation. */
 export function deliveryGit(cwd: string, ...args: string[]): Buffer {
+  return invokeGit(cwd, args);
+}
+export function deliveryGitInput(cwd: string, input: Buffer, ...args: string[]): Buffer {
+  return invokeGit(cwd, args, input);
+}
+function invokeGit(cwd: string, args: string[], input?: Buffer): Buffer {
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith('GIT_')) delete env[key];
   env.GIT_TERMINAL_PROMPT = '0'; env.GIT_NO_REPLACE_OBJECTS = '1';
   try {
     return execFileSync('git', ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', cwd, ...args],
-      { env, windowsHide: true, timeout: 30_000, maxBuffer: 34 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
+      { env, windowsHide: true, timeout: 30_000, maxBuffer: 34 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'], ...(input !== undefined ? { input } : {}) });
   } catch { throw new Error(`Delivery Git ${args[0]} failed; inspect retained repository state before retrying`); }
 }
 export function gitText(cwd: string, ...args: string[]): string { return deliveryGit(cwd, ...args).toString('utf8').trim(); }

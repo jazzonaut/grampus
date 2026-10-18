@@ -4,6 +4,38 @@ This describes the implemented baseline as of 17 October 2026. [DESIGN.md](../DE
 defines the intended product; [IMPLEMENTATION.md](IMPLEMENTATION.md) tracks delivery
 sequence. Product requirements that appear there are not automatically implemented.
 
+## Local dashboard and kickoff
+
+The dashboard is a loopback HTTP surface over the existing journal, not a second
+workflow engine. It serves checkout-local static assets and requires a per-launch
+bearer token and exact local Host/Origin for API access. Repository and provider
+content is rendered as escaped text. External script/style dependencies are absent.
+
+Task views are collected under a journal transaction. Approval, authorization,
+assessment, answers, retry and recovery carry the displayed decision key. The
+controller rechecks it inside its ownership transaction; pending answers also bind
+the session's exact turn and question contents. UI actions execute in separate
+Node worker processes using `GuidedTasks`, so the HTTP server's lifecycle does not
+replace worker identity or supply process-settlement evidence. Stop requests use
+the same persisted control path. Reopening the dashboard starts no work.
+
+Kickoff sessions use the existing read-only provider conversation lifecycle.
+The controller supplies a pinned complete UTF-8 Git tree within the current review
+limits, read through one batch blob operation. Consequential questions require
+explicit answers. First-turn failures retain full protocol/repository context on
+explicit continuation. User revision intent invalidates an earlier proposal before
+dispatch. Planning answers bind to the displayed turn/questions; uncertain/live
+owners are refused before a new user message is journaled. Generated CommonJS
+inline checks receive syntax validation, without execution. Proposal conversion
+binds its digest and creates only an unapproved guided task; selected repository,
+base, workspace adapter, providers and time limits remain controller-authoritative.
+
+The browser presents selected files and instructions, approved requirements and
+per-slice criteria, decoded command arguments, output expectations, retained diffs,
+check output, findings and a journal-derived report. Simplification remains an
+explicit human assessment. No browser path supplies a missing gate or replays
+provider inference/Git writes after restart. See [DASHBOARD.md](DASHBOARD.md).
+
 ## Components
 
 ```mermaid
@@ -631,10 +663,10 @@ limit; their existing workspace leases still apply.
 
 The readable status view includes next commands, pending questions/findings and
 underlying recovery commands. Terminal control characters in repository prose
-are escaped. JSON exposes retained snapshots and results for a future interface.
-Repository review limits are checked before guided editing inference. An authored
-JSON brief is still required; conversational kickoff, automatic repair/arbitration,
-recipe rebinding and a browser interface are not implemented by this runner.
+are escaped. JSON exposes retained snapshots and results for the local dashboard.
+Repository review limits are checked before guided editing inference. The CLI
+accepts authored JSON briefs and the dashboard can prepare them conversationally.
+Automatic repair/arbitration and recipe rebinding are not implemented by this runner.
 
 ## Native implementation contract
 
@@ -778,8 +810,9 @@ Both providers also passed explicit live probes; see
 
 Only Windows has been tested. Workspace release/rebinding, shared scheduling,
 other-platform check runners, broader provider tools, review arbitration, Orca session coordination,
-multi-slice scheduling, dashboard, installers and platform CI remain outstanding.
-The implementation itself has not had an independent review.
+multi-slice scheduling, installers and platform CI remain outstanding.
+The dashboard and kickoff received independent source review. Full release-wide
+independent review remains part of the release gate.
 
 ## Multi-file pilot checkpoint
 

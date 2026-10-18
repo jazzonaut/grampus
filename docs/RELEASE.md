@@ -58,13 +58,24 @@ completion pass offline verification on Node 24 and 25. A foreground guided CLI
 now connects the execution gates, including explicit scope/assessment checkpoints,
 questions, stop/retry and restart reconciliation. See
 [GUIDED-WORKFLOW.md](GUIDED-WORKFLOW.md).
-The complete offline suite passes all 217 tests on Node 24 and 25, including
-guided recovery and native process settlement.
+The complete offline suite now passes all 226 tests on Node 24 and 25, including
+guided recovery, dashboard ownership/decision binding and native process settlement.
 
-The guided path still requires an authored JSON brief. Conversational investigation
-and clarification, the basic interface, real-project trials and distribution remain
-release work. The existing live fixture pilots do not establish a live trial of
-the new guided controller.
+The local dashboard now provides plain-language kickoff against a pinned small
+repository, consequential questions, reviewable generated plans and shared
+task approval/execution controls. It displays instructions, file contents, changes,
+check output, findings, a timeline and downloadable reports. `Grampus.cmd` opens
+the developer distribution without remembering CLI commands. See
+[DASHBOARD.md](DASHBOARD.md).
+
+A live standalone browser trial reached verified local delivery with Codex
+implementation and independent Claude review. An earlier generated-check failure
+stopped without delivery and remains recorded; generated inline JavaScript is now
+syntax checked before plan approval. This is fixture evidence, not an ordinary
+project trial. The current review context limit excludes the ordinary repositories
+inspected locally, so broader context selection is needed before those trials.
+Both provider pairings/workspace modes still need ordinary-project evidence.
+Independent release review and clean distribution validation remain release work.
 
 See [NEXT-SESSION.md](NEXT-SESSION.md) for the latest implementation checkpoint and
 [INTEGRATION-EVIDENCE.md](INTEGRATION-EVIDENCE.md) for measured validation.

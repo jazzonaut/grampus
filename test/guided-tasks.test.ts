@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from '../src/store.js';
-import { GuidedTasks, type GuidedServices } from '../src/guided-tasks.js';
+import { GuidedTasks, guidedDecisionKey, type GuidedServices } from '../src/guided-tasks.js';
 import { guidedTaskView, renderGuidedTask } from '../src/guided-status.js';
 import { Workflow } from '../src/workflow.js';
 import { runCheckProcess } from '../src/check-process.js';
@@ -156,7 +156,7 @@ test('review questions persist and an explicit answer resumes the same independe
       turns++;
       if (turns === 2) { assert.equal(options.providerSessionId, 'question-review'); assert.match(prompt, /yes, this is the intended output/); }
       options.emit({ type: 'session.connected', data: { providerSessionId: 'question-review', model: 'fixture' } });
-      return { status: 'completed', reply: turns === 1 ? { kind: 'question', text: 'Clarify one point', questions: [{ id: 'output', prompt: 'Is this output intended?', choices: ['yes'] }], findings: [] } : review, usage: null, error: null };
+      return { status: 'completed', reply: turns <= 2 ? { kind: 'question', text: 'Clarify one point', questions: [{ id: 'output', prompt: turns === 1 ? 'Is this output intended?' : 'Confirm the output also applies to the final example?', choices: ['yes'] }], findings: [] } : review, usage: null, error: null };
     }, interrupt: async () => {}, close: async () => {},
   }) });
   const id = f.create(); await tasks.run(id); await tasks.authorize(id);
@@ -165,8 +165,15 @@ test('review questions persist and an explicit answer resumes the same independe
   assert.equal(guidedTaskView(f.store, id).questions[0]!.id, 'output');
   await assert.rejects(tasks.answer(id, {}), /every pending/);
   await assert.rejects(tasks.run(id), /awaiting_answer/); assert.equal(turns, 1);
-  const done = await tasks.answer(id, { output: 'yes, this is the intended output' });
-  assert.equal(done.status, 'complete', done.note); assert.equal(turns, 2); assert.equal(done.reviewId, questioned.reviewId);
+  const firstView = guidedTaskView(f.store, id), staleKey = guidedDecisionKey(firstView.state, firstView.questionKey);
+  const secondQuestion = await tasks.answer(id, { output: 'yes, this is the intended output' });
+  assert.equal(secondQuestion.status, 'awaiting_answer'); assert.equal(turns, 2);
+  const secondView = guidedTaskView(f.store, id);
+  assert.notEqual(guidedDecisionKey(secondView.state, secondView.questionKey), staleKey);
+  await assert.rejects(new GuidedTasks(f.store, { expectedState: staleKey }).answer(id, { output: 'stale answer' }), /changed/);
+  assert.equal(turns, 2);
+  const done = await tasks.answer(id, { output: 'yes, including the final example' });
+  assert.equal(done.status, 'complete', done.note); assert.equal(turns, 3); assert.equal(done.reviewId, questioned.reviewId);
 });
 
 test('no-change workflow runs every gate without implementation inference or a commit', windows, async t => {

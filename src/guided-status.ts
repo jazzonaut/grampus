@@ -1,6 +1,6 @@
 import { Store } from './store.js';
 import { Workflow } from './workflow.js';
-import { GuidedTasks } from './guided-tasks.js';
+import { GuidedTasks, guidedQuestionKey } from './guided-tasks.js';
 import { Sessions } from './sessions.js';
 import type { Execution, ExecutionLease } from './execution-state.js';
 import type { Workspace } from './workspaces.js';
@@ -10,6 +10,7 @@ import type { ImplementationRun } from './implementations.js';
 import { guidedPlanDigest } from './guided-plan.js';
 
 export function guidedTaskView(store: Store, id: string) {
+  return store.transaction(() => {
   const task = new Workflow(store).get(id), state = new GuidedTasks(store).get(id);
   const workspace = store.workspaces<Workspace>().find(item => item.taskId === id) ?? null;
   const execution = state.executionId ? store.execution<Execution>(state.executionId) : null;
@@ -36,12 +37,13 @@ export function guidedTaskView(store: Store, id: string) {
     : lease.kind === 'check' || lease.kind === 'verification' ? 'check-recover' : lease.readOnlyRecovery ? 'execution-recover' : 'session-recover',
   lease.readOnlyRecovery ? lease.executionId : lease.kind === 'conversation' ? lease.sessionId : lease.runId)
     : workspace && workspace.phase !== 'ready' ? command('workspace-recover', workspace.id) : null;
-  return { task, state, stale, workspace, lease, session, next, recovery, stop: state.owner ? command('task-stop', id) : null,
+  return { task, state, stale, workspace, lease, session, next, recovery, questionKey: guidedQuestionKey(store, state), stop: state.owner ? command('task-stop', id) : null,
     questions: state.status === 'awaiting_answer' ? session?.lastReply?.questions ?? [] : [],
     findings: review ? new Sessions(store).get(review.sessionId).lastReply?.findings ?? [] : [],
     checks: execution ? store.checks<RepositoryCheck>(execution.id) : [],
     implementations: execution ? store.implementations<ImplementationRun>(execution.id) : [],
     deliveries: execution ? store.deliveries<Delivery>(execution.id) : [] };
+  });
 }
 
 export function renderGuidedTask(store: Store, id: string, details = false): string {

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import { Store } from './store.js';
 import { Workflow, activeCriteria, type Task } from './workflow.js';
@@ -32,9 +32,22 @@ export interface GuidedState {
   answers: Record<string, string> | null; feedback: string; note: string;
 }
 export interface GuidedServices {
+  expectedState?: string;
   workspaces?: Workspaces;
   implementationRunner?: (options: CheckProcessOptions) => Promise<CheckProcessResult>;
   connector?: Connector;
+}
+export function guidedQuestionKey(store: Store, state: GuidedState): string | null {
+  if (state.status !== 'awaiting_answer') return null;
+  const execution = store.execution<Execution>((state.stage === 'review' ? state.reviewId : state.executionId)!);
+  const session = new Sessions(store).get(execution.sessionId);
+  const turn = store.sessionEvents(session.id).findLast(event => event.type === 'turn.requested');
+  return createHash('sha256').update(JSON.stringify({ sessionId: session.id, turn, questions: session.lastReply?.questions })).digest('hex');
+}
+export function guidedDecisionKey(state: GuidedState, questionKey: string | null = null): string {
+  return JSON.stringify({ version: state.version, digest: state.digest, status: state.status, stage: state.stage,
+    artifact: state.snapshot?.artifact ?? null, instructionsDigest: state.snapshot?.instructionsDigest ?? null,
+    executionId: state.executionId, reviewId: state.reviewId, questionKey });
 }
 
 /** Sequential, explicit continuation over the existing controller; no provider/Git replay. */
@@ -88,6 +101,7 @@ export class GuidedTasks {
   approve(id: string, version: number, digest: string): GuidedState {
     return this.store.transaction(() => {
       const state = this.current(id, false);
+      this.requireExpected(state);
       if (state.owner || state.status !== 'draft' || version !== state.version || digest !== state.digest) throw new Error('Approval must name the current draft version and guided plan digest');
       this.workflow.approve(id, version);
       return this.change(id, null, 'guided.approved', state => {
@@ -99,6 +113,7 @@ export class GuidedTasks {
     return this.store.transaction(() => {
       if (!recover) this.current(id);
       const state = this.get(id);
+      this.requireExpected(state);
       if (expected && !(Array.isArray(expected) ? expected : [expected]).includes(state.status)) throw new Error(`Task is ${state.status}; inspect task-show for its next action`);
       for (const task of this.workflow.list()) if (task.id !== id && task.guided?.owner) throw new Error(`Another guided task owns the runner: ${task.id}. Inspect or recover it first.`);
       if (state.owner) {
@@ -112,6 +127,9 @@ export class GuidedTasks {
       });
       return token;
     });
+  }
+  private requireExpected(state: GuidedState): void {
+    if (this.services.expectedState !== undefined && this.services.expectedState !== guidedDecisionKey(state, guidedQuestionKey(this.store, state))) throw new Error('Task changed since you inspected it; refresh before taking this action');
   }
   private unsettled(id: string, state: GuidedState): boolean {
     if (state.workspaceId && this.store.lease(state.workspaceId)) return true;

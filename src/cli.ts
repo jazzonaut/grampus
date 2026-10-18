@@ -21,6 +21,8 @@ import type { SimplificationAssessment } from './checks.js';
 
 const help = `Grampus — local agent controller
 
+  ui                             Open the local task dashboard (--port, optional --db)
+
   doctor [--orca]                 Check local interfaces; no inference calls
   demo                           Run a synthetic workflow in a fresh temporary database
   create <brief.json>             Store title, outcome, criteria[], plan and optional ordered slices[]
@@ -84,6 +86,8 @@ async function main(): Promise<void> {
     options: { db: { type: 'string' }, orca: { type: 'boolean', default: false }, help: { type: 'boolean', short: 'h' },
       cwd: { type: 'string' }, model: { type: 'string' }, 'prompt-file': { type: 'string' },
       'answers-file': { type: 'string' },
+      port: { type: 'string' },
+      'no-open': { type: 'boolean' },
       json: { type: 'boolean' }, details: { type: 'boolean' }, outcome: { type: 'string' }, summary: { type: 'string' },
       repo: { type: 'string' }, path: { type: 'string' }, base: { type: 'string' },
       role: { type: 'string' }, 'fallback-reason': { type: 'string' },
@@ -91,6 +95,20 @@ async function main(): Promise<void> {
   });
   const [action, id, version] = positionals;
   if (!action || values.help) { console.log(help); return; }
+  if (action === 'ui') {
+    const port = Number(values.port ?? 4317);
+    if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Port must be 0–65535');
+    const { startUi } = await import('./ui-server.js');
+    const ui = await startUi({ db: values.db ?? defaultDatabasePath(), port });
+    console.log(`Grampus dashboard: ${ui.url}\nJournal: ${ui.store.path}\nKeep this terminal open. Ctrl+C closes the dashboard after active actions settle.`);
+    if (!values['no-open'] && process.platform === 'win32') {
+      const { execFile } = await import('node:child_process');
+      execFile('rundll32.exe', ['url.dll,FileProtocolHandler', ui.url], { windowsHide: true }, error => { if (error) console.error('Open the dashboard link above in your browser.'); });
+    }
+    const close = () => { void ui.close().then(() => { process.off('SIGINT', close); process.off('SIGTERM', close); }).catch(error => console.error(error.message)); };
+    process.on('SIGINT', close); process.on('SIGTERM', close);
+    return;
+  }
   if (action === 'doctor') {
     const capabilities = await doctor(values.orca);
     console.log(JSON.stringify({ node: process.version, platform: process.platform, capabilities }, null, 2));

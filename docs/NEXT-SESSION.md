@@ -70,10 +70,53 @@ The new rapid-exit regression and existing hanging-child/timeout checks pass.
 Build/type and whitespace checks pass. The new guided tests use offline provider
 replies; no live inference or new Orca-host trial was run for this change.
 
-The next product work is conversational kickoff/clarification and the basic
-interface around this shared controller. Run a live guided small-project trial
-before treating its fixture evidence as live product validation. No automatic
-repair/arbitration, recipe rebinding, background scheduler or installer was added.
+Conversational kickoff and the basic local browser interface are now implemented;
+see the dashboard checkpoint below. No automatic repair/arbitration, recipe
+rebinding, background scheduler or installer was added.
+
+## Dashboard and conversational kickoff checkpoint
+
+`npm run ui` or the double-click `Grampus.cmd` launcher builds and opens the
+loopback dashboard. It shares the CLI journal/controller, presents complete plan
+approval, exact file authorization, explicit simplification, questions, findings,
+check output, retained changes, stop/retry/recovery and downloadable reports.
+Each task action runs in a separate worker process. The displayed decision state
+is checked again inside the controller's ownership transaction, preserving stale
+tab protection across dispatch. The server requires a per-launch token and local
+Host/Origin; all repository/provider text is escaped in the browser.
+
+Kickoff reads the complete pinned Git tree of a small UTF-8 repository (256 KiB,
+1024 files) through a batch blob read. Read-only provider conversations ask questions
+and generate normalized proposals. User-selected provider/workspace/time limits
+remain authoritative. Explicit continuation after a first-turn failure resupplies
+the protocol and pinned files. New revision requests invalidate older proposals
+before provider claim; preparing approval also binds the displayed proposal digest.
+Generated CommonJS inline Node checks are parsed before a task draft is accepted.
+No workspace or implementation inference starts during draft conversion/approval.
+See [DASHBOARD.md](DASHBOARD.md).
+
+A live Codex planning conversation asked a consequential greeting question through
+the browser. Its first approved recipe contained a malformed inline check, so the
+workflow stopped with retained errors and no commit. A corrected standalone fixture
+draft completed Codex implementation, explicit assessed simplification, independent
+Claude review with no findings, exact-source/process acceptance and verified local
+commit `b8b2bf80364b36b83851b5c6dc9f75c23b22a215`. The failed draft and workspace
+remain available. This is a live guided fixture trial, not ordinary-project evidence.
+An independent provider review of the dashboard prompted additional planning
+state/context/time-limit fixes. Final verification is recorded in integration evidence.
+The final default-parallel complete suites pass all 226 tests on both Node 24.22.0
+and Node 25.8.1 without failures or skips. The actual browser passed four additional
+offline assertions for clearing old answers and submitting rendered decision keys;
+the reusable probe is `test/browser-binding.probe.js`. Type/build, JS syntax and
+whitespace checks pass. Full-suite runs were sequential.
+
+Next: select review context without silently excluding relevant code so ordinary
+existing repositories can be supported. Every locally inspected ordinary repository
+exceeded the current 256 KiB gate. Then complete the release plan's real
+project trials (repair, interruption, both provider pairings and workspace modes),
+release review and clean developer-distribution validation. Preserve the scope and
+receipt safeguards; do not simply raise the limit or claim fixture trials satisfy
+the ordinary-project gate.
 
 ## Read first
 
@@ -240,12 +283,12 @@ terminal receipts bind Windows controllers/supervisors to exact creation times;
 legacy records, unknown observations and live original owners remain blocked.
 See the latest integration-evidence section for the regression and stress proof.
 The PID-reuse fix and fresh-attempt completion path pass offline verification
-on both Node versions. A foreground guided task workflow now connects the gates;
-finish its live validation, conversational kickoff and basic interface next.
+on both Node versions. A foreground guided task workflow and the local browser
+dashboard now connect the gates, with a live standalone guided fixture delivery.
 The follow-ups below remain useful validation work.
 
-Start with the existing source and a small concrete plan. Do not rebuild the
-controller or broaden into the dashboard first.
+Start with the existing source and a small concrete plan. Preserve the shared
+controller while selecting relevant context for ordinary-project trials.
 
 1. Multi-slice continuation is implemented through optional approved `slices` and
    per-task progress. Each slice requires fresh gates and delivery; the final slice
@@ -386,8 +429,8 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
   Add `--delete-obsolete` to approve removal of an obsolete tracked file; the saved
   oracle checks absence and the checkpoint retains deletion metadata. With
   interruption mode, deletion happens first and recovery preserves that absence.
-- Retention, safe-checkpoint transfer, installer packaging, platform CI, browser
-  dashboard, notifications, Linear and opt-in PR delivery are still outstanding.
+- Retention, safe-checkpoint transfer, installer packaging, platform CI,
+  notifications, Linear and opt-in PR delivery are still outstanding.
 - Keep subscription authentication as the default. Do not silently enable API
   billing, infer actual billed cost from estimates, or sum cumulative usage events.
 - Documentation and fixtures should use portable paths and omit personal account
@@ -406,8 +449,10 @@ Run complete Node-version suites sequentially on Windows. Overlapping Node 24/25
 suites produced two recovery-fixture failures at this checkpoint; isolated checks
 and a separate Node 24 full run passed. The exact cause was not established, and
 PID/receipt recovery guards were not weakened. See the integration evidence.
-The latest default parallel runs also intermittently refused liveness in existing
-recovery fixtures. Preserve their logs; a full two-worker run passed all 191 tests:
+The earlier default parallel runs intermittently refused liveness in existing
+recovery fixtures. The process-identity investigation and fix are recorded above;
+the latest checkpoints pass default parallel runs on both supported runtimes.
+For comparison, the earlier two-worker run passed all 191 tests:
 
 ```sh
 npm run build
