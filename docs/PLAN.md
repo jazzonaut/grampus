@@ -35,6 +35,20 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   (provider events, journal payloads, API bodies, plan files), discriminated unions instead
   of `any` and casts, TSDoc on exported surfaces. Recovery, artifact binding and no-replay
   semantics stay unchanged; the existing tests are the safety net.
+- **Central configuration.** Limits and tunables live in one typed, documented module. An
+  optional validated `config.json` in the data directory overrides operational values (ports,
+  polling, concurrency, stall threshold, default policy). Limits bound into approval digests or
+  evidence stay fixed.
+- **Configurable quality passes.** Declarative pass definitions (no code plugins) of two kinds:
+  review lenses folded into the independent review turn, and edit passes that run as a scoped
+  agent turn before review and invalidate earlier evidence. Built-ins: simplification (lens,
+  default), naming (lens), refactor (edit). The selected passes are part of the approved plan
+  digest. Implementation, validation, independent review, acceptance and delivery stay
+  mandatory and ordered.
+- **No backwards compatibility.** Legacy plan formats, digests, fields, migrations and
+  `task-automate` are removed from code and docs. The schema restarts at version 1; an older
+  journal is refused with a clear message and never modified. The new version uses a fresh
+  journal file, so older installed snapshots can still finish their own tasks.
 
 1. **Hygiene baseline.** Fix nested-repository reference bug, Prettier, typescript-eslint
    with a shrink-only baseline, `npm run check`, fast and full test scripts, `AGENTS.md`,
@@ -55,6 +69,18 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
    structural comparison instead of `JSON.stringify` equality.
 7. **Use it for real.** Run three to five real tasks and keep a short log of clicks,
    stops, review catches and cost. That log sets the next priorities.
+
+## Known issues from real use
+
+- **Check timeout loses output.** A combined validation command exceeded its 120 s limit and
+  left an empty log; the same checks run separately passed in about 55 s. Stream check output
+  to the durable log as it arrives, record `CHECK_TIMEOUT` with elapsed time and limit, make
+  the default configurable, and have the planner prefer separate named checks. Investigate the
+  slowdown (concurrent load, cold caches in a fresh worktree) with per-check timings.
+- **Retrying validation starts a new implementation attempt.** Timeouts and other
+  infrastructure failures on an unchanged artifact must offer **Rerun checks**: validation
+  only, same artifact, no agent turn. Automatic repair only treats genuine check failures as
+  implementation problems.
 
 ## Deferred until real use asks for them
 

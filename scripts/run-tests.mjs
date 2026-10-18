@@ -1,7 +1,8 @@
 // Runs compiled tests from dist/test. Usage:
 //   node scripts/run-tests.mjs fast        every file except those listed in scripts/slow-tests.json
 //   node scripts/run-tests.mjs all         every file
-//   node scripts/run-tests.mjs <name>...   selected files, e.g. guided-tasks checks
+//   node scripts/run-tests.mjs <name>...   selected files, e.g. guided-tasks-staging checks-review;
+//                                          a name without its own file selects every <name>-*.test.js
 import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
@@ -19,10 +20,13 @@ const names =
     ? files
     : mode === 'fast'
       ? files.filter(name => !slow.has(name.replace(/\.test\.js$/, '')))
-      : [mode, ...rest].map(name => {
-          const file = name.endsWith('.test.js') ? name : `${name.replace(/\.test(\.ts)?$/, '')}.test.js`;
-          if (!files.includes(file)) throw new Error(`Unknown test file: ${name}`);
-          return file;
+      : [mode, ...rest].flatMap(name => {
+          const base = name.replace(/\.test(\.(js|ts))?$/, '');
+          if (files.includes(`${base}.test.js`)) return [`${base}.test.js`];
+          // A split area such as guided-tasks runs every guided-tasks-*.test.js file.
+          const area = files.filter(file => file.startsWith(`${base}-`));
+          if (!area.length) throw new Error(`Unknown test file: ${name}`);
+          return area;
         });
 const result = spawnSync(
   process.execPath,

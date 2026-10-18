@@ -1,0 +1,136 @@
+// Guided task tests: automatic repair of failed checks and simplification assessments.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { GuidedTasks } from '../src/guided-tasks.js';
+import type { ImplementationRun } from '../src/implementations.js';
+import { Sessions } from '../src/sessions.js';
+import { windows, review, services, fixture } from './helpers/guided-tasks.js';
+
+test('automatic work repairs a failed check with complete evidence and resumes its implementer', windows, async t => {
+  const f = fixture(t);
+  let implementations = 0;
+  const config = services();
+  config.implementationRunner = options => {
+    const request = JSON.parse(readFileSync(options.args[1]!, 'utf8'));
+    const run = f.store.implementation<ImplementationRun>(request.id);
+    const execution = f.store.execution<any>(run.executionId),
+      sessions = new Sessions(f.store);
+    const session = sessions.get(execution.sessionId);
+    if (implementations++) {
+      assert.equal(session.providerSessionId, 'offline-implementation');
+      assert.match(request.prompt, /Actual assertion at the end/);
+      assert.match(request.prompt, /grampus_read_check/);
+      assert.ok(request.prompt.length < 20000);
+    }
+    sessions.event(session.id, run.id, {
+      type: 'session.connected',
+      data: { providerSessionId: 'offline-implementation', model: 'fixture' },
+    });
+    return services(implementations === 1 ? "console.log('wrong');\n" : "console.log('hello world');\n")
+      .implementationRunner!(options);
+  };
+  config.connector = async () => ({
+    turn: async () => ({
+      status: 'completed',
+      reply: {
+        ...review,
+        simplification: {
+          outcome: 'passed',
+          summary: 'One output statement; no duplication or unnecessary abstractions.',
+        },
+      },
+      usage: null,
+      error: null,
+    }),
+    interrupt: async () => {},
+    close: async () => {},
+  });
+  const tasks = new GuidedTasks(f.store, config),
+    slice = f.plan.slices[0]!;
+  const task = tasks.create({
+    ...f.plan,
+    workflowPolicy: { mode: 'automatic' },
+    slices: [
+      {
+        ...slice,
+        validation: {
+          file: 'node',
+          args: [
+            '-e',
+            "if(require('node:fs').readFileSync('greeting.js','utf8').includes('wrong')){console.error('noise '.repeat(4000));console.error('\\u001b[31mAssertionError: Actual assertion at the end\\u001b[0m');process.exitCode=1}",
+          ],
+          timeoutMs: 15000,
+        },
+      },
+    ],
+  });
+  tasks.approve(task.id, 1, task.guided!.digest);
+  const done = await tasks.run(task.id);
+  assert.equal(done.status, 'complete', done.note);
+  assert.equal(implementations, 2);
+  const events = f.store.events(task.id);
+  assert.equal(events.filter(event => event.type === 'guided.validation_repair_requested').length, 1);
+  assert.ok(
+    !events.some(
+      event =>
+        (event.data as any)?.status === 'awaiting_scope' || (event.data as any)?.status === 'awaiting_assessment',
+    ),
+  );
+  assert.equal(
+    f.store.get<any>(task.id).evidence.find((e: any) => e.kind === 'simplification' && e.outcome === 'passed').source,
+    'agent',
+  );
+});
+
+test('automatic validation stops spending tokens when a repair leaves content unchanged', windows, async t => {
+  const f = fixture(t);
+  let implementations = 0;
+  const config = services("console.log('wrong');\n");
+  const runner = config.implementationRunner!;
+  config.implementationRunner = options => {
+    implementations++;
+    return runner(options);
+  };
+  const tasks = new GuidedTasks(f.store, config),
+    task = tasks.create({ ...f.plan, workflowPolicy: { mode: 'automatic', repairRounds: 3 } });
+  tasks.approve(task.id, 1, task.guided!.digest);
+  const stopped = await tasks.run(task.id);
+  assert.equal(stopped.status, 'blocked');
+  assert.match(stopped.note, /no.*progress|unchanged/i);
+  assert.equal(implementations, 2);
+  assert.equal(f.store.deliveries(stopped.executionId!).length, 0);
+});
+
+test('an independent failed simplification assessment triggers repair rather than a manual form', windows, async t => {
+  const f = fixture(t);
+  let edits = 0,
+    reviews = 0;
+  const config = services();
+  config.implementationRunner = options =>
+    services(++edits === 1 ? "// needless explanation\nconsole.log('hello world');\n" : "console.log('hello world');\n")
+      .implementationRunner!(options);
+  config.connector = async () => ({
+    turn: async () => ({
+      status: 'completed',
+      reply: {
+        ...review,
+        simplification:
+          ++reviews === 1
+            ? { outcome: 'failed', summary: 'Remove the comment that repeats the output statement.' }
+            : { outcome: 'passed', summary: 'The direct output statement now stands on its own.' },
+      },
+      usage: null,
+      error: null,
+    }),
+    interrupt: async () => {},
+    close: async () => {},
+  });
+  const tasks = new GuidedTasks(f.store, config),
+    task = tasks.create({ ...f.plan, workflowPolicy: { mode: 'automatic' } });
+  tasks.approve(task.id, 1, task.guided!.digest);
+  const done = await tasks.run(task.id);
+  assert.equal(done.status, 'complete', done.note);
+  assert.equal(edits, 2);
+  assert.equal(reviews, 2);
+});

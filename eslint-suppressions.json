@@ -449,12 +449,12 @@
       "count": 25
     }
   },
-  "test/guided-tasks.test.ts": {
+  "test/guided-tasks-slices.test.ts": {
     "@typescript-eslint/unbound-method": {
       "count": 1
     }
   },
-  "test/implementations.test.ts": {
+  "test/implementations-recovery.test.ts": {
     "no-empty": {
       "count": 1
     }

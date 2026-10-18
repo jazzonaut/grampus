@@ -43,8 +43,10 @@ is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 - Working copies use CRLF on Windows; Prettier keeps existing line endings (`endOfLine: auto`).
 - `C:\Users\<you>` may itself be a Git repository. Tests must not assume a temp folder is
   outside every repository.
-- The guided state machine is in `src/guided-tasks.ts`; its large test file is
-  `test/guided-tasks.test.ts`. Run it on its own while iterating.
+- The guided state machine is in `src/guided-tasks.ts`; its tests are
+  `test/guided-tasks-*.test.ts`. Run `node scripts/run-tests.mjs guided-tasks` while iterating.
+- Test files over about 10 s are listed in `scripts/slow-tests.json` and skipped by `npm test`.
+  Keep each test file under about 45 s; tests within one file run sequentially.
 - Codex is driven through `codex app-server` JSON-RPC and is not version-pinned. Claude runs
   through the pinned `@anthropic-ai/claude-agent-sdk`, which bundles its own executable unless
   `GRAMPUS_CLAUDE_COMMAND` is set.
