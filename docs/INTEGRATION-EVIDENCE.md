@@ -1,5 +1,73 @@
 # Initial integration evidence
 
+## Reverse pairing, Orca multi-file delivery and live crash recovery — 18 October 2026
+
+On Windows with Node 25.8.1, the multi-file pilot passed these additional live paths:
+
+- Claude (`claude-opus-5-5`) implementation → Codex (`gpt-6.1-sol`) review in a
+  standalone workspace. Both files changed, the oracle passed, the caller inspected
+  the output and recorded simplification, review returned no findings, acceptance
+  passed and a verified local commit completed the task.
+- Codex implementation → Claude review in a local Orca-created workspace. The same
+  gates and local commit delivery passed, with the stable Orca identity retained.
+  Review preserved the earlier nonblocking suggestions about numeric overflow and
+  broad exception handling; no requirements were silently expanded.
+- Live Claude controller loss during editing, once standalone and once in a local
+  Orca workspace. The observer saw `summary.cjs` change and killed only its owned
+  controller while its implementation lease was active. The supervisor stopped the
+  process tree and wrote an `interrupted` terminal receipt. A fresh CLI recovery
+  process preserved the changed library and unchanged CLI, released ownership and
+  left the task stopped, with no new implementation run, authorized tools,
+  completion evidence or commit. Orca inspection also verified the original instance.
+
+The interrupted tasks deliberately remain incomplete. Recovery did not resend the
+prompt, reset files or create a new attempt. Local evidence lives in ignored fixture
+journals, reports, `result.json` and `recovery.json`; Orca fixture workspaces are
+retained, including the partial edit. These runs do not establish Codex-specific
+mid-edit crash recovery or post-recovery task completion. Existing offline fixtures
+cover generic process/receipt recovery; the new offline pilot test exercises the
+observer and a separate CLI recovery process with a real supervised fixture tool.
+All 155 offline tests passed. The four focused pilot tests also passed after adding
+the stricter no-new-provider-activity assertion. Inspection of both saved live
+recovery journals confirmed zero new turn/process/tool activity and no scope errors.
+The latest build and whitespace checks passed. Other platforms and Node 24 were
+not rerun for this slice.
+
+## Multi-file standalone pilot — 18 October 2026
+
+The new `npm run probe:multifile -- --live` passed on Windows with Node 25.8.1.
+Codex (`gpt-6.1-sol`, observed default) edited `summary.cjs` and `cli.cjs` using
+authorized native patches under the existing process supervisor. The independent
+oracle exercised empty/single/mixed/negative inputs, unchanged input arrays,
+invalid library values, CLI argument count/JSON syntax, exact stderr and exit codes.
+
+After regression validation and submission, the process exited at a durable
+checkpoint. The caller inspected both generated files and the oracle and recorded
+a concrete simplification assessment. A separate invocation then obtained a fresh
+Claude (`claude-opus-5-5`, observed default) review, passed saved-oracle acceptance
+and made a verified local fixture commit. The task reached `complete`; the fixture
+branch was not pushed. Journals, report, assessment and result remain under ignored
+`.grampus/task-probes/`.
+
+The reviewer raised no blocking findings and retained two suggestions: define how
+finite inputs whose sum overflows should behave, and reconsider the broad CLI catch
+if the library grows. Aggregate overflow behavior is not specified by this pilot.
+This result establishes a bounded two-file task, not broad numerical coverage or
+unattended scheduling. The reversed provider pairing, multi-file Orca path and live
+mid-task interruption have not been exercised by this pilot.
+
+Three added offline tests establish that the oracle rejects the incomplete baseline
+and a library-only implementation, accepts a complete implementation, and detects
+input mutation, numeric coercion, ignored extra arguments, wrong error streams and
+wrong exit status. CLI tests reject missing live opt-in and incomplete continuation
+arguments before creating a task or starting inference.
+All 154 offline tests passed on Node 25.8.1. The focused tests also passed after
+adding rejection of an empty continuation id; type checking passed. A second finish
+invocation against the completed live journal was refused before any new review or
+delivery. Node 24 and other platforms were not rerun for this slice.
+
+## Original discovery
+
 Observed on Windows on 17 October 2026. This records narrowly verified facts;
 installation and authentication are not proof of working inference or task delivery.
 
@@ -438,6 +506,116 @@ The live task remains a one-line greeting and was not interrupted mid-turn. Broa
 tasks, live-provider recovery, Orca-managed session coordination and independent
 review of Grampus itself remain outstanding. External editors and separately launched
 Orca agents are not fenced by a Grampus journal lease.
+
+## Exact native file creation — 18 October 2026
+
+The native policy now has an optional `create` list separate from existing `files`.
+Offline fixtures cover creation-only policies, overlaps and protected/device paths,
+missing parents, junctions, hard links, ignored files, previously deleted tracked
+paths, malformed/oversized text, whole-patch rejection and failed decision journaling.
+They exercise Claude Write followed by Read/Edit and Codex add followed by update.
+Real controller-loss fixtures preserve a partially created file, require the
+supervisor receipt, release ownership only on explicit recovery and never replay
+inference or manufacture task completion evidence.
+
+The repeatable pilot adds `--create-library`, starting without summary.cjs while
+retaining the independent behavioral oracle and manual simplification checkpoint.
+A live standalone Codex implementation created that exact path and changed cli.cjs.
+After code/oracle inspection, explicit simplification, fresh Claude review and saved
+oracle acceptance, supervised delivery committed the exact new file and completed
+the task. The reviewer retained one nonblocking aggregate-overflow suggestion;
+the brief does not specify aggregate overflow behavior. Observed models were
+gpt-6.1-sol and claude-opus-5-5. No push occurred, and operational data remains
+under the ignored task-probe directory.
+
+The reverse standalone pairing also passed: Claude created summary.cjs and changed
+cli.cjs, the saved oracle passed, an explicit simplification assessment was recorded,
+and fresh Codex review returned no findings. Acceptance and exact local delivery
+completed the task with the new file in the verified commit. Both creation pilots
+retained their fixture workspaces and journals. Creation in Orca workspaces uses
+the shared implementation path but has not had a separate live creation pilot.
+
+The full offline suite passed all 165 tests, with no skips, on Windows with Node
+25.8.1; the focused implementation/Codex/pilot suite passed 34 tests. The original
+155-test baseline also passed before changes. `npm run doctor` confirmed installed
+Git 2.55.0.windows.5, Codex CLI 0.163.0 with ChatGPT authentication and Claude Code
+2.1.300 with first-party subscription authentication. New creation coverage has
+not been rerun on Node 24, macOS or Linux. Neither Grampus implementation changes
+nor their tests have received independent review; live review covered fixture output.
+
+Creation retained the existing Windows process supervisor and schema 9 journal
+contracts, requiring existing parent directories. The next slice below adds file
+deletion. Directory creation remains disabled. File policies are provider controls,
+not an OS sandbox.
+
+## Exact file deletion — 18 October 2026
+
+Policies now accept separate `delete` paths, disjoint from existing edits and
+creations. Targets must be bounded regular UTF-8 snapshot files with unchanged
+bytes. Codex's existing item approval authorizes only the complete scoped patch.
+Claude gets a single controller-owned in-process SDK tool when deletion is requested;
+the handler checks its owning active turn, exact scope and journal before unlinking
+and records `tool.deleted` after success. Shell and external MCP remain disabled.
+Zod is pinned directly at the version already installed as the SDK's peer dependency.
+The implementation follows the SDK's [custom-tool contract](https://code.claude.com/docs/en/agent-sdk/custom-tools)
+and [permission hooks](https://code.claude.com/docs/en/agent-sdk/hooks), checked against
+the installed TypeScript definitions and live SDK behavior.
+
+The baseline passed 165 tests before edits. The final complete offline suite passed
+178 tests with no skips on Windows, Node 25.8.1. Focused provider/implementation checks
+passed 39 tests, and the pilot suite passed 7. Coverage includes stale bytes, policy
+overlaps, unknown options, failed journaling, untracked/empty files, links, directories,
+inactive SDK callbacks, actual controller loss after unlink, receipt recovery and
+saved-oracle rejection of empty or directory replacements. One initial oracle-test
+failure was fixture cleanup using rmSync on an empty directory; cleanup now uses
+nonrecursive rmdirSync while the directory-replacement assertion remains intact.
+
+Live standalone Claude → Codex and Codex → Claude pilots combined an edited CLI,
+created library and removed obsolete tracked file. Both passed saved behavioral and
+deletion checks, explicit inspected simplification, independent review, exact-output
+acceptance and verified local delivery. Codex returned no findings on Claude output;
+Claude retained two nonblocking suggestions on Codex output (unspecified aggregate
+overflow and the CLI's broad catch). Observed models were claude-opus-5-5 and
+gpt-6.1-sol. These reviews cover fixture output, not the Grampus implementation.
+
+Separate live standalone Claude and Codex controller-loss pilots deleted the obsolete
+file first, then were killed before implementing the missing library or changing the
+CLI. Each supervisor produced an interrupted receipt; new recovery CLI processes
+preserved the deletion and other file states, released the leases and left the tasks
+stopped without new inference, completion evidence or commits. Evidence and all fixture workspaces
+remain local under the ignored task-probe directory. No push occurred.
+
+`npm run doctor` again confirmed Git 2.55.0.windows.5, Codex 0.163.0 with ChatGPT
+authentication and Claude Code 2.1.300 with first-party subscription authentication.
+The new deletion slice has not run on Node 24, macOS or Linux, or in a separate live
+Orca pilot. Directory creation/removal and moves remain unsupported. No policy is
+an OS sandbox, and concurrent external filesystem changes are still outside the lock.
+
+## Explicit no-change delivery — 18 October 2026
+
+`execution-deliver` accepts explicit `mode: no_change` and an explanation in its
+message. It requires the same approved artifact, four gates and accepted decisions
+as commit delivery. The worker compares raw HEAD/index paths, modes and blobs to
+the checked files without staging or invoking commit hooks. Both worker and
+controller verify snapshot stability; successful settlement records a no-change
+outcome, null commit and the unchanged HEAD in the retained request.
+
+Focused delivery and Orca suites each passed 18 tests on Windows, Node 25.8.1.
+The final complete offline suite passed 184 tests with no failures or skips;
+`npm run check` and `git diff --check` also passed. The final run additionally
+checks no-change journal rollback and changed-index refusal during receipt recovery.
+Coverage includes a real existing-greeting regression check, CLI delivery with a
+failing commit hook, preserved index bytes, modified/deleted/untracked files,
+staged-byte and mode mismatches, invalid modes, pending decisions, and refusal to
+infer success from an empty commit request. A real controller exits after the
+supervised no-change verification; a new recovery CLI accepts only the settled
+receipt and original state, even with an index lock present. Missing proof or changed
+HEAD/files/instructions refuses acceptance. Orca identity protocol fixtures run
+the real supervised worker and reject archival at dispatch, acceptance and recovery.
+
+These are offline fixtures; independent review/acceptance gate data in the delivery
+tests is explicitly fixture evidence. No live provider or Orca-host pilot was run
+for this slice. Multi-slice continuation and non-Windows supervision remain work.
 
 ## Primary references consulted
 

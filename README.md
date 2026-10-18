@@ -12,12 +12,14 @@ repository checks on Windows now produce content-bound validation evidence, with
 receipt-based recovery, artifact reviews and exact-output acceptance checks.
 An explicit simplification checkpoint and a live standalone greeting pilot now
 exercise all gates, with a controller-applied Codex response and Claude review.
+A two-file library/CLI pilot also reaches verified delivery after a manual
+simplification checkpoint and independent review.
 Supervised local delivery binds checked content to a commit and supports explicit
 recovery without replaying Git writes.
 They include a SQLite journal, versioned task approval, completion gates, Codex and
 Claude conversations, structured questions and review findings, interruption,
 reconnection, local integration discovery and journaled worktree creation.
-Supervised Claude and Codex file editing is available for explicitly named existing text files
+Supervised Claude and Codex file editing, creation and deletion is available for explicitly named text files
 in standalone and local Orca Windows workspaces. Broader tools, scheduling, the dashboard
 and installers remain to be built.
 
@@ -261,28 +263,48 @@ npm start -- implementation-show <implementation-run-id>
 {
   "artifact": "<current sha256:...>",
   "instructionsDigest": "<digest from execution-snapshot>",
-  "files": ["src/greeting.js"]
+  "files": ["src/greeting.js"],
+  "create": ["src/format.js"],
+  "delete": ["src/obsolete.js"]
 }
 ```
 
 Use `codex` instead of `claude` to select Codex. Both providers support standalone Git
 and local Orca workspaces on Windows. Orca identity is checked before dispatch, again
 inside the worker and after process settlement; replaced or archived instances fail.
-The policy names 1–64 existing relative text-file paths; each file is limited to 256 KiB.
+The policy names 1–64 distinct relative text-file paths across `files`, optional
+`create` and optional `delete`; each file is limited to 256 KiB. `files` names existing files. `create`
+names paths absent from both the snapshot and filesystem, with existing parent
+directories. Ignored paths are rejected so created files remain visible to checks
+and review. `delete` names existing snapshot files that may only be removed, with
+their bytes checked against that snapshot before authorization. Deletion paths
+cannot also appear in `files` or `create`, be edited, or be recreated. A policy
+with only creations/deletions uses `"files": []`. Omit optional lists for existing-file
+policies; their behavior is unchanged. Authorization permits an action; task
+acceptance checks must still prove a required addition or removal occurred.
 Claude may read snapshot-visible text files and use native `Edit`/`Write` on authorized
-paths. New files, deletion, binary files, links, Git metadata and repository instruction
+paths, creating new files with `Write` before reading or editing them. Directory
+creation/removal, binary files, links, Git metadata and repository instruction
 or provider-configuration files are outside this initial mode. Repository instructions
 are supplied in the prompt, with their digest verified before provider connection.
 
 Claude file-tool requests are checked by an SDK hook and their decisions journaled
-before permission is granted. Codex receives the approved file contents in its prompt
+before permission is granted. When a nonempty `delete` list is supplied, Claude
+also receives `mcp__grampus_files__delete_file`, a controller-owned tool running
+inside the supervised worker. Its handler rechecks active-turn ownership, exact
+path scope, links and unchanged bytes, journals authorization before unlinking,
+and records successful removal. It cannot delete directories or run commands.
+Codex receives the approved file contents in its prompt
 (at most 768 KiB of encoded context) and uses native `apply_patch`. Grampus checks every
 proposed patch against the active thread, turn and approved paths before granting a
-single-use approval. Additions, deletion, moves, root/session grants and stale or
+single-use approval. Additions require an exact `create` path which is still absent;
+later updates to that created file are allowed. Deletions require an exact `delete`
+path with unchanged snapshot bytes. Moves, root/session grants and stale or
 repeated requests are denied. Codex must confirm read-only sandbox mode and approval
 routing to the controller before a turn starts.
 
-Shell, delegation, web and MCP tools are not exposed. The Claude SDK's
+Shell, delegation, web and external MCP tools are not exposed. The local deletion
+tool is absent when no deletion paths are supplied. The Claude SDK's
 internal `StructuredOutput` tool is permitted only for a validated final reply. Ordinary
 conversations and reviewers retain their tool restrictions. Editing sessions cannot be
 resumed through `session-send`; keep using `execution-implement` with a fresh snapshot
@@ -291,7 +313,7 @@ policy. For pending questions, add `--answers-file answers.json`. Optional
 
 The provider runs inside the Windows supervised process tree. After confirmed exit,
 Grampus records before/after snapshots and checks that only authorized file contents
-changed. Successful replies leave implementation running, with no gates passed: run
+and explicitly named additions/removals changed. Successful replies leave implementation running, with no gates passed: run
 checks, submit, assess simplification, obtain independent review, verify acceptance and
 deliver separately. Failed/interrupted edits are retained and need a fresh execution
 attempt. There is no automatic rollback or inference replay.
@@ -491,6 +513,14 @@ path, raw blob and mode, then runs Git commit using the repository's configured
 identity, hooks and signing settings. A unique `Grampus-Delivery` marker is added to
 the commit message. No push is requested. Empty commits are not created.
 
+If the approved behavior already exists, add `"mode": "no_change"` to the delivery
+JSON and use `message` to explain why no change is needed. Every gate still must
+pass. This mode verifies the raw HEAD tree, index, working files and instructions
+without staging or invoking commit hooks. Success records `outcome: "no_change"`,
+`commit: null` and the unchanged HEAD in the saved request. The default `"commit"`
+mode still requires a real commit; an empty diff does not imply successful delivery.
+No-change delivery uses the same supervised receipt and explicit recovery commands.
+
 The controller verifies the resulting commit's parent, marker/message, complete tree,
 index, working files and instructions. Only a matching result with confirmed successful
 process exit records delivery and task completion in one database transaction.
@@ -519,6 +549,9 @@ settlement. A successful receipt permits inspection and acceptance of the exact
 existing commit. An interrupted/failed command is not accepted even if a commit
 exists. Missing proof stays blocked. A proven pre-dispatch crash releases ownership
 without running Git. Recovery never replays staging or commit.
+
+For no-change recovery, a successful receipt instead permits read-only verification
+of the original HEAD, index, files and instructions. Changed state prevents completion.
 
 ## Live task pilot
 
@@ -558,6 +591,80 @@ Delivery crash recovery is tested separately with real Git and offline gate fixt
 
 ## Development
 
+### Multi-file live pilot
+
+The Windows pilot below asks a provider to implement a numeric summary
+library and JSON CLI in two existing files by default. Its independent oracle checks empty,
+negative and decimal inputs, input preservation, invalid values, argument handling,
+exit codes and exact output. It consumes subscription usage.
+
+```sh
+npm run build
+npm run probe:multifile -- --live
+# Or select Claude implementation and Codex review:
+npm run probe:multifile -- --live --provider claude
+# Use a local Orca-created workspace:
+npm run probe:multifile -- --live --orca
+# Start without the library and authorize its exact creation path:
+npm run probe:multifile -- --live --create-library
+# Also require removal of an obsolete tracked file:
+npm run probe:multifile -- --live --create-library --delete-obsolete --provider claude
+```
+
+After native editing and regression validation, the command stops at a durable
+checkpoint and prints the workspace, execution id, journal, validation id and assessment path.
+Inspect both generated files and the saved oracle using
+`npm start -- --db <journal.sqlite> check-show <validation-id>`, then edit the generated
+assessment JSON with an explicit outcome and a concrete simplification summary.
+Its initial `skipped` outcome does not pass a gate. Continue with:
+
+```sh
+npm run probe:multifile -- --live --finish <execution-id> --db <journal.sqlite> --assessment <assessment.json>
+```
+
+Continuation validates the assessment against the submitted artifact, obtains a
+fresh other-provider review, repeats the saved oracle for acceptance, and makes a
+verified local fixture commit. The original validation command and expected output
+are retained at the checkpoint. A failed/skipped assessment is journaled and stops
+before review. Once review/delivery continuation is requested, it cannot be replayed
+by this helper; inspect or recover interrupted operations through the ordinary CLI.
+Questions or blocking findings also require explicit handling. No inference retry
+or Git reset is performed. Reports and journals stay under ignored
+`.grampus/task-probes/`. Orca mode registers the isolated fixture repository and
+creates its checkout through the supported CLI, preserving the same native tool
+policies, stable instance checks and supervised delivery. Omit `--orca` on finish;
+continuation uses the recorded workspace. Remote Orca overrides are refused.
+
+Exercise a real controller crash after the first file changes:
+
+```sh
+npm run probe:multifile -- --live --provider claude --interrupt-after-edit
+npm run probe:multifile -- --live --provider claude --interrupt-after-edit --orca
+# Interrupt just after an authorized deletion, before implementation finishes:
+npm run probe:multifile -- --live --provider claude --delete-obsolete --interrupt-after-edit
+```
+
+This mode requests separate file edits, observes a real library change, and kills
+only the controller process it launched. It waits for a matching terminal supervisor
+receipt and absent supervisor, then runs `implementation-recover` in a new CLI
+process. It verifies that the library edit survived, the CLI stayed unfinished,
+recovery preserved all fixture files, ownership was released, HEAD stayed unchanged
+and no provider activity or completion evidence was added. The task remains stopped;
+an explicit fresh execution is needed to continue. A provider that finishes too
+quickly or edits both files together fails this probe rather than claiming a crash
+was demonstrated. No automatic retry is performed.
+
+With `--delete-obsolete`, the observer requests deletion first and waits for that
+actual removal instead of a library edit. It verifies the file stays absent through
+recovery and both implementation files remain unfinished. This also combines with
+`--create-library`, preserving the initially absent library without creating it during recovery.
+
+Evidence is saved as `recovery.json` and a journal-derived report. Interrupted files
+and Orca fixture workspaces are retained for inspection; use Orca for any later
+removal of an Orca-owned workspace.
+
+### Build and test
+
 ```sh
 npm run check
 npm run build
@@ -566,7 +673,8 @@ npm test
 
 TypeScript compiles to `dist/`; Node supplies SQLite, process handling and the test
 runner. The live Claude adapter adds the official `@anthropic-ai/claude-agent-sdk`
-runtime dependency, pinned in the lockfile. Node 24 may emit an experimental SQLite
+runtime dependency and Zod for its in-process deletion-tool schema, both pinned in
+the lockfile. Node 24 may emit an experimental SQLite
 warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1–8 journals
 migrate to schema 9 without losing task, session or workspace data. Older executables cannot reopen a
 migrated journal, so retain backups if you need to run an older checkout.

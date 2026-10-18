@@ -314,3 +314,98 @@ before staging/commit, altered request bindings, post-commit replacement and rec
 recovery without replay. Schema 9 remains compatible; Orca delivery bindings are
 additive. Orca-managed agent/session coordination, remote hosts and broader task
 operations remain separate work.
+
+## Multi-file native task pilot
+
+`probe:multifile` extends live validation to a numeric summary library and JSON CLI,
+with either Codex or Claude implementing two existing files. The approved criteria
+cover the library contract, empty/negative/decimal inputs, input preservation and
+invalid arguments/values with exact exit codes and streams. The oracle is supplied
+outside the writable file policy; offline mutation cases demonstrate that partial
+implementations and representative regressions fail it.
+
+The pilot submits the validated artifact and stops for inspection. It creates a
+skipped assessment template rather than inventing a simplification pass. Explicit
+continuation checks the caller's assessment, records intent before further inference,
+uses a fresh other-provider reviewer, runs the saved oracle for acceptance and
+delivers a verified local commit. Repeat continuation is refused; existing operation
+recovery commands remain authoritative after interruption. This helper adds no
+schema migration, writable roots, shell permissions or automatic retries.
+
+The same pilot now supports local Orca workspaces and an explicit
+`--interrupt-after-edit` fault-injection mode. Live Claude implementation followed
+by Codex review completed standalone delivery, and live Codex implementation with
+Claude review completed Orca delivery. Claude mid-edit controller-loss recovery
+passed in standalone and Orca workspaces: the supervisor receipt was required,
+partial files survived, and a new recovery process stopped the attempt without
+inference replay or a commit. The offline suite exercises the crash observer and
+fresh-process recovery using a supervised fixture tool rather than a live provider.
+
+## Explicit native file creation
+
+Native edit policies now accept an optional `create` list alongside existing `files`.
+The combined 1–64 paths must be distinct, relative and outside repository controls.
+Creation targets must be absent from the acknowledged snapshot and filesystem,
+non-ignored and beneath existing directories without links or aliases. Windows
+device names and invalid portable path characters are rejected. A creation-only
+policy may leave `files` empty; existing policies retain their original behavior.
+
+Claude uses its existing Write tool to create an exact authorized path, then may
+read/edit that file. Codex receives null content for absent paths and requires the
+ordinary single-use item approval for an `add`; adding over an existing file,
+deletion, moves and mixed unapproved patches are refused. Both providers keep the
+same process-tree supervision, durable tool decisions and receipt recovery.
+
+Post-turn scope checks allow only explicit additions and require every created
+file to remain bounded regular text visible in the final snapshot. Partial new
+files survive interruption without inference replay or completion evidence.
+The multi-file pilot's `--create-library` option starts without summary.cjs and
+uses the same oracle, manual simplification, independent review and local delivery.
+It can also be combined with `--interrupt-after-edit`. No schema migration,
+directory creation, deletion policy or automatic continuation is introduced.
+
+## Explicit file deletion
+
+Edit policies now accept an optional `delete` list. All file/edit/create/delete
+paths share the same distinct-path limit and protected control-file checks.
+Deletion targets must be existing bounded regular UTF-8 snapshot files whose bytes
+still match the acknowledged snapshot. Their authority permits removal only, with
+no editing, overwriting, recreation, moves or recursive directory deletion. Existing
+policies retain their behavior without a schema migration or root/shell grant.
+
+Codex uses the existing single-use patch approval flow for `delete` changes and
+rejects the whole patch if any target or operation is invalid. Claude registers
+one SDK in-process server only when deletion paths are supplied. Its exact
+`mcp__grampus_files__delete_file` tool remains subject to the global permission hook;
+the actual handler additionally checks an active owning turn, exact scope, current
+bytes and journal availability before unlinking. It records removal after success.
+The tool runs inside the supervised worker and enables no external MCP connection.
+Zod is declared directly at the existing installed SDK peer version for its schema.
+
+Scope checks permit authorized absences while preserving other paths, Git state,
+instructions and modes. Both tracked tombstones and removed untracked files are
+supported; unchanged deletion targets are allowed until acceptance determines what
+the task requires. Recovery preserves completed deletions and partial edits rather
+than restoring files or replaying tools. It still requires terminal receipt proof.
+
+The multi-file pilot adds `--delete-obsolete`, optionally with `--create-library`.
+It approves a separate removal criterion and keeps the deletion assertion in the
+saved independent oracle used again for acceptance. Empty files and directory
+replacements fail. Combined with `--interrupt-after-edit`, its observer kills the
+owned controller after actual deletion while implementation files remain unfinished,
+then a fresh CLI verifies receipt-based recovery without inference replay.
+
+## Explicit no-change delivery
+
+Delivery specs accept optional `mode: no_change` when the approved outcome already
+exists. Default commit delivery keeps its existing behavior. No-change uses the
+supervised worker to verify exact raw HEAD/index/file equality, branch and snapshot
+stability without staging or committing, then rechecks content and workspace identity
+in the controller. Completion and the explicit no-change outcome are recorded
+atomically with lease release. Its message retains the caller's explanation.
+
+Receipt recovery verifies the existing state without replay; missing proof, changed
+HEAD/index/content/instructions or replaced Orca identity cannot complete the task.
+All four gates remain required. Schema 9 and older commit requests remain compatible.
+Tests use real Git, supervised validation and delivery, separate recovery CLI
+processes and Orca identity fixtures. Sequential slice continuation remains next.

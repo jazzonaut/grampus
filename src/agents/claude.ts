@@ -1,7 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { authorizeEditTool, editingInstructions } from '../edit-policy.js';
-import { query, type AccountInfo, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, createSdkMcpServer, type AccountInfo, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { claudeDeleteTool } from './claude-files.js';
 import { instructions, replySchema, parseReply, subscriptionEnvironment, numeric, type AgentSession, type ConnectOptions, type TurnResult, type Usage } from './types.js';
 
 class InputQueue implements AsyncIterable<SDKUserMessage> {
@@ -51,8 +52,13 @@ class ClaudeSession implements AgentSession {
 
   constructor(private readonly options: ConnectOptions) {
     this.sessionId = options.providerSessionId ?? randomUUID();
+    const fileServer = options.editing?.policy.delete?.length ? createSdkMcpServer({
+      name: 'grampus_files', version: '1.0.0', alwaysLoad: true, timeout: 5000,
+      tools: [claudeDeleteTool(options.editing, options.emit, () => !!this.active && !this.stopRequested && !this.stopped && !this.closing)],
+    }) : null;
     this.query = query({ prompt: this.input, options: {
-      cwd: options.cwd, tools: options.editing ? ['Read', 'Edit', 'Write'] : [], permissionMode: 'default', settingSources: [], mcpServers: {},
+      cwd: options.cwd, tools: options.editing ? ['Read', 'Edit', 'Write'] : [], permissionMode: 'default', settingSources: [],
+      mcpServers: fileServer ? { grampus_files: fileServer } : {},
       strictMcpConfig: true, systemPrompt: options.editing ? editingInstructions : instructions, outputFormat: { type: 'json_schema', schema: replySchema },
       maxTurns: options.editing ? 12 : 4, includePartialMessages: true,
       ...(options.editing ? { hooks: { PreToolUse: [{ hooks: [async input => {

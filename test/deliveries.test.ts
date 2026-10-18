@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -14,12 +14,13 @@ import { Checks } from '../src/checks.js';
 import { Deliveries, type Delivery } from '../src/deliveries.js';
 import { runCheckProcess } from '../src/check-process.js';
 import type { ExecutionLease } from '../src/execution-state.js';
+import { renderReport } from '../src/report.js';
 
 const windows = { skip: process.platform !== 'win32' };
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', windowsHide: true, stdio: 'pipe' }).trim();
 }
-async function fixture(t: { after(fn: () => void): void }, prepare?: (path: string) => void) {
+async function fixture(t: { after(fn: () => void): void }, prepare?: (path: string) => void, noChange = false) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-delivery-test-')); const repo = join(root, 'repo'); mkdirSync(repo);
   git(repo, 'init', '-b', 'main'); git(repo, 'config', 'user.name', 'Fixture'); git(repo, 'config', 'user.email', 'fixture@invalid');
   git(repo, 'config', 'commit.gpgsign', 'false'); git(repo, 'config', 'core.autocrlf', 'false');
@@ -27,22 +28,37 @@ async function fixture(t: { after(fn: () => void): void }, prepare?: (path: stri
   git(repo, 'add', '.'); git(repo, 'update-index', '--chmod=+x', 'greeting.js'); git(repo, 'commit', '-m', 'Baseline');
   const db = join(root, 'journal.sqlite'); const store = new Store(db);
   t.after(() => { store.close(); rmSync(root, { recursive: true, force: true }); });
-  const workflow = new Workflow(store); const task = workflow.create({ title: 'Delivery fixture', outcome: 'Update greeting', criteria: ['Print hello world'], plan: 'Fixture evidence for delivery tests' });
+  const workflow = new Workflow(store); const task = workflow.create({ title: 'Delivery fixture', outcome: noChange ? 'Confirm existing greeting' : 'Update greeting', criteria: [noChange ? 'Print hello' : 'Print hello world'], plan: 'Fixture evidence for delivery tests' });
   workflow.approve(task.id, 1);
   const workspaces = new Workspaces(store); const workspace = await workspaces.create(task.id, 1, repo, join(root, 'workspace'));
   const execution = await new Executions(store).create(workspace.id, 1, 'codex');
-  writeFileSync(join(workspace.path!, 'greeting.js'), "console.log('hello world');\n");
-  rmSync(join(workspace.path!, 'obsolete.txt')); writeFileSync(join(workspace.path!, 'new.bin'), Buffer.from([0, 255, 42]));
+  if (!noChange) {
+    writeFileSync(join(workspace.path!, 'greeting.js'), "console.log('hello world');\n");
+    rmSync(join(workspace.path!, 'obsolete.txt')); writeFileSync(join(workspace.path!, 'new.bin'), Buffer.from([0, 255, 42]));
+  }
   prepare?.(workspace.path!);
-  const snapshot = await new Checks(store).snapshot(execution.id);
-  workflow.finish(task.id, execution.attemptId, 1, 'succeeded', snapshot.artifact, 'Explicit trusted fixture submission');
-  for (const kind of ['validation', 'simplification', 'review', 'verification'] as const) workflow.record(task.id, {
+  const checks = new Checks(store); const snapshot = await checks.snapshot(execution.id);
+  if (noChange) {
+    const validation = await checks.run(execution.id, { name: 'Check existing greeting', artifact: snapshot.artifact,
+      instructionsDigest: snapshot.instructionsDigest, file: process.execPath, timeoutMs: 15000,
+      args: ['-e', "const assert=require('node:assert/strict'); const {execFileSync}=require('node:child_process'); assert.equal(execFileSync(process.execPath,['greeting.js'],{encoding:'utf8'}),'hello\\n');"] });
+    assert.equal(validation.phase, 'passed', JSON.stringify(validation));
+    await checks.finish(execution.id, validation.id);
+  } else workflow.finish(task.id, execution.attemptId, 1, 'succeeded', snapshot.artifact, 'Explicit trusted fixture submission');
+  for (const kind of ['validation', 'simplification', 'review', 'verification'] as const) {
+    if (noChange && kind === 'validation') continue;
+    workflow.record(task.id, {
     id: kind, kind, artifact: snapshot.artifact, version: 1, attemptId: execution.attemptId, outcome: 'passed', source: 'controller',
     summary: 'Trusted test fixture evidence; no live inference', criteria: task.brief.criteria,
     ...(kind === 'review' ? { agent: { provider: 'claude' as const, model: 'fixture', sessionId: 'fixture-review' } } : {}) });
+  }
   const deliveries = new Deliveries(store);
   const spec = { artifact: snapshot.artifact, instructionsDigest: snapshot.instructionsDigest, message: 'Update greeting', timeoutMs: 15_000 };
   return { root, repo, db, store, workflow, task, workspace, execution, snapshot, deliveries, spec };
+}
+async function noChangeFixture(t: { after(fn: () => void): void }, prepare?: (path: string) => void) {
+  const f = await fixture(t, prepare, true);
+  return { ...f, spec: { ...f.spec, mode: 'no_change' as const, message: 'Existing greeting already satisfies the approved task' } };
 }
 function deadController(f: Awaited<ReturnType<typeof fixture>>): void {
   const pid = Number(execFileSync(process.execPath, ['-e', 'console.log(process.pid)'], { encoding: 'utf8', windowsHide: true }));
@@ -68,6 +84,7 @@ test('supervised delivery commits exact checked bytes, paths and executable mode
   const result = JSON.parse(execFileSync(process.execPath, [cli, 'execution-deliver', f.execution.id, specFile, '--db', f.db],
     { encoding: 'utf8', windowsHide: true })) as Delivery;
   assert.equal(result.phase, 'delivered', JSON.stringify(result));
+  assert.equal(result.outcome, 'committed');
   assert.equal(result.commit, git(f.workspace.path!, 'rev-parse', 'HEAD'));
   assert.equal(git(f.workspace.path!, 'show', '-s', '--format=%an <%ae> / %cn <%ce>'), 'Fixture <fixture@invalid> / Fixture <fixture@invalid>');
   assert.match(git(f.workspace.path!, 'ls-tree', 'HEAD', 'greeting.js'), /^100755/);
@@ -179,14 +196,104 @@ test('delivery recovery rejects a replaced commit even when its tree matches', w
 });
 
 test('delivery completion and journal acceptance roll back together on a database failure', windows, async t => {
-  const f = await fixture(t); const append = f.store.append.bind(f.store); let fail = true;
-  f.store.append = (id, version, type, data) => {
-    if (type === 'delivery.settled' && fail) { fail = false; throw new Error('Injected journal failure'); }
-    append(id, version, type, data);
-  };
-  const result = await f.deliveries.run(f.execution.id, f.spec);
-  assert.equal(result.phase, 'failed'); assert.match(result.error!, /journal failure/);
-  assert.equal(f.workflow.get(f.task.id).phase, 'awaiting_verification');
-  assert.ok(!f.store.events(f.task.id).some(event => event.type === 'task.completed'));
-  assert.equal(f.store.lease(f.workspace.id), null);
+  for (const noChange of [false, true]) {
+    const f = noChange ? await noChangeFixture(t) : await fixture(t); const append = f.store.append.bind(f.store); let fail = true;
+    f.store.append = (id, version, type, data) => {
+      if (type === 'delivery.settled' && fail) { fail = false; throw new Error('Injected journal failure'); }
+      append(id, version, type, data);
+    };
+    const result = await f.deliveries.run(f.execution.id, f.spec);
+    assert.equal(result.phase, 'failed'); assert.equal(result.outcome, null); assert.match(result.error!, /journal failure/);
+    assert.equal(f.workflow.get(f.task.id).phase, 'awaiting_verification');
+    assert.ok(!f.store.events(f.task.id).some(event => event.type === 'task.completed'));
+    assert.equal(f.store.lease(f.workspace.id), null);
+  }
+});
+
+test('explicit no-change CLI delivery preserves HEAD and index, skips commit hooks and records the outcome', windows, async t => {
+  const f = await noChangeFixture(t);
+  const indexPath = git(f.workspace.path!, 'rev-parse', '--path-format=absolute', '--git-path', 'index');
+  const index = readFileSync(indexPath);
+  writeFileSync(join(f.repo, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 1\n');
+  const specFile = join(f.root, 'no-change.json'); writeFileSync(specFile, JSON.stringify(f.spec));
+  const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+  const result = JSON.parse(execFileSync(process.execPath, [cli, 'execution-deliver', f.execution.id, specFile, '--db', f.db],
+    { encoding: 'utf8', windowsHide: true })) as Delivery;
+  assert.equal(result.phase, 'delivered', JSON.stringify(result));
+  assert.equal(result.outcome, 'no_change'); assert.equal(result.commit, null);
+  assert.equal(result.request?.snapshot.head, f.snapshot.head);
+  assert.equal(git(f.workspace.path!, 'rev-parse', 'HEAD'), f.snapshot.head);
+  assert.equal(git(f.workspace.path!, 'rev-list', '--count', 'HEAD'), '1');
+  assert.deepEqual(readFileSync(indexPath), index);
+  assert.equal(existsSync(join(result.receipt!.directory, 'delivery.json.message')), false);
+  assert.equal(f.workflow.get(f.task.id).phase, 'complete'); assert.equal(f.store.lease(f.workspace.id), null);
+  assert.match(renderReport(f.store, f.task.id), /"outcome": "no_change"/);
+});
+
+test('no-change delivery rejects dirty paths and staged mismatches without staging or committing', windows, async t => {
+  const changes: ((path: string) => void)[] = [
+    path => writeFileSync(join(path, 'obsolete.txt'), 'modified\n'),
+    path => writeFileSync(join(path, 'untracked.txt'), 'new\n'),
+    path => rmSync(join(path, 'obsolete.txt')),
+    path => { writeFileSync(join(path, 'obsolete.txt'), 'staged\n'); git(path, 'add', 'obsolete.txt'); writeFileSync(join(path, 'obsolete.txt'), 'remove me\n'); },
+    path => { git(path, 'update-index', '--chmod=-x', 'greeting.js'); },
+  ];
+  for (const change of changes) {
+    const f = await noChangeFixture(t, change);
+    const indexPath = git(f.workspace.path!, 'rev-parse', '--path-format=absolute', '--git-path', 'index');
+    const index = readFileSync(indexPath);
+    const result = await f.deliveries.run(f.execution.id, f.spec);
+    assert.equal(result.phase, 'failed', JSON.stringify(result)); assert.equal(result.outcome, null); assert.equal(result.commit, null);
+    assert.equal(result.result?.exitConfirmed, true); assert.notEqual(result.result?.exitCode, 0);
+    assert.equal(git(f.workspace.path!, 'rev-parse', 'HEAD'), f.snapshot.head);
+    assert.deepEqual(readFileSync(indexPath), index);
+    assert.equal(f.workflow.get(f.task.id).phase, 'awaiting_verification'); assert.equal(f.store.lease(f.workspace.id), null);
+  }
+});
+
+test('no-change requires every gate and explicit mode; commit mode never infers success from an empty diff', windows, async t => {
+  const f = await noChangeFixture(t);
+  await assert.rejects(f.deliveries.run(f.execution.id, { ...f.spec, mode: 'automatic' as 'commit' }), /optional mode/);
+  const commit = await f.deliveries.run(f.execution.id, { ...f.spec, mode: 'commit' });
+  assert.equal(commit.phase, 'failed'); assert.equal(commit.outcome, null);
+  assert.equal(git(f.workspace.path!, 'rev-list', '--count', 'HEAD'), '1');
+  f.workflow.addDecision(f.task.id, 'Pending fixture decision');
+  await assert.rejects(f.deliveries.run(f.execution.id, f.spec), /Provisional decisions/);
+  assert.equal(f.workflow.get(f.task.id).phase, 'awaiting_decision');
+});
+
+test('actual controller exit after no-change verification recovers through a new CLI without Git writes', windows, async t => {
+  const f = await noChangeFixture(t); crash(f, false);
+  const pending = f.store.deliveries<Delivery>(f.execution.id).at(-1)!;
+  assert.equal(pending.phase, 'running'); assert.equal(pending.outcome, null);
+  assert.equal(f.workflow.get(f.task.id).phase, 'awaiting_verification'); assert.ok(f.store.lease(f.workspace.id));
+  // A writer would fail against this lock. Read-only receipt recovery must preserve it.
+  const lockPath = git(f.workspace.path!, 'rev-parse', '--path-format=absolute', '--git-path', 'index.lock');
+  writeFileSync(lockPath, 'fixture lock\n');
+  const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+  const result = JSON.parse(execFileSync(process.execPath, [cli, 'delivery-recover', pending.id, '--db', f.db],
+    { encoding: 'utf8', windowsHide: true })) as Delivery;
+  assert.equal(result.phase, 'delivered', JSON.stringify(result)); assert.equal(result.outcome, 'no_change'); assert.equal(result.commit, null);
+  assert.equal(readFileSync(lockPath, 'utf8'), 'fixture lock\n');
+  assert.equal(git(f.workspace.path!, 'rev-parse', 'HEAD'), f.snapshot.head);
+  assert.equal(f.workflow.get(f.task.id).phase, 'complete'); assert.equal(f.store.lease(f.workspace.id), null);
+});
+
+test('no-change recovery refuses missing receipts, changed HEAD, index, files and instructions', windows, async t => {
+  const missing = await noChangeFixture(t);
+  const unknown = await missing.deliveries.run(missing.execution.id, missing.spec, undefined, async () => { throw new Error('Unknown dispatch'); });
+  deadController(missing);
+  await assert.rejects(missing.deliveries.recover(unknown.id)); assert.ok(missing.store.lease(missing.workspace.id));
+  for (const change of [
+    (f: Awaited<ReturnType<typeof noChangeFixture>>) => { git(f.workspace.path!, 'commit', '--allow-empty', '-m', 'Unrelated commit'); },
+    (f: Awaited<ReturnType<typeof noChangeFixture>>) => { git(f.workspace.path!, 'update-index', '--chmod=-x', 'greeting.js'); },
+    (f: Awaited<ReturnType<typeof noChangeFixture>>) => { writeFileSync(join(f.workspace.path!, 'obsolete.txt'), 'changed\n'); },
+    (f: Awaited<ReturnType<typeof noChangeFixture>>) => { writeFileSync(join(f.root, 'AGENTS.md'), 'New inherited instructions\n'); },
+  ]) {
+    const f = await noChangeFixture(t); crash(f, false); change(f);
+    const pending = f.store.deliveries<Delivery>(f.execution.id).at(-1)!;
+    const result = await f.deliveries.recover(pending.id);
+    assert.equal(result.phase, 'failed'); assert.equal(result.outcome, null); assert.equal(result.commit, null);
+    assert.equal(f.workflow.get(f.task.id).phase, 'awaiting_verification'); assert.equal(f.store.lease(f.workspace.id), null);
+  }
 });

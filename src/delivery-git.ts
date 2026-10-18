@@ -36,7 +36,15 @@ export function verifyTree(cwd: string, snapshot: RepositorySnapshot, tree?: str
 
 export interface DeliveryRequest {
   id: string; cwd: string; branch: string; base: string; message: string; snapshot: RepositorySnapshot;
+  mode?: 'commit' | 'no_change';
   orca?: { database: string; executionId: string; workspaceId: string; identityKey: string };
+}
+/** No-change delivery proves raw HEAD/index/worktree equality without staging. */
+export function verifyNoChange(request: DeliveryRequest): void {
+  if (gitText(request.cwd, 'symbolic-ref', 'HEAD') !== request.branch
+    || gitText(request.cwd, 'rev-parse', 'HEAD') !== request.snapshot.head) throw new Error('No-change delivery branch or HEAD changed');
+  verifyTree(request.cwd, request.snapshot, request.snapshot.head);
+  verifyTree(request.cwd, request.snapshot);
 }
 export function deliveryMessage(request: DeliveryRequest): string { return `${request.message.trim()}\n\nGrampus-Delivery: ${request.id}\n`; }
 export function verifyCommit(request: DeliveryRequest): string {

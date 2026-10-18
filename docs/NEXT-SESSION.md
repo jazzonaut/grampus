@@ -5,6 +5,16 @@ task-linked session ownership, recoverable Windows checks, artifact review,
 exact-output acceptance verification, explicit simplification and supervised local
 delivery and supervised Claude/Codex native file editing with live standalone and
 local Orca task pilots.
+The next slice added a standalone two-file library/CLI pilot with a durable
+simplification checkpoint; its live Codex implementation and Claude review reached
+verified local delivery on 18 October 2026.
+The follow-up also passed the reverse provider pairing, Orca multi-file delivery,
+and live Claude mid-edit controller-loss recovery in both workspace modes.
+The latest slices add exact native file creation/deletion policies for both providers
+and the multi-file pilot's `--create-library` / `--delete-obsolete` modes. Directory
+creation/removal remains disabled.
+Explicit no-change delivery now verifies unchanged HEAD/index/files under supervision,
+records its outcome and completes without a commit; receipt recovery is read-only.
 The user continued implementation in the
 same session and authorized pushing the repository.
 
@@ -65,7 +75,49 @@ Default delivery remains local unless the user authorizes an external action.
   reject replaced/archived instances before staging, before commit and at acceptance.
   A live Codex edit → Claude review → checks → verified local commit pilot passed
   in an Orca-created worktree. Its temporary worktree was removed through Orca.
-- 151 offline tests passed on Windows with Node 24.22.0 and 25.8.1, covering real Git,
+- `probe:multifile` implements a summary library and JSON CLI through two explicitly
+  writable existing files. A separate oracle covers successful and invalid input,
+  input preservation, exit codes and exact streams. It pauses after validation for
+  inspection and an explicit simplification assessment, then uses independent review,
+  saved-oracle acceptance and verified delivery. A live Codex → Claude standalone run
+  completed; the reviewer retained two nonblocking suggestions about numeric overflow
+  and broad exception handling. The scope does not define aggregate overflow behavior.
+- Reverse Claude → Codex standalone delivery and Codex → Claude Orca multi-file
+  delivery also passed. `--interrupt-after-edit` passed with live Claude in both
+  workspace modes: controller loss during a partial edit, supervisor receipt, a new
+  recovery CLI process, preserved contents and a stopped task without inference replay.
+  The Orca fixture workspaces and partial edits are retained for inspection.
+- Exact native file creation via optional `create` policy paths supports both
+  providers, with absent/non-ignored targets, existing parents, bounded text and
+  final snapshot membership checks. `probe:multifile -- --live --create-library`
+  passed standalone delivery in both provider pairings after explicit simplification,
+  independent review and saved-oracle acceptance. Codex output retained one
+  nonblocking aggregate-overflow suggestion; Claude output had no review findings.
+  Real offline controller-loss fixtures preserved a partial new file through receipt
+  recovery without replay. Live creation in Orca and live mid-creation recovery
+  have not been exercised separately.
+- Exact deletion policies now support both providers, with immutable snapshot bytes
+  and no overlap with other writable paths. Claude's single in-process deletion tool
+  checks active-turn ownership and the journal at the actual unlink; Codex uses its
+  ordinary one-item patch approval. Both standalone live provider pairings passed a
+  combined edit/create/delete pilot through explicit simplification, independent
+  review, saved-oracle acceptance and verified local delivery. Claude review retained
+  two nonblocking suggestions on the Codex fixture; reverse review had no findings.
+  Live Claude and Codex controller loss just after deletion also recovered through a new CLI,
+  preserving the absence without inference replay or completion evidence.
+- Explicit `mode: no_change` delivery verifies raw HEAD/index/files and unchanged
+  instructions without staging, hooks or an empty commit. All gates still apply.
+  Receipt recovery is read-only and rejects changed state or Orca identity. Real
+  controller exits, CLI recovery, journal rollback, index locks and dirty/staged
+  mismatches are covered. The latest complete offline suite passed 184 tests
+  without failures or skips on Windows, Node 25.8.1; focused delivery and Orca
+  suites each passed 18. No new live provider/Orca pilot or other-platform run was made.
+- The preceding scoped-file offline suite passed 178 tests without skips on Windows,
+  Node 25.8.1. Focused provider/implementation checks passed 39 tests, pilot checks
+  passed 7, and doctor confirmed both subscription logins. The creation/deletion
+  suites have not run on Node 24. The preceding creation checkpoint passed 165 tests.
+- 155 offline tests passed on Windows with Node 25.8.1 after the recovery pilots;
+  the preceding 151-test suite also passed on Node 24.22.0. Coverage includes real Git,
   controller crashes, Orca protocol fixtures, lease races, rollback, uncertain startup,
   stale bindings, real command results, timeouts, detached descendants, controller/
   supervisor crashes, receipt recovery, stale artifacts, review context, output
@@ -82,8 +134,9 @@ patches and Claude review. Add `--orca` to create a local Orca fixture workspace
 Standalone and local Orca delivery and
 its explicit recovery path are implemented; local probe
 evidence remains under ignored `.grampus/task-probes/`. Do not commit those journals,
-reports or fixture repositories. The live greeting task passed through Orca, but
-has not been repeated with a mid-task controller crash. Offline delivery fixtures exercise
+reports or fixture repositories. The live greeting task passed through Orca; the
+multi-file pilot also demonstrates live Claude controller-loss recovery in both
+workspace modes. Offline delivery fixtures exercise
 actual controller exits before dispatch and after commit, followed by recovery.
 Native editing fixtures also kill a controller during a running file-writing tool,
 confirm the supervisor receipt and preserve partial edits without replay.
@@ -97,27 +150,26 @@ contains the durable summary, and the probe script can reproduce the checks.
 Start with the existing source and a small concrete plan. Do not rebuild the
 controller or broaden into the dashboard first.
 
-1. Extend the live native pilot beyond a greeting, starting with a meaningful
-   multi-file change. Both providers now support bounded standalone/local Orca
-   editing and delivery on Windows. Preserve process-tree supervision and explicit
-   scope; do not broaden shell tools or writable roots implicitly.
-2. Address explicit new-file/deletion policies, multi-slice continuation and
-   no-change outcomes. Local delivery already binds
+1. Add multi-slice continuation. Explicit no-change delivery is implemented through
+   optional `mode: no_change`; every gate and settled receipt is still required.
+   Local delivery already binds
    the checked digest to the exact commit. Recovery needs a terminal receipt after
    dispatch; failed/uncertain operations never trigger commit replay or Git resets.
-3. Demonstrate a live-provider mid-task interruption/recovery, including in an Orca
-   workspace. Keep semantic simplification assessment explicit and choose checks
-   that demonstrate the outcome.
-4. Define safe workspace release/rebinding for changed briefs and a recovery path for
+2. Live Claude mid-edit recovery now passes in standalone and Orca workspaces.
+   Live Claude/Codex standalone recovery just after scoped deletion also passes.
+   Codex live recovery in Orca and completing a task through a fresh attempt after
+   recovery remain useful follow-ups. Keep simplification explicit and use
+   checks that demonstrate the outcome; do not automatically replay interrupted work.
+3. Define safe workspace release/rebinding for changed briefs and a recovery path for
    unknown provider PIDs. Failed reservations currently stay blocked for investigation.
    Keep using Orca's supported interfaces for Orca-owned state; its CLI exiting does
    not prove all background activities stopped. A Grampus lease does not control agents
    launched separately through Orca.
-5. Add macOS/Linux tool supervision and bounded worker concurrency before unattended
+4. Add macOS/Linux tool supervision and bounded worker concurrency before unattended
    scheduling. The current Windows helper supervises ordinary descendants, not work
    delegated to WMI, existing services or external agents. A provider process exiting
    still does not prove that all provider tools stopped.
-6. Broaden review context beyond small UTF-8 repositories and acceptance observations
+5. Broaden review context beyond small UTF-8 repositories and acceptance observations
    beyond exact decoded stdout. Keep context/evidence scope explicit and preserve
    failed/skipped results rather than claiming coverage from a model reply.
 
@@ -131,11 +183,17 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
   automatic scheduler or end-to-end repository task runner yet. Successful conversations
   leave implementation open; they cannot create a successful artifact or pass a gate.
 - `execution-implement` supports Claude and Codex on standalone/local Orca Windows workspaces, with
-  explicit existing-file policies (1–64 paths, UTF-8 files at most 256 KiB each).
+  explicit existing-file and exact creation/deletion policies (1–64 combined paths, UTF-8
+  files at most 256 KiB each). Optional `create` targets must be absent and
+  non-ignored, with existing directories; `files` may be empty for creation-only work.
+  Optional `delete` targets must be existing snapshot files with unchanged bytes,
+  cannot overlap other lists and may only be removed. Claude exposes the controller's
+  single in-process deletion tool only when this list is nonempty; its handler checks
+  active-turn ownership, scope and the journal again before unlinking.
   Claude SDK hooks check/journal file decisions; StructuredOutput only validates the
   final reply. Codex uses one-item patch approvals and a bounded supplied text context
   (768 KiB encoded), with at most 64 patch items per turn. No shell, external tools,
-  delegation, new files/deletion or control-file edits. Instructions are supplied and
+  delegation, directory creation/removal, moves or control-file edits. Instructions are supplied and
   hashed; scope is checked after exit. Ordinary provider conversations cannot be reused
   for editing; create a fresh implementation session.
   A provider tool policy is not an OS filesystem sandbox. Editing sessions require
@@ -199,6 +257,22 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
   and creates its worktree through Orca. It retains evidence and reports the instance
   key. Remove only verified finished fixture worktrees through Orca; the registration,
   fixture repository and journal remain local. No automatic fixture cleanup exists.
+- `probe:multifile -- --live [--provider claude] [--orca]` stops at a submitted-artifact
+  checkpoint. Inspect the code and edit its skipped assessment template, then use
+  `--live --finish <execution-id> --db <journal> --assessment <file>`. Continuation
+  is journaled before review and cannot be replayed; use ordinary operation recovery
+  after interruption. The saved validation command and expected stdout are reused
+  for acceptance. Reverse pairing and Orca delivery now pass. Add
+  `--interrupt-after-edit` to crash the owned controller after a real library edit
+  and recover through a new CLI process; this mode intentionally leaves the task
+  stopped and saves `recovery.json`. Live Claude passed both workspace modes.
+  The partial files and Orca workspaces are retained; local probe evidence stays ignored.
+  Add `--create-library` at startup to omit summary.cjs from the baseline and authorize
+  its exact creation path. This combines with either provider, workspace mode and
+  interruption mode. Continuation reads the saved creation metadata without a new flag.
+  Add `--delete-obsolete` to approve removal of an obsolete tracked file; the saved
+  oracle checks absence and the checkpoint retains deletion metadata. With
+  interruption mode, deletion happens first and recovery preserves that absence.
 - Retention, safe-checkpoint transfer, installer packaging, platform CI, browser
   dashboard, notifications, Linear and opt-in PR delivery are still outstanding.
 - Keep subscription authentication as the default. Do not silently enable API

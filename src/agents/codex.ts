@@ -22,7 +22,7 @@ export async function connectCodex(options: ConnectOptions): Promise<AgentSessio
     for (const name of Object.keys(config.config.mcp_servers ?? {})) overrides[`mcp_servers.${name}.enabled`] = false;
     const params = {
       cwd: options.cwd, modelProvider: 'openai', approvalPolicy: 'untrusted', sandbox: 'read-only',
-      developerInstructions: options.editing ? implementationInstructions('Use only apply_patch to update existing files, using their supplied contents. Do not add, delete or move files. Each patch requires controller approval.') : instructions, config: overrides,
+      developerInstructions: options.editing ? implementationInstructions('Use only apply_patch to update approved existing files, add explicitly authorized new files or delete explicitly authorized unchanged files, using their supplied contents (null means absent). Parent directories must already exist. Deletion paths cannot be updated or recreated. Do not move files or delete directories. Each patch requires controller approval.') : instructions, config: overrides,
       ...(options.editing ? { approvalsReviewer: 'user' } : {}),
       ...(options.model ? { model: options.model } : {}),
     };

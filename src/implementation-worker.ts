@@ -25,7 +25,7 @@ async function main(): Promise<void> {
         const current = sessions.get(session.id);
         if (current.phase !== 'running' || !sessions.event(session.id, run.id, event)) throw new Error('Native implementation no longer owns an active turn');
       } });
-    const result: TurnResult = await agent.turn(`${request.prompt}\n\nAuthorized editable files: ${JSON.stringify(run.policy.files)}\nSnapshot file names: ${JSON.stringify(snapshot.files.filter(file => file.sha256 !== null).map(file => file.path))}\nRepository instructions (apply within the explicit tool policy):\n${JSON.stringify(snapshot.instructions)}${fileContext}`);
+    const result: TurnResult = await agent.turn(`${request.prompt}\n\nAuthorized existing editable files: ${JSON.stringify(run.policy.files)}\nAuthorized new files (existing parent directories only): ${JSON.stringify(run.policy.create ?? [])}\nAuthorized deletion-only files (unchanged snapshot bytes): ${JSON.stringify(run.policy.delete ?? [])}\nSnapshot file names: ${JSON.stringify(snapshot.files.filter(file => file.sha256 !== null).map(file => file.path))}\nRepository instructions (apply within the explicit tool policy):\n${JSON.stringify(snapshot.instructions)}${fileContext}`);
     await agent.close(); agent = null;
     const path = join(run.receipt!.directory, 'result.json');
     writeFileSync(`${path}.tmp`, JSON.stringify({ id: run.id, result })); renameSync(`${path}.tmp`, path);

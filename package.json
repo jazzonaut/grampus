@@ -15,13 +15,15 @@
     "doctor": "node dist/src/cli.js doctor",
     "demo": "node dist/src/cli.js demo",
     "probe": "node dist/src/probe.js",
-    "probe:task": "node dist/src/task-probe.js"
+    "probe:task": "node dist/src/task-probe.js",
+    "probe:multifile": "node dist/src/multifile-probe.js"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.302"
+    "@anthropic-ai/claude-agent-sdk": "0.3.302",
+    "zod": "4.6.7"
   }
 }

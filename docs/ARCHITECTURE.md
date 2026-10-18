@@ -68,6 +68,7 @@ conversation reply to repository changes, evidence acceptance or task completion
 | `src/agents/types.ts` | Provider contract, reply validation, usage fields and subscription environment |
 | `src/agents/codex.ts` | Installed Codex app-server initialization, threads, turns and notifications |
 | `src/agents/claude.ts` | Official SDK streaming input, authentication, results and process shutdown |
+| `src/agents/claude-files.ts` | In-process scoped deletion tool with active-turn and journal checks |
 | `src/process.ts` | Shell-free subprocess execution and bounded JSON-RPC requests |
 | `src/doctor.ts` | Local executable/authentication discovery; optional Orca worktree lookup |
 | `src/report.ts` | Markdown rendering from a task snapshot and its journal |
@@ -515,16 +516,27 @@ and independent Claude review.
 
 `execution-implement` claims an approved standalone or local Orca implementation execution and
 marks its fresh Claude or Codex session as editing-only. It snapshots current content and
-checks an explicit policy's artifact/instruction digests and existing writable paths.
+checks an explicit policy's artifact/instruction digests, existing writable paths
+and optional exact creation/deletion paths. Deletion targets must be existing
+snapshot files with unchanged bytes and cannot also be writable/creation paths.
+Creation targets must be absent, snapshot-visible
+Git paths with existing regular parent directories; links and aliases are rejected.
 Intent and dispatch are persisted before the Windows supervisor launches a worker.
 The worker reconnects the exact provider session, verifies the snapshot again and
 supplies the approved brief, permitted files and discovered repository instructions.
 
-The Claude SDK exposes only Read, Edit and Write, with a global PreToolUse hook checking
+The Claude SDK exposes Read, Edit and Write, with a global PreToolUse hook checking
 every request and a permission callback as an additional check. StructuredOutput
 is separately allowed after reply-schema validation. Tool decisions are journaled
 before permission. Invalid paths, unknown tools/options, non-text/oversized files,
-links, control files and unapproved writes are denied. Settings sources and MCP
+links, control files and unapproved writes are denied. A nonempty deletion policy
+also registers one in-process SDK MCP tool, `mcp__grampus_files__delete_file`. It
+rechecks active-turn ownership and exact unchanged regular-file scope in its actual
+handler, journals authorization before unlinking and records `tool.deleted` after
+success. An SDK permission hook alone cannot invoke this effect. The handler uses
+no shell, recursive removal, external service or separate tool process. Zod is
+declared directly at the already-installed pinned SDK peer version for its schema.
+Without deletion paths this server is absent. Settings sources and external MCP
 servers remain disabled, safe mode remains set, and the provider cannot run shell,
 delegation or external tools. These are provider-tool restrictions, not an OS sandbox;
 file-path inspection and execution are not atomic against external editors.
@@ -539,17 +551,26 @@ fileChange item, incorporates pre-approval patch updates, validates the whole ch
 set and journals the decision before responding. A turn permits at most 64 distinct
 patch items. Decisions consume the item; completion and interruption invalidate
 pending approvals. Duplicates, stale identities, root grants, unknown fields,
-additions/deletions/moves and unapproved paths are denied. Commands are declined;
+unapproved additions/deletions, moves and unapproved paths are denied. Additions
+require an absent exact `create` path; subsequent updates may use that same path.
+Deletions require an exact existing `delete` path with unchanged snapshot bytes;
+updates and additions at deletion-only paths are refused.
+Commands are declined;
 other tool/permission requests receive the default RPC error. No session-wide grant
 is sent. Ordinary conversation sessions cannot switch to native editing.
 
 The parent owns the session/workspace lease while the worker writes fenced provider
 events into the same durable journal. The complete provider process tree runs in the
 Windows Job Object. Confirmed exit is followed by a snapshot comparison: only named
-file contents may change; HEAD, index, file membership, modes and instruction digest
-must remain unchanged. A successful result keeps the attempt running and creates no
+file contents and explicit additions/removals may change; HEAD, index, other membership,
+modes and instruction digest must remain unchanged. A deletion target may remain
+unchanged or be absent; task acceptance determines whether removal is required.
+Deleted untracked files may disappear from membership; tracked deletions retain
+their snapshot tombstones and baseline bytes in the diff. New files must remain bounded
+regular UTF-8 text, without links or executable modes, and visible in the final snapshot.
+A successful result keeps the attempt running and creates no
 validation, review or acceptance evidence. The result and lease settlement are atomic.
-Partial or rejected edits stay on disk for investigation.
+Partial or rejected changes, including deletions, are preserved for investigation.
 
 Editing sessions cannot switch to ordinary conversation/resume commands. Questions
 continue through the implementation command with answers and a newly acknowledged
@@ -559,10 +580,13 @@ matching supervisor receipt after dispatch. Recovery always records interruption
 even after a lost successful result; it never retries inference or accepts task gates.
 Pre-dispatch recovery runs no tools. Missing settlement proof retains ownership.
 
-Current scope is existing UTF-8 files, at most 256 KiB each and 64 writable paths.
-New files/deletion, other platforms and provider
+Current scope is existing and explicitly named new/deleted UTF-8 files, at most
+256 KiB each and 64 combined paths across `files`, `create` and `delete`. Existing
+policies and schema 9 journals remain compatible. Root grants remain disabled.
+Directory creation/removal, other platforms and provider
 shell tools are not enabled. References: Claude [permission evaluation](https://code.claude.com/docs/en/agent-sdk/permissions)
-and [tool hooks](https://code.claude.com/docs/en/agent-sdk/hooks); Codex
+and [tool hooks](https://code.claude.com/docs/en/agent-sdk/hooks), plus the SDK's
+[in-process custom tools](https://code.claude.com/docs/en/agent-sdk/custom-tools); Codex
 [app-server approvals](https://learn.chatgpt.com/docs/app-server) and schemas generated
 from the installed app-server define the scoped patch protocol.
 
@@ -593,19 +617,34 @@ filtered diff and signature helpers. Task completion and accepted delivery commi
 share a transaction with lease release. Original evidence remains bound to its
 pre-commit digest; the delivery record maps that evidence to the verified commit.
 
+An optional delivery spec/request `mode` selects `commit` (the default) or explicit
+`no_change`. No-change runs the same supervised worker and receipt protocol but
+performs only inspection: raw HEAD tree and index paths, modes and blob hashes must
+match the checked files, and HEAD/branch and the entire snapshot digest must remain
+unchanged. The worker and controller both verify this, including repeated Orca
+identity checks. It never stages or invokes commit hooks. Successful settlement
+records `outcome: no_change` with `commit: null`; ordinary commits record
+`outcome: committed`. The saved request identifies the unchanged HEAD and the spec
+message explains the choice. All four gates and pending decisions apply equally.
+An empty diff never converts a failed commit request into no-change success.
+
 Recovery first requires an absent same-host controller and, for dispatched work,
 a matching terminal supervisor receipt. It claims reconciliation ownership before
 asynchronous inspection. A successful settled command can be accepted only after
 all commit/content checks pass again. Other settled outcomes release ownership as
 interrupted/failed without accepting a commit. Missing proof remains blocked; no Git
 write is replayed. A crash before dispatch releases the lease without invoking Git.
+For explicit no-change requests, successful receipts permit adoption only after
+rechecking the original HEAD, index, working files and instructions. Recovery never
+reruns the worker. The additive mode/outcome fields require no schema migration;
+legacy requests without a mode retain commit verification.
 
 Failures preserve staged changes and any unaccepted commit, including hook effects;
 there is no automatic rollback, amend or lock removal. A rejected artifact needs
 fresh implementation and gates. The supervisor covers ordinary tool descendants,
 not external services. Git configuration/hooks and the local journal remain trusted.
 Concurrent external editors and Orca agents are not locked out. Other platforms,
-multi-slice scheduling and no-change delivery are not implemented.
+multi-slice scheduling is not implemented.
 
 `npm test` builds and runs offline tests against temporary databases, subprocesses
 and protocol fixtures. It does not invoke live models. Test files cover workflow,
@@ -617,3 +656,44 @@ Only Windows has been tested. Workspace release/rebinding, shared scheduling,
 other-platform check runners, broader provider tools, review arbitration, Orca session coordination,
 multi-slice scheduling, dashboard, installers and platform CI remain outstanding.
 The implementation itself has not had an independent review.
+
+## Multi-file pilot checkpoint
+
+The opt-in `multifile-probe` helper uses existing workflow APIs for a two-file library
+and CLI task. It stores its submission checkpoint in the task journal, including the
+execution, artifact/instruction digests, validation id and expected acceptance output.
+The independent check program is retained in the validation specification, outside
+the native provider's writable scope. Continuation uses that saved specification.
+
+A caller must inspect the generated code and supply an explicit simplification
+assessment. The default assessment is skipped. After a passing assessment, the helper
+atomically journals continuation intent before starting independent review, acceptance
+or delivery. A second continuation is refused, including after a crash. This is a
+manual pilot checkpoint, not a scheduler or automatic operation recovery. Ordinary
+execution/check/delivery recovery remains available, with its existing proofs and
+no-replay rules. No additional completion authority is granted to the helper.
+
+The pilot can use a standalone or local Orca workspace, preserving the ordinary
+workspace identity and tool policy contracts. Its opt-in interruption mode starts
+the ordinary implementation CLI as a child and observes the first file edit. It
+verifies that the durable lease belongs to that exact child before killing the
+controller. The supervisor settles the provider tree and supplies the existing
+terminal receipt. A fresh CLI process performs normal receipt-based recovery.
+The observer verifies preserved partial contents, unchanged HEAD, released ownership,
+no new implementation runs/provider activity and no completion evidence. It does
+not accept a settled turn or two completed file edits as an interruption success.
+The task is stopped, not resumed automatically. Fault injection lives in the pilot
+helper; the production controller/recovery protocol is unchanged.
+
+`--create-library` starts the same pilot without summary.cjs, placing that path in
+the exact creation policy and keeping cli.cjs in existing-file scope. Checkpoints
+retain creation metadata for continuation; earlier checkpoints remain readable.
+The option also works with the interruption observer, which waits for creation
+before killing its owned controller and preserves the partial file during recovery.
+
+`--delete-obsolete` adds a tracked obsolete.cjs and an explicit approved removal
+criterion. Its independent oracle rejects retained files, empty replacements and
+directory replacements. The saved check/expected output and deleted-file metadata
+drive ordinary continuation and verified delivery. Combined with interruption mode,
+the observer waits for deletion first, requires the implementation files to remain
+unfinished and checks both retained bytes and absences across receipt recovery.

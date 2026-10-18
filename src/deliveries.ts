@@ -10,15 +10,16 @@ import { claimExecution, type Execution, type ExecutionLease } from './execution
 import { captureRepository } from './repository-evidence.js';
 import { allocateReceipt, readReceipt, requireDeadController, type CheckReceipt } from './check-recovery.js';
 import { runCheckProcess, retainedOutput, type CheckProcessOptions, type CheckProcessResult } from './check-process.js';
-import { gitText, verifyCommit, type DeliveryRequest } from './delivery-git.js';
+import { gitText, verifyCommit, verifyNoChange, type DeliveryRequest } from './delivery-git.js';
 
-export interface DeliverySpec { artifact: string; instructionsDigest: string; message: string; timeoutMs: number }
+export interface DeliverySpec { artifact: string; instructionsDigest: string; message: string; timeoutMs: number; mode?: 'commit' | 'no_change' }
 export interface Delivery {
   id: string; executionId: string; spec: DeliverySpec;
   phase: 'running' | 'delivered' | 'failed' | 'interrupted' | 'recovery_required';
   dispatch: 'not_requested' | 'requested'; request: DeliveryRequest | null;
   receipt: CheckReceipt | null; supervisorPid: number | null; toolPid: number | null;
   result: CheckProcessResult | null; commit: string | null; error: string | null;
+  outcome?: 'committed' | 'no_change' | null; // Older journals omit this until settlement.
 }
 
 export class Deliveries {
@@ -29,6 +30,7 @@ export class Deliveries {
     this.store.saveDelivery(delivery.id, execution.id, delivery);
     const event = { deliveryId: delivery.id, executionId: execution.id, phase: delivery.phase, dispatch: delivery.dispatch,
       spec: delivery.spec, parent: delivery.request?.snapshot.head ?? null, commit: delivery.commit, error: delivery.error,
+      outcome: delivery.outcome,
       supervisorPid: delivery.supervisorPid, toolPid: delivery.toolPid, result: delivery.result };
     this.store.appendExecution(execution.id, type, event);
     this.store.append(execution.taskId, execution.version, type, event);
@@ -42,6 +44,8 @@ export class Deliveries {
   private settle(delivery: Delivery): void {
     this.store.transaction(() => {
       const execution = this.fence(delivery);
+      delivery.outcome = null;
+      if (delivery.phase === 'delivered') delivery.outcome = delivery.request?.mode === 'no_change' ? 'no_change' : 'committed';
       this.store.releaseLease(execution.workspaceId, execution.id, delivery.id);
       if (delivery.phase === 'delivered') new Workflow(this.store).complete(execution.taskId);
       this.save(delivery, 'delivery.settled');
@@ -50,8 +54,12 @@ export class Deliveries {
   private async verify(delivery: Delivery): Promise<void> {
     const execution = this.fence(delivery); const request = delivery.request!;
     const snapshot = await captureRepository(this.workspaces, execution);
-    const commit = verifyCommit(request);
-    if (snapshot.head !== commit || snapshot.instructionsDigest !== request.snapshot.instructionsDigest
+    const noChange = request.mode === 'no_change';
+    let commit: string | null = null;
+    if (noChange) verifyNoChange(request);
+    else commit = verifyCommit(request);
+    if ((noChange && snapshot.artifact !== request.snapshot.artifact)
+      || snapshot.head !== (commit ?? request.snapshot.head) || snapshot.instructionsDigest !== request.snapshot.instructionsDigest
       || JSON.stringify(snapshot.files) !== JSON.stringify(request.snapshot.files)) throw new Error('Working files or instructions changed since the checked artifact');
     // Bound both Git inspection and content inspection to the same observed commit.
     const again = await captureRepository(this.workspaces, execution);
@@ -61,16 +69,17 @@ export class Deliveries {
   async run(executionId: string, spec: DeliverySpec, signal?: AbortSignal,
     runner: (options: CheckProcessOptions) => Promise<CheckProcessResult> = runCheckProcess): Promise<Delivery> {
     spec = structuredClone(spec);
-    if (!spec || Object.keys(spec).some(key => !['artifact', 'instructionsDigest', 'message', 'timeoutMs'].includes(key))
+    if (!spec || Object.keys(spec).some(key => !['artifact', 'instructionsDigest', 'message', 'timeoutMs', 'mode'].includes(key))
+      || (spec.mode !== undefined && !['commit', 'no_change'].includes(spec.mode))
       || typeof spec.artifact !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(spec.artifact)
       || typeof spec.instructionsDigest !== 'string' || !/^[a-f0-9]{64}$/.test(spec.instructionsDigest)
       || typeof spec.message !== 'string' || !spec.message.trim() || spec.message.includes('\0') || /Grampus-Delivery:/i.test(spec.message)
       || Buffer.byteLength(spec.message) > 8192 || !Number.isSafeInteger(spec.timeoutMs) || spec.timeoutMs < 100 || spec.timeoutMs > 600_000) {
-      throw new Error('Delivery requires artifact, instructionsDigest, message (1–8192 bytes, no reserved marker) and timeoutMs (100–600000)');
+      throw new Error('Delivery requires artifact, instructionsDigest, message (1–8192 bytes, no reserved marker), timeoutMs (100–600000) and optional mode (commit or no_change)');
     }
     if (process.platform !== 'win32') throw new Error('Supervised delivery currently requires Windows');
     const delivery: Delivery = { id: randomUUID(), executionId, spec, phase: 'running', dispatch: 'not_requested', request: null,
-      receipt: null, supervisorPid: null, toolPid: null, result: null, commit: null, error: null };
+      receipt: null, supervisorPid: null, toolPid: null, result: null, commit: null, error: null, outcome: null };
     const execution = this.store.transaction(() => {
       const execution = this.store.execution<Execution>(executionId);
       const workflow = new Workflow(this.store); const task = workflow.get(execution.taskId);
@@ -89,6 +98,7 @@ export class Deliveries {
       const branch = gitText(workspace.path!, 'symbolic-ref', 'HEAD');
       if (branch !== `refs/heads/${workspace.branch}`) throw new Error('Delivery branch differs from workspace ownership');
       delivery.request = { id: delivery.id, cwd: workspace.path!, branch, base: workspace.baseCommit, message: spec.message, snapshot };
+      if (spec.mode !== undefined) delivery.request.mode = spec.mode;
       if (workspace.adapter === 'orca') {
         if (this.store.path === ':memory:' || !workspace.orca?.identityKey) throw new Error('Orca delivery requires a durable journal and known workspace identity');
         delivery.request.orca = { database: this.store.path, executionId, workspaceId: workspace.id, identityKey: workspace.orca.identityKey };

@@ -266,9 +266,9 @@ test('Orca editing refuses changed identity before dispatch and cannot accept ed
   assert.equal(g.store.lease(g.workspace.id), null); // Exit is proven; failed edits stay intact.
 });
 
-async function deliveryFixture(t: { after(fn: () => void): void }) {
+async function deliveryFixture(t: { after(fn: () => void): void }, noChange = false) {
   const f = await implementationFixture(t);
-  writeFileSync(join(f.workspace.path, 'greeting.txt'), 'hello world\n');
+  if (!noChange) writeFileSync(join(f.workspace.path, 'greeting.txt'), 'hello world\n');
   const snapshot = await f.checks.snapshot(f.execution.id);
   f.workflow.finish(f.task.id, f.execution.attemptId, 1, 'succeeded', snapshot.artifact, 'Trusted fixture submission');
   for (const kind of ['validation', 'simplification', 'review', 'verification'] as const) f.workflow.record(f.task.id, {
@@ -341,10 +341,10 @@ test('Orca identity replacement after a confirmed commit cannot complete the tas
 });
 
 test('Orca lost-reply delivery recovery needs a receipt and the original workspace identity', windows, async t => {
-  for (const replaced of [false, true]) {
-    const f = await deliveryFixture(t);
+  for (const mode of ['commit', 'no_change'] as const) for (const replaced of [false, true]) {
+    const f = await deliveryFixture(t, mode === 'no_change');
     let writerResult: CheckProcessResult | undefined;
-    const delivery = await f.deliveries.run(f.execution.id, f.spec, undefined, async options => {
+    const delivery = await f.deliveries.run(f.execution.id, { ...f.spec, mode }, undefined, async options => {
       writerResult = await supervisedOrcaWriter(f, options); throw new Error('Fixture lost controller reply');
     });
     assert.equal(writerResult?.reason, 'exited', JSON.stringify(writerResult));
@@ -360,7 +360,27 @@ test('Orca lost-reply delivery recovery needs a receipt and the original workspa
     if (replaced) f.state.worktree!.isArchived = true;
     const recovered = await f.deliveries.recover(delivery.id);
     assert.equal(recovered.phase, replaced ? 'failed' : 'delivered');
+    assert.equal(recovered.outcome, replaced ? null : mode === 'commit' ? 'committed' : 'no_change');
+    if (mode === 'no_change') { assert.equal(recovered.commit, null); assert.equal(head, f.snapshot.head); }
     assert.equal(f.workflow.get(f.task.id).phase, replaced ? 'awaiting_verification' : 'complete');
     assert.equal(git(f.workspace.path, 'rev-parse', 'HEAD'), head); assert.equal(f.store.lease(f.workspace.id), null);
+  }
+});
+
+test('Orca no-change delivery verifies the original instance in the worker and at acceptance', windows, async t => {
+  for (const archive of ['never', 'worker', 'acceptance']) {
+    const f = await deliveryFixture(t, true);
+    const delivery = await f.deliveries.run(f.execution.id, { ...f.spec, mode: 'no_change' }, undefined, async options => {
+      if (archive === 'worker') f.state.worktree!.isArchived = true;
+      const result = await supervisedOrcaWriter(f, options);
+      if (archive === 'acceptance') f.state.worktree!.isArchived = true;
+      return result;
+    });
+    assert.equal(delivery.phase, archive === 'never' ? 'delivered' : 'failed', JSON.stringify(delivery));
+    assert.equal(delivery.outcome, archive === 'never' ? 'no_change' : null); assert.equal(delivery.commit, null);
+    assert.equal(git(f.workspace.path, 'rev-parse', 'HEAD'), f.snapshot.head);
+    assert.equal(git(f.workspace.path, 'status', '--porcelain'), '');
+    assert.equal(f.workflow.get(f.task.id).phase, archive === 'never' ? 'complete' : 'awaiting_verification');
+    assert.equal(f.store.lease(f.workspace.id), null);
   }
 });

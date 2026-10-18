@@ -6,6 +6,8 @@ import type { AgentEvent } from '../src/agents/types.js';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import type { EditingContext } from '../src/edit-policy.js';
 
 const reply = { kind: 'message', text: 'fixture', questions: [], findings: [] };
@@ -65,6 +67,32 @@ test('Codex approves only a current proposed patch and persists its authorizatio
   assert.deepEqual(events.find(event => event.type === 'tool.authorized')?.data, { tool: 'apply_patch', paths: ['file.txt'] });
   await approvalCase(undefined, startPatch, approval, 'error');
   await approvalCase(context, startPatch, approval, 'decline', [], event => { if (event.type === 'tool.authorized') throw new Error('Journal unavailable'); });
+});
+
+test('Codex grants a single scoped add approval and rejects mixed unauthorized additions', async t => {
+  const context = editingFixture(t); context.policy.create = ['new.txt'];
+  execFileSync('git', ['init', context.cwd], { windowsHide: true, stdio: 'pipe' });
+  const item = { ...proposed, changes: [...proposed.changes, { path: 'new.txt', kind: { type: 'add' }, diff: '+created\n' }] };
+  const setup = `note('item/started', { turnId: 'turn-1', item: ${JSON.stringify(item)} });`;
+  const events: AgentEvent[] = [];
+  await approvalCase(context, setup, approval, 'accept', events);
+  assert.deepEqual(events.find(event => event.type === 'tool.authorized')?.data, { tool: 'apply_patch', paths: ['file.txt', 'new.txt'] });
+  await approvalCase(context, setup, approval, 'decline', [], event => { if (event.type === 'tool.authorized') throw new Error('Journal unavailable'); });
+  const foreign = { ...item, changes: [...item.changes, { path: 'outside.txt', kind: { type: 'add' }, diff: '+outside' }] };
+  await approvalCase(context, `note('item/started', { turnId: 'turn-1', item: ${JSON.stringify(foreign)} });`, approval, 'decline');
+});
+
+test('Codex approves only explicitly authorized unchanged deletions through the item approval protocol', async t => {
+  const context = editingFixture(t); context.policy.files = []; context.policy.delete = ['file.txt'];
+  context.snapshot.files[0]!.sha256 = createHash('sha256').update('before\n').digest('hex');
+  const item = { ...proposed, changes: [{ path: 'file.txt', kind: { type: 'delete' }, diff: '-before\n' }] };
+  const setup = `note('item/started', { turnId: 'turn-1', item: ${JSON.stringify(item)} });`;
+  const events: AgentEvent[] = [];
+  await approvalCase(context, setup, approval, 'accept', events);
+  assert.deepEqual(events.find(event => event.type === 'tool.authorized')?.data, { tool: 'apply_patch', paths: ['file.txt'] });
+  await approvalCase(context, setup, approval, 'decline', [], event => { if (event.type === 'tool.authorized') throw new Error('Journal unavailable'); });
+  writeFileSync(join(context.cwd, 'file.txt'), 'changed after snapshot');
+  await approvalCase(context, setup, approval, 'decline');
 });
 
 test('Codex rejects missing, foreign, completed, duplicate and broader patch approvals', async t => {

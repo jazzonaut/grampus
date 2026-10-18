@@ -42,8 +42,8 @@ const help = `Grampus — local agent controller
   execution-verify <id> <file.json> Check submitted artifact against all named criteria
   execution-review <id>           Review a verified artifact (review execution; optional --answers-file)
   execution-complete <id>         Recheck artifact and require every completion gate
-  execution-deliver <id> <file.json> Commit checked content locally and complete (Windows, standalone)
-  execution-implement <id> <file.json> Run supervised Claude file editing with an explicit policy
+  execution-deliver <id> <file.json> Deliver checked content or verify no change, then complete (Windows)
+  execution-implement <id> <file.json> Run supervised Claude/Codex editing with an explicit policy
   implementation-show <id>        Show native editing scope, snapshots and result
   implementation-recover <id>     Confirm native tool shutdown without replaying inference
   delivery-show <id>              Show retained delivery request and process result
