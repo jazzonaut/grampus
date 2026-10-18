@@ -1,5 +1,47 @@
 # Initial integration evidence
 
+## Windows installer file-handle correction — 18 October 2026
+
+After the initial installation commit, an interactive update failed at the final
+directory rename with `EPERM`. A native Windows reader holding a file without
+delete sharing reproduced the same error three times; releasing that handle made
+the same rename succeed each time. Holding the working directory in a separate
+process instead produced `EBUSY`, also three times, and releasing it restored the
+rename. These establish unsafe directory-renaming assumptions; the user's log
+does not identify the actual handle owner, so no particular scanner is blamed.
+
+The native held-file regression failed with the exact `EPERM` before the fix.
+Version directories are now allocated at their permanent unique path before
+copying/building. Validation still precedes activation, which changes only the
+launcher selection file. The regression verifies activation and launch while the
+reader remains alive. Existing installations and common launchers are compatible.
+Cleanup is restricted to the attempt's owned, unselected directory; the selected
+version cannot be removed. A cleanup error retains unselected files and does not
+prevent releasing the installer lock or mask the original failure.
+
+All eight focused installer tests passed on Node 25.8.1 and Node 24.22.0, including
+the native held-file regression, selected-version deletion refusal, foreign-token
+refusal and the existing snapshot/data/CLI/interactive-cancellation checks. Type
+checking, JavaScript syntax and whitespace checks passed. The red regression log
+and final runtime logs are ignored under `.grampus/` as
+`installer-lock-regression-red.log`, `installer-lock-final-node25.log` and
+`installer-lock-node24.log`.
+
+A complete update through the existing installed command succeeded with a native
+reader holding the candidate's README before and during activation. The old
+selection remained current when the reader acquired its handle, the
+new version launched afterward, task history survived and an open old dashboard
+retained its original build. A second full trial deliberately failed compilation
+while the same kind of reader prevented cleanup: the selected version and stored
+task remained intact, the unselected directory was reported as retained and
+`install.lock` was released. These trials used isolated retained journals and no
+model inference. The reusable driver is retained under the explicitly marked
+ignored `.grampus/installer-debug/` directory.
+The resulting installed distribution also passed the Node 24.22.0 CLI, report,
+native process identity/supervision, dashboard asset and packaged-worker smoke
+(`installer-lock-smoke-node24.log`). The broader controller suites were not repeated
+for this packaging-only correction; their preceding results are recorded below.
+
 ## Local Windows installation and updates — 18 October 2026
 
 The per-user installer was exercised against a real destination outside the source

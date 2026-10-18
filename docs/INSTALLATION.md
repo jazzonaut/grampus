@@ -81,7 +81,9 @@ distinguish snapshots even when their package version is the same.
 
 An update installs into a fresh directory. Failed dependency checks, package
 installation or builds leave the current version selected. Activation replaces one
-small selection file after the snapshot checks pass. Running processes retain their
+small selection file after the snapshot checks pass. Each version keeps its final
+directory name throughout copying, building and activation. This avoids the
+parent-directory rename that a Windows file reader could block. Running processes retain their
 original version and asset/worker paths; restart Grampus to use the new one. Stop
 active work and close the old dashboard before starting the new version, especially
 across future journal schema changes. Installed task data is preserved.
@@ -90,6 +92,10 @@ Older version directories are retained; no automatic cleanup or journal rollback
 is provided. Reverting code does not undo a journal migration. An interrupted
 installer may leave `install.lock`; inspect its recorded PID and remove the lock
 only after that installer has exited, then rerun. This does not alter task recovery.
+If Windows prevents cleanup after a failed build, the installer prints the retained
+unselected directory and releases its installation lock. It preserves the selected
+version and task data; retained unselected files do not become runnable through
+`grampus`.
 
 For scripts or a custom destination:
 

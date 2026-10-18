@@ -24,7 +24,7 @@ test('installer rejects unsupported Node versions and unsafe destinations', t =>
   assert.throws(() => installer.validateDestination(unrelated, source), /not a Grampus installation/);
   assert.throws(() => installer.validateDestination(join(root, 'bad;path'), source), /semicolons/);
   assert.equal(installer.validateDestination(join(root, 'installed with spaces'), source), join(root, 'installed with spaces'));
-  assert.throws(() => installer.removeStage(root, source), /Refusing to remove/);
+  assert.throws(() => installer.discardUnselectedVersion(root, source, 'not-owned'), /Refusing to remove/);
   assert.equal(readFileSync(join(unrelated, 'keep.txt'), 'utf8'), 'keep');
 });
 
@@ -37,39 +37,41 @@ test('installed snapshots launch independently, preserve data and switch version
   writeFileSync(join(source, 'package.json'), JSON.stringify({ name: 'grampus', version: '0.1.0', type: 'module' }));
   writeFileSync(join(source, 'package-lock.json'), '{}'); writeFileSync(join(source, 'tsconfig.json'), '{}');
   writeFileSync(join(source, 'src', 'fixture.ts'), 'original source'); copyFileSync(launcher, join(source, 'scripts', 'installed-launch.mjs'));
-  const prepare = (id: string, message: string) => {
-    const stage = join(installRoot, 'versions', `.staging-${id}`); mkdirSync(stage);
+  const prepare = (message: string) => {
+    const candidate = installer.createVersionDirectory(installRoot, '0.1.0'), stage = candidate.directory;
     const digest = installer.copySourceSnapshot(source, stage);
     mkdirSync(join(stage, 'dist', 'src'), { recursive: true });
     copyFileSync(fileURLToPath(new URL('../src/runtime.js', import.meta.url)), join(stage, 'dist', 'src', 'runtime.js'));
     copyFileSync(fileURLToPath(new URL('../src/store.js', import.meta.url)), join(stage, 'dist', 'src', 'store.js'));
     writeFileSync(join(stage, 'dist', 'src', 'cli.js'), `import {versionInformation} from './runtime.js'; console.log(JSON.stringify({...versionInformation(), message: ${JSON.stringify(message)}, cwd: process.cwd(), args: process.argv.slice(2)}));`);
-    const build = { id, version: '0.1.0', commit: null, dirty: true, sourceDigest: digest, builtAt: new Date().toISOString(), source, installRoot };
+    const build = { id: candidate.id, version: '0.1.0', commit: null, dirty: true, sourceDigest: digest, builtAt: new Date().toISOString(), source, installRoot };
     writeFileSync(join(stage, 'grampus-build.json'), JSON.stringify(build));
-    return { stage, build };
+    return { stage, build, token: candidate.token };
   };
   const environment: NodeJS.ProcessEnv = { ...process.env, LOCALAPPDATA: data }; delete environment.GRAMPUS_HOME;
   const run = (path: string, ...args: string[]) => JSON.parse(execFileSync(process.execPath, [path, ...args], { cwd: root, env: environment, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }));
-  const first = prepare('first', 'first version'); installer.activateSnapshot(installRoot, first.stage, first.build);
+  const first = prepare('first version'); installer.activateSnapshot(installRoot, first.stage, first.build);
   const launch = join(installRoot, 'bin', 'launch.mjs'), firstInfo = run(launch, 'version', 'an argument with spaces');
   assert.equal(firstInfo.message, 'first version'); assert.equal(firstInfo.channel, 'installed'); assert.equal(firstInfo.dashboardPort, 4317);
   assert.deepEqual(firstInfo.args, ['version', 'an argument with spaces']); assert.equal(firstInfo.cwd, root);
   assert.equal(firstInfo.dataDirectory, join(data, 'Grampus', 'installed'));
   mkdirSync(firstInfo.dataDirectory, { recursive: true }); const sentinel = join(firstInfo.dataDirectory, 'retained.txt'); writeFileSync(sentinel, 'installed task data');
   writeFileSync(join(source, 'src', 'fixture.ts'), 'new source, not automatically installed');
-  assert.equal(readFileSync(join(installRoot, 'versions', 'first', 'src', 'fixture.ts'), 'utf8'), 'original source');
+  assert.equal(readFileSync(join(first.stage, 'src', 'fixture.ts'), 'utf8'), 'original source');
   assert.equal(run(launch).message, 'first version');
-  const second = prepare('second', 'second version');
+  const second = prepare('second version');
   assert.equal(run(launch).message, 'first version');
   installer.activateSnapshot(installRoot, second.stage, second.build);
   assert.equal(run(launch).message, 'second version');
-  assert.equal(run(join(installRoot, 'versions', 'first', 'dist', 'src', 'cli.js')).message, 'first version');
+  assert.equal(run(join(first.stage, 'dist', 'src', 'cli.js')).message, 'first version');
+  assert.throws(() => installer.discardUnselectedVersion(installRoot, second.stage, second.token), /selected version/);
   assert.equal(readFileSync(sentinel, 'utf8'), 'installed task data');
-  const failed = prepare('failed', 'must not be selected');
+  const failed = prepare('must not be selected');
   writeFileSync(join(failed.stage, 'scripts', 'installed-launch.mjs'), 'invalid launcher');
   assert.throws(() => installer.activateSnapshot(installRoot, failed.stage, failed.build), /launcher differs/);
   assert.equal(run(launch).message, 'second version');
-  installer.removeStage(installRoot, failed.stage); assert.equal(existsSync(failed.stage), false);
+  assert.throws(() => installer.discardUnselectedVersion(installRoot, failed.stage, 'wrong-token'), /another installation attempt/);
+  installer.discardUnselectedVersion(installRoot, failed.stage, failed.token); assert.equal(existsSync(failed.stage), false);
   // Even moving the entire development checkout away cannot break installed launches.
   rmSync(source, { recursive: true }); assert.equal(run(launch).message, 'second version');
 });
@@ -86,6 +88,35 @@ test('version commands expose development identity and isolate default data with
   assert.match(run(['--help']), /update.*checkout/);
   const overridden = JSON.parse(run(['version', '--json'], { ...environment, GRAMPUS_HOME: join(root, 'explicit') }));
   assert.equal(overridden.dataDirectory, join(root, 'explicit'));
+});
+
+test('activation succeeds while a Windows reader holds a file in the new version', { skip: process.platform !== 'win32' }, async t => {
+  const root = mkdtempSync(join(tmpdir(), 'grampus-locked-activation-'));
+  const candidate = installer.createVersionDirectory(root, '0.1.0'), version = candidate.directory;
+  mkdirSync(join(version, 'scripts'), { recursive: true }); mkdirSync(join(version, 'dist', 'src'), { recursive: true });
+  copyFileSync(launcher, join(version, 'scripts', 'installed-launch.mjs'));
+  writeFileSync(join(version, 'package.json'), JSON.stringify({ type: 'module' }));
+  writeFileSync(join(version, 'dist', 'src', 'cli.js'), `console.log(${JSON.stringify(candidate.id)});\n`);
+  writeFileSync(join(version, 'grampus-build.json'), JSON.stringify({ id: candidate.id }));
+  writeFileSync(join(root, 'current.json'), JSON.stringify({ schema: 1, release: 'previous-version' }));
+  const payload = join(version, 'payload.txt'); writeFileSync(payload, 'Held open by a reader while activating');
+  const script = join(root, 'hold.ps1');
+  writeFileSync(script, "$ErrorActionPreference='Stop'; $held=[IO.File]::Open($args[0], [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite); [Console]::WriteLine('ready'); [void][Console]::ReadLine(); $held.Dispose()\n");
+  const child = spawn(join(process.env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, payload], { cwd: root, windowsHide: true, stdio: 'pipe' });
+  let stderr = ''; child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+  const closed = new Promise<void>(done => child.once('close', () => done()));
+  t.after(async () => { child.stdin.end(); await closed; rmSync(root, { recursive: true, force: true }); });
+  await new Promise<void>((done, reject) => {
+    const timer = setTimeout(() => { child.kill(); reject(new Error(`Reader did not become ready: ${stderr}`)); }, 15000);
+    child.stdout.once('data', () => { clearTimeout(timer); done(); });
+    child.once('error', error => { clearTimeout(timer); reject(error); });
+    child.once('close', () => { clearTimeout(timer); reject(new Error(`Reader exited early: ${stderr}`)); });
+  });
+  installer.activateSnapshot(root, version, { id: candidate.id });
+  assert.equal(child.exitCode, null, 'Activation must succeed while the reader is still holding the file');
+  assert.equal(JSON.parse(readFileSync(join(root, 'current.json'), 'utf8')).release, candidate.id);
+  assert.equal(execFileSync(process.execPath, [join(root, 'bin', 'launch.mjs')], { cwd: root, encoding: 'utf8' }).trim(), candidate.id);
 });
 
 test('bare CLI opens the dashboard from an unrelated directory and retains explicit database selection', async t => {

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { closeSync, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -91,11 +91,23 @@ export function copySourceSnapshot(source, stage) {
   return before;
 }
 
-/** Only remove a generated staging directory under this installation's versions directory. */
-export function removeStage(root, stage) {
-  const versions = canonical(join(root, 'versions')), target = canonical(stage);
-  if (dirname(target) !== versions || !relative(versions, target).startsWith('.staging-')) throw new Error('Refusing to remove a path outside the installation staging area.');
-  rmSync(target, { recursive: true, force: true });
+/** Build at the permanent path: Windows readers can prevent renaming its parent directory. */
+export function createVersionDirectory(root, version) {
+  const id = `${version.replaceAll(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const directory = join(root, 'versions', id), token = randomUUID();
+  mkdirSync(join(root, 'versions'), { recursive: true }); mkdirSync(directory);
+  writeFileSync(join(directory, '.grampus-install-owner.json'), JSON.stringify({ application: 'grampus', token }) + '\n', { flag: 'wx' });
+  return { id, directory, token };
+}
+
+/** Only discard this invocation's generated, unselected version. */
+export function discardUnselectedVersion(root, directory, token) {
+  const versions = canonical(join(root, 'versions')), target = canonical(directory);
+  if (dirname(target) !== versions || !/^[a-zA-Z0-9-]+$/.test(basename(target))) throw new Error('Refusing to remove a path outside the installation versions directory.');
+  const owner = readJson(join(target, '.grampus-install-owner.json'));
+  if (typeof token !== 'string' || owner.application !== 'grampus' || owner.token !== token) throw new Error('Refusing to remove a version owned by another installation attempt.');
+  if (existsSync(join(root, 'current.json')) && readJson(join(root, 'current.json')).release === basename(target)) throw new Error('Refusing to remove the selected version.');
+  rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
 export function buildSnapshot(source, root, stage, npmCli) {
@@ -104,7 +116,7 @@ export function buildSnapshot(source, root, stage, npmCli) {
   writeFileSync(join(stage, 'tsconfig.json'), JSON.stringify(config, null, 2) + '\n');
   let commit = null, dirty = true;
   try { commit = run('git', ['rev-parse', 'HEAD'], { cwd: source }).trim(); dirty = Boolean(run('git', ['status', '--porcelain'], { cwd: source }).trim()); } catch { /* A source archive can still be installed. */ }
-  const id = `${pkg.version.replaceAll(/[^a-zA-Z0-9-]/g, '-')}-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const id = basename(stage);
   const build = { id, version: pkg.version, commit, dirty, sourceDigest: digest, builtAt: new Date().toISOString(), source, installRoot: root };
   console.log('Installing locked build dependencies into the snapshot…');
   const npm = args => run(process.execPath, [npmCli, ...args, '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: stage, stdio: 'inherit', timeout: 300000,
@@ -147,7 +159,8 @@ try {
 /** Publish a fully checked version. Existing processes keep their original immutable version. */
 export function activateSnapshot(root, stage, build) {
   const versions = canonical(join(root, 'versions'));
-  if (dirname(canonical(stage)) !== versions || !relative(versions, canonical(stage)).startsWith('.staging-') || !/^[a-zA-Z0-9-]+$/.test(build.id)) throw new Error('Invalid installation staging area or build id.');
+  if (dirname(canonical(stage)) !== versions || basename(stage) !== build.id || !/^[a-zA-Z0-9-]+$/.test(build.id)
+    || readJson(join(stage, 'grampus-build.json')).id !== build.id) throw new Error('Invalid installation version directory or build id.');
   const bin = join(root, 'bin'); mkdirSync(bin, { recursive: true });
   for (const [name, content] of [['grampus.cmd', shim], ['launch.mjs', readFileSync(join(stage, 'scripts', 'installed-launch.mjs'), 'utf8')]]) {
     const file = join(bin, name);
@@ -155,13 +168,12 @@ export function activateSnapshot(root, stage, build) {
       if (readFileSync(file, 'utf8') !== content) throw new Error(`Existing launcher differs: ${file}. Keep the existing installation and choose another directory.`);
     } else writeFileSync(file, content, { flag: 'wx' });
   }
-  const destination = join(versions, build.id);
-  if (!inside(versions, destination) || existsSync(destination)) throw new Error('Build destination already exists or is invalid.');
-  renameSync(stage, destination);
+  // Keep this path unchanged after npm and the smoke process have used it.
+  // A scanner/reader may still hold a file without FILE_SHARE_DELETE on Windows.
   const pointer = join(root, `.current-${randomUUID()}.json`);
   writeFileSync(pointer, JSON.stringify({ schema: 1, release: build.id }) + '\n', { flag: 'wx' });
   renameSync(pointer, join(root, 'current.json'));
-  return destination;
+  return stage;
 }
 
 async function main() {
@@ -186,21 +198,24 @@ async function main() {
     const lockPath = join(root, 'install.lock');
     let lock;
     try { lock = openSync(lockPath, 'wx'); } catch { throw new Error(`Another installation may be running. Inspect ${lockPath}; remove it only after that installer has exited.`); }
-    let stage;
+    let candidate;
     try {
       writeFileSync(lock, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
       if (!owner) writeFileSync(ownerFile, JSON.stringify({ schema: 1, application: 'grampus', addToPath }) + '\n', { flag: 'wx' });
-      mkdirSync(join(root, 'versions'), { recursive: true });
-      stage = join(root, 'versions', `.staging-${randomUUID()}`); mkdirSync(stage);
-      const build = buildSnapshot(sourceRoot, root, stage, dependencies.npmCli);
+      candidate = createVersionDirectory(root, readJson(join(sourceRoot, 'package.json')).version);
+      const build = buildSnapshot(sourceRoot, root, candidate.directory, dependencies.npmCli);
       if (addToPath) registerUserPath(join(root, 'bin'));
-      activateSnapshot(root, stage, build);
-      stage = undefined;
+      activateSnapshot(root, candidate.directory, build);
+      candidate = undefined;
       console.log(`\nInstalled Grampus ${build.version} · build ${build.id}\nOpen a new terminal, then run grampus.\nVersion: grampus version\nUpdate from this checkout: grampus update\nPrevious version folders are retained; updates do not change already-running processes.`);
       if (!addToPath) console.log(`Command location: ${join(root, 'bin', 'grampus.cmd')}`);
     } finally {
-      if (stage && existsSync(stage)) removeStage(root, stage);
-      closeSync(lock); unlinkSync(lockPath);
+      try {
+        if (candidate && existsSync(candidate.directory)) {
+          try { discardUnselectedVersion(root, candidate.directory, candidate.token); }
+          catch { console.error(`Unselected build retained at ${candidate.directory}; the current selection was not changed by cleanup.`); }
+        }
+      } finally { closeSync(lock); unlinkSync(lockPath); }
     }
   } finally { prompt?.close(); }
 }

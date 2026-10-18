@@ -1,5 +1,20 @@
 # Resume Grampus implementation
 
+## Windows installer rename correction
+
+An interactive user update exposed `EPERM` when renaming a built version directory.
+A real Windows file handle without delete sharing reproduced the exact failure.
+The installer now allocates the permanent version path before copying/building and
+activates by replacing only `current.json`. It does not rename a directory that
+package tools or file readers may still hold open. The existing common launcher
+and installed version/data layout remain compatible.
+
+Failed-build cleanup verifies the attempt's directory ownership token and refuses
+to delete the selected version. Cleanup failure retains unselected files with an
+explanation and releases `install.lock` in a nested `finally`. See the latest
+[integration evidence](INTEGRATION-EVIDENCE.md) for the held-file regression and
+full update trials. Earlier complete-suite counts below predate this packaging fix.
+
 ## Local installer and update checkpoint
 
 The user requested an independently installed copy for trials while developing
