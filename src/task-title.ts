@@ -21,7 +21,7 @@ export async function generateTaskTitle(store: Store, id: string, config: { prov
     });
     if (!session) return;
     const result = await runSession(store, session.id, `Name this task from its description:\n${JSON.stringify(config.request)}`, {
-      purpose: 'title', signal, timeoutMs: Math.min(config.timeoutMs ?? 30000, 30000),
+      purpose: 'title', signal,
     }, connector);
     const title = result.status === 'completed' && result.reply?.kind === 'message' ? parseTaskTitle(result.reply.text) : null;
     if (title && !signal.aborted) store.transaction(() => {

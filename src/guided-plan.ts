@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { agentTimeout } from './agent-timeout.js';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { validateBrief, type Brief } from './workflow.js';
@@ -58,7 +59,7 @@ function agent(value: unknown, defaultProvider: Provider): GuidedPlan['implement
   const item = object(value ?? {}, ['provider', 'model', 'timeoutMs'], 'agent');
   const provider = item.provider ?? defaultProvider;
   if (provider !== 'codex' && provider !== 'claude') throw new Error('Provider must be codex or claude');
-  return { provider, model: item.model == null ? null : text(item.model, 'Model', 200), timeoutMs: timeout(item.timeoutMs) };
+  return { provider, model: item.model == null ? null : text(item.model, 'Model', 200), timeoutMs: agentTimeout(item.timeoutMs) };
 }
 
 /** Normalize once; approval covers this exact plan, including checks, paths and pinned base. */

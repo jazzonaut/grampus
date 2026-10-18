@@ -88,7 +88,7 @@ An optional approved recipe field enables the review loop:
 ```json
 "reviewPolicy": {
   "repairRounds": 2,
-  "arbitrator": { "provider": "codex", "timeoutMs": 120000 }
+  "arbitrator": { "provider": "codex" }
 }
 ```
 
@@ -186,6 +186,11 @@ outcome without implementation inference or an empty commit. Validation, explici
 simplification, independent review and acceptance still run.
 
 ## Stop, retry and recover
+
+Guided agent turns have no automatic runtime deadline, including planning, implementation,
+review and arbitration. Old saved agent timeout fields remain in their approved digests
+for compatibility but no longer terminate turns. **Stop** and controller-loss supervision
+remain active; validation and acceptance commands retain their approved timeouts.
 
 Ctrl+C requests interruption. Another terminal can use `task-stop <task-id>`;
 the runner observes that request and waits for its owned processes to settle.

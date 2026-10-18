@@ -9,6 +9,8 @@ import { startUi } from '../src/ui-server.js';
 import { Kickoffs } from '../src/kickoff.js';
 import { Store } from '../src/store.js';
 import { GuidedTasks } from '../src/guided-tasks.js';
+import { Sessions } from '../src/sessions.js';
+import type { Execution } from '../src/execution-state.js';
 import type { Connector, Reply } from '../src/agents/types.js';
 
 function fixture(t: { after(fn: () => void): void }) {
@@ -26,6 +28,60 @@ function expected(view: any) {
   return JSON.stringify({ version: s.version, digest: s.digest, status: s.status, stage: s.stage, artifact: s.snapshot?.artifact ?? null,
     instructionsDigest: s.snapshot?.instructionsDigest ?? null, executionId: s.executionId, reviewId: s.reviewId, questionKey: view.questionKey ?? null });
 }
+
+test('task polling refreshes live usage written by another worker without changing approval decisions', async t => {
+  const f = fixture(t), database = join(f.root, 'journal.sqlite'), ui = await startUi({ db: database, port: 0 });
+  const writer = new Store(database);
+  t.after(async () => { writer.close(); await ui.close(); f.cleanup(); });
+  const { id } = new GuidedTasks(ui.store).create(f.plan);
+  const sessions = new Sessions(writer), session = sessions.create('claude', f.repo);
+  writer.append(id, 1, 'guided.kickoff_linked', { sessionId: session.id });
+  const claim = sessions.claim(session.id, 'Measure usage');
+  const url = new URL(ui.url), headers = { Authorization: `Bearer ${url.hash.slice(1)}` };
+  const get = async () => (await (await fetch(`${url.origin}/api/tasks/${id}`, { headers })).json()) as any;
+  const before = await get(); assert.equal(before.usage[0].observedSessions, 0);
+  const observe = (inputTokens: number) => sessions.event(session.id, claim.runId, { type: 'usage.updated', data: {
+    scope: 'provider-session-cumulative', complete: false, inputTokens, outputTokens: 5, cachedInputTokens: 0, estimatedCostUsd: 0.01, billedCostUsd: null,
+  } });
+  observe(7); const first = await get(); assert.equal(first.usage[0].inputTokens, 7);
+  observe(11); const next = await get(); assert.equal(next.usage[0].inputTokens, 11);
+  assert.equal(next.usage[0].observedSessions, 1); assert.equal(next.usage[0].activeSessions, 1);
+  assert.equal(expected(next), expected(before));
+  sessions.settle(session.id, claim.runId, { status: 'interrupted', reply: null, usage: null, error: 'Stopped' }, true);
+  const stopped = await get(); assert.equal(stopped.usage[0].inputTokens, 11); assert.equal(stopped.usage[0].activeSessions, 0);
+});
+
+test('task polls expose current execution activity and load complete sanitized history separately', async t => {
+  const f = fixture(t), ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+  t.after(async () => { await ui.close(); f.cleanup(); });
+  const tasks = new GuidedTasks(ui.store), { id } = tasks.create(f.plan);
+  const draft = tasks.get(id); tasks.approve(id, draft.version, draft.digest); await tasks.run(id);
+  const task = ui.store.get<any>(id);
+  task.guided.stage = 'implementation'; task.guided.status = 'running'; ui.store.save(id, task);
+  const execution = ui.store.execution<Execution>(task.guided.executionId);
+  const sessions = new Sessions(ui.store), claim = sessions.claim(execution.sessionId, 'HIDDEN PROMPT');
+  const url = new URL(ui.url), headers = { Authorization: `Bearer ${url.hash.slice(1)}` };
+  const get = async (suffix = '') => (await (await fetch(`${url.origin}/api/tasks/${id}${suffix}`, { headers })).json()) as any;
+  const initial = await get();
+  assert.equal(initial.progress.stage, 'connecting');
+  sessions.event(execution.sessionId, claim.runId, { type: 'tool.authorized', data: { tool: 'Edit', path: 'greeting.js', new_string: 'HIDDEN EDIT' } });
+  const working = await get();
+  assert.equal(working.progress.fileRequests, 1);
+  assert.equal(working.progress.activity, 'Requested file changes: greeting.js');
+  assert.equal(expected(working), expected(initial));
+  assert.doesNotMatch(JSON.stringify(working.progress), /HIDDEN/);
+  for (let i = 0; i < 45; i++) ui.store.append(id, task.version, 'test.activity', { note: `Activity ${i}`, prompt: 'HIDDEN EVENT DATA' });
+  const compact = await get(), history = await get('/events');
+  assert.equal(compact.events.length, 30);
+  assert.equal(compact.eventCount, ui.store.events(id).length);
+  assert.equal(history.events.length, compact.eventCount);
+  assert.equal(history.events[0].type, ui.store.events(id)[0]!.type);
+  assert.equal(history.events.at(-1).data.note, 'Activity 44');
+  assert.doesNotMatch(JSON.stringify(history), /HIDDEN|"plan":|"prompt":/);
+  assert.equal((await fetch(`${url.origin}/api/tasks/${id}/events`)).status, 401);
+  sessions.settle(execution.sessionId, claim.runId, { status: 'completed', reply: { kind: 'message', text: 'Done', questions: [], findings: [] }, usage: null, error: null }, true);
+  assert.equal((await get()).progress, null);
+});
 
 test('dashboard revisions run in an isolated worker and stale approval cannot approve the new version', async t => {
   const f = fixture(t), ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
@@ -249,7 +305,7 @@ test('kickoff clarifies consequential ambiguity, validates generated commands an
   const answered = await kickoffs.send(id, undefined, { greeting: 'hello' });
   assert.equal(answered.error, null); assert.equal(answered.candidate!.implementation.provider, 'claude');
   assert.equal(answered.candidate!.review.provider, 'codex'); assert.equal(answered.candidate!.workspace.base, f.git('rev-parse', 'HEAD'));
-  assert.equal(answered.candidate!.implementation.timeoutMs, 300000);
+  assert.equal(answered.candidate!.implementation.timeoutMs, 0);
   assert.throws(() => kickoffs.prepare(id, 'outdated-proposal'), /changed/);
   assert.match(seen, /User answers/);
   const invalid = await kickoffs.send(id, 'Revise the checks'); assert.ok(invalid.error);
@@ -340,7 +396,7 @@ test('a revision request invalidates an older proposal even if its worker exits 
   const connector: Connector = async () => ({ turn: async () => ({ status: 'completed', reply: { kind: 'message', text: JSON.stringify(f.plan), questions: [], findings: [] }, usage: null, error: null }), close: async () => {}, interrupt: async () => {} });
   const kickoffs = new Kickoffs(store, connector), id = kickoffs.create({ repo: f.repo, request: 'Verify greeting', timeoutMs: 600000 });
   const ready = await kickoffs.send(id); assert.ok(ready.candidate);
-  assert.equal(ready.candidate.implementation.timeoutMs, 600000); assert.equal(ready.candidate.review.timeoutMs, 600000);
+  assert.equal(ready.candidate.implementation.timeoutMs, 0); assert.equal(ready.candidate.review.timeoutMs, 0);
   // Durable boundary reached by send() before runSession can claim a provider turn.
   store.appendSession(id, 'kickoff.message', { role: 'user', text: 'Change the acceptance examples' });
   store.appendSession(id, 'kickoff.error', { error: null });

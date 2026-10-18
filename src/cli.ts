@@ -84,7 +84,7 @@ const help = `Grampus — local agent controller
 
 Use --db <path> for persistent task commands, or GRAMPUS_HOME for the data directory.
 Live sessions use existing subscriptions. Ctrl+C requests interruption and waits for process exit.
---timeout-ms defaults to 120000; --interrupt-after-ms exercises cancellation after turn start.
+Agent turns have no deadline by default. --timeout-ms opts into a deadline; --interrupt-after-ms exercises cancellation after turn start.
 The demo remains synthetic. General provider tools and unattended scheduling remain disabled.
 Native file editing requires explicit authorization.`;
 

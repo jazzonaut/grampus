@@ -47,9 +47,10 @@ own file scope, checks and commit message. The final slice verifies every task
 criterion, including earlier slices and integration. Review the complete sequence
 before approval; a ticket's size alone should not prompt you to narrow its scope.
 
-Choose a two-, five- or ten-minute time limit per agent turn at kickoff; five
-minutes is the default. It applies to planning, implementation and independent
-review and is frozen into the proposed task recipe.
+Planning, implementation, review and arbitration run until the agent finishes or
+you choose **Stop**. Elapsed time alone never stops a guided agent. Legacy time
+limits remain in saved approval records but are no longer enforced for agents.
+Validation and acceptance commands retain their approved deadlines.
 
 During planning, use **Update file hints** to add missing files before sending the
 next explicit turn. This invalidates an earlier proposal without starting inference.
@@ -71,7 +72,7 @@ different from retrying an implementation attempt.
 
 Choose **Review for approval** to freeze the proposal as an unapproved guided task.
 Review its outcome, criteria, exact context and file actions, executable/arguments,
-expected output, agents, timeouts, pinned base and local delivery message. Approve the plan,
+expected output, agents, command timeouts, pinned base and local delivery message. Approve the plan,
 then continue to prepare the isolated workspace. These remain separate actions.
 Generated checks need human inspection for relevance. Generated CommonJS inline
 Node checks are syntax checked without execution; other executables and scripts
@@ -87,8 +88,13 @@ Retry starts a fresh attempt and preserves files. No command-line arguments or
 assessment JSON files are needed for these steps.
 
 Progress, findings, outputs, retained changes, local commits and a task timeline
-are shown alongside the current action. Download the journal-derived Markdown
-report for the complete evidence trail. Advanced users can still import a guided
+are shown alongside the current action. The timeline stays pinned while scrolling,
+showing the latest three entries and current agent activity. **View full timeline**
+expands the complete task history; **Show recent activity** returns to the compact
+view. Execution shows the current step, elapsed and last-activity times, repository
+reads, MCP requests and file change requests. These requests describe agent activity;
+checks and retained evidence establish their results. Download the journal-derived
+Markdown report for the complete evidence trail. Advanced users can still import a guided
 JSON plan from the new-task screen or use the existing CLI.
 
 **Stop now** requests settlement of the active task; it does not claim processes
@@ -122,8 +128,12 @@ fresh approval. Retained workspace changes appear before approval. Each repair s
 requires file authorization and an explicit simplification assessment.
 Earlier blocking findings stay visible while a repair awaits authorization or review.
 
-**Measured usage** reports per-provider cumulative totals with partial/unknown fields
-identified. Acceptance plans show JSON and file observations as well as legacy stdout
+**Measured usage** shows separate per-provider token and cost metrics, session coverage
+and the last observation time. Claude cumulative snapshots are sampled every 15 seconds
+during a turn and replaced by the final provider result. Live/interrupted observations
+remain partial; missing values stay unknown and estimates never imply billed cost.
+Older interrupted runs without observations cannot contribute measured totals.
+Acceptance plans show JSON and file observations as well as legacy stdout
 expectations. **Release unused reservation** can resolve a failed standalone creation
 only after confirming Git exit and the absence of files and worktree registration;
 it deletes nothing and waits for explicit continuation.

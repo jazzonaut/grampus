@@ -176,9 +176,11 @@ severity, description and evidence, but remain agent claims; they do not satisfy
 task verification or automatically approve code.
 
 Ctrl+C requests interruption. The controller waits for the owned process to exit;
-a successful interrupt request alone is not a stop confirmation. Turns default to
-a two-minute timeout (`--timeout-ms`, maximum ten minutes), with **zero automatic
-inference retries**. Provider-internal retries may still occur within that deadline.
+a successful interrupt request alone is not a stop confirmation. Agent turns have
+no automatic deadline. Low-level CLI calls can explicitly opt into `--timeout-ms`
+(maximum ten minutes; `0` disables it), with **zero automatic inference retries**.
+Guided agents also ignore legacy saved deadlines; validation and acceptance commands
+retain their approved time limits. Provider-internal retries may still occur.
 No prompt is automatically replayed after a failure. An unconfirmed shutdown leaves
 the session in `recovery_required`; `session-recover <id>` proceeds only when the
 recorded controller and provider PIDs no longer exist on the execution host. It

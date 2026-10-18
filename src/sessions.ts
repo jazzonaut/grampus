@@ -3,6 +3,7 @@ import { hostname } from 'node:os';
 import { resolve } from 'node:path';
 import { statSync } from 'node:fs';
 import { Store } from './store.js';
+import { agentTimeout } from './agent-timeout.js';
 import { connectAgent } from './agents/index.js';
 import { Workspaces } from './workspaces.js';
 import { claimExecution, requireExecutionLease, settleExecution, stopExecution, type Execution } from './execution-state.js';
@@ -190,8 +191,7 @@ export interface RunOptions {
 
 /** Each CLI invocation owns one process, closes it, and retains a resumable provider id. */
 export async function runSession(store: Store, id: string, prompt: string, options: RunOptions = {}, connect: Connector = connectAgent, workspaces = new Workspaces(store)): Promise<TurnResult> {
-  const timeout = options.timeoutMs ?? 120_000;
-  if (!Number.isSafeInteger(timeout) || timeout < 100 || timeout > 600_000) throw new Error('Timeout must be between 100 and 600000 ms');
+  const timeout = agentTimeout(options.timeoutMs);
   if (options.interruptAfterMs !== undefined && (!Number.isSafeInteger(options.interruptAfterMs) || options.interruptAfterMs < 1)) throw new Error('Interrupt delay must be a positive integer');
   const sessions = new Sessions(store);
   const review = options.artifactReview ? store.executionForSession<Execution>(id) : null;
@@ -238,7 +238,7 @@ export async function runSession(store: Store, id: string, prompt: string, optio
   };
   options.signal?.addEventListener('abort', aborted, { once: true });
   if (options.signal?.aborted) aborted();
-  timeoutTimer = setTimeout(() => requestStop('turn timeout'), timeout);
+  if (timeout > 0) timeoutTimer = setTimeout(() => requestStop('turn timeout'), timeout);
   let result: TurnResult = { status: 'failed', reply: null, usage: null, error: 'Turn did not complete' };
   let exitConfirmed = false;
   try {

@@ -40,3 +40,23 @@ test('task usage counts cumulative sessions once, includes planning and marks in
   assert.match(usageLines([partial]).join('\n'), /240 \(partial\)/);
   assert.match(usageLines([]).join('\n'), /unknown/);
 });
+
+test('live usage remains partial, refreshes after interruption and is replaced by a final snapshot', t => {
+  const store = new Store(':memory:'); t.after(() => store.close());
+  const task = new Workflow(store).create({ title: 'Live usage', outcome: 'Show live totals', criteria: ['Update while running'], plan: 'Read snapshots' });
+  const sessions = new Sessions(store), session = sessions.create('claude', process.cwd());
+  store.append(task.id, 1, 'guided.kickoff_linked', { sessionId: session.id });
+  const claim = sessions.claim(session.id, 'Work');
+  const usage: Usage = { scope: 'provider-session-cumulative', complete: false, inputTokens: 100, outputTokens: 40,
+    cachedInputTokens: 2000, estimatedCostUsd: 0.2, billedCostUsd: null };
+  sessions.event(session.id, claim.runId, { type: 'usage.updated', data: usage });
+  const live = taskUsage(store, task.id)[0]!;
+  assert.equal(live.inputTokens, 100); assert.equal(live.activeSessions, 1); assert.equal(live.observedSessions, 1);
+  assert.ok(live.incomplete.includes('inputTokens')); assert.ok(live.updatedAt);
+  sessions.settle(session.id, claim.runId, { status: 'interrupted', reply: null, usage: null, error: 'Stopped' }, true);
+  const stopped = taskUsage(store, task.id)[0]!;
+  assert.equal(stopped.inputTokens, 100); assert.equal(stopped.activeSessions, 0); assert.ok(stopped.incomplete.includes('inputTokens'));
+  store.appendSession(session.id, 'usage.updated', { data: { ...usage, complete: true, inputTokens: 120 } });
+  const final = taskUsage(store, task.id)[0]!;
+  assert.equal(final.inputTokens, 120); assert.equal(final.sessions, 1); assert.equal(final.incomplete.length, 0);
+});

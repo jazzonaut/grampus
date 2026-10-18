@@ -6,6 +6,20 @@ sequence. Product requirements that appear there are not automatically implement
 
 ## Workflow extension checkpoint — 18 October 2026
 
+Guided agent turns have no elapsed-time deadline. Legacy agent timeout values remain
+in saved digests but dispatch ignores them; new recipes use zero. Low-level callers
+can still explicitly request a bounded turn. Windows job supervision supports zero
+runtime timeout while keeping bounded startup/shutdown, explicit cancellation,
+controller-pipe lifetime and durable settlement receipts. Check commands keep their
+approved time limits.
+
+Claude samples the pinned SDK's cumulative session-usage endpoint every 15 seconds
+during active turns. Observation failures never interrupt execution, concurrent polls
+are suppressed and late samples cannot overwrite a final result. Interim snapshots
+are explicitly incomplete and survive interruption. Task usage replaces cumulative
+snapshots, counts each provider session once, and exposes coverage and observation time.
+The dashboard renders token/cost metrics separately; billed cost remains unknown.
+
 `GuidedTasks.revise` claims the guided controller before asynchronous inspection,
 normalizes the complete revised recipe, verifies the retained workspace twice and
 atomically closes idle executions, revises the brief, preserves the delivered slice
@@ -75,7 +89,7 @@ dispatch. Planning answers bind to the displayed turn/questions; uncertain/live
 owners are refused before a new user message is journaled. Generated CommonJS
 inline checks receive syntax validation, without execution. Proposal conversion
 binds its digest and creates only an unapproved guided task; selected repository,
-base, workspace adapter, providers and time limits remain controller-authoritative.
+base, workspace adapter, providers and command time limits remain controller-authoritative.
 
 Planning instructions cover the full requested outcome in 1–64 ordered slices.
 The brief records each slice's title, plan and exact task criteria; matching
@@ -635,8 +649,10 @@ the five-second interruption grace period, shutdown still attempts to close the
 owned process. Late success cannot overwrite the user's interruption. Subprocess
 exit is distinct from successful model completion.
 
-The default turn timeout is 120 seconds and the maximum is 600 seconds. Automatic
-inference retries are zero. Provider-internal retries may occur within the deadline.
+Agent turns have no deadline by default. Low-level CLI callers can explicitly request
+100–600000 ms, or zero for no deadline. Guided agent dispatch ignores legacy saved
+agent deadlines. Automatic inference retries are zero; provider-internal retries
+may still occur.
 After failure or interruption, a user sends an explicit new prompt; the controller
 never silently replays the previous one.
 

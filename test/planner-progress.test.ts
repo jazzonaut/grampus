@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '../src/store.js';
 import { Sessions } from '../src/sessions.js';
-import { plannerProgress } from '../src/planner-progress.js';
+import { agentProgress, plannerProgress } from '../src/planner-progress.js';
 
 test('planner progress follows owned events, stays compact and never returns raw replies or tool results', t => {
   const store = new Store(':memory:'); t.after(() => store.close());
@@ -45,4 +45,26 @@ test('planner progress follows owned events, stays compact and never returns raw
   // Late events from the old turn cannot become visible activity in this turn.
   assert.equal(emit('output.delta', { text: 'Old turn' }), false);
   assert.equal(progress().stage, 'connecting');
+});
+
+test('execution activity reports file requests without claiming completed edits or exposing their contents', t => {
+  const store = new Store(':memory:'); t.after(() => store.close());
+  const sessions = new Sessions(store), session = sessions.create('codex', process.cwd());
+  const claim = sessions.claim(session.id, 'PRIVATE PROMPT');
+  const emit = (type: string, data: unknown) => sessions.event(session.id, claim.runId, { type, data });
+  const progress = () => agentProgress(store.sessionEvents(session.id), sessions.get(session.id), 'implementation')!;
+  emit('tool.authorized', { tool: 'Read', path: 'src/context.ts', content: 'PRIVATE CONTENT' });
+  assert.equal(progress().fileRequests, 0);
+  emit('tool.authorized', { tool: 'apply_patch', paths: ['src/change.ts'], patch: 'PRIVATE PATCH' });
+  assert.equal(progress().activity, 'Requested file changes: src/change.ts');
+  assert.equal(progress().fileRequests, 1);
+  emit('tool.authorized', { tool: 'Write', path: 'src/new.ts', content: 'PRIVATE CONTENT' });
+  emit('tool.authorized', { tool: 'mcp__grampus_files__delete_file', path: 'src/old.ts' });
+  emit('tool.deleted', { path: 'src/old.ts' });
+  assert.equal(progress().fileRequests, 3);
+  assert.equal(progress().activity, 'Deleted src/old.ts');
+  emit('output.delta', { text: 'PRIVATE RESPONSE' });
+  assert.equal(progress().activity, 'Writing the implementation response');
+  assert.equal(agentProgress(store.sessionEvents(session.id), sessions.get(session.id), 'review')!.activity, 'Writing the review response');
+  assert.doesNotMatch(JSON.stringify(progress()), /PRIVATE/);
 });

@@ -16,7 +16,7 @@ import { TaskLifecycle } from './task-lifecycle.js';
 import { suggestReferenceFolders } from './reference-folders.js';
 import type { Task } from './workflow.js';
 
-interface Job { running: boolean; error: string | null; action: string }
+interface Job { running: boolean; error: string | null; action: string; startedAt: string }
 export interface UiOptions { db: string; port?: number }
 
 /** Loopback dashboard. Workers use the same durable controller as the CLI. */
@@ -31,7 +31,7 @@ export async function startUi(options: UiOptions) {
   };
   const launch = (id: string, action: string, payload: unknown) => {
     if (jobs.get(id)?.running) throw new Error('An action is already running for this item');
-    const job: Job = { running: true, error: null, action }; jobs.set(id, job);
+    const job: Job = { running: true, error: null, action, startedAt: new Date().toISOString() }; jobs.set(id, job);
     const child = spawn(process.execPath, [fileURLToPath(new URL('./ui-worker.js', import.meta.url))], { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });
     let output = '';
     child.stderr.on('data', (chunk: Buffer) => { output = (output + chunk.toString('utf8')).slice(-16000); });
@@ -79,6 +79,11 @@ export async function startUi(options: UiOptions) {
         json(response, 200, { ...cachedState.value as object, jobs: Object.fromEntries(jobs), journal: store.path, application: versionInformation() }); return;
       }
       const match = /^\/api\/(tasks|kickoffs)\/([a-f0-9-]+)(?:\/([a-z-]+))?$/.exec(path);
+      if (match && request.method === 'GET' && match[1] === 'tasks' && match[3] === 'events') {
+        if (store.get<Task>(match[2]!).deletedAt) throw new Error('This task was deleted');
+        json(response, 200, { events: store.events(match[2]!).map(event => ({ sequence: event.sequence, at: event.at, type: event.type,
+          data: { note: (event.data as { note?: string } | null)?.note } })) }); return;
+      }
       if (match && request.method === 'GET' && match[1] === 'tasks' && match[3] === 'report') {
         if (store.get<Task>(match[2]!).deletedAt) throw new Error('This task was deleted');
         json(response, 200, { report: renderReport(store, match[2]!) }); return;
@@ -101,10 +106,12 @@ export async function startUi(options: UiOptions) {
         }
         // Never serialize the full hashed file inventory, delivery snapshot or report on a poll.
         const compactState = { ...view.state, snapshot: view.state.snapshot ? { ...view.state.snapshot, files: [], index: '', totalFiles: view.state.snapshot.files.length } : null };
+        const events = store.events(match[2]!);
         const value = { ...view, state: compactState, task: { ...view.task, guided: compactState },
           implementations: view.implementations.map(run => ({ id: run.id, phase: run.phase, error: run.error })),
           deliveries: view.deliveries.map(delivery => ({ ...delivery, request: null })),
-          scopeFiles, scopeError, events: store.events(match[2]!).slice(-30).map(event => ({ ...event, data: { note: (event.data as { note?: string })?.note } })), report: null };
+          scopeFiles, scopeError, eventCount: events.length, events: events.slice(-30).map(event => ({ sequence: event.sequence, at: event.at, type: event.type,
+            data: { note: (event.data as { note?: string } | null)?.note } })), report: null };
         if (cachedViews.size >= 4) cachedViews.delete(cachedViews.keys().next().value!);
         cachedViews.set(match[2]!, { revision, value });
         json(response, 200, value); return;

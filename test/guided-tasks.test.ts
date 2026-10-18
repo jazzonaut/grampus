@@ -54,6 +54,30 @@ function fixture(t: { after(fn: () => void): void }) {
   return { root, repo, store, plan, tasks, create };
 }
 
+test('legacy guided agent deadlines no longer stop implementation or review', windows, async t => {
+  const f = fixture(t);
+  const plan = { ...f.plan, implementation: { provider: 'codex', timeoutMs: 100 }, review: { provider: 'claude', timeoutMs: 100 } };
+  const fake = services();
+  const tasks = new GuidedTasks(f.store, { ...fake,
+    implementationRunner: async options => {
+      assert.equal(options.timeoutMs, 0);
+      return fake.implementationRunner!(options);
+    },
+    connector: async () => ({
+      turn: async () => { await new Promise(resolve => setTimeout(resolve, 200)); return { status: 'completed', reply: review, usage: null, error: null }; },
+      interrupt: async () => {}, close: async () => {},
+    }),
+  });
+  const task = tasks.create(plan), digest = task.guided!.digest;
+  tasks.approve(task.id, 1, digest);
+  await tasks.run(task.id);
+  await tasks.authorize(task.id);
+  assert.equal(tasks.get(task.id).status, 'awaiting_assessment');
+  await tasks.assess(task.id, 'passed', 'Direct output statement, no unnecessary abstraction');
+  assert.equal(tasks.get(task.id).status, 'complete', tasks.get(task.id).note);
+  assert.equal(tasks.get(task.id).digest, digest);
+});
+
 test('guided plan approval binds the complete recipe and CLI setup reaches a scope checkpoint without inference', windows, async t => {
   const f = fixture(t), file = join(f.root, 'plan.json'); writeFileSync(file, JSON.stringify(f.plan));
   const invoke = (...args: string[]) => execFileSync(process.execPath, [cli, '--db', f.store.path, '--json', ...args], { encoding: 'utf8', windowsHide: true, stdio: 'pipe' });

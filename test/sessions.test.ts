@@ -161,6 +161,20 @@ test('a crashed controller is recoverable after both recorded processes have exi
   assert.ok(store.sessionEvents(session.id).some(e => e.type === 'session.recovered'));
 });
 
+for (const timeoutMs of [undefined, 0]) test(`agent turns have no automatic deadline (${timeoutMs ?? 'default'})`, async t => {
+  const { store, sessions, session } = fixture(t);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let interrupted = false;
+  const connect: Connector = async () => ({
+    turn: async () => { t.mock.timers.tick(3_600_000); return result(); },
+    interrupt: async () => { interrupted = true; }, close: async () => {},
+  });
+  const output = await runSession(store, session.id, 'Take the time needed', timeoutMs === undefined ? {} : { timeoutMs }, connect);
+  assert.equal(output.status, 'completed');
+  assert.equal(interrupted, false);
+  assert.equal(sessions.get(session.id).phase, 'idle');
+});
+
 test('a deadline interrupts the owned turn and never retries inference', async t => {
   const { store, sessions, session } = fixture(t);
   let finish!: (result: TurnResult) => void;

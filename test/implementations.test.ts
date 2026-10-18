@@ -44,6 +44,28 @@ function fakeResult(options: CheckProcessOptions, value = reply) {
   return { reason: 'exited', exitCode: 0, exitConfirmed: true, stdout: '', stderr: '', outputTruncated: false };
 }
 
+test('native implementation defaults to an unlimited supervised turn', windows, async t => {
+  const f = await fixture(t);
+  const run = await f.implementations.run(f.execution.id, f.policy, undefined, {}, async options => {
+    assert.equal(options.timeoutMs, 0);
+    return fakeResult(options);
+  });
+  assert.equal(run.phase, 'completed', run.result?.error ?? run.error ?? '');
+  assert.equal(f.store.lease(f.workspace.id), null);
+});
+
+test('unlimited native supervision completes normally and still supports explicit stop', windows, async () => {
+  const completed = await runCheckProcess({ file: process.execPath, args: ['-e', 'setTimeout(()=>console.log("done"),22_000)'],
+    cwd: process.cwd(), timeoutMs: 0, started: () => {} });
+  assert.equal(completed.reason, 'exited'); assert.equal(completed.exitConfirmed, true);
+  assert.equal(completed.stdout.trim(), 'done');
+  const abort = new AbortController();
+  const stopped = await runCheckProcess({ file: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'],
+    cwd: process.cwd(), timeoutMs: 0, signal: abort.signal,
+    started: kind => { if (kind === 'tool') setTimeout(() => abort.abort(), 200); } });
+  assert.equal(stopped.reason, 'interrupted'); assert.equal(stopped.exitConfirmed, true);
+});
+
 test('file policy allows only existing text paths and validates structured output without permitting other tools', async t => {
   const f = await fixture(t); prepareEditing(f.context); const events: string[] = [];
   const authorize = (tool: string, input: unknown) => authorizeEditTool(f.context, tool, input, event => events.push(event.type));

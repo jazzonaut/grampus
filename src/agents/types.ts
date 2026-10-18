@@ -43,6 +43,7 @@ export function parseReply(value: unknown): Reply {
 
 export interface Usage {
   scope: 'provider-session-cumulative';
+  complete?: boolean;
   inputTokens: number | null;
   outputTokens: number | null;
   cachedInputTokens: number | null;

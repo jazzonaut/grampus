@@ -53,9 +53,9 @@ public static class GrampusCheck {
         // A signalled root handle can precede the job's final accounting update.
         // Observe bounded settlement; never infer zero activity from root exit.
         var drain = Stopwatch.StartNew();
-        while (!stop && clock.ElapsedMilliseconds < timeoutMs && Active(job) != 0 && drain.ElapsedMilliseconds < 100) Thread.Sleep(1);
+        while (!stop && (timeoutMs == 0 || clock.ElapsedMilliseconds < timeoutMs) && Active(job) != 0 && drain.ElapsedMilliseconds < 100) Thread.Sleep(1);
         if (stop) return "interrupted";
-        if (clock.ElapsedMilliseconds >= timeoutMs) return "timed_out";
+        if (timeoutMs > 0 && clock.ElapsedMilliseconds >= timeoutMs) return "timed_out";
         return Active(job) == 0 ? "exited" : "descendants_remaining";
     }
     static IntPtr FileHandle(string path, bool input) {
@@ -112,7 +112,7 @@ public static class GrampusCheck {
             var clock = Stopwatch.StartNew();
             while (true) {
                 if (stop) { reason = "interrupted"; break; }
-                if (clock.ElapsedMilliseconds >= timeoutMs) { reason = "timed_out"; break; }
+                if (timeoutMs > 0 && clock.ElapsedMilliseconds >= timeoutMs) { reason = "timed_out"; break; }
                 if (new FileInfo(stdout).Length + new FileInfo(stderr).Length > 2 * 1024 * 1024) { reason = "output_limit"; break; }
                 if (WaitForSingleObject(process.Process, 0) == 0) {
                     Check(GetExitCodeProcess(process.Process, out exitCode));

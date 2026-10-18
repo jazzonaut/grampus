@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from './store.js';
+import { agentTimeout } from './agent-timeout.js';
 import { Sessions, type RunOptions } from './sessions.js';
 import { Workspaces } from './workspaces.js';
 import { captureRepository } from './repository-evidence.js';
@@ -67,8 +68,7 @@ export class Implementations {
     options: Pick<RunOptions, 'signal' | 'answers' | 'timeoutMs'> = {},
     runner: (options: CheckProcessOptions) => Promise<CheckProcessResult> = runCheckProcess): Promise<ImplementationRun> {
     policy = structuredClone(policy); validateEditPolicy(policy);
-    const timeoutMs = options.timeoutMs ?? 120_000;
-    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 600_000) throw new Error('Implementation timeout must be 100–600000 ms');
+    const timeoutMs = agentTimeout(options.timeoutMs);
     if (process.platform !== 'win32' || this.store.path === ':memory:') throw new Error('Native implementation requires Windows and a durable journal');
     const sessions = new Sessions(this.store); let claimedPrompt = '';
     const run = this.store.transaction(() => {

@@ -16,6 +16,7 @@ export interface CheckProcessResult {
   outputUnavailable?: boolean;
 }
 export interface CheckProcessOptions {
+  /** Zero disables the runtime deadline for agent workers. */
   file: string; args: string[]; cwd: string; timeoutMs: number; signal?: AbortSignal;
   started: (kind: 'supervisor' | 'tool', pid: number) => void;
   receipt?: CheckReceipt;
@@ -38,6 +39,7 @@ export function retainedOutput(directory: string): Pick<CheckProcessResult, 'std
 
 /** Windows job supervision is deliberately separate from provider conversation processes. */
 export async function runCheckProcess(options: CheckProcessOptions): Promise<CheckProcessResult> {
+  if (!Number.isSafeInteger(options.timeoutMs) || (options.timeoutMs !== 0 && (options.timeoutMs < 100 || options.timeoutMs > 600_000))) throw new Error('Invalid supervised process timeout');
   if (process.platform !== 'win32') throw new Error('Repository checks currently require Windows 10 or later');
   if (options.signal?.aborted) return { reason: 'interrupted', exitCode: null, exitConfirmed: true, stdout: '', stderr: '', outputTruncated: false };
   const directory = options.receipt?.directory ?? mkdtempSync(join(tmpdir(), 'grampus-check-'));
@@ -51,8 +53,14 @@ export async function runCheckProcess(options: CheckProcessOptions): Promise<Che
       { windowsHide: true, detached: true, shell: false, stdio: 'pipe' });
     child.stdin.on('error', () => {}); child.stderr.resume();
     const closed = new Promise<void>(resolveClose => child.once('close', () => resolveClose()));
-    let protocolFailed = false; let receivedResult = false;
-    const stop = () => { if (!child.stdin.writableEnded) child.stdin.end('\n'); };
+    let protocolFailed = false; let receivedResult = false; let stopping = false;
+    let deadline: ReturnType<typeof setTimeout>;
+    const stop = () => {
+      if (stopping) return;
+      stopping = true;
+      clearTimeout(deadline); deadline = setTimeout(fail, 20_000);
+      if (!child.stdin.writableEnded) child.stdin.end('\n');
+    };
     const fail = () => { protocolFailed = true; stop(); child.kill(); };
     child.on('error', () => {
       if (!child.pid) result = { ...result, reason: 'supervisor_unavailable', exitConfirmed: true };
@@ -63,15 +71,19 @@ export async function runCheckProcess(options: CheckProcessOptions): Promise<Che
       try {
         if (line.length > 4096 || receivedResult) throw new Error('Invalid check protocol');
         const message = JSON.parse(line) as { type: string; pid?: number; reason?: string; exitCode?: number; exitConfirmed?: boolean };
-        if (message.type === 'started' && Number.isSafeInteger(message.pid) && message.pid! > 0) options.started('tool', message.pid!);
+        if (message.type === 'started' && Number.isSafeInteger(message.pid) && message.pid! > 0) {
+          if (options.timeoutMs === 0 && !stopping) clearTimeout(deadline);
+          options.started('tool', message.pid!);
+        }
         else if (message.type === 'result' && typeof message.reason === 'string' && Number.isInteger(message.exitCode) && typeof message.exitConfirmed === 'boolean') {
           receivedResult = true;
           result = { ...result, reason: message.reason, exitCode: message.exitCode!, exitConfirmed: message.exitConfirmed };
+          clearTimeout(deadline); deadline = setTimeout(fail, 20_000);
         } else throw new Error('Invalid check protocol');
       } catch { fail(); }
     });
-    // Includes helper compilation/startup and shutdown. Missing confirmation retains ownership.
-    const deadline = setTimeout(fail, options.timeoutMs + 20_000);
+    // Bound startup and shutdown even when the worker itself has no deadline.
+    deadline = setTimeout(fail, options.timeoutMs + 20_000);
     options.signal?.addEventListener('abort', stop, { once: true });
     try {
       if (child.pid) options.started('supervisor', child.pid);

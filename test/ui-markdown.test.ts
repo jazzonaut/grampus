@@ -20,6 +20,45 @@ function dashboard() {
   return { app, context, listeners, render: (text: string) => runInContext(`window.GrampusMarkdown.render(${JSON.stringify(text)})`, context) as string };
 }
 
+test('MCP cards always show only connected names and tool counts in the compact list', () => {
+  const { context } = dashboard();
+  context.servers = [
+    { name: 'Linear <project>', status: 'connected', tools: 82, auth: 'oAuth' },
+    { name: 'Disabled connector', status: 'disabled' },
+    { name: 'Failed connector', status: 'failed' },
+    { name: 'Login required', status: 'needs-auth' },
+    { name: 'Configured connector', status: 'configured' },
+    { name: 'Unknown connector', status: 'unknown' },
+  ];
+  const html = runInContext('integrationCard(servers)', context) as string;
+  assert.match(html, /card compact-integrations/); assert.match(html, /integration-list/);
+  assert.match(html, /Linear &lt;project&gt;/); assert.match(html, /82 tools/);
+  assert.doesNotMatch(html, /Disabled connector|Failed connector|Login required|Configured connector|Unknown connector|connected|oAuth|class="check"/);
+  assert.equal(runInContext('integrationCard(servers.slice(1))', context), '');
+  assert.equal(runInContext('integrationCard()', context), '');
+});
+
+test('MCP connections are the last sidebar panel on both planning and task pages', () => {
+  const { context } = dashboard();
+  context.servers = [{ name: 'Linear', status: 'connected', tools: 82 }];
+  context.plan = {
+    brief: { title: 'A task', outcome: 'An outcome', plan: 'An approach', criteria: ['A criterion'] },
+    workspace: { repo: 'C:/repo', base: 'abc', path: 'C:/work' },
+    implementation: { provider: 'codex', timeoutMs: 1000 }, review: { provider: 'claude', timeoutMs: 1000 },
+    slices: [{ scope: { files: [] }, validation: { name: 'Check', file: 'node', args: [], timeoutMs: 1000 },
+      acceptance: { name: 'Accept', file: 'node', args: [], timeoutMs: 1000, expectedStdout: 'ok' }, mode: 'no_change', message: 'Verify' }],
+  };
+  runInContext(`
+    selected = 'planning';
+    state.kickoffs = [{id:selected,config:{request:'A request',repo:'C:/repo',base:'abc',provider:'codex',adapter:'git',files:[],exploration:true},session:{phase:'idle'},messages:[],integrations:servers}];
+    detail = {task:{id:'task',brief:plan.brief},state:{status:'complete',stage:'complete',sliceIndex:0,version:1,plan},
+      integrations:servers,findings:[],checks:[],deliveries:[],events:[]};
+  `, context);
+  assert.equal(runInContext("kickoffPage().endsWith(integrationCard(servers) + '</aside></div>')", context), true);
+  runInContext("selected = 'task'", context);
+  assert.equal(runInContext("taskPage().endsWith(integrationCard(servers) + '</aside></div>')", context), true);
+});
+
 test('dashboard Markdown formats agent explanations, nested lists, tables and code', () => {
   const { render } = dashboard();
   const html = render("## What's already in place\n\n- The registry uses `createEncoders`.\n  - **PDF** returns a `Uint8Array`.\n- Fonts use *embedFiles*.\n\n```js\nconst limit = 14_400;\n```\n\n| Format | Encoder |\n| --- | --- |\n| PDF | pdfkit |\n\n> Keep the existing scale.");
@@ -46,11 +85,27 @@ test('the planning sidebar uses saved task names and escapes them, retaining the
 test('plan revisions, repair budgets and structured acceptance remain reviewable and escaped', () => {
   const { context } = dashboard();
   context.view = { state: { status: 'blocked', plan: { brief: { title: '</textarea><script>bad</script>', outcome: 'New output', plan: 'Small change' }, reviewPolicy: { repairRounds: 2, arbitrator: { provider: 'codex', model: 'fixture', timeoutMs: 120000 } } } } };
-  const html = runInContext('revisionCard(view) + reviewPolicyCard(view.state.plan) + usageCard({usageSummary:["codex: 240 (partial)"]})', context) as string;
+  const html = runInContext('revisionCard(view) + reviewPolicyCard(view.state.plan) + usageCard({usage: [{provider:"codex",inputTokens:240,incomplete:["inputTokens"],observedSessions:1,sessions:2}]})', context) as string;
   assert.match(html, /revision-form/); assert.match(html, /Repair rounds/); assert.match(html, /Fresh arbitration: codex/);
-  assert.match(html, /240 \(partial\)/); assert.match(html, /&lt;\/textarea&gt;/); assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /Partial totals/); assert.match(html, /<dd>240<\/dd>/); assert.match(html, /&lt;\/textarea&gt;/); assert.doesNotMatch(html, /<script>/);
   runInContext('view.state.owner = {token:"owned"}', context);
   assert.equal(runInContext('revisionCard(view)', context), '');
+});
+
+test('usage cards separate metrics, format costs, distinguish missing measurements and refresh values', () => {
+  const { context } = dashboard();
+  context.view = { usage: [{ provider: 'claude', inputTokens: 9341, outputTokens: 102290, cachedInputTokens: 8133513,
+    estimatedCostUsd: 5.829425780000001, billedCostUsd: null, incomplete: ['inputTokens', 'outputTokens', 'cachedInputTokens', 'estimatedCostUsd'],
+    sessions: 3, observedSessions: 2, activeSessions: 1, updatedAt: '2026-10-18T18:04:00.000Z' }] };
+  const html = runInContext('usageCard(view)', context) as string;
+  assert.match(html, /<dl class="usage-metrics">/); assert.match(html, /<dd>9,341<\/dd>/);
+  assert.match(html, /<dd>8,133,513<\/dd>/); assert.match(html, /\$5\.8294/); assert.doesNotMatch(html, /5\.829425780000001/);
+  assert.match(html, /2 of 3 sessions measured/); assert.match(html, /Live · partial/); assert.match(html, /Billed cost: unknown/);
+  assert.match(html, /Last observation/); assert.match(html, /datetime="2026-10-18T18:04:00.000Z"/);
+  runInContext('view.usage[0].inputTokens = 10000; view.usage[0].outputTokens = null;', context);
+  const updated = runInContext('usageCard(view)', context) as string;
+  assert.match(updated, /<dd>10,000<\/dd>/); assert.match(updated, /<dd>Unknown<\/dd>/);
+  assert.doesNotMatch(updated, /<dd>9,341<\/dd>/);
 });
 
 test('agent Markdown escapes HTML, blocks executable links and avoids image requests', () => {
@@ -150,4 +205,53 @@ test('planner progress renders real activity safely and elapsed time without per
   assert.doesNotMatch(html, /\d+%/);
   assert.equal(runInContext("elapsedTime('2026-01-01T00:00:00Z', Date.parse('2026-01-01T00:01:05Z'))", context), '1m 5s');
   assert.equal(runInContext("elapsedTime('2026-01-01T00:00:00Z', Date.parse('2025-12-31T23:59:59Z'))", context), '0s');
+});
+
+test('task work shows stage, current activity and elapsed time through quiet periods and stops', () => {
+  const { context } = dashboard();
+  context.view = { state: { status: 'running', stage: 'implementation', owner: { token: 'owned' } }, events: [], progress: {
+    activity: 'Reading src/<change>.ts', repositoryCalls: 3, integrationCalls: 1, fileRequests: 2,
+    startedAt: new Date(Date.now() - 62000).toISOString(), lastActivityAt: new Date().toISOString(), recent: [{ label: 'Requested file changes: src/<change>.ts' }],
+  } };
+  runInContext("selected = 'task'; state.jobs.task = {running:true};", context);
+  let html = runInContext('taskAction(view)', context) as string;
+  assert.match(html, /Implementing the change/); assert.match(html, /Reading src\/&lt;change&gt;\.ts/);
+  assert.match(html, /3 repository actions · 1 MCP request · 2 file change requests/);
+  assert.match(html, /1m 2s/); assert.match(html, /Last activity/); assert.match(html, /data-action="stop"/);
+  assert.doesNotMatch(html, /Working through the approved plan|\d+%/);
+  runInContext("view.progress = null; view.state.stage = 'verification'; view.checks = [{phase:'running',spec:{name:'PDF acceptance'}}];", context);
+  html = runInContext('taskAction(view)', context) as string;
+  assert.match(html, /Checking acceptance criteria/); assert.match(html, /Running PDF acceptance/);
+  runInContext('view.state.stopRequested = true', context);
+  assert.match(runInContext('taskAction(view)', context) as string, /Stopping the task/);
+});
+
+test('timeline starts with the latest three entries and can expand beyond the polling window', async () => {
+  const { context, listeners } = dashboard();
+  const events = Array.from({ length: 55 }, (_, index) => ({ sequence: index + 1, at: '2026-01-01T00:00:00Z', type: `event.${index}`, data: { note: `Note <${index}>` } }));
+  context.view = { state: { version: 1, digest: 'fixture' }, events: events.slice(-30), eventCount: events.length };
+  const list = { tasks: [{ id: 'task' }], kickoffs: [], jobs: {}, journal: '' };
+  const requests: string[] = [];
+  context.fetch = async (path: string) => {
+    requests.push(path);
+    return new Response(JSON.stringify(path.endsWith('/events') ? { events } : path === '/api/state' ? list : context.view));
+  };
+  runInContext("selected = 'task'; screen = 'task'; taskPage = () => timelineCard(view);", context);
+  let html = runInContext('timelineCard(view)', context) as string;
+  assert.match(html, /View full timeline \(55\)/); assert.equal((html.match(/<li>/g) || []).length, 3);
+  assert.ok(html.indexOf('event · 54') < html.indexOf('event · 53'));
+  const click = () => listeners.get('click')!({ target: { closest: () => ({ disabled: false, dataset: { action: 'toggle-timeline' } }) } });
+  await click();
+  html = runInContext('timelineCard(view)', context) as string;
+  assert.equal((html.match(/<li>/g) || []).length, 55);
+  assert.match(html, /aria-expanded="true"/); assert.match(html, /Note &lt;0&gt;/);
+  events.push({ sequence: 56, at: '2026-01-01T00:00:01Z', type: 'event.latest', data: { note: 'Latest' } });
+  context.view = { state: { version: 1, digest: 'fixture' }, events: events.slice(-30), eventCount: events.length };
+  await runInContext('refresh()', context);
+  assert.match(runInContext('timelineCard(view)', context) as string, /event · latest/);
+  assert.equal(requests.filter(path => path.endsWith('/events')).length, 2);
+  await click();
+  html = runInContext('timelineCard(view)', context) as string;
+  assert.equal((html.match(/<li>/g) || []).length, 3);
+  assert.match(html, /aria-expanded="false"/);
 });

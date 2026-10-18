@@ -88,8 +88,8 @@ export class Kickoffs {
     const inspected = this.inspect({ ...input, contextFiles: input.contextFiles ?? [] }), { repo, base } = inspected;
     const provider = input.provider ?? 'codex', adapter = input.adapter ?? 'git';
     if (!['codex', 'claude'].includes(provider) || !['git', 'orca'].includes(adapter)) throw new Error('Unknown provider or workspace adapter');
-    const timeoutMs = Number(input.timeoutMs ?? 300000);
-    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 600000) throw new Error('Agent time limit must be 100–600000 ms');
+    // Keep accepting old clients without carrying their deadlines into new work.
+    const timeoutMs = 0;
     const request = text(input.request, 'Task description');
     const references = normalizeReferences(input.references ?? suggestReferenceFolders(request).map(item => item.path));
     const config: Kickoff = { repo, base, provider, adapter, exploration: true, references, request,
@@ -131,7 +131,7 @@ export class Kickoffs {
     signal?.addEventListener('abort', stopNaming, { once: true });
     if (signal?.aborted) stopNaming();
     // Start the planner first so naming can never claim or delay its session.
-    const planning = runSession(this.store, id, prompt, { timeoutMs: config.timeoutMs ?? 300000, ...(config.exploration ? { repository: { repo: config.repo, base: config.base, references: config.references ?? [] } } : {}), ...(answers ? { answers } : {}), ...(signal ? { signal } : {}) }, this.connector);
+    const planning = runSession(this.store, id, prompt, { ...(config.exploration ? { repository: { repo: config.repo, base: config.base, references: config.references ?? [] } } : {}), ...(answers ? { answers } : {}), ...(signal ? { signal } : {}) }, this.connector);
     const naming = generateTaskTitle(this.store, id, config, namingAbort.signal, this.connector);
     try {
       const result = await planning;
@@ -145,8 +145,8 @@ export class Kickoffs {
         if (title && raw.brief && typeof raw.brief === 'object') raw.brief.title = title;
         // Paths, pinned base and providers are chosen by the user/controller, not by model output.
         raw.workspace = { repo: config.repo, base: config.base, adapter: config.adapter, ...(config.adapter === 'git' ? { path: config.path } : {}) };
-        raw.implementation = { provider: config.provider, timeoutMs: config.timeoutMs ?? 300000 };
-        raw.review = { provider: config.provider === 'codex' ? 'claude' : 'codex', timeoutMs: config.timeoutMs ?? 300000 };
+        raw.implementation = { provider: config.provider, timeoutMs: 0 };
+        raw.review = { provider: config.provider === 'codex' ? 'claude' : 'codex', timeoutMs: 0 };
         raw.context = { files: config.files.map(file => file.path), exploration: config.exploration === true };
         raw.references = config.references ?? [];
         const plan = normalizeGuidedPlan(raw);

@@ -126,10 +126,11 @@ test('stopping planning cancels its independent naming session without publishin
   assert.equal(f.store.sessionEvents(id).some(event => event.type === 'kickoff.title_generated'), false);
 });
 
-test('a naming timeout settles independently and concurrent requests generate at most one name', async t => {
+test('naming has no automatic deadline and concurrent requests generate at most one name', async t => {
   const f = fixture(t), started = deferred(), stopped = deferred();
   const planners = new Kickoffs(f.store), id = planners.create({ repo: f.repo, request: 'Check the greeting', timeoutMs: 100 });
   const before = planners.view(id); let calls = 0;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const connector: Connector = async () => {
     calls++;
     return { turn: async () => { started.resolve(); await stopped.promise; return message('Late task name'); }, interrupt: async () => { stopped.resolve(); }, close: async () => {} };
@@ -137,9 +138,12 @@ test('a naming timeout settles independently and concurrent requests generate at
   const naming = generateTaskTitle(f.store, id, before.config, new AbortController().signal, connector);
   await started.promise;
   await generateTaskTitle(f.store, id, before.config, new AbortController().signal, connector);
+  t.mock.timers.tick(600_000);
+  assert.equal(planners.view(id).title, null);
+  stopped.resolve();
   await naming;
   const after = planners.view(id);
-  assert.equal(calls, 1); assert.equal(after.title, null); assert.equal(after.error, null);
+  assert.equal(calls, 1); assert.equal(after.title, 'Late task name'); assert.equal(after.error, null);
   assert.equal(after.session.phase, 'idle'); assert.equal(after.turnKey, before.turnKey);
 });
 

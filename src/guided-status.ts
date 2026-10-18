@@ -11,6 +11,7 @@ import { guidedPlanDigest } from './guided-plan.js';
 import { explorationSummary } from './repository-tools.js';
 import { integrationSummary } from './integrations.js';
 import { taskUsage, usageLines } from './task-usage.js';
+import { agentProgress } from './planner-progress.js';
 
 export function guidedTaskView(store: Store, id: string) {
   return store.transaction(() => {
@@ -43,11 +44,13 @@ export function guidedTaskView(store: Store, id: string) {
   lease.readOnlyRecovery ? lease.executionId : lease.kind === 'conversation' ? lease.sessionId : lease.runId)
     : workspace && !['ready', 'released'].includes(workspace.phase) ? command('workspace-recover', workspace.id) : null;
   const usage = taskUsage(store, id);
+  const progress = session && (state.stage === 'implementation' || state.stage === 'review')
+    ? agentProgress(store.sessionEvents(session.id), session, state.stage) : null;
   const currentVerdict = review ? new Sessions(store).get(review.sessionId).lastReply : null;
   const previousReview = state.reviewCycle?.history.at(-1);
   const carriedVerdict = !currentVerdict && previousReview
     ? new Sessions(store).get(store.execution<Execution>(previousReview.executionId).sessionId).lastReply : null;
-  return { task, state, stale, workspace, lease, session, next, recovery, usage, usageSummary: usageLines(usage), carriedFindings: !!carriedVerdict, integrations: integrationSummary(session ? store.sessionEvents(session.id) : []), exploration: explorationSummary(explorationEvents), questionKey: guidedQuestionKey(store, state), stop: state.owner ? command('task-stop', id) : null,
+  return { task, state, stale, workspace, lease, session, progress, next, recovery, usage, usageSummary: usageLines(usage), carriedFindings: !!carriedVerdict, integrations: integrationSummary(session ? store.sessionEvents(session.id) : []), exploration: explorationSummary(explorationEvents), questionKey: guidedQuestionKey(store, state), stop: state.owner ? command('task-stop', id) : null,
     questions: state.status === 'awaiting_answer' ? session?.lastReply?.questions ?? [] : [],
     findings: (currentVerdict ?? carriedVerdict)?.findings ?? [],
     checks: execution ? store.checks<RepositoryCheck>(execution.id) : [],

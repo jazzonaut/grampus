@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { authorizeEditTool, editingInstructions } from '../edit-policy.js';
-import { query, createSdkMcpServer, type AccountInfo, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, createSdkMcpServer, type AccountInfo, type ModelUsage, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { claudeDeleteTool } from './claude-files.js';
 import { claudeRepository, isRepositoryTool } from './claude-repository.js';
 import { explorationInstructions } from '../repository-tools.js';
@@ -42,7 +42,7 @@ export async function connectClaude(options: ConnectOptions): Promise<AgentSessi
   finally { options.signal.removeEventListener('abort', abort); }
 }
 
-class ClaudeSession implements AgentSession {
+export class ClaudeSession implements AgentSession {
   private readonly input = new InputQueue();
   private readonly sessionId: string;
   private readonly query: Query;
@@ -53,14 +53,17 @@ class ClaudeSession implements AgentSession {
   private stopRequested = false;
   private readonly consumption: Promise<void>;
   private closing: Promise<void> | null = null;
+  private usageTimer: ReturnType<typeof setInterval> | undefined;
+  private samplingUsage = false;
+  private lastUsage = '';
 
-  constructor(private readonly options: ConnectOptions) {
+  constructor(private readonly options: ConnectOptions, createQuery: typeof query = query) {
     this.sessionId = options.providerSessionId ?? randomUUID();
     const fileServer = options.editing?.policy.delete?.length ? createSdkMcpServer({
       name: 'grampus_files', version: '1.0.0', alwaysLoad: true, timeout: 5000,
       tools: [claudeDeleteTool(options.editing, options.emit, () => !!this.active && !this.stopRequested && !this.stopped && !this.closing)],
     }) : null;
-    this.query = query({ prompt: this.input, options: {
+    this.query = createQuery({ prompt: this.input, options: {
       cwd: options.cwd, tools: options.purpose === 'title' ? [] : options.editing ? ['Read', 'Edit', 'Write', 'ToolSearch'] : ['ToolSearch'], permissionMode: 'default',
       mcpServers: options.purpose === 'title' ? {} : { ...projectMcpServers(options.configurationCwd ?? options.cwd, options.cwd), ...(fileServer ? { grampus_files: fileServer } : {}), ...(options.repository ? { grampus_repository: claudeRepository(options.repository, options.emit, () => !!this.active && !this.stopRequested && !this.stopped && !this.closing) } : {}) },
       strictMcpConfig: options.purpose === 'title', systemPrompt: options.purpose === 'title' ? titleInstructions : `${options.editing ? editingInstructions : instructions}\n${mcpInstructions}${options.repository ? `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}` : ''}`, outputFormat: { type: 'json_schema', schema: replySchema },
@@ -115,7 +118,30 @@ class ClaudeSession implements AgentSession {
       if (this.active) throw new Error('Claude stream ended without a result');
     } catch (error) {
       this.active?.reject(error instanceof Error ? error : new Error(String(error)));
-    } finally { this.active = null; this.stopped = true; }
+    } finally { clearInterval(this.usageTimer); this.active = null; this.stopped = true; }
+  }
+
+  private publishUsage(models: Record<string, ModelUsage>, cost: unknown, complete: boolean): Usage {
+    const values = Object.values(models);
+    const sum = (key: 'inputTokens' | 'outputTokens' | 'cacheReadInputTokens'): number | null =>
+      values.length && values.every(value => numeric(value[key]) !== null)
+        ? values.reduce((total, value) => total + value[key], 0) : null;
+    const usage: Usage = { scope: 'provider-session-cumulative', complete, inputTokens: sum('inputTokens'), outputTokens: sum('outputTokens'),
+      cachedInputTokens: sum('cacheReadInputTokens'), estimatedCostUsd: numeric(cost), billedCostUsd: null };
+    const serialized = JSON.stringify(usage);
+    if (serialized !== this.lastUsage) { this.options.emit({ type: 'usage.updated', data: usage }); this.lastUsage = serialized; }
+    return usage;
+  }
+
+  private async sampleUsage(): Promise<void> {
+    if (this.samplingUsage || !this.active || this.closing || this.stopped) return;
+    const active = this.active;
+    this.samplingUsage = true;
+    try {
+      const report = await this.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true });
+      if (this.active === active && !this.closing && !this.stopped) this.publishUsage(report.session.model_usage, report.session.total_cost_usd, false);
+    } catch { /* Usage availability never interrupts an agent turn. Final results remain authoritative. */ }
+    finally { this.samplingUsage = false; }
   }
 
   private message(message: SDKMessage): void {
@@ -131,14 +157,9 @@ class ClaudeSession implements AgentSession {
     if (message.type !== 'result') return;
     const active = this.active;
     this.active = null;
+    clearInterval(this.usageTimer);
     try {
-      const usageValues = Object.values(message.modelUsage);
-      const sum = (key: 'inputTokens' | 'outputTokens' | 'cacheReadInputTokens'): number | null =>
-        usageValues.length && usageValues.every(value => numeric(value[key]) !== null)
-          ? usageValues.reduce((total, value) => total + value[key], 0) : null;
-      const usage: Usage = { scope: 'provider-session-cumulative', inputTokens: sum('inputTokens'), outputTokens: sum('outputTokens'),
-        cachedInputTokens: sum('cacheReadInputTokens'), estimatedCostUsd: numeric(message.total_cost_usd), billedCostUsd: null };
-      this.options.emit({ type: 'usage.updated', data: usage });
+      const usage = this.publishUsage(message.modelUsage, message.total_cost_usd, true);
       const status = this.stopRequested ? 'interrupted' : message.is_error || message.subtype !== 'success' ? 'failed' : 'completed';
       active.resolve({ status, reply: status === 'completed' && message.subtype === 'success'
         ? parseReply(message.structured_output ?? message.result) : null, usage,
@@ -150,6 +171,7 @@ class ClaudeSession implements AgentSession {
     if (this.stopped || this.active) return Promise.reject(new Error('Claude session is unavailable or busy'));
     this.stopRequested = false;
     const result = new Promise<TurnResult>((resolve, reject) => { this.active = { resolve, reject }; });
+    this.usageTimer = setInterval(() => { void this.sampleUsage(); }, 15_000);
     this.input.push({ type: 'user', session_id: this.sessionId, parent_tool_use_id: null,
       message: { role: 'user', content: prompt } });
     this.options.emit({ type: 'turn.started', data: { providerTurnId: null } });
@@ -174,6 +196,7 @@ class ClaudeSession implements AgentSession {
   }
 
   private async shutdown(): Promise<void> {
+    clearInterval(this.usageTimer);
     this.input.close();
     this.query.close();
     const force = setTimeout(() => this.child?.kill('SIGKILL'), 3000);
