@@ -615,7 +615,52 @@ the real supervised worker and reject archival at dispatch, acceptance and recov
 
 These are offline fixtures; independent review/acceptance gate data in the delivery
 tests is explicitly fixture evidence. No live provider or Orca-host pilot was run
-for this slice. Multi-slice continuation and non-Windows supervision remain work.
+for this slice. The next section adds multi-slice continuation; non-Windows
+supervision remains work.
+
+## Sequential approved slices — 18 October 2026
+
+Optional ordered slice plans bind to the existing exact-version approval. Each
+slice requires fresh gates and supervised delivery. Intermediate delivery records
+its proof and readies a fresh attempt in the same workspace; the final slice verifies
+every task criterion and requires integration review. Completion cannot bypass
+planned deliveries. Schema 10 fences older controllers and preserves legacy tasks.
+
+The original full suite passed 184 tests before changes. The focused slice/Orca
+suite passed 25 tests, with no failures or skips, on Windows, Node 25.8.1.
+Its two-slice greeting library/CLI fixture runs actual regression and exact-output
+acceptance commands, explicit simplification, independent-session fixture reviews,
+separate supervised commits and fresh CLI processes. The final check covers the
+whole task, and a final-slice-only criterion mapping is refused.
+
+The first complete post-change run passed 190 of 191 tests. The existing deletion
+interruption pilot refused fresh-process recovery with `Supervisor is still alive
+or unverifiable` after the observer had already read a settled receipt. That exact
+case then passed alone. The cause is unconfirmed; PID reuse and transient process
+observations remain possible. No PID/receipt recovery guard was changed.
+The default parallel rerun passed 189/191, with the same conservative refusal in
+the existing check-controller crash fixture and new-file interruption pilot. These
+reported supervisor/controller liveness respectively; the new slice cases passed
+in both runs. Full verification was then repeated with two test workers to reduce
+concurrent process churn, rather than weakening liveness checks or ignoring tests.
+That complete run passed all 191 tests with no failures or skips using
+`node --test --test-concurrency=2 dist/test/*.test.js`. Type checking and
+`git diff --check` also passed. The bounded run is validation of the whole suite;
+it does not establish the cause of the default parallel failures or fix them.
+
+Additional fixtures exercise real controller exits after commit and no-change
+verification, receipt recovery in new CLI processes, exactly-once advancement,
+pending decisions, failure/rollback, stale sessions/evidence, retry attempts on the
+current slice, changed inherited instructions and external HEAD changes. Raw file
+verification rejects a changed skip-worktree file even when ordinary Git status is
+clean, and mode mismatches block continuation. Orca protocol fixtures use the real
+supervised writer across both slices, retain the original instance/base and refuse
+archival before starting the next slice. Only the identity RPC is simulated.
+
+Reviews are offline fixtures, not live independent review of this implementation.
+No new live provider or Orca-host pilot was run. Node 24, macOS and Linux have not
+been run for this slice. No scheduler, arbitration, workspace rebinding, provider
+permission changes or automatic replay was added.
 
 ## Primary references consulted
 

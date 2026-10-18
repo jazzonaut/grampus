@@ -6,7 +6,7 @@ import { Store } from './store.js';
 import { connectAgent } from './agents/index.js';
 import { Workspaces } from './workspaces.js';
 import { claimExecution, requireExecutionLease, settleExecution, stopExecution, type Execution } from './execution-state.js';
-import { Workflow, type Task } from './workflow.js';
+import { Workflow, activeSlice, type Task } from './workflow.js';
 import { captureRepository, reviewContext } from './repository-evidence.js';
 import { parseReply, type AgentEvent, type AgentSession, type Connector, type Provider, type Reply, type TurnResult } from './agents/types.js';
 
@@ -70,6 +70,8 @@ export class Sessions {
         const task = this.store.get<Task>(execution.taskId);
         prompt = `Approved task context (${editing ? 'native file editing; do not claim validation or completion' : 'conversation only; do not claim repository execution or completion'}):\n${JSON.stringify({
           brief: task.brief, version: execution.version, attemptId: execution.attemptId, role: execution.role, artifact: execution.artifact,
+          ...(task.slice ? { currentSlice: activeSlice(task), completedSlices: task.slice.completed,
+            scope: 'Work on the current slice only. The final slice requires integration review and verification of every task criterion.' } : {}),
         })}\n\nUser turn:\n${prompt}`;
       }
       session.phase = 'running';

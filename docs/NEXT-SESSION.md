@@ -15,6 +15,10 @@ and the multi-file pilot's `--create-library` / `--delete-obsolete` modes. Direc
 creation/removal remains disabled.
 Explicit no-change delivery now verifies unchanged HEAD/index/files under supervision,
 records its outcome and completes without a commit; receipt recovery is read-only.
+Sequential slice plans now use the same gates and supervised delivery. Intermediate
+delivery readies a fresh slice attempt in the same workspace; final verification
+covers all task criteria. Schema 10 prevents older controllers from completing a
+multi-slice task after its first delivery.
 The user continued implementation in the
 same session and authorized pushing the repository.
 
@@ -33,7 +37,7 @@ Default delivery remains local unless the user authorizes an external action.
 
 ## Completed
 
-- TypeScript/Node controller, SQLite schema 9, journal-derived Markdown task report.
+- TypeScript/Node controller, SQLite schema 10, journal-derived Markdown task report.
 - Task briefs, exact-version approval, attempts, provisional decisions, four
   completion gates, stale-result rejection and explicit recovery states.
 - Live Codex app-server and Claude Agent SDK conversations with subscription
@@ -109,7 +113,7 @@ Default delivery remains local unless the user authorizes an external action.
   instructions without staging, hooks or an empty commit. All gates still apply.
   Receipt recovery is read-only and rejects changed state or Orca identity. Real
   controller exits, CLI recovery, journal rollback, index locks and dirty/staged
-  mismatches are covered. The latest complete offline suite passed 184 tests
+  mismatches are covered. The preceding complete offline suite passed 184 tests
   without failures or skips on Windows, Node 25.8.1; focused delivery and Orca
   suites each passed 18. No new live provider/Orca pilot or other-platform run was made.
 - The preceding scoped-file offline suite passed 178 tests without skips on Windows,
@@ -125,6 +129,20 @@ Default delivery remains local unless the user authorizes an external action.
   recovery passed; temporary probe worktrees were removed through Orca.
 - Both live probes passed question/answer, context across controller restarts,
   supplied-code review findings, interruption and resumption with earlier context.
+- Sequential approved slice continuation now records verified deliveries, clears
+  old evidence and requires fresh attempt/session bindings. The focused slice/Orca
+  suite passed 25 tests with no failures or skips on Windows, Node 25.8.1. It covers
+  actual two-slice regression and acceptance commands, fixture independent review,
+  supervised commits, CLI restarts, controller exits, receipt recovery, no-change,
+  rollback, stale sessions/evidence, raw continuation checks and schema 9 migration.
+  No live provider/Orca-host pilot or other-platform run was made for this slice.
+  The first default parallel full runs passed 190/191 and 189/191; existing recovery
+  fixtures intermittently refused live/unverifiable supervisor or controller PIDs.
+  The failed deletion case passed alone. Full verification was also run with two
+  workers and passed all 191 tests without failures or skips. Type checking and
+  whitespace checks also passed. The cause of the parallel failures remains
+  unconfirmed, and no PID/receipt guard was changed. Investigate process identity
+  and test-process concurrency before treating default parallel runs as reliable.
 
 The demo is synthetic and offline reviewers are fixtures. The opt-in
 `npm run probe:task -- --live` now reaches completion with both live providers and
@@ -150,11 +168,13 @@ contains the durable summary, and the probe script can reproduce the checks.
 Start with the existing source and a small concrete plan. Do not rebuild the
 controller or broaden into the dashboard first.
 
-1. Add multi-slice continuation. Explicit no-change delivery is implemented through
-   optional `mode: no_change`; every gate and settled receipt is still required.
-   Local delivery already binds
-   the checked digest to the exact commit. Recovery needs a terminal receipt after
-   dispatch; failed/uncertain operations never trigger commit replay or Git resets.
+1. Multi-slice continuation is implemented through optional approved `slices` and
+   per-task progress. Each slice requires fresh gates and delivery; the final slice
+   verifies every task criterion. A live multi-slice provider pilot remains useful.
+   The ordinary CLI explicitly starts the next slice; no scheduler or arbitration
+   is implemented. Local delivery binds the checked digest to the exact commit.
+   Recovery needs a terminal receipt after dispatch; failed/uncertain operations
+   never trigger commit replay or Git resets.
 2. Live Claude mid-edit recovery now passes in standalone and Orca workspaces.
    Live Claude/Codex standalone recovery just after scoped deletion also passes.
    Codex live recovery in Orca and completing a task through a fresh attempt after
@@ -182,6 +202,14 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
 - Execution records now link tasks, versions, attempts and sessions. There is no
   automatic scheduler or end-to-end repository task runner yet. Successful conversations
   leave implementation open; they cannot create a successful artifact or pass a gate.
+- Briefs may contain 1–64 ordered slices with exact task-criterion references. All
+  criteria must be covered by the plan. Intermediate verification uses current-slice
+  criteria; the final slice uses all task criteria and its review covers integration.
+  Delivery atomically records progress and readies the next slice with cleared
+  attempt/evidence. Direct completion cannot skip planned deliveries. Continuation
+  requires the prior delivered HEAD, raw clean index/files and unchanged instructions;
+  retries preserve partial edits on the current slice. Workspace/base/version/Orca
+  identity remain unchanged. Receipt recovery advances once without replay.
 - `execution-implement` supports Claude and Codex on standalone/local Orca Windows workspaces, with
   explicit existing-file and exact creation/deletion policies (1–64 combined paths, UTF-8
   files at most 256 KiB each). Optional `create` targets must be absent and
@@ -293,6 +321,13 @@ Run complete Node-version suites sequentially on Windows. Overlapping Node 24/25
 suites produced two recovery-fixture failures at this checkpoint; isolated checks
 and a separate Node 24 full run passed. The exact cause was not established, and
 PID/receipt recovery guards were not weakened. See the integration evidence.
+The latest default parallel runs also intermittently refused liveness in existing
+recovery fixtures. Preserve their logs; a full two-worker run passed all 191 tests:
+
+```sh
+npm run build
+node --test --test-concurrency=2 dist/test/*.test.js
+```
 
 If working through Orca, also run `npm run doctor -- --orca`. Read its installed,
 version-matched CLI guide before manipulating Orca-owned state. Live probes are

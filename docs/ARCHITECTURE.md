@@ -83,7 +83,7 @@ has been built.
 
 ## Persistence
 
-Schema version 9 contains twelve tables:
+Schema version 10 contains twelve tables:
 
 | Table | Contents |
 | --- | --- |
@@ -121,7 +121,10 @@ are never inferred. Version 8 adds deliveries and a distinct delivery lease; old
 read-only recovery cannot release it. Version 9 adds native implementation records,
 an implementation lease kind and persistent editing-session mode. Older recovery
 code cannot open this schema and mistake provider PID absence for tool-tree exit.
-Unknown schema versions are refused. Older executables cannot open version 9 journals. Default
+Version 10 adds explicit ordered slice plans and progress in task JSON without new
+tables. The version fence prevents older controllers from treating an intermediate
+delivery as whole-task completion. Legacy tasks retain their single-slice state.
+Unknown schema versions are refused. Older executables cannot open version 10 journals. Default
 storage is outside the checkout; see [README.md](../README.md) for portable paths
 and overrides. Retention expiry, backup tooling, settings transfer and task export/
 import have not been implemented. Markdown task reports are the current export.
@@ -169,6 +172,44 @@ verified content digests and actual command exit results before submission.
 caller must establish that the previous controller no longer owns the work; this
 method does not discover or terminate processes. Stop confirmation requires an
 explicit matching attempt and explanation.
+
+## Sequential slice continuation
+
+An optional brief `slices` array contains 1–64 ordered `{title, plan, criteria}`
+entries. Each list names distinct exact task criteria; their union must cover all
+task criteria. Approval binds the entire plan. New planned tasks have a `slice`
+progress record with a zero-based current index and completed delivery references.
+Existing tasks without progress retain their original single-slice behavior.
+
+`activeCriteria` selects the intermediate slice's criteria, or every task criterion
+for the final slice. Check mapping and gate coverage both use this selection.
+Session context supplies the whole brief, current slice, prior delivered heads and
+an instruction to implement only the current slice. Final review includes integration;
+there is no separate automatic review scheduler or independent proof of review depth.
+
+`sliceBlockers` checks the four gates and decisions for the current attempt;
+`blockers` additionally requires delivery of all planned slices. Thus direct
+completion cannot skip slice delivery. After repository and receipt verification,
+delivery settlement releases the lease, saves its outcome and accepts the slice in
+one SQLite transaction. An intermediate slice appends `{index, attemptId, artifact,
+deliveryId, outcome, commit, head}`, increments the index, clears current attempt and
+evidence, and sets `ready`. The final slice appends the same proof and completes the
+task. Detailed evidence remains in the journal and execution records. Any journal
+failure rolls back the progress, delivery acceptance and lease release together.
+
+Starting the next slice is explicit and creates a fresh execution/session/attempt.
+Old attempt bindings fail even between delivery and the next start. The original
+workspace base and Orca identity remain unchanged, so diffs include cumulative task
+changes and final review can inspect integration. Initial continuation verifies raw
+HEAD/index/files and unchanged instructions at the last delivered HEAD. Retry attempts
+retain partial edits, stay on the current slice and require that delivered HEAD.
+These checks do not prevent external writers after inspection.
+
+Delivery receipt recovery invokes the same atomic settlement and advances once;
+no provider or Git command is replayed. Failed or uncertain delivery cannot start
+the next slice. An explicit no-change delivery records the unchanged HEAD instead
+of a commit. Revisions reset progress and approval while retaining journal history;
+workspace rebinding after a revision remains unsupported.
 
 ## Standalone workspace lifecycle
 
@@ -643,8 +684,8 @@ Failures preserve staged changes and any unaccepted commit, including hook effec
 there is no automatic rollback, amend or lock removal. A rejected artifact needs
 fresh implementation and gates. The supervisor covers ordinary tool descendants,
 not external services. Git configuration/hooks and the local journal remain trusted.
-Concurrent external editors and Orca agents are not locked out. Other platforms,
-multi-slice scheduling is not implemented.
+Concurrent external editors and Orca agents are not locked out. Other-platform
+supervision and automatic slice scheduling are not implemented.
 
 `npm test` builds and runs offline tests against temporary databases, subprocesses
 and protocol fixtures. It does not invoke live models. Test files cover workflow,

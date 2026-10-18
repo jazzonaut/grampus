@@ -47,8 +47,8 @@ export class Deliveries {
       delivery.outcome = null;
       if (delivery.phase === 'delivered') delivery.outcome = delivery.request?.mode === 'no_change' ? 'no_change' : 'committed';
       this.store.releaseLease(execution.workspaceId, execution.id, delivery.id);
-      if (delivery.phase === 'delivered') new Workflow(this.store).complete(execution.taskId);
       this.save(delivery, 'delivery.settled');
+      if (delivery.phase === 'delivered') new Workflow(this.store).acceptDelivery(execution.taskId, delivery.id);
     });
   }
   private async verify(delivery: Delivery): Promise<void> {
@@ -84,7 +84,7 @@ export class Deliveries {
       const execution = this.store.execution<Execution>(executionId);
       const workflow = new Workflow(this.store); const task = workflow.get(execution.taskId);
       if (execution.role !== 'implementation') throw new Error('Delivery requires an implementation execution');
-      const blockers = workflow.blockers(task.id);
+      const blockers = workflow.sliceBlockers(task.id);
       if (blockers.length || task.phase === 'complete' || task.attempt?.artifact !== spec.artifact) throw new Error(`Delivery requires the current submitted artifact and every gate: ${blockers.join('; ')}`);
       const session = new Sessions(this.store).get(execution.sessionId);
       if (session.run || ['running', 'stop_requested', 'recovery_required'].includes(session.phase)) throw new Error('Reconcile the linked session first');

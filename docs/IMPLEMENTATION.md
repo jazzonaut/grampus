@@ -408,4 +408,28 @@ Receipt recovery verifies the existing state without replay; missing proof, chan
 HEAD/index/content/instructions or replaced Orca identity cannot complete the task.
 All four gates remain required. Schema 9 and older commit requests remain compatible.
 Tests use real Git, supervised validation and delivery, separate recovery CLI
-processes and Orca identity fixtures. Sequential slice continuation remains next.
+processes and Orca identity fixtures.
+
+## Sequential approved slices
+
+Briefs optionally contain an ordered slice plan, approved together with the task
+version. Each slice requires its own attempt, simplification, validation, independent
+review, criterion-mapped verification and supervised delivery. Intermediate delivery
+readies the next slice without completing the task. Final review covers integration
+and final verification maps to every task criterion. Direct completion cannot skip
+planned deliveries; explicit no-change outcomes remain available.
+
+Progress and delivery acceptance settle atomically with lease release. Receipt
+recovery advances only the verified slice, once, without provider or Git replay.
+Fresh execution creation verifies the previous delivered HEAD, raw clean index/files
+and unchanged instructions. Retry attempts retain edits on the current slice;
+old execution/session/evidence bindings cannot authorize later slices. The workspace,
+approved version and original base remain stable in standalone and Orca modes.
+Schema 10 fences older executables while preserving legacy single-slice tasks.
+
+The offline fixtures cover actual two-slice library/CLI commands and exact output,
+mock independent-provider review, separate supervised commits and CLI restarts,
+real controller exits, receipt recovery, no-change outcomes, transaction rollback,
+stale sessions/evidence and changed continuation state. Orca fixtures retain real
+supervised Git operations and replace only the identity RPC. This does not implement
+automatic scheduling, review arbitration, workspace rebinding or non-Windows supervision.

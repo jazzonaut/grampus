@@ -34,7 +34,7 @@ export class Store {
     this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
     const version = this.db.prepare('PRAGMA user_version').get()?.user_version;
-    if (![0, 1, 2, 3, 4, 5, 6, 7, 8, 9].includes(Number(version))) {
+    if (![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(Number(version))) {
       this.db.close();
       throw new Error(`Unsupported journal schema version: ${version}`);
     }
@@ -107,7 +107,7 @@ export class Store {
         execution_id TEXT NOT NULL REFERENCES executions(id),
         state TEXT NOT NULL
       );
-      PRAGMA user_version = 9;
+      PRAGMA user_version = 10;
       COMMIT;
     `);
   }

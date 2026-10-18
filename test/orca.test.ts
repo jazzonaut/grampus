@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { Store } from '../src/store.js';
-import { Workflow } from '../src/workflow.js';
+import { Workflow, type Brief } from '../src/workflow.js';
 import { Workspaces, type Workspace } from '../src/workspaces.js';
 import { OrcaCli, type OrcaTransport } from '../src/orca.js';
 import { Executions } from '../src/executions.js';
@@ -26,7 +26,7 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 }
 
-function fixture(t: { after(fn: () => void): void }) {
+function fixture(t: { after(fn: () => void): void }, taskBrief: Brief = brief) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-orca-test-'));
   const repo = join(root, 'source');
   mkdirSync(repo);
@@ -40,7 +40,7 @@ function fixture(t: { after(fn: () => void): void }) {
   const db = join(root, 'journal.sqlite');
   const store = new Store(db);
   const workflow = new Workflow(store);
-  const task = workflow.create(brief); workflow.approve(task.id, 1);
+  const task = workflow.create(taskBrief); workflow.approve(task.id, 1);
   const requests: string[][] = [];
   const state: { worktree: Record<string, unknown> | null; loseReply: boolean; truncated: boolean; duplicate: boolean; empty: boolean; old: boolean } =
     { worktree: null, loseReply: false, truncated: false, duplicate: false, empty: false, old: false };
@@ -221,8 +221,8 @@ test('Orca execution holds a lease during identity inspection and refuses a repl
 });
 
 const windows = { skip: process.platform !== 'win32' };
-async function implementationFixture(t: { after(fn: () => void): void }, provider: 'claude' | 'codex' = 'codex') {
-  const f = fixture(t);
+async function implementationFixture(t: { after(fn: () => void): void }, provider: 'claude' | 'codex' = 'codex', taskBrief: Brief = brief) {
+  const f = fixture(t, taskBrief);
   const workspace = await f.workspaces.createOrca(f.task.id, 1, f.repo, 'main');
   const execution = await new Executions(f.store, f.workspaces).create(workspace.id, 1, provider);
   const checks = new Checks(f.store, f.workspaces); const snapshot = await checks.snapshot(execution.id);
@@ -266,8 +266,8 @@ test('Orca editing refuses changed identity before dispatch and cannot accept ed
   assert.equal(g.store.lease(g.workspace.id), null); // Exit is proven; failed edits stay intact.
 });
 
-async function deliveryFixture(t: { after(fn: () => void): void }, noChange = false) {
-  const f = await implementationFixture(t);
+async function deliveryFixture(t: { after(fn: () => void): void }, noChange = false, taskBrief: Brief = brief) {
+  const f = await implementationFixture(t, 'codex', taskBrief);
   if (!noChange) writeFileSync(join(f.workspace.path, 'greeting.txt'), 'hello world\n');
   const snapshot = await f.checks.snapshot(f.execution.id);
   f.workflow.finish(f.task.id, f.execution.attemptId, 1, 'succeeded', snapshot.artifact, 'Trusted fixture submission');
@@ -299,6 +299,35 @@ test('Orca delivery runs the supervised Git writer, preserves identity and compl
   assert.equal(git(f.workspace.path, 'show', '-s', '--format=%an <%ae> / %cn <%ce>'), 'Fixture <fixture@invalid> / Fixture <fixture@invalid>');
   assert.equal(git(f.workspace.path, 'status', '--porcelain'), '');
   assert.equal(f.workflow.get(f.task.id).phase, 'complete'); assert.equal(f.store.lease(f.workspace.id), null);
+});
+
+test('Orca slices reuse the original instance and base, with identity checks before continuation', windows, async t => {
+  const slice = { title: 'First', plan: 'Deliver fixture greeting', criteria: brief.criteria };
+  const f = await deliveryFixture(t, false, { ...brief, slices: [slice, { ...slice, title: 'Integration' }] });
+  const first = await f.deliveries.run(f.execution.id, f.spec, undefined, options => supervisedOrcaWriter(f, options));
+  assert.equal(first.phase, 'delivered', JSON.stringify(first));
+  assert.equal(f.workflow.get(f.task.id).phase, 'ready');
+  assert.equal(f.workflow.get(f.task.id).slice!.completed.length, 1);
+  const executions = new Executions(f.store, f.workspaces);
+  f.state.worktree!.isArchived = true;
+  await assert.rejects(executions.create(f.workspace.id, 1, 'codex'), /changed/);
+  f.state.worktree!.isArchived = false;
+  const next = await executions.create(f.workspace.id, 1, 'codex');
+  assert.equal(next.headAtCreation, first.commit);
+  const snapshot = await f.checks.snapshot(next.id);
+  f.workflow.finish(f.task.id, next.attemptId, 1, 'succeeded', snapshot.artifact, 'Trusted final integration fixture submission');
+  for (const kind of ['validation', 'simplification', 'review', 'verification'] as const) f.workflow.record(f.task.id, {
+    id: `${next.id}:${kind}`, kind, artifact: snapshot.artifact, version: 1, attemptId: next.attemptId, outcome: 'passed', source: 'controller',
+    summary: 'Offline integration fixture gates; no live inference', criteria: brief.criteria,
+    ...(kind === 'review' ? { agent: { provider: 'claude', model: 'fixture', sessionId: 'final-fixture-review' } } : {}),
+  });
+  const last = await f.deliveries.run(next.id, { ...f.spec, artifact: snapshot.artifact, mode: 'no_change' }, undefined, options => supervisedOrcaWriter(f, options));
+  assert.equal(last.phase, 'delivered', JSON.stringify(last)); assert.equal(last.outcome, 'no_change');
+  assert.equal(f.workflow.get(f.task.id).phase, 'complete');
+  assert.equal(f.workspaces.get(f.workspace.id).baseCommit, f.workspace.baseCommit);
+  assert.equal(f.workspaces.get(f.workspace.id).orca!.identityKey, f.workspace.orca!.identityKey);
+  assert.equal(git(f.workspace.path, 'rev-list', '--count', 'HEAD'), '2');
+  assert.equal(f.requests.filter(args => args[1] === 'create' && !args.includes('--help')).length, 1);
 });
 
 test('Orca delivery worker rechecks ownership before staging and before commit', windows, async t => {

@@ -6,6 +6,9 @@ import { Workspaces } from './workspaces.js';
 import type { Provider } from './agents/types.js';
 import { assertTaskExecutionIdle, type Execution, type ExecutionLease } from './execution-state.js';
 import { requireDeadController } from './check-recovery.js';
+import { snapshotRepository, type RepositorySnapshot } from './artifacts.js';
+import { verifyNoChange } from './delivery-git.js';
+import type { Delivery } from './deliveries.js';
 
 export class Executions {
   constructor(private readonly store: Store, private readonly workspaces = new Workspaces(store)) {}
@@ -32,6 +35,16 @@ export class Executions {
     model: string | null = null, fallbackReason: string | null = null): Promise<Execution> {
     if (!['implementation', 'review'].includes(role)) throw new Error('Execution role must be implementation or review');
     const inspected = await this.workspaces.inspect(workspaceId);
+    const observedTask = new Workflow(this.store).get(inspected.workspace.taskId);
+    let continuation: RepositorySnapshot | null = null;
+    if (role === 'implementation' && observedTask.phase === 'ready' && observedTask.slice?.completed.length) {
+      const workspace = inspected.workspace;
+      continuation = await snapshotRepository(workspace.path!, workspace.baseCommit);
+      verifyNoChange({ id: 'continuation', cwd: workspace.path!, branch: `refs/heads/${workspace.branch}`,
+        base: workspace.baseCommit, message: 'Verify slice continuation', snapshot: continuation });
+      const again = await snapshotRepository(workspace.path!, workspace.baseCommit);
+      if (again.artifact !== continuation.artifact) throw new Error('Repository changed while checking slice continuation');
+    }
     return this.store.transaction(() => {
       const workspace = this.workspaces.get(workspaceId);
       const workflow = new Workflow(this.store);
@@ -42,6 +55,17 @@ export class Executions {
       }
       assertTaskExecutionIdle(this.store, task.id);
       if (task.synthetic) throw new Error('Synthetic tasks cannot create executions');
+      const previous = task.slice?.completed.at(-1);
+      if (role === 'implementation' && previous) {
+        if (inspected.head !== previous.head) throw new Error('HEAD differs from the last delivered slice');
+        if (task.phase === 'ready') {
+          const delivery = this.store.delivery<Delivery>(previous.deliveryId);
+          if (!continuation || continuation.head !== previous.head
+            || continuation.instructionsDigest !== delivery.spec.instructionsDigest) {
+            throw new Error('Slice continuation requires the last delivered HEAD, clean raw files/index and unchanged instructions');
+          }
+        }
+      }
       if (role === 'review') {
         if (!['awaiting_verification', 'awaiting_decision'].includes(task.phase) || task.attempt?.outcome !== 'succeeded') {
           throw new Error('Review requires a successful current attempt');

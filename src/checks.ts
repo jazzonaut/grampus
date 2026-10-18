@@ -3,7 +3,7 @@ import { isAbsolute } from 'node:path';
 import { statSync } from 'node:fs';
 import { Store } from './store.js';
 import { Sessions } from './sessions.js';
-import { Workflow, type Task } from './workflow.js';
+import { Workflow, activeCriteria, type Task } from './workflow.js';
 import { Workspaces } from './workspaces.js';
 import { claimExecution, type Execution, type ExecutionLease } from './execution-state.js';
 import type { RepositorySnapshot } from './artifacts.js';
@@ -155,8 +155,8 @@ export class Checks {
       if (execution.role !== 'implementation') throw new Error('Repository checks currently require an implementation execution');
       const task = this.store.get<Task>(execution.taskId);
       if (purpose === 'verification' && (task.attempt?.outcome !== 'succeeded' || !['awaiting_verification', 'awaiting_decision'].includes(task.phase)
-        || spec.criteria!.length !== task.brief.criteria.length || !task.brief.criteria.every(item => spec.criteria!.includes(item)))) {
-        throw new Error('Verification requires submitted implementation and an exact mapping of all approved criteria');
+        || spec.criteria!.length !== activeCriteria(task).length || !activeCriteria(task).every(item => spec.criteria!.includes(item)))) {
+        throw new Error('Verification requires submitted implementation and an exact mapping of all approved criteria for the current slice');
       }
       const check: RepositoryCheck = { id, executionId, spec: structuredClone(spec), phase: 'running', before: null, after: null,
         supervisorPid: null, toolPid: null, result: null, error: null, purpose, dispatch: 'not_requested' };

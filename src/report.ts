@@ -1,5 +1,5 @@
 import { Store } from './store.js';
-import { Workflow } from './workflow.js';
+import { Workflow, activeSlice } from './workflow.js';
 
 // Encode all user/provider prose, including newlines, so it cannot inject report structure.
 function prose(value: string): string {
@@ -10,6 +10,7 @@ export function renderReport(store: Store, id: string): string {
   const workflow = new Workflow(store);
   const task = workflow.get(id);
   const blockers = workflow.blockers(id);
+  const slice = activeSlice(task);
   return [
     `# ${prose(task.brief.title)}`,
     '',
@@ -29,6 +30,16 @@ export function renderReport(store: Store, id: string): string {
     '',
     prose(task.brief.plan),
     '',
+    ...(slice ? [
+      '## Slices', '',
+      `Current slice: ${slice.number}/${slice.total} — ${prose(slice.title)}. Delivered: ${task.slice!.completed.length}/${slice.total}.`, '',
+      ...task.brief.slices!.flatMap((item, index) => [
+        `${index + 1}. ${prose(item.title)} — ${task.slice!.completed.some(done => done.index === index) ? 'delivered' : index === task.slice!.index ? 'current' : 'pending'}`,
+        `   ${prose(item.plan)}`,
+      ]), '',
+      ...task.slice!.completed.map(done => `- Slice ${done.index + 1}: ${done.outcome}; HEAD ${done.head}; delivery ${done.deliveryId}.`), '',
+      ...(slice.final ? ['Final slice verification covers every task criterion.', ''] : []),
+    ] : []),
     '## Completion gates',
     '',
     ...(blockers.length ? blockers.map(reason => `- ${prose(reason)}`) : ['All recorded gates passed.']),

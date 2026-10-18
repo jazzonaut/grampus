@@ -16,6 +16,8 @@ A two-file library/CLI pilot also reaches verified delivery after a manual
 simplification checkpoint and independent review.
 Supervised local delivery binds checked content to a commit and supports explicit
 recovery without replaying Git writes.
+Approved briefs can include ordered slices. Each slice needs fresh evidence and
+supervised delivery; the final slice verifies every task criterion.
 They include a SQLite journal, versioned task approval, completion gates, Codex and
 Claude conversations, structured questions and review findings, interruption,
 reconnection, local integration discovery and journaled worktree creation.
@@ -55,6 +57,46 @@ npm start -- approve <task-id> 1
 npm start -- show <task-id>
 npm start -- report <task-id>
 ```
+
+## Sequential slices
+
+[examples/multislice-brief.json](examples/multislice-brief.json) shows an optional
+`slices` array. Each entry has `title`, `plan` and a nonempty `criteria` list naming
+exact task criteria. Plans allow 1–64 slices; their criteria must collectively cover
+the whole task. Approval names the version of the complete ordered plan.
+Briefs without `slices` retain the original one-slice behavior.
+
+Use the existing execution, check, simplification, review, verification and delivery
+commands for each slice. Intermediate acceptance checks map exactly to that slice's
+criteria. The final slice maps to **every task criterion**, including earlier slices,
+and its independent review must inspect integration. Reviewers receive the full brief,
+current slice and earlier delivery references, alongside the existing repository context.
+
+```sh
+npm start -- create examples/multislice-brief.json
+npm start -- approve <task-id> 1
+# Create a workspace and run the first slice through its gates.
+npm start -- execution-deliver <first-implementation-id> first-delivery.json
+npm start -- show <task-id>
+# Delivery readies the next slice. Explicitly create its fresh implementation session:
+npm start -- execution-new <same-workspace-id> 1 codex
+# Run fresh gates, final integration review and whole-task acceptance, then:
+npm start -- execution-deliver <final-implementation-id> final-delivery.json
+```
+
+Delivery atomically records the slice outcome and readies the next slice, clearing
+the current attempt and evidence. It completes the task only after the final slice.
+Each slice normally creates a separate verified commit; explicit `mode: "no_change"`
+can record an already satisfied outcome with unchanged HEAD. `execution-complete`
+cannot bypass delivery for a brief with planned slices. Retry attempts stay on the
+current slice, and previous sessions cannot write or supply evidence for a later one.
+
+Continuation uses the same workspace, requirement version, approval and original
+base commit. Before the next slice starts, raw HEAD/index/files must match the last
+delivered HEAD and inherited instructions must be unchanged. Changed state is refused
+for inspection. Receipt recovery advances only the verified delivered slice, once,
+without repeating Git writes or starting provider work. A failed delivery preserves
+the current slice and repository state. No automatic slice scheduler is provided.
 
 ## Live conversations
 
@@ -458,7 +500,8 @@ findings fail the review gate. Questions, interruptions and non-review replies l
 it pending. Ordinary `session-send` replies still cannot pass gates. The provider's
 repository tools remain disabled; this reviews supplied content, not runtime behavior.
 
-Acceptance JSON uses the check fields above plus the exact approved `criteria` list
+Acceptance JSON uses the check fields above plus the exact current slice `criteria` list
+(every task criterion for the final slice, or for a brief without planned slices)
 and an `expectedStdout` string, for example:
 
 ```json
@@ -675,8 +718,8 @@ TypeScript compiles to `dist/`; Node supplies SQLite, process handling and the t
 runner. The live Claude adapter adds the official `@anthropic-ai/claude-agent-sdk`
 runtime dependency and Zod for its in-process deletion-tool schema, both pinned in
 the lockfile. Node 24 may emit an experimental SQLite
-warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1–8 journals
-migrate to schema 9 without losing task, session or workspace data. Older executables cannot reopen a
+warning. The SQLite boundary is isolated in `src/store.ts`. Schema 1–9 journals
+migrate to schema 10 without losing task, session or workspace data. Older executables cannot reopen a
 migrated journal, so retain backups if you need to run an older checkout.
 
 - [Implementation sequence and acceptance examples](docs/IMPLEMENTATION.md)
@@ -684,7 +727,7 @@ migrated journal, so retain backups if you need to run an older checkout.
 - [Architecture and state contracts](docs/ARCHITECTURE.md)
 - [Where to resume next session](docs/NEXT-SESSION.md)
 
-The workflow API currently supports one slice per task. It is a trusted controller
+The workflow API supports explicit sequential slices. It is a trusted controller
 boundary, not an API for accepting unvalidated provider messages. Its direct evidence
 methods still trust the caller; the check CLI adds verified repository hashing and
 command evidence. Check selection and coverage remain caller responsibilities.

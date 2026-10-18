@@ -20,7 +20,7 @@ const help = `Grampus — local agent controller
 
   doctor [--orca]                 Check local interfaces; no inference calls
   demo                           Run a synthetic workflow in a fresh temporary database
-  create <brief.json>             Store a brief with title, outcome, criteria[], plan
+  create <brief.json>             Store title, outcome, criteria[], plan and optional ordered slices[]
   approve <task-id> <version>     Approve that exact brief version
   list                           List stored tasks
   show <task-id>                  Show a task and completion blockers
@@ -39,10 +39,10 @@ const help = `Grampus — local agent controller
   execution-check <id> <file.json>  Run an explicit check against that snapshot (Windows)
   execution-finish <id> <check-id> Submit implementation with the latest passing check
   execution-simplify <id> <file.json> Record an explicit assessment of the submitted artifact
-  execution-verify <id> <file.json> Check submitted artifact against all named criteria
+  execution-verify <id> <file.json> Verify current slice criteria (all task criteria for final slice)
   execution-review <id>           Review a verified artifact (review execution; optional --answers-file)
   execution-complete <id>         Recheck artifact and require every completion gate
-  execution-deliver <id> <file.json> Deliver checked content or verify no change, then complete (Windows)
+  execution-deliver <id> <file.json> Deliver current slice, ready the next or complete (Windows)
   execution-implement <id> <file.json> Run supervised Claude/Codex editing with an explicit policy
   implementation-show <id>        Show native editing scope, snapshots and result
   implementation-recover <id>     Confirm native tool shutdown without replaying inference

@@ -2,12 +2,21 @@ import { randomUUID } from 'node:crypto';
 import { Store } from './store.js';
 import type { Workspace } from './workspaces.js';
 import { assertTaskExecutionIdle } from './execution-state.js';
+import type { Execution } from './execution-state.js';
+import type { Delivery } from './deliveries.js';
+
+export interface Slice {
+  title: string;
+  plan: string;
+  criteria: string[];
+}
 
 export interface Brief {
   title: string;
   outcome: string;
   criteria: string[];
   plan: string;
+  slices?: Slice[];
 }
 
 export interface Agent {
@@ -51,6 +60,25 @@ export interface Task {
   attempt: Attempt | null;
   evidence: Evidence[];
   decisions: { id: string; version: number; rationale: string; accepted: boolean }[];
+  slice?: {
+    index: number;
+    completed: { index: number; attemptId: string; artifact: string; deliveryId: string;
+      outcome: 'committed' | 'no_change'; commit: string | null; head: string }[];
+  };
+}
+
+/** Final verification covers the whole outcome, including earlier slices. */
+export function activeCriteria(task: Task): string[] {
+  const index = task.slice?.index ?? 0;
+  return task.slice && task.brief.slices && index < task.brief.slices.length - 1
+    ? task.brief.slices[index]!.criteria : task.brief.criteria;
+}
+
+export function activeSlice(task: Task): (Slice & { number: number; total: number; final: boolean }) | null {
+  if (!task.brief.slices || !task.slice) return null;
+  const index = task.slice!.index;
+  return { ...task.brief.slices[index]!, criteria: activeCriteria(task), number: index + 1,
+    total: task.brief.slices.length, final: index === task.brief.slices.length - 1 };
 }
 
 function nonempty(value: string, field: string): void {
@@ -64,6 +92,17 @@ function validateBrief(brief: Brief): void {
   if (!Array.isArray(brief.criteria) || brief.criteria.length === 0) throw new Error('Acceptance criteria required');
   brief.criteria.forEach(value => nonempty(value, 'criterion'));
   if (new Set(brief.criteria).size !== brief.criteria.length) throw new Error('Acceptance criteria must be distinct');
+  if (brief.slices !== undefined) {
+    if (!Array.isArray(brief.slices) || brief.slices.length < 1 || brief.slices.length > 64) throw new Error('Plan requires 1–64 ordered slices');
+    for (const slice of brief.slices) {
+      if (!slice || typeof slice !== 'object' || Object.keys(slice).some(key => !['title', 'plan', 'criteria'].includes(key))) throw new Error('Invalid slice');
+      nonempty(slice.title, 'slice title'); nonempty(slice.plan, 'slice plan');
+      if (!Array.isArray(slice.criteria) || slice.criteria.length === 0
+        || new Set(slice.criteria).size !== slice.criteria.length
+        || slice.criteria.some(value => !brief.criteria.includes(value))) throw new Error('Slice criteria must name distinct approved task criteria');
+    }
+    if (!brief.criteria.every(criterion => brief.slices!.some(slice => slice.criteria.includes(criterion)))) throw new Error('Slices must cover every task criterion');
+  }
 }
 
 function validateAgent(agent: Agent): void {
@@ -109,6 +148,7 @@ export class Workflow {
     const task: Task = {
       id: randomUUID(), brief: structuredClone(brief), version: 1, approvedVersion: null,
       phase: 'draft', synthetic, attempt: null, evidence: [], decisions: [],
+      ...(brief.slices ? { slice: { index: 0, completed: [] } } : {}),
     };
     this.store.transaction(() => {
       this.store.save(task.id, task);
@@ -128,6 +168,8 @@ export class Workflow {
       task.approvedVersion = null;
       task.attempt = null;
       task.evidence = [];
+      if (brief.slices) task.slice = { index: 0, completed: [] };
+      else delete task.slice;
       // Pending decisions survive revisions until explicitly accepted.
       task.phase = 'draft';
       this.event(task, 'task.revised', { brief, previousVersion: expectedVersion });
@@ -155,7 +197,7 @@ export class Workflow {
       task.attempt = { id: randomUUID(), version: task.version, agent: structuredClone(agent), artifact: null, outcome: 'running' };
       task.evidence = [];
       task.phase = 'running';
-      this.event(task, 'attempt.started', task.attempt);
+      this.event(task, 'attempt.started', { ...task.attempt, ...(task.slice ? { sliceIndex: task.slice.index } : {}) });
       return structuredClone(task.attempt);
     });
   }
@@ -281,7 +323,7 @@ export class Workflow {
     });
   }
 
-  blockers(id: string): string[] {
+  sliceBlockers(id: string): string[] {
     const task = this.get(id);
     const reasons: string[] = [];
     if (this.store.workspaces<Workspace>().some(workspace => workspace.taskId === id && this.store.lease(workspace.id))) {
@@ -294,12 +336,51 @@ export class Workflow {
       const evidence = task.evidence.findLast(item => item.kind === kind);
       if (evidence?.outcome !== 'passed') reasons.push(`${kind} has not passed`);
       if (kind === 'verification' && evidence?.outcome === 'passed'
-        && !task.brief.criteria.every(criterion => evidence.criteria?.includes(criterion))) {
+        && !activeCriteria(task).every(criterion => evidence.criteria?.includes(criterion))) {
         reasons.push('Verification does not cover all acceptance criteria');
       }
     }
     if (task.decisions.some(item => !item.accepted)) reasons.push('Provisional decisions need acceptance');
     return reasons;
+  }
+
+  blockers(id: string): string[] {
+    const task = this.get(id);
+    const reasons = this.sliceBlockers(id);
+    if (task.slice && task.slice.completed.length !== task.brief.slices!.length) reasons.push('Planned slices have not all been delivered');
+    return reasons;
+  }
+
+  /** Called only after supervised delivery verification, in the settlement transaction. */
+  acceptDelivery(id: string, deliveryId: string): void {
+    const task = this.get(id);
+    if (!task.slice) { this.complete(id); return; }
+    this.change(id, task => {
+      const delivery = this.store.delivery<Delivery>(deliveryId);
+      const execution = this.store.execution<Execution>(delivery.executionId);
+      const reasons = this.sliceBlockers(id);
+      if (reasons.length) throw new Error(`Cannot deliver slice: ${reasons.join('; ')}`);
+      if (task.phase === 'complete' || delivery.phase !== 'delivered' || !delivery.request
+        || execution.taskId !== id || execution.version !== task.version || execution.role !== 'implementation'
+        || execution.attemptId !== task.attempt?.id || delivery.spec.artifact !== task.attempt.artifact
+        || !['committed', 'no_change'].includes(delivery.outcome ?? '')
+        || (delivery.outcome === 'committed' && !delivery.commit)
+        || task.slice!.completed.length !== task.slice!.index) throw new Error('Delivery does not match the current undelivered slice');
+      const completed = { index: task.slice!.index, attemptId: task.attempt.id, artifact: task.attempt.artifact!,
+        deliveryId, outcome: delivery.outcome!, commit: delivery.commit, head: delivery.commit ?? delivery.request.snapshot.head };
+      task.slice!.completed.push(completed);
+      this.event(task, 'slice.delivered', completed);
+      if (task.slice!.index === task.brief.slices!.length - 1) {
+        task.phase = 'complete';
+        this.event(task, 'task.completed', { attemptId: task.attempt.id, artifact: task.attempt.artifact, synthetic: task.synthetic });
+      } else {
+        task.slice!.index++;
+        task.attempt = null;
+        task.evidence = [];
+        task.phase = 'ready';
+        this.event(task, 'slice.ready', { index: task.slice!.index, title: task.brief.slices![task.slice!.index]!.title });
+      }
+    });
   }
 
   complete(id: string): void {
