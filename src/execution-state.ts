@@ -8,6 +8,7 @@ import { Store } from './store.js';
 import { currentProcessStartedAt } from './process-identity.js';
 
 export interface Execution {
+  sliceIndex?: number;
   id: string;
   taskId: string;
   version: number;

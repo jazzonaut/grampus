@@ -1,6 +1,8 @@
 export type Provider = 'codex' | 'claude';
+export const agentToolsetVersion = 3;
 
 export interface Reply {
+  simplification?: { outcome: 'passed' | 'failed'; summary: string } | null;
   kind: 'message' | 'question' | 'review';
   text: string;
   questions: { id: string; prompt: string; choices: string[] }[];
@@ -10,6 +12,8 @@ export interface Reply {
 export const replySchema = {
   type: 'object', additionalProperties: false,
   properties: {
+    simplification: { anyOf: [{ type: 'null' }, { type: 'object', additionalProperties: false,
+      properties: { outcome: { type: 'string', enum: ['passed', 'failed'] }, summary: { type: 'string' } }, required: ['outcome', 'summary'] }] },
     kind: { type: 'string', enum: ['message', 'question', 'review'] }, text: { type: 'string' },
     questions: { type: 'array', items: { type: 'object', additionalProperties: false,
       properties: { id: { type: 'string' }, prompt: { type: 'string' }, choices: { type: 'array', items: { type: 'string' } } },
@@ -17,7 +21,7 @@ export const replySchema = {
     findings: { type: 'array', items: { type: 'object', additionalProperties: false,
       properties: { severity: { type: 'string', enum: ['blocking', 'suggestion'] }, description: { type: 'string' }, evidence: { type: 'string' } },
       required: ['severity', 'description', 'evidence'] } },
-  }, required: ['kind', 'text', 'questions', 'findings'],
+  }, required: ['kind', 'text', 'questions', 'findings', 'simplification'],
 };
 
 export const instructions = `You are participating in a Grampus conversation. Do not edit files, run commands or delegate work. Use configured MCP integrations and the supplied read-only tools to gather task context.
@@ -38,6 +42,8 @@ export function parseReply(value: unknown): Reply {
   if (r.findings.some(f => !f || !['blocking', 'suggestion'].includes(f.severity)
     || typeof f.description !== 'string' || !f.description.trim() || typeof f.evidence !== 'string' || !f.evidence.trim())) throw new Error('Invalid review findings');
   if ((r.kind === 'question') !== (r.questions.length > 0) || (r.kind !== 'review' && r.findings.length > 0)) throw new Error('Reply kind does not match content');
+  if (r.simplification != null && (r.kind !== 'review' || !['passed', 'failed'].includes(r.simplification.outcome)
+    || typeof r.simplification.summary !== 'string' || !r.simplification.summary.trim() || Buffer.byteLength(r.simplification.summary) > 12000)) throw new Error('Invalid independent simplification assessment');
   return r as Reply;
 }
 

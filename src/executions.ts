@@ -9,6 +9,7 @@ import { requireDeadController } from './check-recovery.js';
 import { snapshotRepository, type RepositorySnapshot } from './artifacts.js';
 import { verifyNoChange } from './delivery-git.js';
 import type { Delivery } from './deliveries.js';
+import { sessionContinuation } from './session-context.js';
 
 export class Executions {
   constructor(private readonly store: Store, private readonly workspaces = new Workspaces(store)) {}
@@ -32,7 +33,7 @@ export class Executions {
   }
 
   async create(workspaceId: string, version: number, provider: Provider, role: Execution['role'] = 'implementation',
-    model: string | null = null, fallbackReason: string | null = null): Promise<Execution> {
+    model: string | null = null, fallbackReason: string | null = null, resumeFrom: string | null = null): Promise<Execution> {
     if (!['implementation', 'review'].includes(role)) throw new Error('Execution role must be implementation or review');
     const inspected = await this.workspaces.inspect(workspaceId);
     const observedTask = new Workflow(this.store).get(inspected.workspace.taskId);
@@ -81,10 +82,25 @@ export class Executions {
         if (task.attempt.agent.provider === provider && !fallbackReason?.trim()) throw new Error('Same-provider review requires a fallback reason');
       }
       const session = new Sessions(this.store).create(provider, workspace.path, model);
+      if (resumeFrom) {
+        const previous = this.get(resumeFrom), prior = new Sessions(this.store).get(previous.sessionId);
+        if (previous.taskId !== task.id || previous.version !== version || previous.workspaceId !== workspaceId || previous.role !== role
+          || (previous.sliceIndex ?? 0) !== (task.slice?.index ?? 0) || previous.phase !== 'closed'
+          || prior.provider !== provider || prior.run
+          || ['running', 'stop_requested', 'recovery_required', 'awaiting_answer'].includes(prior.phase)) throw new Error('Session continuation requires a settled execution of the same role, version, slice, workspace and provider');
+        const decision = sessionContinuation(this.store, prior, task.guided?.plan.workflowPolicy);
+        if (model !== null && prior.model !== model || role === 'implementation' && prior.mode !== 'editing') {
+          decision.resume = false; decision.reason = 'Start fresh for the selected model or editing mode';
+        }
+        if (decision.resume) { session.providerSessionId = prior.providerSessionId; session.model = prior.model; if (prior.mode) session.mode = prior.mode; if (prior.toolsetVersion !== undefined) session.toolsetVersion = prior.toolsetVersion; }
+        this.store.saveSession(session.id, session);
+        this.store.appendSession(session.id, decision.resume ? 'session.continued' : 'session.context_reset', { from: prior.id, ...decision });
+        this.store.append(task.id, version, decision.resume ? 'agent.session_continued' : 'agent.context_reset', { role, sessionId: session.id, from: prior.id, ...decision });
+      }
       const attempt = role === 'implementation'
         ? workflow.start(task.id, { provider, model: model ?? 'provider-default', sessionId: session.id })
         : task.attempt!;
-      const execution: Execution = { id: randomUUID(), taskId: task.id, version, attemptId: attempt.id,
+      const execution: Execution = { id: randomUUID(), taskId: task.id, version, attemptId: attempt.id, sliceIndex: task.slice?.index ?? 0,
         workspaceId, sessionId: session.id, role, phase: 'open', headAtCreation: inspected.head,
         artifact: role === 'review' ? attempt.artifact : null, fallbackReason };
       this.store.saveExecution(execution.id, task.id, workspaceId, session.id, execution);

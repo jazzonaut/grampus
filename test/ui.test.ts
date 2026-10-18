@@ -12,13 +12,14 @@ import { GuidedTasks } from '../src/guided-tasks.js';
 import { Sessions } from '../src/sessions.js';
 import type { Execution } from '../src/execution-state.js';
 import type { Connector, Reply } from '../src/agents/types.js';
+import type { RepositoryCheck } from '../src/checks.js';
 
 function fixture(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-ui-')), repo = join(root, 'repo'); mkdirSync(repo);
   const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { windowsHide: true, encoding: 'utf8', stdio: 'pipe' }).trim();
   git('init'); git('config', 'user.name', 'Offline test'); git('config', 'user.email', 'offline@example.invalid'); git('config', 'core.autocrlf', 'false');
   writeFileSync(join(repo, 'greeting.js'), "console.log('hello');\n"); git('add', '.'); git('commit', '-m', 'Baseline');
-  const plan = { brief: { title: 'Verify greeting', outcome: 'Confirm hello with a newline', criteria: ['Greeting prints hello followed by a newline'], plan: 'Check existing behavior and independently review without changes' },
+  const plan = { workflowPolicy: { mode: 'supervised' }, brief: { title: 'Verify greeting', outcome: 'Confirm hello with a newline', criteria: ['Greeting prints hello followed by a newline'], plan: 'Check existing behavior and independently review without changes' },
     workspace: { repo, path: join(root, 'workspace') }, slices: [{ mode: 'no_change', scope: { files: [] },
       validation: { file: 'node', args: ['--check', 'greeting.js'] }, acceptance: { file: 'node', args: ['greeting.js'], expectedStdout: 'hello\n' }, message: 'Confirm greeting' }] };
   return { root, repo, plan, git, cleanup: () => rmSync(root, { recursive: true, force: true }) };
@@ -28,6 +29,52 @@ function expected(view: any) {
   return JSON.stringify({ version: s.version, digest: s.digest, status: s.status, stage: s.stage, artifact: s.snapshot?.artifact ?? null,
     instructionsDigest: s.snapshot?.instructionsDigest ?? null, executionId: s.executionId, reviewId: s.reviewId, questionKey: view.questionKey ?? null });
 }
+
+test('dashboard polls show the actual failure without raw logs and page logs only on request', async t => {
+  const f = fixture(t), ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+  t.after(async () => { await ui.close(); f.cleanup(); });
+  const tasks = new GuidedTasks(ui.store), task = tasks.create(f.plan);
+  tasks.approve(task.id, 1, task.guided!.digest); await tasks.run(task.id);
+  const state = tasks.get(task.id), raw = 'HUGE_RAW_LOG '.repeat(5000) + '\n\x1b[31mAssertionError: MarkInfo must follow its reference\x1b[0m';
+  const check = { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', executionId: state.executionId!, phase: 'failed', spec: { ...state.plan.slices[0]!.validation,
+    artifact: state.snapshot!.artifact, instructionsDigest: state.snapshot!.instructionsDigest }, before: state.snapshot, after: state.snapshot,
+    error: null, result: { stdout: '', stderr: raw, reason: 'exited', exitCode: 1, exitConfirmed: true, outputTruncated: false } } as RepositoryCheck;
+  ui.store.saveCheck(check.id, check.executionId, check);
+  const saved = ui.store.get<any>(task.id); saved.guided.status = 'blocked'; saved.guided.stage = 'validation'; saved.guided.note = raw; ui.store.save(task.id, saved);
+  const url = new URL(ui.url), headers = { Authorization: `Bearer ${url.hash.slice(1)}` };
+  const response = await fetch(`${url.origin}/api/tasks/${task.id}`, { headers }), payload = await response.text(), view = JSON.parse(payload);
+  assert.match(view.state.note, /MarkInfo/); assert.ok(view.state.note.length < 4000);
+  assert.equal(view.checks[0].result.stderr, undefined); assert.equal(view.checks[0].before, undefined);
+  assert.doesNotMatch(payload, /HUGE_RAW_LOG|\\u001b/);
+  const page = await (await fetch(`${url.origin}/api/tasks/${task.id}/check-output?checkId=${check.id}&offset=59000`, { headers })).json() as any;
+  assert.match(page.content, /MarkInfo/); assert.doesNotMatch(page.content, /\x1b/); assert.ok(page.content.length <= 16000);
+  const other = tasks.create({ ...f.plan, workspace: { ...f.plan.workspace, path: join(f.root, 'other-workspace') } });
+  assert.equal((await fetch(`${url.origin}/api/tasks/${other.id}/check-output?checkId=${check.id}`, { headers })).status, 400);
+});
+
+test('approving an automatic plan starts work without a second continue or file authorization click', async t => {
+  const f = fixture(t), ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+  t.after(async () => { await ui.close(); f.cleanup(); });
+  const tasks = new GuidedTasks(ui.store), task = tasks.create({ ...f.plan, workflowPolicy: { mode: 'automatic' },
+    slices: [{ ...f.plan.slices[0], validation: { file: 'node', args: ['-e', 'process.exit(1)'] } }] });
+  const url = new URL(ui.url), headers = { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' };
+  const get = async () => (await (await fetch(`${url.origin}/api/tasks/${task.id}`, { headers })).json()) as any;
+  const draft = await get();
+  const response = await fetch(`${url.origin}/api/tasks/${task.id}/approve`, { method: 'POST', headers,
+    body: JSON.stringify({ expected: expected(draft), version: 1, digest: draft.state.digest }) });
+  assert.equal(response.status, 202);
+  let view: any;
+  const deadline = Date.now() + 20000;
+  do {
+    view = await get();
+    const status = await (await fetch(`${url.origin}/api/state`, { headers })).json() as any;
+    if (view.state.status === 'blocked' && !status.jobs[task.id]?.running) break;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  } while (Date.now() < deadline);
+  assert.equal(view.state.status, 'blocked', view.state.note); assert.equal(view.state.stage, 'validation');
+  assert.equal(view.checks[0].phase, 'failed');
+  assert.ok(!ui.store.events(task.id).some(event => (event.data as any)?.status === 'awaiting_scope'));
+});
 
 test('planning infers generic preparation on initial and resumed turns and retains commands for approval', async t => {
   const f = fixture(t), store = new Store(join(f.root, 'preparation.sqlite')); t.after(() => { store.close(); f.cleanup(); });

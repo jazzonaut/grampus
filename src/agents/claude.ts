@@ -151,6 +151,11 @@ export class ClaudeSession implements AgentSession {
       this.options.emit({ type: 'integrations.updated', data: { servers: message.mcp_servers.filter(server => !server.name.startsWith('grampus_')).map(server => ({ name: server.name, status: server.status })) } });
     }
     if (!this.active) return;
+    if (message.type === 'assistant' && !message.parent_tool_use_id) {
+      const usage = message.message.usage;
+      const inputTokens = numeric(usage.input_tokens), cached = numeric(usage.cache_read_input_tokens), created = numeric(usage.cache_creation_input_tokens);
+      if (inputTokens !== null) this.options.emit({ type: 'context.updated', data: { inputTokens: inputTokens + (cached ?? 0) + (created ?? 0) } });
+    }
     if (message.type === 'stream_event' && message.event.type === 'content_block_delta' && message.event.delta.type === 'text_delta') {
       this.options.emit({ type: 'output.delta', data: { text: message.event.delta.text } });
     }

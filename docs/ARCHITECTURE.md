@@ -1,5 +1,13 @@
 # Architecture and state contracts
 
+The [automatic workflow and context policy](WORKFLOW.md) supersedes the manual-only
+guided checkpoint behavior described in the historical sections below. New recipes
+include `workflowPolicy` in their approved digest. Legacy recipes keep their digest;
+an explicit journaled `task-automate` authorization enables automatic continuation
+within their existing plan. Session continuation creates fresh execution/session
+records with a validated previous provider conversation ID; it never rebinds old
+evidence or relaxes workspace leases, version checks, artifact checks or recovery.
+
 This describes the implemented baseline as of 17 October 2026. [DESIGN.md](../DESIGN.md)
 defines the intended product; [IMPLEMENTATION.md](IMPLEMENTATION.md) tracks delivery
 sequence. Product requirements that appear there are not automatically implemented.

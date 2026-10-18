@@ -1,5 +1,12 @@
 # Grampus
 
+The [automatic workflow](docs/WORKFLOW.md) now handles routine validation and acceptance
+repairs within approved scope, resumes implementation/review conversations within a
+slice, and obtains simplification assessments from independent review. Conversation
+reset thresholds are configurable. Check failures show concise diagnostics with logs
+loaded on demand. Existing saved plans can explicitly opt in without replacing their
+worktree or approved outcome.
+
 Grampus is a local application being built to coordinate coding agents from task clarification through implementation, independent review, and verified delivery. It aims to reduce human steering and rework while preserving code quality, observability, and control over model usage.
 
 The design targets Windows, macOS, and Linux, with complete operation both with and without Orca.

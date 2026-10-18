@@ -15,6 +15,9 @@ import { defaultDashboardPort, versionInformation } from './runtime.js';
 import { TaskLifecycle } from './task-lifecycle.js';
 import { suggestReferenceFolders } from './reference-folders.js';
 import type { Task } from './workflow.js';
+import type { RepositoryCheck } from './checks.js';
+import type { Execution } from './execution-state.js';
+import { checkIssue, outputExcerpt, readCheckLog } from './check-output.js';
 
 interface Job { running: boolean; error: string | null; action: string; startedAt: string }
 export interface UiOptions { db: string; port?: number }
@@ -82,11 +85,21 @@ export async function startUi(options: UiOptions) {
       if (match && request.method === 'GET' && match[1] === 'tasks' && match[3] === 'events') {
         if (store.get<Task>(match[2]!).deletedAt) throw new Error('This task was deleted');
         json(response, 200, { events: store.events(match[2]!).map(event => ({ sequence: event.sequence, at: event.at, type: event.type,
-          data: { note: (event.data as { note?: string } | null)?.note } })) }); return;
+          data: { note: outputExcerpt((event.data as { note?: string } | null)?.note ?? '', 1200) } })) }); return;
       }
       if (match && request.method === 'GET' && match[1] === 'tasks' && match[3] === 'report') {
         if (store.get<Task>(match[2]!).deletedAt) throw new Error('This task was deleted');
         json(response, 200, { report: renderReport(store, match[2]!) }); return;
+      }
+      if (match && request.method === 'GET' && match[1] === 'tasks' && match[3] === 'check-output') {
+        const task = store.get<Task>(match[2]!);
+        if (task.deletedAt) throw new Error('This task was deleted');
+        const params = new URL(request.url!, origin).searchParams;
+        const check = store.check<RepositoryCheck>(params.get('checkId') ?? '');
+        if (store.execution<Execution>(check.executionId).taskId !== task.id) throw new Error('Check belongs to another task');
+        const stream = params.get('stream') ?? 'stderr', offset = Number(params.get('offset') ?? 0);
+        if (!['stdout', 'stderr'].includes(stream) || !Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid log page');
+        json(response, 200, readCheckLog(check, stream as 'stdout' | 'stderr', offset, 16000, params.get('raw') === '1')); return;
       }
       if (match && request.method === 'GET' && match[1] === 'tasks' && !match[3]) {
         if (store.get<Task>(match[2]!).deletedAt) throw new Error('This task was deleted');
@@ -105,13 +118,22 @@ export async function startUi(options: UiOptions) {
           catch (error) { scopeError = error instanceof Error ? error.message : String(error); }
         }
         // Never serialize the full hashed file inventory, delivery snapshot or report on a poll.
-        const compactState = { ...view.state, snapshot: view.state.snapshot ? { ...view.state.snapshot, files: [], index: '', totalFiles: view.state.snapshot.files.length } : null };
+        const historyChecks = store.executions<Execution>().filter(execution => execution.taskId === view.task.id && execution.version === view.state.version
+          && (execution.sliceIndex ?? 0) === view.state.sliceIndex).flatMap(execution => store.checks<RepositoryCheck>(execution.id));
+        const failed = historyChecks.findLast(check => check.phase === 'failed');
+        const note = view.state.note.length > 4000 && failed ? `Check ${failed.spec.name} failed.\n${checkIssue(failed)}\nRetained check: ${failed.id}` : outputExcerpt(view.state.note, 3000);
+        const compactState = { ...view.state, note, feedback: '', snapshot: view.state.snapshot ? { ...view.state.snapshot, files: [], index: '', totalFiles: view.state.snapshot.files.length } : null };
         const events = store.events(match[2]!);
         const value = { ...view, state: compactState, task: { ...view.task, guided: compactState },
+          checks: historyChecks.map(check => ({ id: check.id, executionId: check.executionId, purpose: check.purpose, spec: check.spec, phase: check.phase, error: check.error,
+            toolPid: check.toolPid, supervisorPid: check.supervisorPid, dispatch: check.dispatch,
+            issue: check.phase === 'failed' ? checkIssue(check) : null,
+            result: check.result ? { reason: check.result.reason, exitCode: check.result.exitCode, outputTruncated: check.result.outputTruncated,
+              outputUnavailable: check.result.outputUnavailable, stdoutCharacters: check.result.stdout.length, stderrCharacters: check.result.stderr.length } : null })),
           implementations: view.implementations.map(run => ({ id: run.id, phase: run.phase, error: run.error })),
           deliveries: view.deliveries.map(delivery => ({ ...delivery, request: null })),
           scopeFiles, scopeError, eventCount: events.length, events: events.slice(-30).map(event => ({ sequence: event.sequence, at: event.at, type: event.type,
-            data: { note: (event.data as { note?: string } | null)?.note } })), report: null };
+            data: { note: outputExcerpt((event.data as { note?: string } | null)?.note ?? '', 1200) } })), report: null };
         if (cachedViews.size >= 4) cachedViews.delete(cachedViews.keys().next().value!);
         cachedViews.set(match[2]!, { revision, value });
         json(response, 200, value); return;
@@ -156,8 +178,14 @@ export async function startUi(options: UiOptions) {
         // Every decision names the exact state displayed to the user. A stale tab cannot authorize new bytes.
         const expected = guidedDecisionKey(view.state, view.questionKey);
         if (payload.expected !== expected) throw new Error('Task changed since you inspected it; refresh before taking this action');
-        if (action === 'approve') { new GuidedTasks(store, { expectedState: payload.expected }).approve(id!, payload.version, payload.digest); json(response, 200, { ok: true }); return; }
-        if (!['run', 'authorize', 'assess', 'answer', 'retry', 'revise', 'recover', 'release-workspace'].includes(action!)) throw new Error('Unknown task action');
+        if (action === 'approve') {
+          const approved = new GuidedTasks(store, { expectedState: payload.expected }).approve(id!, payload.version, payload.digest);
+          if (approved.plan.workflowPolicy?.mode === 'automatic') {
+            launch(id!, 'run', { expected: guidedDecisionKey(approved) }); json(response, 202, { ok: true });
+          } else json(response, 200, { ok: true });
+          return;
+        }
+        if (!['run', 'authorize', 'assess', 'answer', 'retry', 'automate', 'revise', 'recover', 'release-workspace'].includes(action!)) throw new Error('Unknown task action');
         launch(id!, action!, payload);
       }
       json(response, 202, { ok: true });

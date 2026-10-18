@@ -79,12 +79,14 @@ Node checks are syntax checked without execution; other executables and scripts
 are validated by their actual authorized execution. Grampus does not establish
 semantic sufficiency automatically.
 
-The dashboard presents the retained instructions and file contents before exact
-file authorization. After implementation and validation, inspect the changes and
-check output, choose an explicit simplification outcome and explain it. A pass
-continues through independent review, acceptance and verified local delivery.
-Questions, blocking findings and failed checks stop with an actionable checkpoint.
-Retry starts a fresh attempt and preserves files. At a preparation failure,
+New plans run [automatically within the approved scope](WORKFLOW.md), including
+bounded check repairs and an independent simplification assessment. Questions,
+unsupported scope, exhausted allowances and operational failures stop for attention.
+Supervised mode retains the explicit file-authorization and assessment forms.
+Saved plans can opt in with **Continue automatically within this plan**.
+Retry preserves files and starts fresh evidence while resuming eligible conversations.
+Failed checks show a compact issue summary; full output is collapsed and loaded in
+bounded pages only when requested. At a preparation failure,
 **Retry preparation** resumes just that step in the same attempt. The planner
 infers repository prerequisites and includes their commands in plan approval;
 the dashboard retains preparation output separately from validation evidence.

@@ -138,6 +138,8 @@ export class CodexSession implements AgentSession {
     }
     if (message.method === 'item/completed' && p.item?.type === 'agentMessage') active.text = String(p.item.text);
     if (message.method === 'thread/tokenUsage/updated') {
+      const inputTokens = numeric(p.tokenUsage?.last?.inputTokens);
+      if (inputTokens !== null) this.emit({ type: 'context.updated', data: { inputTokens, windowTokens: numeric(p.tokenUsage?.modelContextWindow) } });
       const total = p.tokenUsage?.total;
       active.usage = { scope: 'provider-session-cumulative', inputTokens: numeric(total?.inputTokens), outputTokens: numeric(total?.outputTokens),
         cachedInputTokens: numeric(total?.cachedInputTokens), estimatedCostUsd: null, billedCostUsd: null };

@@ -27,7 +27,7 @@ function fixture(t: { after(fn: () => void): void }) {
   git('add', '.'); git('commit', '-m', 'Baseline'); const base = git('rev-parse', 'HEAD');
   const store = new Store(join(root, 'journal.sqlite'));
   t.after(() => { store.close(); rmSync(root, { recursive: true, force: true }); });
-  const plan = { brief: { title: 'Greeting', outcome: 'Print hello', criteria: ['Print hello'], plan: 'Verify greeting' },
+  const plan = { workflowPolicy: { mode: 'supervised' }, brief: { title: 'Greeting', outcome: 'Print hello', criteria: ['Print hello'], plan: 'Verify greeting' },
     workspace: { repo, path: join(root, 'workspace'), base }, context: { files: ['main.js', 'helper.js'] },
     slices: [{ scope: { files: ['main.js'] }, validation: { file: 'node', args: ['--check', 'main.js'] },
       acceptance: { file: 'node', args: ['main.js'], expectedStdout: 'hello\n' }, message: 'Greeting' }] };

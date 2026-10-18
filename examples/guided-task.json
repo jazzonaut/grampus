@@ -1,4 +1,5 @@
 {
+  "workflowPolicy": { "mode": "supervised" },
   "brief": {
     "title": "Update the greeting",
     "outcome": "Make greeting.js print hello world followed by one newline.",

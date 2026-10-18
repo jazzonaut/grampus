@@ -7,13 +7,15 @@ import { agentTimeout } from './agent-timeout.js';
 import { connectAgent } from './agents/index.js';
 import { Workspaces } from './workspaces.js';
 import { claimExecution, requireExecutionLease, settleExecution, stopExecution, type Execution } from './execution-state.js';
-import { Workflow, activeSlice, type Task } from './workflow.js';
+import { Workflow, activeSlice, activeCriteria, type Task } from './workflow.js';
 import { currentProcessStartedAt, inspectProcess } from './process-identity.js';
 import { processAlive as ownedProcessAlive } from './check-recovery.js';
 import { captureRepository, reviewContext } from './repository-evidence.js';
-import { parseReply, type AgentEvent, type AgentSession, type Connector, type Provider, type Reply, type TurnResult } from './agents/types.js';
+import { agentToolsetVersion, parseReply, type AgentEvent, type AgentSession, type Connector, type Provider, type Reply, type TurnResult } from './agents/types.js';
+import { taskCheckEvidence, checkEvidenceSummary } from './check-evidence.js';
 
 export interface Session {
+  toolsetVersion?: number;
   deletedAt?: string;
   mode?: 'editing';
   id: string;
@@ -76,7 +78,7 @@ export class Sessions {
       if (execution) {
         const task = this.store.get<Task>(execution.taskId);
         prompt = `Approved task context (${editing ? 'native file editing; do not claim validation or completion' : 'conversation only; do not claim repository execution or completion'}):\n${JSON.stringify({
-          brief: task.brief, version: execution.version, attemptId: execution.attemptId, role: execution.role, artifact: execution.artifact,
+          ...(session.providerSessionId ? { title: task.brief.title, criteria: activeCriteria(task), continuedConversation: true } : { brief: task.brief }), version: execution.version, attemptId: execution.attemptId, role: execution.role, artifact: execution.artifact,
           ...(task.slice ? { currentSlice: activeSlice(task), completedSlices: task.slice.completed,
             scope: 'Work on the current slice only. The final slice requires integration review and verification of every task criterion.' } : {}),
         })}\n\nUser turn:\n${prompt}`;
@@ -98,6 +100,7 @@ export class Sessions {
         if (typeof data.providerSessionId !== 'string' || !data.providerSessionId) throw new Error('Missing provider session identity');
         if (session.providerSessionId && session.providerSessionId !== data.providerSessionId) throw new Error('Provider session identity changed');
         session.providerSessionId = data.providerSessionId;
+        session.toolsetVersion = agentToolsetVersion;
         if (data.model) session.model = data.model;
         if (execution?.role === 'implementation' && data.model) {
           const task = this.store.get<Task>(execution.taskId);
@@ -251,9 +254,11 @@ export async function runSession(store: Store, id: string, prompt: string, optio
       if (!inspected.taskCurrent) throw new Error('Execution task version changed before dispatch');
       if (review) {
         const snapshot = await captureRepository(workspaces, review);
-        claim.prompt += `\n\n${await reviewContext(store, workspaces, review, snapshot)}`;
+        claim.prompt += `\n\n${await reviewContext(store, workspaces, review, snapshot, !!claim.session.providerSessionId)}`;
         const plan = new Workflow(store).get(execution.taskId).guided?.plan;
-        if (plan?.context?.exploration) repository = { repo: claim.session.cwd, snapshot, references: plan.references ?? [] };
+        const checks = taskCheckEvidence(store, execution);
+        claim.prompt += `\nRetained check evidence (use grampus_read_check for complete output):\n${checkEvidenceSummary(checks)}`;
+        if (plan?.context?.exploration) repository = { repo: claim.session.cwd, snapshot, references: plan.references ?? [], checks };
         emit({ type: 'review.context', data: { artifact: review.artifact, prompt: claim.prompt } });
       }
       if (stopped) throw new Error('Interrupted before provider connection');

@@ -38,6 +38,17 @@ test('MCP cards always show only connected names and tool counts in the compact 
   assert.equal(runInContext('integrationCard()', context), '');
 });
 
+test('failed checks start collapsed and load bounded plain-text output on demand', () => {
+  const { context } = dashboard();
+  context.check = { id: 'check-a', spec: { name: 'PDF validation', file: 'node', args: [] }, phase: 'failed', issue: '\x1b[31mAssertionError: MarkInfo\x1b[0m', result: { stderr: 'DO_NOT_RENDER_RAW_OUTPUT' } };
+  const html = runInContext('checkCard(check)', context) as string;
+  assert.match(html, /AssertionError: MarkInfo/); assert.match(html, /Read stderr/); assert.match(html, /Read stdout/);
+  assert.doesNotMatch(html, /<details[^>]*open|DO_NOT_RENDER_RAW_OUTPUT|\x1b|\[31m/);
+  runInContext("selected='task-a';loadedCheck={taskId:selected,checkId:'check-a',stream:'stderr',offset:0,content:'safe page',nextOffset:16000,totalCharacters:40000}", context);
+  const loaded = runInContext('checkCard(check)', context) as string;
+  assert.match(loaded, /class="check-log"/); assert.match(loaded, /Next page/); assert.match(loaded, /safe page/);
+});
+
 test('MCP connections are the last sidebar panel on both planning and task pages', () => {
   const { context } = dashboard();
   context.servers = [{ name: 'Linear', status: 'connected', tools: 82 }];

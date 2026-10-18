@@ -9,6 +9,7 @@ import type { Provider } from './agents/types.js';
 import { pinnedContext, pinnedRepository } from './repository-context.js';
 import { normalizeReferences, type ReferenceFolder } from './reference-folders.js';
 import { validateExpectations, type AcceptanceExpectations } from './acceptance.js';
+import { normalizeWorkflowPolicy, type WorkflowPolicy } from './workflow-policy.js';
 
 export interface GuidedCommand { name: string; file: string; args: string[]; timeoutMs: number }
 export interface GuidedSlice {
@@ -20,6 +21,7 @@ export interface GuidedSlice {
   mode: 'commit' | 'no_change';
 }
 export interface GuidedPlan {
+  workflowPolicy?: WorkflowPolicy;
   preparation?: GuidedCommand;
   reviewPolicy?: { repairRounds: number; arbitrator?: GuidedPlan['review'] };
   revision?: { previousVersion: number; artifact: string; head: string; instructionsDigest: string; sliceIndex: number };
@@ -67,7 +69,8 @@ function agent(value: unknown, defaultProvider: Provider): GuidedPlan['implement
 /** Normalize once; approval covers this exact plan, including checks, paths and pinned base. */
 export function normalizeGuidedPlan(input: unknown, directory = process.cwd(), existingWorkspace?: GuidedPlan['workspace']): GuidedPlan {
   if (Buffer.byteLength(JSON.stringify(input) ?? '') > 1024 * 1024) throw new Error('Guided plan exceeds 1 MiB');
-  const value = object(input, ['brief', 'workspace', 'implementation', 'review', 'reviewPolicy', 'slices', 'context', 'references', 'preparation'], 'guided plan');
+  const value = object(input, ['brief', 'workspace', 'implementation', 'review', 'reviewPolicy', 'workflowPolicy', 'slices', 'context', 'references', 'preparation'], 'guided plan');
+  const workflowPolicy = normalizeWorkflowPolicy(value.workflowPolicy);
   const preparation = value.preparation === undefined ? undefined : command(value.preparation, false, 'Preparation');
   const references = normalizeReferences(value.references);
   const brief = structuredClone(object(value.brief, ['title', 'outcome', 'criteria', 'plan', 'slices'], 'brief')) as unknown as Brief;
@@ -137,7 +140,7 @@ export function normalizeGuidedPlan(input: unknown, directory = process.cwd(), e
     return { scope, mode, ...(item.preparation === undefined ? {} : { preparation: command(item.preparation, false, 'Preparation after implementation') }),
       validation: command(item.validation, false), acceptance: command(item.acceptance, true) as GuidedSlice['acceptance'], message };
   });
-  return { brief, workspace: { repo, base, adapter, ...(path ? { path } : {}) }, implementation, review, slices, context,
+  return { brief, workspace: { repo, base, adapter, ...(path ? { path } : {}) }, implementation, review, slices, context, workflowPolicy,
     ...(preparation ? { preparation } : {}),
     ...(reviewPolicy ? { reviewPolicy } : {}), ...(references.length ? { references } : {}) };
 }

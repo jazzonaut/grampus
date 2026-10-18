@@ -16,11 +16,101 @@ import { renderReport } from '../src/report.js';
 import { Kickoffs } from '../src/kickoff.js';
 import { repositoryTools } from '../src/repository-tools.js';
 import { Checks, type RepositoryCheck } from '../src/checks.js';
+import { Sessions } from '../src/sessions.js';
 
 const windows = { skip: process.platform !== 'win32' };
 const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
 const message: Reply = { kind: 'message', text: 'Offline fixture implementation', questions: [], findings: [] };
 const review: Reply = { kind: 'review', text: 'Offline fixture review', questions: [], findings: [] };
+
+test('automatic work repairs a failed check with complete evidence and resumes its implementer', windows, async t => {
+  const f = fixture(t); let implementations = 0;
+  const config = services();
+  config.implementationRunner = options => {
+    const request = JSON.parse(readFileSync(options.args[1]!, 'utf8'));
+    const run = f.store.implementation<ImplementationRun>(request.id);
+    const execution = f.store.execution<any>(run.executionId), sessions = new Sessions(f.store);
+    const session = sessions.get(execution.sessionId);
+    if (implementations++) {
+      assert.equal(session.providerSessionId, 'offline-implementation');
+      assert.match(request.prompt, /Actual assertion at the end/);
+      assert.match(request.prompt, /grampus_read_check/);
+      assert.ok(request.prompt.length < 20000);
+    }
+    sessions.event(session.id, run.id, { type: 'session.connected', data: { providerSessionId: 'offline-implementation', model: 'fixture' } });
+    return services(implementations === 1 ? "console.log('wrong');\n" : "console.log('hello world');\n").implementationRunner!(options);
+  };
+  config.connector = async () => ({ turn: async () => ({ status: 'completed', reply: { ...review,
+    simplification: { outcome: 'passed', summary: 'One output statement; no duplication or unnecessary abstractions.' } } as Reply, usage: null, error: null }),
+    interrupt: async () => {}, close: async () => {} });
+  const tasks = new GuidedTasks(f.store, config), slice = f.plan.slices[0]!;
+  const task = tasks.create({ ...f.plan, workflowPolicy: { mode: 'automatic' }, slices: [{ ...slice,
+    validation: { file: 'node', args: ['-e', "if(require('node:fs').readFileSync('greeting.js','utf8').includes('wrong')){console.error('noise '.repeat(4000));console.error('\\u001b[31mAssertionError: Actual assertion at the end\\u001b[0m');process.exitCode=1}"], timeoutMs: 15000 } }] });
+  tasks.approve(task.id, 1, task.guided!.digest);
+  const done = await tasks.run(task.id);
+  assert.equal(done.status, 'complete', done.note); assert.equal(implementations, 2);
+  const events = f.store.events(task.id);
+  assert.equal(events.filter(event => event.type === 'guided.validation_repair_requested').length, 1);
+  assert.ok(!events.some(event => (event.data as any)?.status === 'awaiting_scope' || (event.data as any)?.status === 'awaiting_assessment'));
+  assert.equal(f.store.get<any>(task.id).evidence.find((e: any) => e.kind === 'simplification' && e.outcome === 'passed').source, 'agent');
+});
+
+test('automatic validation stops spending tokens when a repair leaves content unchanged', windows, async t => {
+  const f = fixture(t); let implementations = 0;
+  const config = services("console.log('wrong');\n");
+  const runner = config.implementationRunner!;
+  config.implementationRunner = options => { implementations++; return runner(options); };
+  const tasks = new GuidedTasks(f.store, config), task = tasks.create({ ...f.plan, workflowPolicy: { mode: 'automatic', repairRounds: 3 } });
+  tasks.approve(task.id, 1, task.guided!.digest);
+  const stopped = await tasks.run(task.id);
+  assert.equal(stopped.status, 'blocked'); assert.match(stopped.note, /no.*progress|unchanged/i);
+  assert.equal(implementations, 2); assert.equal(f.store.deliveries(stopped.executionId!).length, 0);
+});
+
+test('automatic acceptance repair invalidates earlier evidence and resumes its independent reviewer', windows, async t => {
+  const f = fixture(t); let implementations = 0, reviews = 0;
+  const config = services();
+  config.implementationRunner = options => services(++implementations === 1 ? "console.log('wrong');\n" : "console.log('hello world');\n").implementationRunner!(options);
+  config.connector = async (_provider, options) => ({ turn: async () => {
+    if (reviews++) assert.equal(options.providerSessionId, 'same-independent-reviewer');
+    options.emit({ type: 'session.connected', data: { providerSessionId: 'same-independent-reviewer', model: 'fixture' } });
+    return { status: 'completed', reply: { ...review, simplification: { outcome: 'passed', summary: 'Inspected the current single output statement.' } }, usage: null, error: null };
+  }, close: async () => {}, interrupt: async () => {} });
+  const tasks = new GuidedTasks(f.store, config), task = tasks.create({ ...f.plan, workflowPolicy: { mode: 'automatic' },
+    slices: [{ ...f.plan.slices[0], validation: { file: 'node', args: ['--check', 'greeting.js'] } }] });
+  tasks.approve(task.id, 1, task.guided!.digest);
+  const done = await tasks.run(task.id);
+  assert.equal(done.status, 'complete', done.note); assert.equal(implementations, 2); assert.equal(reviews, 2);
+  assert.ok(f.store.events(task.id).some(event => event.type === 'guided.acceptance_repair_requested'));
+  assert.ok(f.store.get<any>(task.id).evidence.every((e: any) => e.attemptId === f.store.get<any>(task.id).attempt.id));
+});
+
+test('legacy plans can explicitly enable automatic continuation without changing their approved digest', windows, async t => {
+  const f = fixture(t), config = services();
+  config.connector = async () => ({ turn: async () => ({ status: 'completed', reply: { ...review,
+    simplification: { outcome: 'passed', summary: 'The direct output statement needs no further abstraction.' } }, usage: null, error: null }), close: async () => {}, interrupt: async () => {} });
+  const tasks = new GuidedTasks(f.store, config), task = tasks.create(f.plan);
+  // A saved plan predating workflow policy must keep its exact approval digest.
+  delete task.guided!.plan.workflowPolicy;
+  task.guided!.digest = (await import('../src/guided-plan.js')).guidedPlanDigest(task.guided!.plan);
+  f.store.save(task.id, task); tasks.approve(task.id, 1, task.guided!.digest);
+  const scope = await tasks.run(task.id); assert.equal(scope.status, 'awaiting_scope');
+  const done = await tasks.automate(task.id);
+  assert.equal(done.status, 'complete', done.note); assert.equal(done.digest, scope.digest); assert.equal(done.automationEnabled, true);
+});
+
+test('an independent failed simplification assessment triggers repair rather than a manual form', windows, async t => {
+  const f = fixture(t); let edits = 0, reviews = 0;
+  const config = services();
+  config.implementationRunner = options => services(++edits === 1 ? "// needless explanation\nconsole.log('hello world');\n" : "console.log('hello world');\n").implementationRunner!(options);
+  config.connector = async () => ({ turn: async () => ({ status: 'completed', reply: { ...review, simplification: ++reviews === 1
+    ? { outcome: 'failed', summary: 'Remove the comment that repeats the output statement.' }
+    : { outcome: 'passed', summary: 'The direct output statement now stands on its own.' } }, usage: null, error: null }), interrupt: async () => {}, close: async () => {} });
+  const tasks = new GuidedTasks(f.store, config), task = tasks.create({ ...f.plan, workflowPolicy: { mode: 'automatic' } });
+  tasks.approve(task.id, 1, task.guided!.digest);
+  const done = await tasks.run(task.id);
+  assert.equal(done.status, 'complete', done.note); assert.equal(edits, 2); assert.equal(reviews, 2);
+});
 
 function preparation(code: string) { return { name: 'Restore repository prerequisites', file: 'node', args: ['-e', code], timeoutMs: 15000 }; }
 
@@ -216,7 +306,7 @@ function fixture(t: { after(fn: () => void): void }) {
   git(repo, 'add', '.'); git(repo, 'commit', '-m', 'Fixture baseline');
   const store = new Store(join(root, 'journal.sqlite'));
   t.after(() => { store.close(); rmSync(root, { recursive: true, force: true }); });
-  const plan = { brief: { title: 'Guided greeting', outcome: 'Print hello world', criteria: ['Print hello world with a newline'], plan: 'Edit, validate, simplify, review, verify and deliver locally' },
+  const plan = { workflowPolicy: { mode: 'supervised' }, brief: { title: 'Guided greeting', outcome: 'Print hello world', criteria: ['Print hello world with a newline'], plan: 'Edit, validate, simplify, review, verify and deliver locally' },
     workspace: { repo, path: join(root, 'workspace'), base: 'HEAD' }, implementation: { provider: 'codex' },
     slices: [{ scope: { files: ['greeting.js'] },
       validation: { file: 'node', args: ['-e', "const a=require('node:assert/strict');const {execFileSync}=require('node:child_process');a.equal(execFileSync(process.execPath,['greeting.js'],{encoding:'utf8'}),'hello world\\n');console.log('validated');"], timeoutMs: 15000 },

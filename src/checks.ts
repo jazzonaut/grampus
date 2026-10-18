@@ -26,12 +26,14 @@ export interface CheckSpec {
   preparation?: { scope?: Pick<EditPolicy, 'files' | 'create' | 'delete'> };
 }
 export interface SimplificationAssessment {
+  reviewId?: string;
   artifact: string;
   instructionsDigest: string;
   outcome: 'passed' | 'failed' | 'skipped';
   summary: string;
 }
 export interface RepositoryCheck {
+  failureKind?: 'acceptance';
   id: string;
   executionId: string;
   phase: 'running' | 'passed' | 'failed' | 'interrupted' | 'recovery_required';
@@ -105,7 +107,7 @@ export class Checks {
   /** A trusted caller's assessment, not an inference from checks or review findings. */
   async simplify(executionId: string, assessment: SimplificationAssessment): Promise<void> {
     assessment = structuredClone(assessment);
-    if (!assessment || Object.keys(assessment).some(key => !['artifact', 'instructionsDigest', 'outcome', 'summary'].includes(key))
+    if (!assessment || Object.keys(assessment).some(key => !['artifact', 'instructionsDigest', 'outcome', 'summary', 'reviewId'].includes(key))
       || typeof assessment.artifact !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(assessment.artifact)
       || typeof assessment.instructionsDigest !== 'string' || !/^[a-f0-9]{64}$/.test(assessment.instructionsDigest)
       || !['passed', 'failed', 'skipped'].includes(assessment.outcome)
@@ -117,6 +119,13 @@ export class Checks {
       const execution = this.store.execution<Execution>(executionId);
       if (execution.role !== 'implementation') throw new Error('Assess simplification through the implementation execution');
       const task = this.store.get<Task>(execution.taskId);
+      if (assessment.reviewId) {
+        const review = this.store.execution<Execution>(assessment.reviewId), session = new Sessions(this.store).get(review.sessionId);
+        const verdict = session.lastReply?.simplification;
+        if (review.taskId !== execution.taskId || review.version !== execution.version || review.attemptId !== execution.attemptId
+          || review.role !== 'review' || review.artifact !== assessment.artifact || session.run || session.phase !== 'idle'
+          || verdict?.outcome !== assessment.outcome || verdict.summary !== assessment.summary) throw new Error('Simplification must match a settled independent review of this artifact');
+      }
       if (task.attempt?.outcome !== 'succeeded' || !['awaiting_verification', 'awaiting_decision'].includes(task.phase)) {
         throw new Error('Simplification assessment requires a submitted implementation');
       }
@@ -134,7 +143,7 @@ export class Checks {
       this.store.transaction(() => {
         this.release(execution, runId);
         if (!new Workflow(this.store).record(execution.taskId, { id: runId, attemptId: execution.attemptId, version: execution.version,
-          artifact: snapshot.artifact, kind: 'simplification', source: 'controller', outcome: assessment.outcome, summary: assessment.summary })) {
+          artifact: snapshot.artifact, kind: 'simplification', source: assessment.reviewId ? 'agent' : 'controller', outcome: assessment.outcome, summary: assessment.summary })) {
           throw new Error('Implementation attempt changed before simplification assessment');
         }
         this.store.appendExecution(execution.id, 'simplification.assessed', assessment);
@@ -208,7 +217,10 @@ export class Checks {
         if (spec.preparation?.scope) verifyEditingScope({ cwd: this.workspaces.get(execution.workspaceId).path!, snapshot: check.before,
           policy: { ...spec.preparation.scope, artifact: spec.artifact, instructionsDigest: spec.instructionsDigest } }, check.after);
         else if (check.before.artifact !== check.after.artifact) check.error = 'Check changed repository inputs; inspect the diff and run a fresh check';
-        if (purpose === 'verification') assertAcceptance(check.after, check.result, spec.expectedStdout, spec.expectations);
+        if (purpose === 'verification') {
+          try { assertAcceptance(check.after, check.result, spec.expectedStdout, spec.expectations); }
+          catch (error) { check.failureKind = 'acceptance'; throw error; }
+        }
       }
     } catch (error) { check.error = error instanceof Error ? error.message : String(error); }
     return this.store.transaction(() => {

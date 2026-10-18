@@ -21,7 +21,7 @@ export async function captureRepository(workspaces: Workspaces, execution: Execu
 }
 
 /** Instructions remain inline; exploration can page through changes beyond the inline budget. */
-export async function reviewContext(store: Store, workspaces: Workspaces, execution: Execution, captured?: RepositorySnapshot): Promise<string> {
+export async function reviewContext(store: Store, workspaces: Workspaces, execution: Execution, captured?: RepositorySnapshot, continuing = false): Promise<string> {
   if (execution.role !== 'review' || !execution.artifact?.startsWith('sha256:')) throw new Error('Artifact review requires a review binding to a verified digest');
   const snapshot = captured ?? await captureRepository(workspaces, execution);
   if (snapshot.artifact !== execution.artifact) throw new Error('Repository changed since implementation submission');
@@ -29,7 +29,10 @@ export async function reviewContext(store: Store, workspaces: Workspaces, execut
   const planContext = new Workflow(store).get(execution.taskId).guided?.plan.context;
   const selected = planContext?.files;
   const supplied = repositoryContext(workspace.path!, snapshot, selected, planContext?.exploration === true);
-  const context = JSON.stringify({ artifact: snapshot.artifact, instructions: snapshot.instructions, ...supplied, diff: supplied.diff ?? snapshot.diff });
+  const context = JSON.stringify(continuing && planContext?.exploration
+    ? { artifact: snapshot.artifact, instructions: snapshot.instructions, changedPaths: snapshot.diff.map(file => file.path), coverage: supplied.coverage,
+      continuation: 'Read current changes using grampus_read_changes and current files using grampus_read_file. Earlier file contents and verdicts may be stale.' }
+    : { artifact: snapshot.artifact, instructions: snapshot.instructions, ...supplied, diff: supplied.diff ?? snapshot.diff });
   if (Buffer.byteLength(context) > 2 * 1024 * 1024) throw new Error('Review instructions and context exceed the 2 MiB inline budget');
   const event = { artifact: snapshot.artifact, ...supplied.coverage, bytes: Buffer.byteLength(context) };
   store.appendExecution(execution.id, 'review.context_captured', event);

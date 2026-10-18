@@ -18,7 +18,7 @@ function fixture(t: { after(fn: () => void): void }) {
   writeFileSync(join(repo, 'entry.js'), "console.log('hello');\n"); git('add', '.'); git('commit', '-m', 'Baseline');
   const db = join(root, 'journal.sqlite'), store = new Store(db), tasks = new GuidedTasks(store), planners = new Kickoffs(store), lifecycle = new TaskLifecycle(store);
   t.after(() => { store.close(); rmSync(root, { recursive: true, force: true }); });
-  const plan = { brief: { title: 'Verify greeting', outcome: 'Print hello', criteria: ['Print hello'], plan: 'Verify greeting' }, workspace: { repo, path: join(root, 'workspace') }, context: { files: [] },
+  const plan = { workflowPolicy: { mode: 'supervised' }, brief: { title: 'Verify greeting', outcome: 'Print hello', criteria: ['Print hello'], plan: 'Verify greeting' }, workspace: { repo, path: join(root, 'workspace') }, context: { files: [] },
     slices: [{ scope: { files: ['entry.js'] }, validation: { file: 'node', args: ['--check', 'entry.js'] }, acceptance: { file: 'node', args: ['entry.js'], expectedStdout: 'hello\n' }, message: 'Greeting' }] };
   return { root, repo, git, db, store, tasks, planners, lifecycle, plan };
 }
@@ -39,13 +39,13 @@ test('deleting a settled planning conversation removes it durably and rejects st
   assert.ok(initial.config.request);
 });
 
-test('resetting planning retains the original request and settings but creates a fresh conversation', t => {
+test('resetting planning retains the request and starts a fresh conversation without an agent deadline', t => {
   const f = fixture(t), id = f.planners.create({ repo: f.repo, request: 'Exact original request', provider: 'claude', timeoutMs: 600000 });
   const previousPath = f.planners.view(id).config.path;
   writeFileSync(join(f.repo, 'entry.js'), "console.log('new baseline');\n"); f.git('add', '.'); f.git('commit', '-m', 'New baseline');
   const result = f.lifecycle.reset('kickoffs', id, f.planners.view(id).turnKey), fresh = f.planners.view(result.id);
   assert.notEqual(result.id, id); assert.equal(fresh.config.request, 'Exact original request'); assert.equal(fresh.config.provider, 'claude');
-  assert.equal(fresh.config.timeoutMs, 600000); assert.equal(fresh.session.providerSessionId, null); assert.deepEqual(fresh.messages, []);
+  assert.equal(fresh.config.timeoutMs, 0); assert.equal(fresh.session.providerSessionId, null); assert.deepEqual(fresh.messages, []);
   assert.notEqual(fresh.config.path, previousPath);
   assert.equal(fresh.config.base, f.git('rev-parse', 'HEAD'));
   assert.equal(f.planners.list().length, 1); assert.equal(f.store.workspaces().length, 0);
@@ -54,7 +54,7 @@ test('resetting planning retains the original request and settings but creates a
   const config = { ...f.store.sessionEvents(legacy).find(event => event.type === 'kickoff.created')!.data as Record<string, unknown> }; delete config.timeoutMs;
   f.store.appendSession(legacy, 'kickoff.created', config);
   const resetLegacy = f.lifecycle.reset('kickoffs', legacy, f.planners.view(legacy).turnKey);
-  assert.equal(f.planners.view(resetLegacy.id).config.timeoutMs, 300000);
+  assert.equal(f.planners.view(resetLegacy.id).config.timeoutMs, 0);
 });
 
 test('delete/reset at a file checkpoint preserve the worktree and journal, revoke old execution and require new approval', async t => {

@@ -1,5 +1,12 @@
 # Guided Windows task workflow
 
+New plans use the [automatic local workflow](WORKFLOW.md): approval authorizes the
+listed files and commands, routine validation/acceptance failures get bounded repairs,
+and independent review includes an explicit simplification assessment. Set
+`workflowPolicy.mode` to `supervised` for the manual walkthrough below. Older saved
+plans retain supervised behavior; `task-automate <id>` explicitly enables automatic
+continuation within an existing approved plan.
+
 Exact file scope supports regular UTF-8 files up to 1 MiB each and 4 MiB of existing
 text per slice. Individual edit/patch text remains bounded to 256 KiB. Large editable
 files are read through repository exploration; they are not excluded by filename.

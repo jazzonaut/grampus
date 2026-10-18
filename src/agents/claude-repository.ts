@@ -16,6 +16,8 @@ export function claudeRepositoryTools(access: RepositoryAccess, emit: (event: Ag
     { query: z.string().min(1), path: z.string().optional(), offset: z.number().int().nonnegative().optional(), root: z.string().optional() },
     { path: z.string(), reason: z.string() },
     { path: z.string().optional(), side: z.enum(['before', 'after']).optional(), offset: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(12000).optional() },
+    { checkId: z.string().optional(), stream: z.enum(['stdout', 'stderr', 'spec']).optional(), offset: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(12000).optional() },
+    { package: z.string(), path: z.string().optional(), from: z.string().optional(), query: z.string().optional(), offset: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(12000).optional() },
   ];
   return repositoryToolDefinitions.map((def, index) => tool(def.name, def.description, schemas[index]!, async input => {
       try { return { content: [{ type: 'text' as const, text: JSON.stringify(invoke(def.name, input)) }] }; }
