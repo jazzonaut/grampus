@@ -17,11 +17,12 @@ export interface PinnedRepository {
 // Bound memory as well as entry count; a large tree must not multiply per poll.
 const cache = new Map<string, { tree: PinnedRepository; bytes: number }>();
 let cachedBytes = 0;
-export function pinnedRepository(repo: string, base: string): PinnedRepository {
+export function pinnedRepository(repo: string, base: string, subtree = ''): PinnedRepository {
   if (!/^[a-f0-9]{40,64}$/.test(base)) throw new Error('Repository context requires a pinned commit');
-  const key = `${repo}\0${base}`, found = cache.get(key);
+  if (subtree.includes('\0') || subtree.split('/').some(part => part === '..')) throw new Error('Invalid repository subtree');
+  const key = `${repo}\0${base}\0${subtree}`, found = cache.get(key);
   if (found) { cache.delete(key); cache.set(key, found); return found.tree; }
-  const raw = deliveryGit(repo, 'ls-tree', '-r', '-l', '-z', base);
+  const raw = deliveryGit(repo, 'ls-tree', '-r', '-l', '-z', base, ...(subtree ? ['--', subtree] : []));
   const directories = new Map<string, number>();
   let totalBytes = 0;
   const entries = raw.toString('utf8').split('\0').filter(Boolean).map(entry => {

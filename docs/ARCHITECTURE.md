@@ -699,12 +699,13 @@ handler, journals authorization before unlinking and records `tool.deleted` afte
 success. An SDK permission hook alone cannot invoke this effect. The handler uses
 no shell, recursive removal, external service or separate tool process. Zod is
 declared directly at the already-installed pinned SDK peer version for its schema.
-Without deletion paths this server is absent. Settings sources and external MCP
-servers remain disabled, safe mode remains set, and the provider cannot run shell,
-delegation or external tools. These are provider-tool restrictions, not an OS sandbox;
+Without deletion paths this server is absent. Native settings and configured MCP
+servers load normally; approved source-project MCP definitions carry into isolated
+worktrees. External tools and ToolSearch require active-turn ownership. The provider
+cannot run native shell or delegation tools. These are provider-tool restrictions, not an OS sandbox;
 file-path inspection and execution are not atomic against external editors.
 
-Codex remains in a read-only sandbox with shell/integrations disabled. Thread start
+Codex remains in a read-only sandbox with shell disabled and configured MCP connections enabled. Thread start
 or resume explicitly routes approvals to the client and verifies the returned policy,
 reviewer and sandbox before starting inference. Approved file contents are supplied
 as bounded JSON (768 KiB total). The RPC transport defaults to rejecting server
@@ -877,7 +878,45 @@ The helper does not start a later slice automatically, invent simplification pas
 or recover provider work by replay. Sliced mode is separate from file-lifecycle and
 fault-injection variants.
 
-## Selected repository context
+## Autonomous repository exploration
+
+New guided plans approve repository-read access independently of exact write scope.
+`repository-tools.ts` owns a shared list/read/literal-search implementation. Codex
+uses app-server dynamic functions and turn-bound `item/tool/call` handling; Claude
+uses an in-process SDK MCP server whose handlers recheck active ownership. Both
+journal bounded results. There is no provider shell grant. Planning reads immutable
+Git blobs; execution reads the captured workspace inventory and hashes, allowing
+current contents only for explicitly writable paths. Review reuses its verified
+snapshot and retains the final full-artifact recheck. Resumption restores provider
+tools while every tool handler uses the current controller's source and ownership.
+
+Starting file hints are optional. New plan normalization enables exploration and
+checks file actions against the pinned inventory; it no longer requires edit paths
+to appear in hints. Existing saved recipes keep their original capability and digest.
+The browser starts planning directly, shows read activity, and always supplies exact
+file-action contents at authorization even when no hints were provided.
+
+`reference-folders.ts` resolves approved external folders as pinned Git subtrees
+or checked plain-folder inventories. The repository tools route explicit
+`reference-N` roots to these read-only sources and journal their source identities.
+An agent's folder suggestion is a journal event, not a new capability. Kickoff
+reference edits invalidate the candidate and bind the selected roots into approval.
+
+`integrations.ts` carries source-project MCP connections into isolated worktrees
+while respecting disabled servers. Codex sanitizes unset configuration fields before
+creating thread overrides; Claude inherits native settings plus approved source
+project servers. Both report sanitized connection status. Claude permits native
+ToolSearch and external MCP calls only during an active turn, separately from
+the controller's scoped file tools.
+
+`task-lifecycle.ts` handles reset/delete transactionally, checks displayed decision
+keys and refuses live or uncertain owners. Deletion writes a tombstone and revokes
+approval; it never deletes filesystem workspaces or history. Reset creates a new
+kickoff from the original request and current source/reference baselines, then
+tombstones the old task. The browser starts the new planning turn explicitly as
+part of the confirmed reset action. Failure leaves the original task available.
+
+### Initial supporting context and full verification
 
 New guided plans bind an exact supporting-file selection and pinned inventory digest.
 `repository-context.ts` caches immutable Git-tree metadata, reads selected blobs in

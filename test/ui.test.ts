@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request } from 'node:http';
@@ -26,6 +26,51 @@ function expected(view: any) {
   return JSON.stringify({ version: s.version, digest: s.digest, status: s.status, stage: s.stage, artifact: s.snapshot?.artifact ?? null,
     instructionsDigest: s.snapshot?.instructionsDigest ?? null, executionId: s.executionId, reviewId: s.reviewId, questionKey: view.questionKey ?? null });
 }
+
+test('file authorization shows exact edit contents even when the task has no initial file hints', async t => {
+  const f = fixture(t), ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+  t.after(async () => { await ui.close(); f.cleanup(); });
+  const tasks = new GuidedTasks(ui.store);
+  const { id } = tasks.create({ ...f.plan, context: { files: [] }, slices: [{ ...f.plan.slices[0], mode: 'commit', scope: { files: ['greeting.js'] } }] });
+  const draft = tasks.get(id); tasks.approve(id, draft.version, draft.digest);
+  await tasks.run(id);
+  assert.equal(tasks.get(id).status, 'awaiting_scope');
+  const url = new URL(ui.url);
+  const response = await fetch(`${url.origin}/api/tasks/${id}`, { headers: { Authorization: `Bearer ${url.hash.slice(1)}` } });
+  const view = await response.json() as any;
+  assert.equal(view.scopeError, null); assert.deepEqual(view.state.plan.context.files, []);
+  assert.deepEqual(view.scopeFiles, [{ path: 'greeting.js', content: "console.log('hello');\n" }]);
+});
+
+test('dashboard reference selection and task reset/delete enforce displayed state', async t => {
+  const f = fixture(t), ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+  t.after(async () => { await ui.close(); f.cleanup(); });
+  const reference = join(f.root, 'reference'); mkdirSync(reference); writeFileSync(join(reference, 'spec.md'), 'External contract');
+  const url = new URL(ui.url), headers = { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' };
+  const post = (path: string, body: unknown) => fetch(url.origin + path, { method: 'POST', headers, body: JSON.stringify(body) });
+  const state = async () => (await fetch(url.origin + '/api/state', { headers })).json() as Promise<any>;
+  const suggestions = await (await post('/api/references/suggest', { request: `Use ${reference}` })).json() as any;
+  assert.equal(suggestions.suggestions.length, 1);
+  const { id } = await (await post('/api/kickoffs', { repo: f.repo, request: 'Original request', references: [reference] })).json() as any;
+  let item = (await state()).kickoffs.find((item: any) => item.id === id);
+  assert.equal(item.config.references.length, 1);
+  assert.equal((await post(`/api/kickoffs/${id}/references`, { references: [], expected: 'stale' })).status, 400);
+  assert.equal((await post(`/api/kickoffs/${id}/references`, { references: [], expected: item.turnKey })).status, 200);
+  item = (await state()).kickoffs.find((item: any) => item.id === id);
+  assert.deepEqual(item.config.references, []);
+  assert.equal((await post(`/api/kickoffs/${id}/delete`, { expected: 'stale' })).status, 400);
+  const reset = await (await post(`/api/kickoffs/${id}/reset`, { expected: item.turnKey })).json() as any;
+  item = (await state()).kickoffs.find((item: any) => item.id === reset.id);
+  assert.equal(item.config.request, 'Original request'); assert.equal(item.session.providerSessionId, null);
+  assert.equal((await state()).kickoffs.some((item: any) => item.id === id), false);
+  assert.equal((await post(`/api/kickoffs/${reset.id}/delete`, { expected: item.turnKey })).status, 200);
+  assert.deepEqual((await state()).kickoffs, []);
+  const task = new GuidedTasks(ui.store).create(f.plan), view = await (await fetch(`${url.origin}/api/tasks/${task.id}`, { headers })).json() as any;
+  assert.equal((await post(`/api/tasks/${task.id}/delete`, { expected: expected(view) })).status, 200);
+  assert.deepEqual((await state()).tasks, []);
+  assert.equal((await fetch(`${url.origin}/api/tasks/${task.id}`, { headers })).status, 400);
+  assert.equal(existsSync(join(f.repo, 'greeting.js')), true);
+});
 test('dashboard requires its local token and origin, rejects stale decisions, and preserves drafts over restart', async t => {
   const f = fixture(t), db = join(f.root, 'journal.sqlite');
   let ui = await startUi({ db, port: 0 });
@@ -90,7 +135,7 @@ test('dashboard workers use real file/check checkpoints without bypassing assess
   assert.equal((await post(route + '/run', { expected: expected(view) })).status, 202);
   assert.equal((await post(route + '/run', { expected: expected(view) })).status, 400);
   view = await wait(); assert.equal(view.state.status, 'awaiting_scope', view.state.note);
-  assert.equal(view.scopeFiles[0].content, "console.log('hello');\n");
+  assert.equal(view.state.plan.context.exploration, true); assert.deepEqual(view.scopeFiles, []);
   assert.equal((await post(route + '/authorize', { expected: expected(view) })).status, 202);
   view = await wait(); assert.equal(view.state.status, 'awaiting_assessment', view.state.note);
   assert.equal(view.checks[0].phase, 'passed'); assert.equal(view.deliveries.length, 0);
@@ -111,7 +156,7 @@ test('kickoff clarifies consequential ambiguity, validates generated commands an
     options.emit({ type: 'session.connected', data: { providerSessionId: 'offline-planner', model: 'offline-fixture' } });
     return { status: 'completed', reply: replies.shift()!, usage: null, error: null };
   }, close: async () => {}, interrupt: async () => {} });
-  const kickoffs = new Kickoffs(store, connector), id = kickoffs.create({ repo: f.repo, request: 'Verify the greeting', provider: 'claude' });
+  const kickoffs = new Kickoffs(store, connector), id = kickoffs.create({ repo: f.repo, request: 'Verify the greeting', provider: 'claude', contextFiles: ['greeting.js'] });
   assert.equal(store.list().length, 0); assert.equal(store.workspaces().length, 0);
   const question = await kickoffs.send(id); assert.equal(question.session.phase, 'awaiting_answer');
   assert.match(seen, /console.log\('hello'\)/); assert.match(seen, /Pinned repository/);
@@ -140,8 +185,8 @@ test('kickoff omits binary assets and rejects their explicit selection before in
   assert.throws(() => kickoffs.create({ repo: f.repo, request: 'Change something', contextFiles: ['binary.bin'] }), /UTF-8/);
   assert.equal(store.sessions().length, 0);
   const id = kickoffs.create({ repo: f.repo, request: 'Change greeting' });
-  assert.deepEqual(kickoffs.view(id).config.files, ['greeting.js']);
-  assert.equal(kickoffs.view(id).config.context!.omittedFiles, 1);
+  assert.deepEqual(kickoffs.view(id).config.files, []);
+  assert.equal(kickoffs.view(id).config.context!.omittedFiles, 2);
 });
 
 test('generated inline checks with broken newline escaping are rejected before a task or command can run', async t => {
@@ -174,7 +219,7 @@ test('an explicit continuation after first-turn connection failure resupplies pi
     if (++connections === 1) throw new Error('Offline first-connection failure');
     return { turn: async prompt => { supplied = prompt; return { status: 'completed', reply: { kind: 'message', text: JSON.stringify(f.plan), questions: [], findings: [] }, usage: null, error: null }; }, close: async () => {}, interrupt: async () => {} };
   };
-  const kickoffs = new Kickoffs(store, connector), id = kickoffs.create({ repo: f.repo, request: 'Verify greeting' });
+  const kickoffs = new Kickoffs(store, connector), id = kickoffs.create({ repo: f.repo, request: 'Verify greeting', contextFiles: ['greeting.js'] });
   const failed = await kickoffs.send(id); assert.match(failed.error!, /first-connection failure/);
   assert.equal(connections, 1); assert.equal(failed.candidate, null);
   const continued = await kickoffs.send(id, 'Try planning again with the original requirements');

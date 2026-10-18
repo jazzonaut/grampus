@@ -143,7 +143,7 @@ export class Store {
   guidedSummaries(): { id: string; title: string; status: string; stage: string }[] {
     return this.db.prepare(`SELECT id, json_extract(state, '$.brief.title') AS title,
       json_extract(state, '$.guided.status') AS status, json_extract(state, '$.guided.stage') AS stage
-      FROM tasks WHERE json_type(state, '$.guided') = 'object' ORDER BY rowid`).all()
+      FROM tasks WHERE json_type(state, '$.guided') = 'object' AND json_extract(state, '$.deletedAt') IS NULL ORDER BY rowid`).all()
       .map(row => ({ id: String(row.id), title: String(row.title), status: String(row.status), stage: String(row.stage) }));
   }
 

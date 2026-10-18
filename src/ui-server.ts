@@ -11,6 +11,9 @@ import { Kickoffs } from './kickoff.js';
 import { boundedRepositoryFiles } from './repository-evidence.js';
 import { Sessions } from './sessions.js';
 import { defaultDashboardPort, versionInformation } from './runtime.js';
+import { TaskLifecycle } from './task-lifecycle.js';
+import { suggestReferenceFolders } from './reference-folders.js';
+import type { Task } from './workflow.js';
 
 interface Job { running: boolean; error: string | null; action: string }
 export interface UiOptions { db: string; port?: number }
@@ -71,15 +74,21 @@ export async function startUi(options: UiOptions) {
       }
       const match = /^\/api\/(tasks|kickoffs)\/([a-f0-9-]+)(?:\/([a-z-]+))?$/.exec(path);
       if (match && request.method === 'GET' && match[1] === 'tasks' && match[3] === 'report') {
+        if (store.get<Task>(match[2]!).deletedAt) throw new Error('This task was deleted');
         json(response, 200, { report: renderReport(store, match[2]!) }); return;
       }
       if (match && request.method === 'GET' && match[1] === 'tasks' && !match[3]) {
+        if (store.get<Task>(match[2]!).deletedAt) throw new Error('This task was deleted');
         const revision = store.revision(), cached = cachedViews.get(match[2]!);
         if (cached?.revision === revision) { json(response, 200, cached.value); return; }
         const view = guidedTaskView(store, match[2]!);
         let scopeFiles: { path: string; content: string | null }[] = [], scopeError: string | null = null;
         if (view.state.status === 'awaiting_scope' && view.workspace?.path && view.state.snapshot) {
-          try { scopeFiles = boundedRepositoryFiles(view.workspace.path, view.state.snapshot, view.state.plan.context?.files); }
+          try {
+            const slice = view.state.plan.slices[view.state.sliceIndex]!;
+            const selection = view.state.plan.context?.files;
+            scopeFiles = boundedRepositoryFiles(view.workspace.path, view.state.snapshot, selection ? [...new Set([...selection, ...slice.scope.files, ...(slice.scope.delete ?? [])])] : undefined);
+          }
           catch (error) { scopeError = error instanceof Error ? error.message : String(error); }
         }
         // Never serialize the full hashed file inventory, delivery snapshot or report on a poll.
@@ -94,6 +103,7 @@ export async function startUi(options: UiOptions) {
       }
       if (request.method !== 'POST') { json(response, 404, { error: 'Not found' }); return; }
       const payload = await body(request);
+      if (path === '/api/references/suggest') { json(response, 200, { suggestions: suggestReferenceFolders(String(payload.request ?? '')) }); return; }
       if (path === '/api/repositories/inspect') {
         const inspected = kickoffs.inspect(payload as Parameters<Kickoffs['inspect']>[0]);
         json(response, 200, { repo: inspected.repo, base: inspected.base, context: inspected.context }); return;
@@ -104,9 +114,15 @@ export async function startUi(options: UiOptions) {
       if (!match || !match[3]) { json(response, 404, { error: 'Not found' }); return; }
       const [, kind, id, action] = match;
       if (jobs.get(id!)?.running && action !== 'stop') throw new Error('An action is already running; wait for settlement');
+      if (action === 'delete' || action === 'reset') {
+        const lifecycle = new TaskLifecycle(store);
+        const result = action === 'delete' ? lifecycle.delete(kind as 'tasks' | 'kickoffs', id!, payload.expected) : lifecycle.reset(kind as 'tasks' | 'kickoffs', id!, payload.expected);
+        json(response, 200, result); return;
+      }
       if (kind === 'kickoffs') {
         const view = kickoffs.view(id!);
         if (action === 'context') { json(response, 200, kickoffs.changeContext(id!, payload.files, payload.expected)); return; }
+        if (action === 'references') { json(response, 200, kickoffs.changeContext(id!, view.config.files, payload.expected, payload.references)); return; }
         if (action === 'stop') {
           if (!view.session.run) throw new Error('Planner has not started or has already settled; refresh its state');
           new Sessions(store).stop(id!, view.session.run.id, 'User requested a stop in the dashboard');

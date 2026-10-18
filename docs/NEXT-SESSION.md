@@ -1,5 +1,40 @@
 # Resume Grampus implementation
 
+## MCP, external references and task management
+
+Configured MCPs are enabled for both providers, including source-project connections
+inside isolated worktrees. A real Codex read of NXT-772 succeeded; Claude's live probe
+discovered and invoked a source-project fixture tool through ToolSearch. Both providers
+also read a separate plain reference folder using all three exploration tools.
+The dashboard shows sanitized MCP status, editable read-only references and agent
+folder suggestions. Reset starts fresh planning from the original request; delete
+hides the task. Both preserve files, commits and history and reject live/uncertain
+owners and stale decisions. Tests and retained live evidence are recorded in
+[integration evidence](INTEGRATION-EVIDENCE.md). Dedicated Linear lifecycle automation
+remains future work; reading a referenced ticket through configured MCP is supported.
+
+## Autonomous exploration checkpoint
+
+New tasks now give Codex and Claude shared controller-owned repository listing,
+literal text search and paginated file reads throughout planning, implementation
+and independent review. Planning reads the pinned commit. Execution and review
+use captured workspace inventories, supporting-file hashes and existing full
+artifact verification. Write permissions remain exact and separately approved.
+The dashboard starts planning directly; starting file hints are optional, exploration
+activity is visible, and authorization shows exact editable file contents even with
+no hints. Old saved recipes/conversations retain their original capabilities.
+
+`npm run probe:exploration -- --live` exercises both subscription integrations,
+resumption, dirty-checkout isolation and snapshot reads. Read
+[REPOSITORY-CONTEXT.md](REPOSITORY-CONTEXT.md) for the tool bounds and rollout.
+Ordinary-project trials and approved-recipe revisions remain work; autonomous
+context retrieval itself is implemented. Complete offline runs passed 249 tests on
+Node 25 and 251 on Node 24, with final focused/tool suites passing after refinements.
+Both live provider pairings completed no-hint tasks through the browser, independent
+review, acceptance and verified local fixture commits. The six exploration and four
+existing binding browser assertions passed. See integration evidence for exact
+scope, retained journals and remaining ordinary-project release trials.
+
 ## Windows installer rename correction
 
 An interactive user update exposed `EPERM` when renaming a built version directory.
@@ -112,7 +147,7 @@ Next: ordinary-project trials using a small meaningful change and an explicitly
 inspected context selection. Cover review repair, interruption, both provider
 pairings and workspace modes, followed by independent release review and clean
 installation validation. Context suggestions are filename heuristics, not dependency
-analysis. Autonomous retrieval and approved-recipe/context revision remain work.
+analysis. Autonomous retrieval was subsequently implemented above; approved-recipe/context revision remains work.
 
 ## Current Windows alpha checkpoint
 

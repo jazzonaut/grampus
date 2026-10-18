@@ -80,6 +80,7 @@ export class GuidedTasks {
   }
   private current(id: string, approved = true): GuidedState {
     const task = this.workflow.get(id), state = this.get(id);
+    if (task.deletedAt) throw new Error('This task was deleted from the dashboard');
     if (task.version !== state.version || JSON.stringify(task.brief) !== JSON.stringify(state.plan.brief)
       || guidedPlanDigest(state.plan) !== state.digest) throw new Error('The guided plan is stale or changed; inspect the task through the ordinary CLI');
     if (approved && (task.approvedVersion !== state.version || state.approvedDigest !== state.digest)) throw new Error('Approve the exact guided plan with task-approve first');

@@ -59,8 +59,9 @@ The local dashboard opens in your browser. Choose **New task**, enter an
 existing repository and describe the desired change. Discussion, plan approval,
 file authorization, simplification, questions, progress, recovery and reports are
 available in the interface. See [the dashboard walkthrough](docs/DASHBOARD.md).
-This local distribution supports Windows with explicit, bounded text context
-inside larger repositories, including unchanged binary assets. See
+This local distribution supports Windows with autonomous repository exploration
+for planning, implementation and review. File hints are optional; exact file changes
+still require approval. Large repositories and unchanged binary assets are supported. See
 [repository context and scale](docs/REPOSITORY-CONTEXT.md). Ordinary-project trials
 and release-wide distribution validation remain release work.
 
@@ -185,9 +186,10 @@ refuses unknown liveness and does not kill processes. Reused PIDs conservatively
 block recovery. Ordinary completed or interrupted turns can be resumed by sending
 another message.
 
-The conversations are intended for supplied text. Claude has no general execution
-tools; Codex uses a read-only sandbox with shell, integrations and editing approvals
-disabled. Conversation processes remain separate from the explicit check runner below.
+Conversations can use supplied text, approved repository/reference read tools and
+configured MCP integrations, including referenced Linear tickets. Claude has no
+general execution tools; Codex uses a read-only sandbox with shell and editing
+approvals disabled. Conversation processes remain separate from the explicit check runner below.
 Live sessions do not create task acceptance evidence or slice commits.
 
 The Claude adapter uses the pinned official Agent SDK and its bundled executable.
@@ -395,7 +397,10 @@ path with unchanged snapshot bytes. Moves, root/session grants and stale or
 repeated requests are denied. Codex must confirm read-only sandbox mode and approval
 routing to the controller before a turn starts.
 
-Shell, delegation, web and external MCP tools are not exposed. The local deletion
+Native shell, delegation and web tools are not exposed. Configured MCP tools remain
+available for task context; external actions require explicit task authorization.
+Source-project connections carry into isolated workspaces without enabling servers
+the user disabled. The dashboard reports provider connection status. The local deletion
 tool is absent when no deletion paths are supplied. The Claude SDK's
 internal `StructuredOutput` tool is permitted only for a validated final reply. Ordinary
 conversations and reviewers retain their tool restrictions. Editing sessions cannot be

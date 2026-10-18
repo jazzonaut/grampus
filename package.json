@@ -19,7 +19,10 @@
     "probe": "node dist/src/probe.js",
     "probe:task": "node dist/src/task-probe.js",
     "probe:multifile": "node dist/src/multifile-probe.js",
-    "probe:context": "node dist/src/context-probe.js"
+    "probe:context": "node dist/src/context-probe.js",
+    "probe:exploration": "node dist/src/exploration-probe.js",
+    "probe:mcp": "node dist/src/mcp-probe.js",
+    "probe:references": "node dist/src/reference-probe.js"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

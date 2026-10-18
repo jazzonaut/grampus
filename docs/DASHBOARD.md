@@ -15,13 +15,14 @@ and Claude subscription logins. It supports Windows 10 or later. This is the
 functional alpha interface. The per-user installer uses existing Node.js and CLI
 dependencies; a bundled runtime and published release downloads remain future work.
 
-Choose **New task**, enter the existing repository folder and describe the desired
-change. Choose **Inspect repository context** to review suggested text files,
-search the pinned file inventory and add relevant callers, dependencies and tests.
-Search returns 100 paths per page; the whole repository no longer needs to fit
-in 256 KiB. The planner receives selected pinned text and an explicit omission
-summary. It cannot edit files or run commands. See
-[repository context and scale](REPOSITORY-CONTEXT.md) for budgets and limitations.
+Choose **New task**, enter the repository folder and describe the desired change.
+Choose **Start planning** directly. Agents search and read the relevant repository
+files themselves; **Optional file hints** offers suggested starting files and a
+paginated inventory search if you want to point them at useful code. Planning reads
+the pinned commit and cannot edit files or run commands. The exploration card shows
+completed tool calls and recently read files. Implementation and independent review
+also have read access, separately from the exact approved file changes. See
+[repository context and scale](REPOSITORY-CONTEXT.md) for behavior and limits.
 Consequential questions appear in the discussion. Answer them, or ask
 for revisions, until the proposed plan describes the right outcome and examples.
 Planning consumes subscription usage only when you explicitly start/send a turn.
@@ -29,8 +30,23 @@ Choose a two-, five- or ten-minute time limit per agent turn at kickoff; five
 minutes is the default. It applies to planning, implementation and independent
 review and is frozen into the proposed task recipe.
 
-During planning, use **Update context** to add missing files before sending the
+During planning, use **Update file hints** to add missing files before sending the
 next explicit turn. This invalidates an earlier proposal without starting inference.
+
+Add outside repositories or plain folders under **Reference folders**. Paths in
+the task description are detected, and agents can suggest additional paths with
+reasons. Approve suggestions by adding them and choosing **Update reference folders**
+before the next planning turn. References are read-only throughout implementation
+and review. Git references use committed content; plain folders use a checked
+inventory. **MCP connections** shows the current provider's configured connections,
+including Linear when configured. See the repository-context guide for limits.
+
+**Reset task** restarts planning from the original request in a fresh conversation,
+using a fresh baseline and reference snapshots. The prior task disappears from the
+dashboard. **Delete task** removes it without starting another task. Both ask for
+confirmation and preserve workspace files, commits and recorded history. Stop and
+settle or recover active work first; stale-page actions are rejected. Reset is
+different from retrying an implementation attempt.
 
 Choose **Review for approval** to freeze the proposal as an unapproved guided task.
 Review its outcome, criteria, exact context and file actions, executable/arguments,
@@ -77,7 +93,7 @@ manual. Preserve the checkout's `src/ui` and `src/native` alongside `dist` for t
 developer distribution. One guided task at a time runs per journal; planning
 sessions retain their existing session-level ownership rules.
 
-Remaining release work includes autonomous context retrieval, ordinary
+Remaining release work includes ordinary
 project trials, automatic review repair/arbitration, recipe revisions after
 approval, accessibility/browser coverage beyond the recorded trials, and clean
 distribution validation. No installer, scheduler, automatic push or PR is enabled.

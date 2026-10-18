@@ -84,7 +84,10 @@ test('approval binds selected supporting files and cannot authorize an uninspect
   assert.ok(plan.context!.totalBytes > 256 * 1024);
   const other = normalizeGuidedPlan({ ...f.plan, context: { files: ['main.js'] } });
   assert.notEqual(guidedPlanDigest(plan), guidedPlanDigest(other));
-  assert.throws(() => normalizeGuidedPlan({ ...f.plan, context: { files: ['helper.js'] } }), /Select main.js/);
+  assert.throws(() => normalizeGuidedPlan({ ...f.plan, context: { files: ['helper.js'], exploration: false } }), /Select main.js/);
+  const exploring = normalizeGuidedPlan({ ...f.plan, context: { files: ['helper.js'] } });
+  assert.equal(exploring.context!.exploration, true);
+  assert.equal(exploring.slices[0]!.scope.files[0], 'main.js');
   assert.throws(() => normalizeGuidedPlan({ ...f.plan, context: { ...plan.context, inventoryDigest: 'stale' } }), /inventory changed/);
   const twoSlices = normalizeGuidedPlan({ ...f.plan, brief: { ...f.plan.brief,
     slices: [{ title: 'Create', plan: 'Create helper', criteria: ['Print hello'] }, { title: 'Use', plan: 'Adapt created helper', criteria: ['Print hello'] }] },

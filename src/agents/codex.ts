@@ -1,11 +1,27 @@
 import { RpcProcess, type RpcMessage } from '../process.js';
 import { applicationVersion } from '../runtime.js';
+import { mcpInstructions } from '../integrations.js';
+import { referenceInstructions } from '../reference-folders.js';
+import { repositoryTools, repositoryToolDefinitions, explorationInstructions, type RepositoryAccess } from '../repository-tools.js';
 import { authorizeFileChanges, implementationInstructions, type EditingContext } from '../edit-policy.js';
 import { instructions, replySchema, parseReply, subscriptionEnvironment, numeric, type AgentSession, type ConnectOptions, type TurnResult, type Usage } from './types.js';
 
+async function reportIntegrations(rpc: RpcProcess, threadId: string, emit: ConnectOptions['emit']) {
+  try {
+    const servers: { name: string; status: string; tools: number; auth: string }[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: { data: { name: string; runtimeStatus?: string | null; tools: Record<string, unknown>; authStatus: string }[]; nextCursor: string | null } = await rpc.request('mcpServerStatus/list', { threadId, detail: 'toolsAndAuthOnly', limit: 100, cursor });
+      servers.push(...page.data.map(item => ({ name: item.name, status: item.runtimeStatus ?? 'configured', tools: Object.keys(item.tools ?? {}).length, auth: item.authStatus })));
+      cursor = page.nextCursor;
+    } while (cursor && servers.length < 1000);
+    emit({ type: 'integrations.updated', data: { servers } });
+  } catch { emit({ type: 'integrations.updated', data: { servers: [{ name: 'Configured MCP servers', status: 'Status unavailable; provider tools remain enabled' }] } }); }
+}
+
 export async function connectCodex(options: ConnectOptions): Promise<AgentSession> {
   options.signal.throwIfAborted();
-  const disabled = ['shell_tool', 'unified_exec', 'apps', 'plugins', 'hooks', 'multi_agent', 'browser_use', 'computer_use', 'image_generation', 'goals', 'code_mode'];
+  const disabled = ['shell_tool', 'unified_exec', 'hooks', 'multi_agent', 'browser_use', 'computer_use', 'image_generation', 'goals', 'code_mode'];
   const rpc = new RpcProcess(process.env.GRAMPUS_CODEX_COMMAND ?? 'codex', [
     'app-server', '--listen', 'stdio://', '-c', 'forced_login_method="chatgpt"',
     ...disabled.flatMap(feature => ['--disable', feature]),
@@ -14,19 +30,26 @@ export async function connectCodex(options: ConnectOptions): Promise<AgentSessio
   options.signal.addEventListener('abort', abort, { once: true });
   try {
     options.emit({ type: 'process.started', data: { pid: rpc.pid } });
-    await rpc.request('initialize', { clientInfo: { name: 'grampus', title: 'Grampus', version: applicationVersion } });
+    await rpc.request('initialize', { clientInfo: { name: 'grampus', title: 'Grampus', version: applicationVersion }, capabilities: { experimentalApi: true } });
     rpc.notify('initialized');
     const auth = await rpc.request<{ account: { type: string } | null }>('account/read', { refreshToken: false });
     if (auth.account?.type !== 'chatgpt') throw new Error('Codex requires an existing ChatGPT subscription login');
-    const config = await rpc.request<{ config: { mcp_servers?: Record<string, unknown> } }>('config/read', { includeLayers: false });
     const overrides: Record<string, unknown> = { web_search: 'disabled' };
-    for (const name of Object.keys(config.config.mcp_servers ?? {})) overrides[`mcp_servers.${name}.enabled`] = false;
+    const effective = await rpc.request<{ config: { mcp_servers?: Record<string, Record<string, unknown>> } }>('config/read', { includeLayers: false, cwd: options.configurationCwd ?? options.cwd });
+    for (const [name, server] of Object.entries(effective.config.mcp_servers ?? {})) {
+      // config/read materializes optional fields as null; TOML overrides cannot represent null.
+      const configured = JSON.parse(JSON.stringify(server, (_key, value) => value === null ? undefined : value));
+      overrides[`mcp_servers.${name}`] = { ...configured, enabled: server.enabled !== false };
+    }
     const params = {
       cwd: options.cwd, modelProvider: 'openai', approvalPolicy: 'untrusted', sandbox: 'read-only',
       developerInstructions: options.editing ? implementationInstructions('Use only apply_patch to update approved existing files, add explicitly authorized new files or delete explicitly authorized unchanged files, using their supplied contents (null means absent). Parent directories must already exist. Deletion paths cannot be updated or recreated. Do not move files or delete directories. Each patch requires controller approval.') : instructions, config: overrides,
       ...(options.editing ? { approvalsReviewer: 'user' } : {}),
+      ...(options.repository && !options.providerSessionId ? { dynamicTools: repositoryToolDefinitions.map(tool => ({ type: 'function', ...tool })) } : {}),
       ...(options.model ? { model: options.model } : {}),
     };
+    params.developerInstructions += `\n${mcpInstructions}`;
+    if (options.repository) params.developerInstructions += `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}`;
     const thread = await rpc.request<{ thread: { id: string }; model: string; approvalPolicy?: unknown; approvalsReviewer?: unknown; sandbox?: { type?: string; networkAccess?: boolean } }>(
       options.providerSessionId ? 'thread/resume' : 'thread/start',
       options.providerSessionId ? { ...params, threadId: options.providerSessionId } : params,
@@ -35,27 +58,42 @@ export async function connectCodex(options: ConnectOptions): Promise<AgentSessio
     if (options.editing && (thread.approvalPolicy !== 'untrusted' || thread.approvalsReviewer !== 'user'
       || thread.sandbox?.type !== 'readOnly' || thread.sandbox.networkAccess === true)) throw new Error('Codex did not confirm controller approvals and read-only sandbox');
     options.emit({ type: 'session.connected', data: { providerSessionId: thread.thread.id, model: thread.model, auth: 'subscription' } });
+    await reportIntegrations(rpc, thread.thread.id, options.emit);
     options.signal.throwIfAborted();
-    return new CodexSession(rpc, thread.thread.id, options.emit, options.editing);
+    return new CodexSession(rpc, thread.thread.id, options.emit, options.editing, options.repository);
   } catch (error) { await rpc.close(); options.emit({ type: 'process.exit_confirmed', data: {} }); throw error; }
   finally { options.signal.removeEventListener('abort', abort); }
 }
 
 export class CodexSession implements AgentSession {
   private active: { resolve: (result: TurnResult) => void; reject: (error: Error) => void; turnId: string | null; text: string; usage: Usage | null;
-    patches: Map<string, unknown>; seenItems: Set<string>; stopping: boolean } | null = null;
+    patches: Map<string, unknown>; seenItems: Set<string>; toolCalls: Set<string>; stopping: boolean } | null = null;
   private readonly unsubscribe: (() => void)[];
+  private readonly readRepository: ReturnType<typeof repositoryTools> | undefined;
 
-  constructor(private readonly rpc: RpcProcess, private readonly threadId: string, private readonly emit: ConnectOptions['emit'], private readonly editing?: EditingContext) {
+  constructor(private readonly rpc: RpcProcess, private readonly threadId: string, private readonly emit: ConnectOptions['emit'], private readonly editing?: EditingContext, repository?: RepositoryAccess) {
+    this.readRepository = repository ? repositoryTools(repository, emit, () => !!this.active && !this.active.stopping) : undefined;
     this.unsubscribe = [rpc.onMessage(message => this.message(message)), rpc.onFailure(error => {
       this.active?.reject(error); this.active = null;
     }), rpc.onRequest(message => this.approve(message))];
   }
 
   private approve(message: RpcMessage): unknown {
-    if (!this.editing) return undefined;
     const p = message.params as Record<string, unknown> | undefined;
     const active = this.active;
+    if (message.method === 'item/tool/call') {
+      try {
+        if (!this.readRepository || !active || active.stopping || active.turnId === null || p?.threadId !== this.threadId || p.turnId !== active.turnId || typeof p.callId !== 'string' || p.namespace != null) throw new Error('Repository tool call lacks current turn ownership');
+        const callKey = `tool:${p.callId}`;
+        if (active.toolCalls.has(callKey) || active.toolCalls.size >= 512) throw new Error('Duplicate repository tool call or turn tool limit exceeded');
+        active.toolCalls.add(callKey);
+        const result = this.readRepository(String(p.tool), p.arguments);
+        return { success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(result) }] };
+      } catch (error) {
+        return { success: false, contentItems: [{ type: 'inputText', text: error instanceof Error ? error.message : String(error) }] };
+      }
+    }
+    if (!this.editing) return undefined;
     if (message.method === 'item/fileChange/requestApproval') {
       const matches = active && !active.stopping && active.turnId !== null && p?.threadId === this.threadId && p.turnId === active.turnId && typeof p.itemId === 'string';
       const changes = matches ? active.patches.get(p.itemId as string) : undefined;
@@ -121,7 +159,7 @@ export class CodexSession implements AgentSession {
     const result = new Promise<TurnResult>((yes, no) => { resolve = yes; reject = no; });
     // A notification or disconnect may arrive before turn/start acknowledges.
     void result.catch(() => {});
-    this.active = { resolve, reject, turnId: null, text: '', usage: null, patches: new Map(), seenItems: new Set(), stopping: false };
+    this.active = { resolve, reject, turnId: null, text: '', usage: null, patches: new Map(), seenItems: new Set(), toolCalls: new Set(), stopping: false };
     try {
       const started = await this.rpc.request<{ turn: { id: string } }>('turn/start', {
         threadId: this.threadId, input: [{ type: 'text', text: prompt }], outputSchema: replySchema,
@@ -131,7 +169,7 @@ export class CodexSession implements AgentSession {
         this.active.turnId = started.turn.id;
       }
     } catch (error) { this.active = null; throw error; }
-    return result;
+    return result.then(async output => { await reportIntegrations(this.rpc, this.threadId, this.emit); return output; });
   }
 
   async interrupt(): Promise<void> {

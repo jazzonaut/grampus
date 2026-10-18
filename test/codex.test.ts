@@ -9,21 +9,57 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import type { EditingContext } from '../src/edit-policy.js';
+import type { RepositoryAccess } from '../src/repository-tools.js';
 
 const reply = { kind: 'message', text: 'fixture', questions: [], findings: [] };
-function fixture(behavior: string, events: AgentEvent[] = [], onEvent: (event: AgentEvent) => void = () => {}, editing?: EditingContext) {
+function fixture(behavior: string, events: AgentEvent[] = [], onEvent: (event: AgentEvent) => void = () => {}, editing?: EditingContext, repository?: RepositoryAccess) {
   const script = `
     const send = value => console.log(JSON.stringify(value));
     const reply = ${JSON.stringify(reply)};
     const note = (method, params) => send({ method, params: { threadId: 'thread-1', ...params } });
     require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
       const r = JSON.parse(line);
+      if (r.method === 'mcpServerStatus/list') { send({ id: r.id, result: { data: [{ name: 'fixture', runtimeStatus: 'ready', tools: { read: {} }, authStatus: 'notLoggedIn' }], nextCursor: null } }); return; }
       ${behavior}
     });
   `;
   const rpc = new RpcProcess(process.execPath, ['-e', script]);
-  return new CodexSession(rpc, 'thread-1', event => { events.push(event); onEvent(event); }, editing);
+  return new CodexSession(rpc, 'thread-1', event => { events.push(event); onEvent(event); }, editing, repository);
 }
+
+test('Codex repository calls are bound to the current thread and turn, journaled, and cannot grant writes', async t => {
+  const context = editingFixture(t); context.snapshot.files[0]!.sha256 = createHash('sha256').update('before\n').digest('hex');
+  const events: AgentEvent[] = [];
+  const agent = fixture(`
+    if (r.method === 'turn/start') {
+      note('turn/started', { turn: { id: 'turn-1' } });
+      send({ id: r.id, result: { turn: { id: 'turn-1' } } });
+      send({ id: 'read', method: 'item/tool/call', params: { threadId: 'thread-1', turnId: 'turn-1', callId: 'read-1', tool: 'grampus_read_file', arguments: { path: 'file.txt' } } });
+    }
+    if (r.id === 'read') {
+      if (!r.result?.success || !r.result.contentItems[0].text.includes('before')) process.exit(3);
+      send({ id: 'duplicate', method: 'item/tool/call', params: { threadId: 'thread-1', turnId: 'turn-1', callId: 'read-1', tool: 'grampus_read_file', arguments: { path: 'file.txt' } } });
+    }
+    if (r.id === 'duplicate') {
+      if (r.result?.success !== false) process.exit(4);
+      send({ id: 'foreign', method: 'item/tool/call', params: { threadId: 'other', turnId: 'turn-1', callId: 'read-2', tool: 'grampus_read_file', arguments: { path: 'file.txt' } } });
+    }
+    if (r.id === 'foreign') {
+      if (r.result?.success !== false) process.exit(5);
+      send({ id: 'write', method: 'item/tool/call', params: { threadId: 'thread-1', turnId: 'turn-1', callId: 'write-1', tool: 'Write', arguments: { path: 'file.txt' } } });
+    }
+    if (r.id === 'write') {
+      if (r.result?.success !== false) process.exit(6);
+      note('item/completed', { item: { type: 'agentMessage', text: JSON.stringify(reply) } });
+      note('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
+    }
+  `, events, undefined, undefined, { repo: context.cwd, snapshot: context.snapshot });
+  try { assert.equal((await agent.turn('Read')).status, 'completed'); }
+  finally { await agent.close(); }
+  assert.equal(events.filter(event => event.type === 'repository.tool_result').length, 1);
+  assert.deepEqual(events.find(event => event.type === 'integrations.updated')?.data,
+    { servers: [{ name: 'fixture', status: 'ready', tools: 1, auth: 'notLoggedIn' }] });
+});
 
 function editingFixture(t: { after(fn: () => void): void }): EditingContext {
   const cwd = mkdtempSync(join(tmpdir(), 'grampus-codex-patch-'));

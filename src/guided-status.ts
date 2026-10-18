@@ -8,6 +8,8 @@ import type { RepositoryCheck } from './checks.js';
 import type { Delivery } from './deliveries.js';
 import type { ImplementationRun } from './implementations.js';
 import { guidedPlanDigest } from './guided-plan.js';
+import { explorationSummary } from './repository-tools.js';
+import { integrationSummary } from './integrations.js';
 
 export function guidedTaskView(store: Store, id: string) {
   return store.transaction(() => {
@@ -17,6 +19,8 @@ export function guidedTaskView(store: Store, id: string) {
   const review = state.reviewId ? store.execution<Execution>(state.reviewId) : null;
   const session = state.stage === 'review' && review ? new Sessions(store).get(review.sessionId)
     : execution ? new Sessions(store).get(execution.sessionId) : null;
+  const explorationEvents = [...new Set([execution?.sessionId, review?.sessionId].filter((id): id is string => !!id))]
+    .flatMap(sessionId => store.sessionEvents(sessionId));
   const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
   const command = (...args: string[]) => `npm start -- --db ${quote(store.path)} ${args.map(quote).join(' ')}`;
   const stale = task.version !== state.version || JSON.stringify(task.brief) !== JSON.stringify(state.plan.brief) || guidedPlanDigest(state.plan) !== state.digest;
@@ -37,7 +41,7 @@ export function guidedTaskView(store: Store, id: string) {
     : lease.kind === 'check' || lease.kind === 'verification' ? 'check-recover' : lease.readOnlyRecovery ? 'execution-recover' : 'session-recover',
   lease.readOnlyRecovery ? lease.executionId : lease.kind === 'conversation' ? lease.sessionId : lease.runId)
     : workspace && workspace.phase !== 'ready' ? command('workspace-recover', workspace.id) : null;
-  return { task, state, stale, workspace, lease, session, next, recovery, questionKey: guidedQuestionKey(store, state), stop: state.owner ? command('task-stop', id) : null,
+  return { task, state, stale, workspace, lease, session, next, recovery, integrations: integrationSummary(session ? store.sessionEvents(session.id) : []), exploration: explorationSummary(explorationEvents), questionKey: guidedQuestionKey(store, state), stop: state.owner ? command('task-stop', id) : null,
     questions: state.status === 'awaiting_answer' ? session?.lastReply?.questions ?? [] : [],
     findings: review ? new Sessions(store).get(review.sessionId).lastReply?.findings ?? [] : [],
     checks: execution ? store.checks<RepositoryCheck>(execution.id) : [],
@@ -63,7 +67,7 @@ export function renderGuidedTask(store: Store, id: string, details = false): str
     lines.push('', `Approval digest: ${state.digest}`);
   }
   if (view.workspace) lines.push(`Workspace: ${view.workspace.path ?? '(creation not settled)'}`);
-  if (state.plan.context) lines.push(`Repository context: ${state.plan.context.files.length}/${state.plan.context.totalFiles} pinned files supplied; other files are omitted from prompts, not from artifact verification.`,
+  if (state.plan.context) lines.push(`Repository context: ${state.plan.context.files.length}/${state.plan.context.totalFiles} initial pinned files supplied; ${state.plan.context.exploration ? 'agents can search and read repository files as needed' : 'other files are omitted from prompts, not from artifact verification'}.`,
     `Context files: ${state.plan.context.files.join(', ')}`, `Inventory digest: ${state.plan.context.inventoryDigest}`);
   if (state.policy) lines.push(`Authorized file actions: ${JSON.stringify({ files: state.policy.files, create: state.policy.create, delete: state.policy.delete })}`);
   if (state.status === 'awaiting_scope') lines.push('Inspect the repository instructions and files before authorizing. Use --details for retained instructions and changes.');

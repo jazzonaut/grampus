@@ -51,6 +51,8 @@ export type Phase = 'draft' | 'ready' | 'running' | 'stop_requested' | 'recovery
   | 'stopped' | 'failed' | 'awaiting_verification' | 'awaiting_decision' | 'complete';
 
 export interface Task {
+  deletedAt?: string;
+  resetTo?: string;
   id: string;
   brief: Brief;
   version: number;
@@ -126,6 +128,7 @@ export class Workflow {
   private change<T>(id: string, action: (task: Task) => T): T {
     return this.store.transaction(() => {
       const task = this.get(id);
+      if (task.deletedAt) throw new Error('This task was deleted from the dashboard');
       const result = action(task);
       this.store.save(id, task);
       return result;

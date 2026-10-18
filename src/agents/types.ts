@@ -20,7 +20,7 @@ export const replySchema = {
   }, required: ['kind', 'text', 'questions', 'findings'],
 };
 
-export const instructions = `You are participating in a Grampus conversation. Do not edit files, run commands, access external tools, or delegate work.
+export const instructions = `You are participating in a Grampus conversation. Do not edit files, run commands or delegate work. Use configured MCP integrations and the supplied read-only tools to gather task context.
 Return the supplied JSON response format. Use kind=question for consequential missing information, putting each question in questions with a stable id, prompt and choices (empty allows free text). End the turn and wait for an answer. Do not use question tools.
 Use kind=review for a requested review of supplied content; each finding needs concrete evidence. An empty findings list means no findings in the supplied content, not proof of repository validation. Otherwise use kind=message. Always include text, questions and findings; unused lists are empty.`;
 
@@ -63,6 +63,8 @@ export interface AgentSession {
 }
 
 export interface ConnectOptions {
+  configurationCwd?: string;
+  repository?: import('../repository-tools.js').RepositoryAccess;
   editing?: import('../edit-policy.js').EditingContext;
   cwd: string;
   providerSessionId: string | null;

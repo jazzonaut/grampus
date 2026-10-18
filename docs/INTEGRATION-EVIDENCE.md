@@ -1,5 +1,75 @@
 # Initial integration evidence
 
+## MCP connections, external references and dashboard management — 18 October 2026
+
+Configured MCP servers now load for Codex and Claude, including source-project
+definitions when execution runs in an isolated worktree. Native shell/file scope
+restrictions remain independent of those connections. Connection summaries contain
+only server names, state, authentication mode and tool counts.
+
+### Live connections and reference reads
+
+`npm run probe:mcp -- --live` passed for both providers. Codex retrieved the actual
+Linear issue **NXT-772: PDF encoder (pdfkit pipeline, PDF/A-3)**. Claude discovered
+a source-project MCP fixture through native ToolSearch and invoked `read_contract`
+from a separate working directory, returning its random UUID. No ticket, comment
+or external record was modified. Evidence is retained under
+`.grampus/mcp-probes/b43017af-16a1-4215-9c07-7ebfa6d3ba86/` and
+`.grampus/mcp-live.log`.
+
+An initial Codex worktree connection exposed null optional fields in `config/read`:
+passing them into TOML overrides produced an invalid timeout value. The adapter
+now removes unset values before carrying server configuration. The succeeding
+live probe above verified the corrected path.
+
+`npm run probe:references -- --live` passed both providers on the final adapter
+build. Each used list, search and read tools with `root=reference-1` against a
+separate plain folder whose path contains spaces, then returned the exact random
+contract. The session journals recorded the actual reference root and folder.
+Codex reported Linear connected; Claude's end-of-turn refresh also reported its
+configured Linear connection connected. This does not equate the two providers'
+available tools or credentials. Evidence is in
+`.grampus/reference-probes/5d53fc14-4588-4b4d-bd25-bb09186715ea/` and
+`.grampus/references-verified-live.log`.
+
+The actual JNow reference path `C:/Code/ZadarGit/src/zadarDemo.VueSPA` was inspected
+read-only at parent commit `c0544f9dc1b0c577be942e47c0c2516125ef850e`.
+Its selected subtree contained 5,233 files; a PDF path query found 12 matches,
+including the PDF document/page builders and export providers. No JNow files changed.
+
+### Dashboard and lifecycle checks
+
+An actual browser fixture deleted a draft task, which disappeared from the list.
+Cancelling confirmation first preserved it. Resetting its separate planning
+conversation removed the old entry and created a fresh session with the exact
+original request; the browser started planning automatically. That planner read
+both `entry.js` and `reference-1/spec.md` and produced a candidate. Updating its
+references then invalidated the candidate without starting another inference turn.
+The fixture repository and workspace files were retained. Screenshots and results
+are under `.grampus/mcp-ui/`.
+
+All seven assertions in `test/browser-task-management.probe.js` passed: connection
+status, agent suggestion selection, reference-update binding, cancellation,
+delete binding/navigation, reset/new planning, and disabled active-task management.
+The six prior exploration/start-planning assertions also passed. Their HTTP calls
+were mocked; the preceding lifecycle trial used the real controller and provider.
+
+### Offline verification
+
+The complete Node 24.22.0 suite passed **262/262** tests, with no failures,
+cancellations or skips (666.6 seconds; `.grampus/mcp-all-node24.log`). After final
+status/report changes, the focused Codex, reference, repository-tool, lifecycle
+and dashboard suites passed **38/38** on Node 25.8.1 and **38/38** on Node 24.22.0
+(`.grampus/mcp-references-verified-node{24,25}.log`). The final legacy-timeout
+fallback and current-baseline reset regression passed on Node 24 in that run and
+on Node 25's subsequent **4/4** lifecycle run
+(`.grampus/mcp-lifecycle-final-node25.log`). TypeScript compilation, browser
+JavaScript syntax and diff whitespace checks passed.
+
+These checks cover the requested capabilities and fixture workflows. They do not
+implement NXT-772 itself or establish an ordinary-project release trial. Existing
+saved provider threads should be reset to start planning with the new tool registry.
+
 ## Windows installer file-handle correction — 18 October 2026
 
 After the initial installation commit, an interactive update failed at the final
@@ -1127,3 +1197,83 @@ are explicitly offline fixtures. No live model inference, ordinary-project trial
 release-wide independent review, installer validation or Orca-host scale trial was
 performed for this change. Context suggestions are filename heuristics; autonomous
 retrieval and approved-recipe/context revision remain outstanding.
+
+
+## Autonomous repository exploration (18 October 2026)
+
+Implemented shared controller-owned list/read/literal-search tools for Codex dynamic
+functions and the Claude SDK in-process MCP server. New guided tasks enable read
+exploration independently of exact file actions; old saved recipes retain their
+capabilities. Planning reads pinned Git blobs, implementation reads its captured
+inventory plus approved current file contents, and review uses the submitted
+snapshot with file hashes and the final full-artifact recheck. Tool requests and
+bounded results are journaled. The dashboard starts planning directly, treats
+starting paths as optional hints, shows exploration, and displays exact editable
+contents at authorization even with no initial hints. Task reports summarize
+implementation/review exploration and identify the full session journals.
+
+### Actual subscription checks
+
+`npm run probe:exploration -- --live` passed six checks: pinned, resumed and snapshot
+reads for each provider. Each turn used all three tools to discover a hidden random
+contract in an entry module's dependency. Dirty checkout bytes differed from the
+committed value: planning returned the committed value and snapshot access returned
+the captured workspace value. Codex CLI 0.163.0's generated protocol confirmed the
+dynamic function schema and experimental initialization capability. Evidence is
+retained under `.grampus/exploration-probes/dfa5ed68-0764-46c8-aa2b-11687be4b3eb/`.
+
+Two complete live tasks then ran through the actual browser dashboard, with no
+starting file hints. Both planners read the dependency themselves and generated
+one-file scopes and meaningful process/export checks. Exact entry-file contents
+were shown at authorization. After inspecting each actual diff and passing
+regression output, an explicit simplification assessment continued independent
+review, acceptance and verified local delivery:
+
+- Codex implementation / Claude review: implementation made three exploration
+  calls; review made two and inspected the unchanged dependency. Fixture commit
+  `0a96a54f51eb67d4c9c0f598cd20cf951753586b` was verified locally.
+- Claude implementation / Codex review: implementation read the dependency through
+  the MCP tool; review made three exploration calls and inspected both source
+  files. Fixture commit `ef7c4f4b5eaa75d54f41800d9cf9ba4d52c4cd1b` was verified locally.
+
+Both implementations preserved the export, guarded direct execution and printed
+exactly the dependency contract plus one LF. The dependency and repository file
+inventory stayed unchanged. These were subscription-backed fixture tasks, not
+ordinary-project release evidence. No task branch was pushed or merged. Retained
+workflow journals, reports and summaries are in `.grampus/exploration-ui/`.
+
+### Browser and scale checks
+
+The six assertions in `test/browser-exploration.probe.js` passed in the embedded
+browser, including clicking Start planning without a preview/selection, one-step
+kickoff creation, collapsed optional hints, visible exploration and the repository
+access explanation. The four existing question/decision-binding assertions also
+passed. After restarting the fixture dashboard on the final build, delivered tasks
+and exploration history remained visible; the first task showed all five
+implementation/review calls. Saved results are in
+`.grampus/exploration-ui/browser-result.json`.
+
+A retained 100,002-file fixture was indexed and queried through the new tools.
+The last numbered source file was found by path query and read from its pinned
+blob with a recorded SHA-256. These are synthetic scale observations, not a claim
+that an agent semantically reviewed 100,000 files. The result is retained as
+`.grampus/exploration-ui/scale-result.json`.
+
+### Offline regression checks
+
+The initial complete Node 25.8.1 run passed all 249 tests with no failures or skips
+(668.4 seconds). The subsequent complete Node 24.22.0 run passed all 251
+tests with no failures, cancellations or skips (670.6 seconds). The last search-budget
+refinement and added large-file regression were verified by the seven-test repository
+tool suite on both runtimes after the full-run dispatch. After adding Claude-handler, report and authorization coverage,
+the final focused Node 25 run passed all 51 tests. The final repository-tool suite
+passed all seven tests on both Node 25.8.1 and Node 24.22.0, including explicit
+large-search omissions, direct paginated reads, ownership/journal failures, pinned
+bytes, dependency discovery, traversal/alias rejection and unchanged write scope.
+TypeScript and browser JavaScript syntax checks passed. Logs are retained as
+`.grampus/exploration-tests.log`, `.grampus/exploration-tests-node24.log`,
+`.grampus/exploration-final-focused-node25.log`
+and `.grampus/exploration-bounds-node{24,25}.log`.
+
+Ordinary-project trials, approved-recipe revisions, other-platform support and
+release-wide independent review remain outstanding.

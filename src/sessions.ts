@@ -11,6 +11,7 @@ import { captureRepository, reviewContext } from './repository-evidence.js';
 import { parseReply, type AgentEvent, type AgentSession, type Connector, type Provider, type Reply, type TurnResult } from './agents/types.js';
 
 export interface Session {
+  deletedAt?: string;
   mode?: 'editing';
   id: string;
   provider: Provider;
@@ -47,6 +48,7 @@ export class Sessions {
   claim(id: string, prompt: string, answers?: Record<string, string>, editing = false): { session: Session; prompt: string; runId: string } {
     if (answers !== undefined && (!answers || typeof answers !== 'object' || Array.isArray(answers))) throw new Error('Answers must be a JSON object');
     return this.change(id, session => {
+      if (session.deletedAt) throw new Error('This planning conversation was deleted');
       if (editing) {
         if (session.providerSessionId && session.mode !== 'editing') throw new Error('Native editing requires a fresh session or an existing editing session');
         const execution = this.store.executionForSession<Execution>(id);
@@ -162,6 +164,7 @@ function processAlive(pid: number): boolean {
 }
 
 export interface RunOptions {
+  repository?: import('./repository-tools.js').RepositoryAccess;
   timeoutMs?: number;
   interruptAfterMs?: number;
   signal?: AbortSignal;
@@ -225,18 +228,24 @@ export async function runSession(store: Store, id: string, prompt: string, optio
   let exitConfirmed = false;
   try {
     const execution = store.executionForSession<Execution>(id);
+    let repository = options.repository;
+    let configurationCwd = options.repository?.repo ?? claim.session.cwd;
     if (execution) {
+      configurationCwd = workspaces.get(execution.workspaceId).repository;
       const inspected = await workspaces.inspect(execution.workspaceId, !review);
       if (!inspected.taskCurrent) throw new Error('Execution task version changed before dispatch');
       if (review) {
-        claim.prompt += `\n\n${await reviewContext(store, workspaces, review)}`;
+        const snapshot = await captureRepository(workspaces, review);
+        claim.prompt += `\n\n${await reviewContext(store, workspaces, review, snapshot)}`;
+        const plan = new Workflow(store).get(execution.taskId).guided?.plan;
+        if (plan?.context?.exploration) repository = { repo: claim.session.cwd, snapshot, references: plan.references ?? [] };
         emit({ type: 'review.context', data: { artifact: review.artifact, prompt: claim.prompt } });
       }
       if (stopped) throw new Error('Interrupted before provider connection');
     }
     connectionPending = true;
     const connection = Promise.resolve().then(() => connect(claim.session.provider, { cwd: claim.session.cwd, providerSessionId: claim.session.providerSessionId,
-      model: claim.session.model, signal: connectionAbort.signal, emit })).then(value => {
+      model: claim.session.model, configurationCwd, signal: connectionAbort.signal, emit, ...(repository ? { repository } : {}) })).then(value => {
       connectionPending = false; agent = value; connectionFinished = true; return value;
     }, error => { connectionPending = false; throw error; });
     // If startup outlives the deadline, close it when it eventually returns. Never send a prompt.

@@ -13,17 +13,21 @@ manually coordinating every provider call, check and delivery command.
 - Existing Codex and Claude subscription logins, with independent other-provider
   review and no separately billed API access enabled automatically.
 - Standalone Git worktrees and optional local Orca workspaces.
-- Regular-file repositories with bounded selected text context and unchanged binary
-  assets. Context omissions must be explicit; changed files and instructions cannot
+- Regular-file repositories with autonomous bounded repository exploration and
+  unchanged binary assets. Initial file hints are optional. Context omissions must be explicit; changed files and instructions cannot
   be silently excluded. See [repository context and scale](REPOSITORY-CONTEXT.md).
 - One task executing at a time through the first guided workflow. Existing low-level
   commands remain available; they do not yet enforce a global worker limit.
 - Local checked commits and a journal-derived report. The user handles pushing.
 
-macOS/Linux releases, published installers, Linear, automatic PR delivery, multi-task
+macOS/Linux releases, published installers, dedicated Linear workflow automation, automatic PR delivery, multi-task
 scheduling and full unattended operation follow this alpha. The broader design
 remains the product direction. A basic interface and clear recovery are part of
 usability, rather than optional polish.
+
+Configured MCP connections, including Linear ticket reads, are available now.
+The dashboard also supports read-only reference folders, agent folder suggestions,
+and reset/delete actions that preserve workspace files and journal evidence.
 
 ## Release gates, in order
 
@@ -108,3 +112,13 @@ a checked replacement while retaining older version directories and task data.
 CLI and dashboard identify version, mode and installed build. See
 [INSTALLATION.md](INSTALLATION.md). This enables local trials; ordinary-project
 evidence and release-wide review/distribution validation remain required.
+
+## Autonomous exploration checkpoint
+
+New tasks no longer require manual context selection. Both provider integrations
+can list, search and read repository content during planning, implementation and
+review. Read access is separately approved from exact write permissions. The web UI
+starts planning directly and shows exploration activity. Existing approved recipes
+retain their capabilities. Ordinary-project trials remain the next release gate;
+fixture exploration evidence does not replace them. See
+[REPOSITORY-CONTEXT.md](REPOSITORY-CONTEXT.md) and integration evidence.
