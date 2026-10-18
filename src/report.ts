@@ -14,13 +14,21 @@ export function renderReport(store: Store, id: string): string {
   const task = workflow.get(id);
   const blockers = workflow.blockers(id);
   const slice = activeSlice(task);
-  const exploration = store.executions<Execution>().filter(execution => execution.taskId === id).map(execution => ({
-    role: execution.role, sessionId: execution.sessionId, ...explorationSummary(store.sessionEvents(execution.sessionId)),
-  })).filter(item => item.calls > 0);
+  const exploration = store
+    .executions<Execution>()
+    .filter(execution => execution.taskId === id)
+    .map(execution => ({
+      role: execution.role,
+      sessionId: execution.sessionId,
+      ...explorationSummary(store.sessionEvents(execution.sessionId)),
+    }))
+    .filter(item => item.calls > 0);
   return [
     `# ${prose(task.brief.title)}`,
     '',
-    ...(task.synthetic ? ['**Synthetic demonstration — no real agent implementation or independent review.**', ''] : []),
+    ...(task.synthetic
+      ? ['**Synthetic demonstration — no real agent implementation or independent review.**', '']
+      : []),
     `Task: ${task.id}  `,
     `State: ${task.phase}  `,
     `Requirements version: ${task.version}; approved version: ${task.approvedVersion ?? 'none'}  `,
@@ -36,26 +44,52 @@ export function renderReport(store: Store, id: string): string {
     '',
     prose(task.brief.plan),
     '',
-    ...(task.guided?.plan.references?.length ? ['## Read-only reference folders', '',
-      ...task.guided.plan.references.map((reference, index) => `- reference-${index + 1}: ${prose(reference.path)}; source ${reference.base ?? reference.digest}; ${reference.totalFiles} files.`), ''] : []),
-    ...(slice ? [
-      '## Slices', '',
-      `Current slice: ${slice.number}/${slice.total} — ${prose(slice.title)}. Delivered: ${task.slice!.completed.length}/${slice.total}.`, '',
-      ...task.brief.slices!.flatMap((item, index) => [
-        `${index + 1}. ${prose(item.title)} — ${task.slice!.completed.some(done => done.index === index) ? 'delivered' : index === task.slice!.index ? 'current' : 'pending'}`,
-        `   ${prose(item.plan)}`,
-      ]), '',
-      ...task.slice!.completed.map(done => `- Slice ${done.index + 1}: ${done.outcome}; HEAD ${done.head}; delivery ${done.deliveryId}.`), '',
-      ...(slice.final ? ['Final slice verification covers every task criterion.', ''] : []),
-    ] : []),
+    ...(task.guided?.plan.references?.length
+      ? [
+          '## Read-only reference folders',
+          '',
+          ...task.guided.plan.references.map(
+            (reference, index) =>
+              `- reference-${index + 1}: ${prose(reference.path)}; source ${reference.base ?? reference.digest}; ${reference.totalFiles} files.`,
+          ),
+          '',
+        ]
+      : []),
+    ...(slice
+      ? [
+          '## Slices',
+          '',
+          `Current slice: ${slice.number}/${slice.total} — ${prose(slice.title)}. Delivered: ${task.slice!.completed.length}/${slice.total}.`,
+          '',
+          ...task.brief.slices!.flatMap((item, index) => [
+            `${index + 1}. ${prose(item.title)} — ${task.slice!.completed.some(done => done.index === index) ? 'delivered' : index === task.slice!.index ? 'current' : 'pending'}`,
+            `   ${prose(item.plan)}`,
+          ]),
+          '',
+          ...task.slice!.completed.map(
+            done => `- Slice ${done.index + 1}: ${done.outcome}; HEAD ${done.head}; delivery ${done.deliveryId}.`,
+          ),
+          '',
+          ...(slice.final ? ['Final slice verification covers every task criterion.', ''] : []),
+        ]
+      : []),
     '## Completion gates',
     '',
     ...(blockers.length ? blockers.map(reason => `- ${prose(reason)}`) : ['All recorded gates passed.']),
     '',
-    ...(exploration.length ? ['## Repository exploration', '',
-      ...exploration.flatMap(item => [`- ${item.role}: ${item.calls} completed list/search/read calls. Session: ${item.sessionId}.`,
-        ...item.readFiles.map(path => `  - Read: ${prose(path)}`)]), '',
-      'Exact bounded results, source identities and read hashes are retained in each session journal. File reads do not establish runtime validation or whole-repository review.', ''] : []),
+    ...(exploration.length
+      ? [
+          '## Repository exploration',
+          '',
+          ...exploration.flatMap(item => [
+            `- ${item.role}: ${item.calls} completed list/search/read calls. Session: ${item.sessionId}.`,
+            ...item.readFiles.map(path => `  - Read: ${prose(path)}`),
+          ]),
+          '',
+          'Exact bounded results, source identities and read hashes are retained in each session journal. File reads do not establish runtime validation or whole-repository review.',
+          '',
+        ]
+      : []),
     '## Journal',
     '',
     ...store.events(id).flatMap(event => [
@@ -64,7 +98,9 @@ export function renderReport(store: Store, id: string): string {
       event.at,
       '',
       // Indented code prevents arbitrary embedded backtick fences ending a block.
-      ...JSON.stringify(event.data, null, 2).split('\n').map(line => `    ${line}`),
+      ...JSON.stringify(event.data, null, 2)
+        .split('\n')
+        .map(line => `    ${line}`),
       '',
     ]),
   ].join('\n');

@@ -2,13 +2,15 @@
 // Only the two implementation files are writable by the live provider.
 export const fixtureFiles: Record<string, string> = {
   'summary.cjs': 'exports.summarize = values => ({ count: values.length });\n',
-  'cli.cjs': "console.log(JSON.stringify(process.argv[2]));\n",
-  'AGENTS.md': 'Use CommonJS and Node built-ins only. Keep calculation in summary.cjs and argument parsing/output in cli.cjs. Avoid unnecessary abstractions. Only the two named implementation files may change.\n',
+  'cli.cjs': 'console.log(JSON.stringify(process.argv[2]));\n',
+  'AGENTS.md':
+    'Use CommonJS and Node built-ins only. Keep calculation in summary.cjs and argument parsing/output in cli.cjs. Avoid unnecessary abstractions. Only the two named implementation files may change.\n',
 };
 
 export const brief = {
   title: 'Multi-file summary command pilot',
-  outcome: 'Implement summarize(values) in summary.cjs and a JSON command in cli.cjs. Export summarize using CommonJS. Use no dependencies.',
+  outcome:
+    'Implement summarize(values) in summary.cjs and a JSON command in cli.cjs. Export summarize using CommonJS. Use no dependencies.',
   criteria: [
     'summarize accepts an array of finite numbers and returns exactly { count, total, min, max }; empty arrays return { count: 0, total: 0, min: null, max: null }. Preserve the input array.',
     'summarize throws TypeError for non-arrays or any non-number or non-finite element. Negative numbers and decimals are supported.',
@@ -40,7 +42,9 @@ for (const input of [null, {}, '3', 3, [null], [true], ['2'], [{}], [[]], [NaN],
 console.log('library: empty, single, mixed, negative, immutable, invalid');
 `;
 
-export const oracle = libraryOracle + String.raw`
+export const oracle =
+  libraryOracle +
+  String.raw`
 const { spawnSync } = require('node:child_process');
 function run(args) {
   const result = spawnSync(process.execPath, ['cli.cjs', ...args], { encoding: 'utf8', timeout: 2000, windowsHide: true });
@@ -66,20 +70,34 @@ console.log('command: argument count, JSON syntax, invalid values');
 `;
 
 export const libraryStdout = 'library: empty, single, mixed, negative, immutable, invalid\n';
-export const expectedStdout = libraryStdout
-  + 'command: empty, single, mixed, negative\n'
-  + 'command: argument count, JSON syntax, invalid values\n';
+export const expectedStdout =
+  libraryStdout +
+  'command: empty, single, mixed, negative\n' +
+  'command: argument count, JSON syntax, invalid values\n';
 
-export const slicedBrief = { ...brief, title: 'Sequential summary library and command pilot',
+export const slicedBrief = {
+  ...brief,
+  title: 'Sequential summary library and command pilot',
   plan: 'Deliver the library first, then implement the CLI in a fresh execution. Each slice pauses for explicit simplification, independent review and verified delivery. Final acceptance covers the complete library and CLI contract.',
   slices: [
-    { title: 'Summary library', plan: 'Edit only summary.cjs. Implement and verify the library contract; leave cli.cjs for the next slice.', criteria: brief.criteria.slice(0, 2) },
-    { title: 'JSON command and integration', plan: 'Edit only cli.cjs to reuse the delivered library. Review integration and verify every task criterion.', criteria: brief.criteria.slice(2) },
+    {
+      title: 'Summary library',
+      plan: 'Edit only summary.cjs. Implement and verify the library contract; leave cli.cjs for the next slice.',
+      criteria: brief.criteria.slice(0, 2),
+    },
+    {
+      title: 'JSON command and integration',
+      plan: 'Edit only cli.cjs to reuse the delivered library. Review integration and verify every task criterion.',
+      criteria: brief.criteria.slice(2),
+    },
   ],
 };
 
 export const obsoleteFile = 'obsolete.cjs';
 export const obsoleteContent = 'exports.legacySummary = values => values.length;\n';
-export const deletionCriterion = 'Remove obsolete.cjs from the workspace; do not replace it with an empty file or directory.';
-export const deletionOracle = oracle + `\nassert.equal(require('node:fs').existsSync('${obsoleteFile}'), false, 'Obsolete file must be removed');\nconsole.log('workspace: obsolete file removed');\n`;
+export const deletionCriterion =
+  'Remove obsolete.cjs from the workspace; do not replace it with an empty file or directory.';
+export const deletionOracle =
+  oracle +
+  `\nassert.equal(require('node:fs').existsSync('${obsoleteFile}'), false, 'Obsolete file must be removed');\nconsole.log('workspace: obsolete file removed');\n`;
 export const deletionStdout = expectedStdout + 'workspace: obsolete file removed\n';

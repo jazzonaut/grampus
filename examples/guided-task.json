@@ -16,7 +16,12 @@
     {
       "scope": { "files": ["greeting.js"] },
       "validation": { "name": "Greeting syntax", "file": "node", "args": ["--check", "greeting.js"] },
-      "acceptance": { "name": "Greeting output", "file": "node", "args": ["greeting.js"], "expectedStdout": "hello world\n" },
+      "acceptance": {
+        "name": "Greeting output",
+        "file": "node",
+        "args": ["greeting.js"],
+        "expectedStdout": "hello world\n"
+      },
       "message": "Update the greeting"
     }
   ]

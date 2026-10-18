@@ -4,7 +4,8 @@
   // Buttons and labels accept inline formatting without nested interactive elements.
   const inline = window.markdownit(options).disable(['link', 'image', 'autolink']);
   const validateLink = blocks.validateLink;
-  blocks.validateLink = url => validateLink(url) && (!/^[a-z][a-z\d+.-]*:/i.test(url) || /^(https?:|mailto:)/i.test(url));
+  blocks.validateLink = url =>
+    validateLink(url) && (!/^[a-z][a-z\d+.-]*:/i.test(url) || /^(https?:|mailto:)/i.test(url));
   blocks.renderer.rules.link_open = (tokens, index, settings, environment, renderer) => {
     tokens[index].attrSet('target', '_blank');
     tokens[index].attrSet('rel', 'noopener noreferrer');

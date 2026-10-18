@@ -5,8 +5,10 @@ import { Sessions } from '../src/sessions.js';
 import { agentProgress, plannerProgress } from '../src/planner-progress.js';
 
 test('planner progress follows owned events, stays compact and never returns raw replies or tool results', t => {
-  const store = new Store(':memory:'); t.after(() => store.close());
-  const sessions = new Sessions(store), session = sessions.create('claude', process.cwd());
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  const sessions = new Sessions(store),
+    session = sessions.create('claude', process.cwd());
   const claim = sessions.claim(session.id, 'SECRET CONTROLLER PROMPT');
   const emit = (type: string, data: unknown) => sessions.event(session.id, claim.runId, { type, data });
   const progress = () => plannerProgress(store.sessionEvents(session.id), sessions.get(session.id))!;
@@ -17,9 +19,17 @@ test('planner progress follows owned events, stays compact and never returns raw
   emit('repository.tool_requested', { tool: 'grampus_search', arguments: { query: 'ExportService' } });
   assert.match(progress().activity, /Searching repository for “ExportService”/);
   emit('repository.tool_result', { tool: 'grampus_search', result: { matches: [{ text: 'SECRET FILE CONTENT' }] } });
-  emit('repository.tool_requested', { tool: 'grampus_read_file', root: 'reference-1', arguments: { path: 'src/export.ts' } });
+  emit('repository.tool_requested', {
+    tool: 'grampus_read_file',
+    root: 'reference-1',
+    arguments: { path: 'src/export.ts' },
+  });
   assert.equal(progress().activity, 'Reading reference-1/src/export.ts');
-  emit('repository.tool_result', { tool: 'grampus_read_file', root: 'reference-1', result: { path: 'src/export.ts', lines: ['SECRET FILE CONTENT'] } });
+  emit('repository.tool_result', {
+    tool: 'grampus_read_file',
+    root: 'reference-1',
+    result: { path: 'src/export.ts', lines: ['SECRET FILE CONTENT'] },
+  });
   emit('integration.tool_authorized', { tool: 'mcp__linear__get_issue' });
   assert.equal(progress().repositoryCalls, 2);
   assert.equal(progress().integrationCalls, 1);
@@ -48,8 +58,10 @@ test('planner progress follows owned events, stays compact and never returns raw
 });
 
 test('execution activity reports file requests without claiming completed edits or exposing their contents', t => {
-  const store = new Store(':memory:'); t.after(() => store.close());
-  const sessions = new Sessions(store), session = sessions.create('codex', process.cwd());
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  const sessions = new Sessions(store),
+    session = sessions.create('codex', process.cwd());
   const claim = sessions.claim(session.id, 'PRIVATE PROMPT');
   const emit = (type: string, data: unknown) => sessions.event(session.id, claim.runId, { type, data });
   const progress = () => agentProgress(store.sessionEvents(session.id), sessions.get(session.id), 'implementation')!;
@@ -65,6 +77,9 @@ test('execution activity reports file requests without claiming completed edits 
   assert.equal(progress().activity, 'Deleted src/old.ts');
   emit('output.delta', { text: 'PRIVATE RESPONSE' });
   assert.equal(progress().activity, 'Writing the implementation response');
-  assert.equal(agentProgress(store.sessionEvents(session.id), sessions.get(session.id), 'review')!.activity, 'Writing the review response');
+  assert.equal(
+    agentProgress(store.sessionEvents(session.id), sessions.get(session.id), 'review')!.activity,
+    'Writing the review response',
+  );
   assert.doesNotMatch(JSON.stringify(progress()), /PRIVATE/);
 });

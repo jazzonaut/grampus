@@ -47,8 +47,17 @@ export interface Evidence {
   fallbackReason?: string;
 }
 
-export type Phase = 'draft' | 'ready' | 'running' | 'stop_requested' | 'recovery_required'
-  | 'stopped' | 'failed' | 'awaiting_verification' | 'awaiting_decision' | 'complete';
+export type Phase =
+  | 'draft'
+  | 'ready'
+  | 'running'
+  | 'stop_requested'
+  | 'recovery_required'
+  | 'stopped'
+  | 'failed'
+  | 'awaiting_verification'
+  | 'awaiting_decision'
+  | 'complete';
 
 export interface Task {
   deletedAt?: string;
@@ -65,8 +74,15 @@ export interface Task {
   guided?: import('./guided-tasks.js').GuidedState;
   slice?: {
     index: number;
-    completed: { index: number; attemptId: string; artifact: string; deliveryId: string;
-      outcome: 'committed' | 'no_change'; commit: string | null; head: string }[];
+    completed: {
+      index: number;
+      attemptId: string;
+      artifact: string;
+      deliveryId: string;
+      outcome: 'committed' | 'no_change';
+      commit: string | null;
+      head: string;
+    }[];
   };
 }
 
@@ -74,14 +90,20 @@ export interface Task {
 export function activeCriteria(task: Task): string[] {
   const index = task.slice?.index ?? 0;
   return task.slice && task.brief.slices && index < task.brief.slices.length - 1
-    ? task.brief.slices[index]!.criteria : task.brief.criteria;
+    ? task.brief.slices[index]!.criteria
+    : task.brief.criteria;
 }
 
 export function activeSlice(task: Task): (Slice & { number: number; total: number; final: boolean }) | null {
   if (!task.brief.slices || !task.slice) return null;
-  const index = task.slice!.index;
-  return { ...task.brief.slices[index]!, criteria: activeCriteria(task), number: index + 1,
-    total: task.brief.slices.length, final: index === task.brief.slices.length - 1 };
+  const index = task.slice.index;
+  return {
+    ...task.brief.slices[index]!,
+    criteria: activeCriteria(task),
+    number: index + 1,
+    total: task.brief.slices.length,
+    final: index === task.brief.slices.length - 1,
+  };
 }
 
 function nonempty(value: string, field: string): void {
@@ -96,15 +118,27 @@ export function validateBrief(brief: Brief): void {
   brief.criteria.forEach(value => nonempty(value, 'criterion'));
   if (new Set(brief.criteria).size !== brief.criteria.length) throw new Error('Acceptance criteria must be distinct');
   if (brief.slices !== undefined) {
-    if (!Array.isArray(brief.slices) || brief.slices.length < 1 || brief.slices.length > 64) throw new Error('Plan requires 1–64 ordered slices');
+    if (!Array.isArray(brief.slices) || brief.slices.length < 1 || brief.slices.length > 64)
+      throw new Error('Plan requires 1–64 ordered slices');
     for (const slice of brief.slices) {
-      if (!slice || typeof slice !== 'object' || Object.keys(slice).some(key => !['title', 'plan', 'criteria'].includes(key))) throw new Error('Invalid slice');
-      nonempty(slice.title, 'slice title'); nonempty(slice.plan, 'slice plan');
-      if (!Array.isArray(slice.criteria) || slice.criteria.length === 0
-        || new Set(slice.criteria).size !== slice.criteria.length
-        || slice.criteria.some(value => !brief.criteria.includes(value))) throw new Error('Slice criteria must name distinct approved task criteria');
+      if (
+        !slice ||
+        typeof slice !== 'object' ||
+        Object.keys(slice).some(key => !['title', 'plan', 'criteria'].includes(key))
+      )
+        throw new Error('Invalid slice');
+      nonempty(slice.title, 'slice title');
+      nonempty(slice.plan, 'slice plan');
+      if (
+        !Array.isArray(slice.criteria) ||
+        slice.criteria.length === 0 ||
+        new Set(slice.criteria).size !== slice.criteria.length ||
+        slice.criteria.some(value => !brief.criteria.includes(value))
+      )
+        throw new Error('Slice criteria must name distinct approved task criteria');
     }
-    if (!brief.criteria.every(criterion => brief.slices!.some(slice => slice.criteria.includes(criterion)))) throw new Error('Slices must cover every task criterion');
+    if (!brief.criteria.every(criterion => brief.slices!.some(slice => slice.criteria.includes(criterion))))
+      throw new Error('Slices must cover every task criterion');
   }
 }
 
@@ -122,8 +156,12 @@ function unsettled(task: Task): boolean {
 export class Workflow {
   constructor(private readonly store: Store) {}
 
-  get(id: string): Task { return this.store.get<Task>(id); }
-  list(): Task[] { return this.store.list<Task>(); }
+  get(id: string): Task {
+    return this.store.get<Task>(id);
+  }
+  list(): Task[] {
+    return this.store.list<Task>();
+  }
 
   private change<T>(id: string, action: (task: Task) => T): T {
     return this.store.transaction(() => {
@@ -145,14 +183,22 @@ export class Workflow {
     if (!workspace) return;
     if (workspace.phase === 'released' && !requireCurrent) return;
     if (workspace.phase !== 'ready') throw new Error('Settle or reconcile workspace creation first');
-    if (requireCurrent && workspace.version !== task.version) throw new Error('Workspace belongs to an earlier task version');
+    if (requireCurrent && workspace.version !== task.version)
+      throw new Error('Workspace belongs to an earlier task version');
   }
 
   create(brief: Brief, synthetic = false): Task {
     validateBrief(brief);
     const task: Task = {
-      id: randomUUID(), brief: structuredClone(brief), version: 1, approvedVersion: null,
-      phase: 'draft', synthetic, attempt: null, evidence: [], decisions: [],
+      id: randomUUID(),
+      brief: structuredClone(brief),
+      version: 1,
+      approvedVersion: null,
+      phase: 'draft',
+      synthetic,
+      attempt: null,
+      evidence: [],
+      decisions: [],
       ...(brief.slices ? { slice: { index: 0, completed: [] } } : {}),
     };
     this.store.transaction(() => {
@@ -199,7 +245,13 @@ export class Workflow {
       if (!['ready', 'stopped', 'failed', 'awaiting_verification', 'awaiting_decision'].includes(task.phase)) {
         throw new Error('Task cannot start in its current state');
       }
-      task.attempt = { id: randomUUID(), version: task.version, agent: structuredClone(agent), artifact: null, outcome: 'running' };
+      task.attempt = {
+        id: randomUUID(),
+        version: task.version,
+        agent: structuredClone(agent),
+        artifact: null,
+        outcome: 'running',
+      };
       task.evidence = [];
       task.phase = 'running';
       this.event(task, 'attempt.started', { ...task.attempt, ...(task.slice ? { sliceIndex: task.slice.index } : {}) });
@@ -207,7 +259,14 @@ export class Workflow {
     });
   }
 
-  finish(id: string, attemptId: string, version: number, outcome: 'succeeded' | 'failed', artifact: string, summary: string): boolean {
+  finish(
+    id: string,
+    attemptId: string,
+    version: number,
+    outcome: 'succeeded' | 'failed',
+    artifact: string,
+    summary: string,
+  ): boolean {
     nonempty(summary, 'summary');
     if (outcome !== 'succeeded' && outcome !== 'failed') throw new Error('Invalid attempt outcome');
     if (outcome === 'succeeded') nonempty(artifact, 'artifact');
@@ -220,8 +279,12 @@ export class Workflow {
       assertTaskExecutionIdle(this.store, id);
       task.attempt.outcome = outcome;
       task.attempt.artifact = artifact || null;
-      task.phase = outcome === 'failed' ? 'failed'
-        : task.decisions.some(item => !item.accepted) ? 'awaiting_decision' : 'awaiting_verification';
+      task.phase =
+        outcome === 'failed'
+          ? 'failed'
+          : task.decisions.some(item => !item.accepted)
+            ? 'awaiting_decision'
+            : 'awaiting_verification';
       this.event(task, 'attempt.finished', result);
       return true;
     });
@@ -230,13 +293,20 @@ export class Workflow {
   record(id: string, evidence: Evidence): boolean {
     nonempty(evidence.id, 'evidence id');
     nonempty(evidence.summary, 'summary');
-    if (!['simplification', 'validation', 'review', 'verification'].includes(evidence.kind)
-      || !['passed', 'failed', 'skipped'].includes(evidence.outcome)
-      || !['controller', 'agent', 'synthetic'].includes(evidence.source)) throw new Error('Invalid evidence');
+    if (
+      !['simplification', 'validation', 'review', 'verification'].includes(evidence.kind) ||
+      !['passed', 'failed', 'skipped'].includes(evidence.outcome) ||
+      !['controller', 'agent', 'synthetic'].includes(evidence.source)
+    )
+      throw new Error('Invalid evidence');
     return this.change(id, task => {
-      if (task.attempt?.id !== evidence.attemptId || task.version !== evidence.version
-        || task.attempt.artifact !== evidence.artifact || task.attempt.outcome !== 'succeeded'
-        || !['awaiting_verification', 'awaiting_decision'].includes(task.phase)) {
+      if (
+        task.attempt?.id !== evidence.attemptId ||
+        task.version !== evidence.version ||
+        task.attempt.artifact !== evidence.artifact ||
+        task.attempt.outcome !== 'succeeded' ||
+        !['awaiting_verification', 'awaiting_decision'].includes(task.phase)
+      ) {
         this.event(task, 'evidence.ignored', { reason: 'stale attempt, artifact, or state', evidence });
         return false;
       }
@@ -245,7 +315,8 @@ export class Workflow {
         this.event(task, 'evidence.ignored', { reason: 'duplicate evidence id', evidence });
         return false;
       }
-      if (evidence.source === 'synthetic' && !task.synthetic) throw new Error('Synthetic evidence cannot verify a real task');
+      if (evidence.source === 'synthetic' && !task.synthetic)
+        throw new Error('Synthetic evidence cannot verify a real task');
       if (evidence.kind === 'review') {
         if (!evidence.agent) throw new Error('Review requires reviewer identity');
         validateAgent(evidence.agent);
@@ -255,11 +326,16 @@ export class Workflow {
         }
         if (evidence.agent.provider === implementer.provider) {
           nonempty(evidence.fallbackReason ?? '', 'same-provider fallback reason');
-          this.event(task, 'review.same_provider_fallback', { implementer, reviewer: evidence.agent, reason: evidence.fallbackReason });
+          this.event(task, 'review.same_provider_fallback', {
+            implementer,
+            reviewer: evidence.agent,
+            reason: evidence.fallbackReason,
+          });
         }
       }
       if (evidence.kind === 'validation' || evidence.kind === 'verification') {
-        if (evidence.source === 'agent') throw new Error('Agent claims alone cannot establish validation or verification');
+        if (evidence.source === 'agent')
+          throw new Error('Agent claims alone cannot establish validation or verification');
       }
       task.evidence.push(structuredClone(evidence));
       this.event(task, 'evidence.recorded', evidence);
@@ -285,7 +361,8 @@ export class Workflow {
       const decision = task.decisions.find(item => item.id === decisionId);
       if (!decision || decision.accepted) throw new Error('Pending decision not found');
       decision.accepted = true;
-      if (task.phase === 'awaiting_decision' && task.decisions.every(item => item.accepted)) task.phase = 'awaiting_verification';
+      if (task.phase === 'awaiting_decision' && task.decisions.every(item => item.accepted))
+        task.phase = 'awaiting_verification';
       this.event(task, 'decision.accepted', { decisionId, version });
     });
   }
@@ -320,7 +397,10 @@ export class Workflow {
         assertTaskExecutionIdle(this.store, task.id);
         task.phase = 'recovery_required';
         task.attempt!.outcome = 'uncertain';
-        this.event(task, 'recovery.required', { attemptId: task.attempt!.id, reason: 'Previous execution must be reconciled; process liveness unknown' });
+        this.event(task, 'recovery.required', {
+          attemptId: task.attempt!.id,
+          reason: 'Previous execution must be reconciled; process liveness unknown',
+        });
         this.store.save(task.id, task);
         recovered.push(task.id);
       }
@@ -331,17 +411,25 @@ export class Workflow {
   sliceBlockers(id: string): string[] {
     const task = this.get(id);
     const reasons: string[] = [];
-    if (this.store.workspaces<Workspace>().some(workspace => workspace.taskId === id && this.store.lease(workspace.id))) {
+    if (
+      this.store.workspaces<Workspace>().some(workspace => workspace.taskId === id && this.store.lease(workspace.id))
+    ) {
       reasons.push('Workspace execution is active or needs recovery');
     }
     if (task.approvedVersion !== task.version) reasons.push('Current plan is not approved');
-    if (!['awaiting_verification', 'awaiting_decision', 'complete'].includes(task.phase)
-      || task.attempt?.outcome !== 'succeeded') reasons.push('Implementation has not finished successfully');
+    if (
+      !['awaiting_verification', 'awaiting_decision', 'complete'].includes(task.phase) ||
+      task.attempt?.outcome !== 'succeeded'
+    )
+      reasons.push('Implementation has not finished successfully');
     for (const kind of ['simplification', 'validation', 'review', 'verification'] as const) {
       const evidence = task.evidence.findLast(item => item.kind === kind);
       if (evidence?.outcome !== 'passed') reasons.push(`${kind} has not passed`);
-      if (kind === 'verification' && evidence?.outcome === 'passed'
-        && !activeCriteria(task).every(criterion => evidence.criteria?.includes(criterion))) {
+      if (
+        kind === 'verification' &&
+        evidence?.outcome === 'passed' &&
+        !activeCriteria(task).every(criterion => evidence.criteria?.includes(criterion))
+      ) {
         reasons.push('Verification does not cover all acceptance criteria');
       }
     }
@@ -352,38 +440,64 @@ export class Workflow {
   blockers(id: string): string[] {
     const task = this.get(id);
     const reasons = this.sliceBlockers(id);
-    if (task.slice && task.slice.completed.length !== task.brief.slices!.length) reasons.push('Planned slices have not all been delivered');
+    if (task.slice && task.slice.completed.length !== task.brief.slices!.length)
+      reasons.push('Planned slices have not all been delivered');
     return reasons;
   }
 
   /** Called only after supervised delivery verification, in the settlement transaction. */
   acceptDelivery(id: string, deliveryId: string): void {
     const task = this.get(id);
-    if (!task.slice) { this.complete(id); return; }
+    if (!task.slice) {
+      this.complete(id);
+      return;
+    }
     this.change(id, task => {
       const delivery = this.store.delivery<Delivery>(deliveryId);
       const execution = this.store.execution<Execution>(delivery.executionId);
       const reasons = this.sliceBlockers(id);
       if (reasons.length) throw new Error(`Cannot deliver slice: ${reasons.join('; ')}`);
-      if (task.phase === 'complete' || delivery.phase !== 'delivered' || !delivery.request
-        || execution.taskId !== id || execution.version !== task.version || execution.role !== 'implementation'
-        || execution.attemptId !== task.attempt?.id || delivery.spec.artifact !== task.attempt.artifact
-        || !['committed', 'no_change'].includes(delivery.outcome ?? '')
-        || (delivery.outcome === 'committed' && !delivery.commit)
-        || task.slice!.completed.length !== task.slice!.index) throw new Error('Delivery does not match the current undelivered slice');
-      const completed = { index: task.slice!.index, attemptId: task.attempt.id, artifact: task.attempt.artifact!,
-        deliveryId, outcome: delivery.outcome!, commit: delivery.commit, head: delivery.commit ?? delivery.request.snapshot.head };
+      if (
+        task.phase === 'complete' ||
+        delivery.phase !== 'delivered' ||
+        !delivery.request ||
+        execution.taskId !== id ||
+        execution.version !== task.version ||
+        execution.role !== 'implementation' ||
+        execution.attemptId !== task.attempt?.id ||
+        delivery.spec.artifact !== task.attempt.artifact ||
+        !['committed', 'no_change'].includes(delivery.outcome ?? '') ||
+        (delivery.outcome === 'committed' && !delivery.commit) ||
+        task.slice!.completed.length !== task.slice!.index
+      )
+        throw new Error('Delivery does not match the current undelivered slice');
+      const completed = {
+        index: task.slice!.index,
+        attemptId: task.attempt.id,
+        artifact: task.attempt.artifact,
+        deliveryId,
+        outcome: delivery.outcome!,
+        commit: delivery.commit,
+        head: delivery.commit ?? delivery.request.snapshot.head,
+      };
       task.slice!.completed.push(completed);
       this.event(task, 'slice.delivered', completed);
       if (task.slice!.index === task.brief.slices!.length - 1) {
         task.phase = 'complete';
-        this.event(task, 'task.completed', { attemptId: task.attempt.id, artifact: task.attempt.artifact, synthetic: task.synthetic });
+        this.event(task, 'task.completed', {
+          attemptId: task.attempt.id,
+          artifact: task.attempt.artifact,
+          synthetic: task.synthetic,
+        });
       } else {
         task.slice!.index++;
         task.attempt = null;
         task.evidence = [];
         task.phase = 'ready';
-        this.event(task, 'slice.ready', { index: task.slice!.index, title: task.brief.slices![task.slice!.index]!.title });
+        this.event(task, 'slice.ready', {
+          index: task.slice!.index,
+          title: task.brief.slices![task.slice!.index]!.title,
+        });
       }
     });
   }
@@ -394,7 +508,11 @@ export class Workflow {
       const reasons = this.blockers(id);
       if (reasons.length) throw new Error(`Cannot complete: ${reasons.join('; ')}`);
       task.phase = 'complete';
-      this.event(task, 'task.completed', { attemptId: task.attempt!.id, artifact: task.attempt!.artifact, synthetic: task.synthetic });
+      this.event(task, 'task.completed', {
+        attemptId: task.attempt!.id,
+        artifact: task.attempt!.artifact,
+        synthetic: task.synthetic,
+      });
     });
   }
 }

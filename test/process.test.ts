@@ -13,7 +13,10 @@ test('commands have a bounded timeout', async () => {
 });
 
 test('commands receive EOF rather than waiting indefinitely for piped input', async () => {
-  const output = await command(process.execPath, ['-e', 'process.stdin.resume(); process.stdin.on("end", () => process.stdout.write("finished"))']);
+  const output = await command(process.execPath, [
+    '-e',
+    'process.stdin.resume(); process.stdin.on("end", () => process.stdout.write("finished"))',
+  ]);
   assert.equal(output, 'finished');
 });
 
@@ -33,11 +36,14 @@ test('RPC correlates out-of-order replies and drains notifications', async () =>
   const rpc = new RpcProcess(process.execPath, ['-e', script]);
   try {
     const [first, second] = await Promise.all([
-      rpc.request('first', { delay: 30 }), rpc.request('second', { delay: 0 }),
+      rpc.request('first', { delay: 30 }),
+      rpc.request('second', { delay: 0 }),
     ]);
     assert.deepEqual(first, { delay: 30 });
     assert.deepEqual(second, { delay: 0 });
-  } finally { await rpc.close(); }
+  } finally {
+    await rpc.close();
+  }
 });
 
 test('RPC reports missing executables and rejects subsequent calls', async () => {
@@ -45,26 +51,39 @@ test('RPC reports missing executables and rejects subsequent calls', async () =>
   try {
     await assert.rejects(rpc.request('initialize', {}), /ENOENT/);
     await assert.rejects(rpc.request('again', {}), /unavailable/);
-  } finally { await rpc.close(); }
+  } finally {
+    await rpc.close();
+  }
 });
 
 test('RPC reports malformed JSON and early child exits', async () => {
   for (const script of ['console.log("not JSON")', 'process.exit(2)']) {
     const rpc = new RpcProcess(process.execPath, ['-e', script]);
-    try { await assert.rejects(rpc.request('initialize', {}), /Invalid JSON|exited/); }
-    finally { await rpc.close(); }
+    try {
+      await assert.rejects(rpc.request('initialize', {}), /Invalid JSON|exited/);
+    } finally {
+      await rpc.close();
+    }
   }
 });
 
 test('RPC timeout does not accept an unrelated result', async () => {
-  const rpc = new RpcProcess(process.execPath, ['-e', 'process.stdin.resume(); console.log(JSON.stringify({ id: 999, result: true }));']);
-  try { await assert.rejects(rpc.request('missing', {}, 100), /timeout/); }
-  finally { await rpc.close(); }
+  const rpc = new RpcProcess(process.execPath, [
+    '-e',
+    'process.stdin.resume(); console.log(JSON.stringify({ id: 999, result: true }));',
+  ]);
+  try {
+    await assert.rejects(rpc.request('missing', {}, 100), /timeout/);
+  } finally {
+    await rpc.close();
+  }
 });
 
 test('RPC server requests fail closed and cannot resolve a client request with a colliding id', async () => {
   for (const mode of ['missing', 'throw', 'allowed']) {
-    const rpc = new RpcProcess(process.execPath, ['-e', `
+    const rpc = new RpcProcess(process.execPath, [
+      '-e',
+      `
       const send = value => console.log(JSON.stringify(value));
       require('node:readline').createInterface({input:process.stdin}).on('line', line => {
         const message = JSON.parse(line);
@@ -74,9 +93,17 @@ test('RPC server requests fail closed and cannot resolve a client request with a
           send({id:message.id,result:'outer completed'});
         }
       });
-    `]);
-    if (mode !== 'missing') rpc.onRequest(() => { if (mode === 'throw') throw new Error('Journal unavailable'); return { decision: 'decline' }; });
-    try { assert.equal(await rpc.request('outer', {}), 'outer completed'); }
-    finally { await rpc.close(); }
+    `,
+    ]);
+    if (mode !== 'missing')
+      rpc.onRequest(() => {
+        if (mode === 'throw') throw new Error('Journal unavailable');
+        return { decision: 'decline' };
+      });
+    try {
+      assert.equal(await rpc.request('outer', {}), 'outer completed');
+    } finally {
+      await rpc.close();
+    }
   }
 });

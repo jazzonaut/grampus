@@ -18,22 +18,37 @@ const brief = { title: 'Greeting', outcome: 'Say hello', criteria: ['Print hello
 const message: Reply = { kind: 'message', text: 'Conversation complete', questions: [], findings: [] };
 const result = (reply: Reply = message): TurnResult => ({ status: 'completed', reply, usage: null, error: null });
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+  return execFileSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  }).trim();
 }
 async function fixture(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-execution-test-'));
-  const repo = join(root, 'source'); mkdirSync(repo);
+  const repo = join(root, 'source');
+  mkdirSync(repo);
   git(repo, 'init', '-b', 'main');
-  git(repo, 'config', 'user.name', 'Fixture'); git(repo, 'config', 'user.email', 'fixture@invalid');
-  git(repo, 'config', 'commit.gpgsign', 'false'); git(repo, 'config', 'core.autocrlf', 'false');
+  git(repo, 'config', 'user.name', 'Fixture');
+  git(repo, 'config', 'user.email', 'fixture@invalid');
+  git(repo, 'config', 'commit.gpgsign', 'false');
+  git(repo, 'config', 'core.autocrlf', 'false');
   writeFileSync(join(repo, 'greeting.txt'), 'hello\n');
-  git(repo, 'add', '.'); git(repo, 'commit', '-m', 'Fixture baseline');
-  const db = join(root, 'journal.sqlite'); const store = new Store(db);
-  t.after(() => { store.close(); rmSync(root, { recursive: true, force: true }); });
-  const workflow = new Workflow(store); const task = workflow.create(brief); workflow.approve(task.id, 1);
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-m', 'Fixture baseline');
+  const db = join(root, 'journal.sqlite');
+  const store = new Store(db);
+  t.after(() => {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+  const workflow = new Workflow(store);
+  const task = workflow.create(brief);
+  workflow.approve(task.id, 1);
   const workspaces = new Workspaces(store);
   const workspace = await workspaces.create(task.id, 1, repo, join(root, 'workspace'));
-  const executions = new Executions(store); const sessions = new Sessions(store);
+  const executions = new Executions(store);
+  const sessions = new Sessions(store);
   return { root, repo, db, store, workflow, task, workspace, workspaces, executions, sessions };
 }
 
@@ -53,7 +68,9 @@ test('failed execution preparation rolls back nested task/session changes and al
   const { store, workflow, task, workspace, executions } = await fixture(t);
   const before = store.events(task.id);
   const append = store.appendExecution.bind(store);
-  store.appendExecution = () => { throw new Error('Fixture journal write failure'); };
+  store.appendExecution = () => {
+    throw new Error('Fixture journal write failure');
+  };
   await assert.rejects(executions.create(workspace.id, 1, 'codex'), /journal write failure/);
   store.appendExecution = append;
   assert.equal(workflow.get(task.id).phase, 'ready');
@@ -72,19 +89,42 @@ test('questions resume across stores with approved context and release ownership
   const connector: Connector = async (_, options) => {
     assert.ok(store.lease(workspace.id));
     assert.equal(options.providerSessionId, turns === 0 ? null : 'fixture-provider-session');
-    options.emit({ type: 'session.connected', data: { providerSessionId: 'fixture-provider-session', model: 'observed-fixture-model' } });
-    return { turn: async prompt => {
-      prompts.push(prompt); turns++;
-      return result(turns === 1 ? { kind: 'question', text: 'Choose', questions: [{ id: 'format', prompt: 'Which?', choices: [] }], findings: [] } : message);
-    }, interrupt: async () => {}, close: async () => { assert.ok(store.lease(workspace.id)); } };
+    options.emit({
+      type: 'session.connected',
+      data: { providerSessionId: 'fixture-provider-session', model: 'observed-fixture-model' },
+    });
+    return {
+      turn: async prompt => {
+        prompts.push(prompt);
+        turns++;
+        return result(
+          turns === 1
+            ? {
+                kind: 'question',
+                text: 'Choose',
+                questions: [{ id: 'format', prompt: 'Which?', choices: [] }],
+                findings: [],
+              }
+            : message,
+        );
+      },
+      interrupt: async () => {},
+      close: async () => {
+        assert.ok(store.lease(workspace.id));
+      },
+    };
   };
   await runSession(store, execution.sessionId, 'Ask a question', {}, connector);
   assert.equal(sessions.get(execution.sessionId).phase, 'awaiting_answer');
   assert.equal(store.lease(workspace.id), null);
   const reopened = new Store(db);
-  try { await runSession(reopened, execution.sessionId, '', { answers: { format: 'text' } }, connector); }
-  finally { reopened.close(); }
-  assert.match(prompts[0]!, /Print hello/); assert.match(prompts[1]!, /"format":"text"/);
+  try {
+    await runSession(reopened, execution.sessionId, '', { answers: { format: 'text' } }, connector);
+  } finally {
+    reopened.close();
+  }
+  assert.match(prompts[0]!, /Print hello/);
+  assert.match(prompts[1]!, /"format":"text"/);
   assert.equal(workflow.get(task.id).attempt?.agent.model, 'observed-fixture-model');
   assert.equal(workflow.get(task.id).phase, 'running');
   assert.equal(workflow.get(task.id).attempt?.artifact, null);
@@ -102,16 +142,33 @@ test('different review sessions share one workspace lease and late results canno
   try {
     const other = new Sessions(otherStore);
     assert.throws(() => other.claim(second.sessionId, 'Duplicate'), /execution lease/);
-    assert.throws(() => workflow.start(task.id, { provider: 'codex', model: 'fixture', sessionId: 'other' }), /execution lease/);
-    assert.throws(() => workflow.record(task.id, { id: 'check', attemptId: implementation.attemptId, version: 1, artifact: 'fixture-artifact',
-      kind: 'validation', source: 'controller', outcome: 'passed', summary: 'Fixture' }), /execution lease/);
+    assert.throws(
+      () => workflow.start(task.id, { provider: 'codex', model: 'fixture', sessionId: 'other' }),
+      /execution lease/,
+    );
+    assert.throws(
+      () =>
+        workflow.record(task.id, {
+          id: 'check',
+          attemptId: implementation.attemptId,
+          version: 1,
+          artifact: 'fixture-artifact',
+          kind: 'validation',
+          source: 'controller',
+          outcome: 'passed',
+          summary: 'Fixture',
+        }),
+      /execution lease/,
+    );
     assert.ok(workflow.blockers(task.id).some(reason => reason.includes('execution')));
     sessions.settle(first.sessionId, claim.runId, result(), true);
     const next = other.claim(second.sessionId, 'Next');
     sessions.settle(first.sessionId, claim.runId, result(), true);
     assert.equal(store.lease<ExecutionLease>(workspace.id)?.runId, next.runId);
     other.settle(second.sessionId, next.runId, result(), true);
-  } finally { otherStore.close(); }
+  } finally {
+    otherStore.close();
+  }
   assert.equal(store.lease(workspace.id), null);
   assert.deepEqual(workflow.get(task.id).evidence, []);
 });
@@ -121,7 +178,13 @@ test('unconfirmed shutdown retains the lease and blocks task mutation until conf
   const execution = await executions.create(workspace.id, 1, 'codex');
   const connector: Connector = async (_, options) => {
     options.emit({ type: 'process.started', data: { pid: process.pid } });
-    return { turn: async () => result(), interrupt: async () => {}, close: async () => { throw new Error('Unconfirmed fixture shutdown'); } };
+    return {
+      turn: async () => result(),
+      interrupt: async () => {},
+      close: async () => {
+        throw new Error('Unconfirmed fixture shutdown');
+      },
+    };
   };
   await runSession(store, execution.sessionId, 'Run', {}, connector);
   assert.equal(sessions.get(execution.sessionId).phase, 'recovery_required');
@@ -162,8 +225,19 @@ test('a real controller crash retains the lease until both recorded processes ha
     await new Promise(resolve => child.on('close', resolve));
     process.exit(0);
   `;
-  execFileSync(process.execPath, ['--input-type=module', '-e', script, new URL('../src/store.js', import.meta.url).href,
-    new URL('../src/sessions.js', import.meta.url).href, db, execution.sessionId], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  execFileSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      script,
+      new URL('../src/store.js', import.meta.url).href,
+      new URL('../src/sessions.js', import.meta.url).href,
+      db,
+      execution.sessionId,
+    ],
+    { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] },
+  );
   assert.ok(store.lease(workspace.id));
   assert.throws(() => workflow.recover(), /execution lease/);
   sessions.recover(execution.sessionId);
@@ -178,10 +252,19 @@ test('interruption is persisted before provider interrupt and late success canno
   const abort = new AbortController();
   let finish!: (value: TurnResult) => void;
   const connector: Connector = async () => ({
-    turn: async () => { const pending = new Promise<TurnResult>(resolve => { finish = resolve; }); queueMicrotask(() => abort.abort()); return pending; },
+    turn: async () => {
+      const pending = new Promise<TurnResult>(resolve => {
+        finish = resolve;
+      });
+      queueMicrotask(() => abort.abort());
+      return pending;
+    },
     interrupt: async () => {
-      assert.equal(workflow.get(task.id).phase, 'stop_requested'); assert.ok(store.lease(workspace.id)); finish(result());
-    }, close: async () => {},
+      assert.equal(workflow.get(task.id).phase, 'stop_requested');
+      assert.ok(store.lease(workspace.id));
+      finish(result());
+    },
+    close: async () => {},
   });
   const outcome = await runSession(store, execution.sessionId, 'Run', { signal: abort.signal }, connector);
   assert.equal(outcome.status, 'interrupted');
@@ -195,9 +278,13 @@ test('workspace identity failure is detected while leased and before any provide
   const execution = await executions.create(workspace.id, 1, 'codex');
   git(repo, 'worktree', 'unlock', workspace.path);
   let connected = false;
-  const connector: Connector = async () => { connected = true; throw new Error('Must not connect'); };
+  const connector: Connector = async () => {
+    connected = true;
+    throw new Error('Must not connect');
+  };
   const outcome = await runSession(store, execution.sessionId, 'Run', {}, connector);
-  assert.equal(outcome.status, 'failed'); assert.equal(connected, false);
+  assert.equal(outcome.status, 'failed');
+  assert.equal(connected, false);
   assert.equal(store.lease(workspace.id), null);
   assert.equal(workflow.get(task.id).phase, 'failed');
 });
@@ -205,7 +292,11 @@ test('workspace identity failure is detected while leased and before any provide
 test('malformed replies fail the attempt but do not retain a lease after confirmed shutdown', async t => {
   const { store, workflow, task, workspace, executions } = await fixture(t);
   const execution = await executions.create(workspace.id, 1, 'codex');
-  const connector: Connector = async () => ({ turn: async () => ({ ...result(), reply: null }), interrupt: async () => {}, close: async () => {} });
+  const connector: Connector = async () => ({
+    turn: async () => ({ ...result(), reply: null }),
+    interrupt: async () => {},
+    close: async () => {},
+  });
   assert.equal((await runSession(store, execution.sessionId, 'Run', {}, connector)).status, 'failed');
   assert.equal(workflow.get(task.id).phase, 'failed');
   assert.equal(store.lease(workspace.id), null);
@@ -252,10 +343,16 @@ test('unlinked sessions cannot bypass workspace ownership, and removed unrelated
 test('execution CLI persists linked state and closes it across separate invocations without inference', async t => {
   const { db, workspace } = await fixture(t);
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
-  const run = (...args: string[]) => execFileSync(process.execPath, [cli, '--db', db, ...args], { encoding: 'utf8', windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  const run = (...args: string[]) =>
+    execFileSync(process.execPath, [cli, '--db', db, ...args], {
+      encoding: 'utf8',
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
   const execution = JSON.parse(run('execution-new', workspace.id, '1', 'codex'));
   const shown = JSON.parse(run('execution-show', execution.id));
-  assert.equal(shown.session.id, execution.sessionId); assert.equal(shown.lease, null);
+  assert.equal(shown.session.id, execution.sessionId);
+  assert.equal(shown.lease, null);
   assert.equal(JSON.parse(run('session-show', execution.sessionId)).execution.id, execution.id);
   assert.equal(JSON.parse(run('execution-close', execution.id)).phase, 'closed');
   assert.equal(JSON.parse(run('execution-list')).length, 1);
@@ -277,25 +374,32 @@ test('schema 4 migration retains workspaces and sessions and adds execution owne
   const { db, store, workflow, task, workspace, sessions } = await fixture(t);
   const session = sessions.create('codex', workspace.repository);
   const legacy = new DatabaseSync(db);
-  legacy.exec('DROP TABLE execution_leases; DROP TABLE execution_events; DROP TABLE executions; PRAGMA user_version = 4;'); legacy.close();
+  legacy.exec(
+    'DROP TABLE execution_leases; DROP TABLE execution_events; DROP TABLE executions; PRAGMA user_version = 4;',
+  );
+  legacy.close();
   const reopened = new Store(db);
   try {
     assert.deepEqual(new Workflow(reopened).get(task.id), workflow.get(task.id));
     assert.deepEqual(reopened.session(session.id), store.session(session.id));
     assert.deepEqual(reopened.workspace(workspace.id), workspace);
     assert.ok((await new Executions(reopened).create(workspace.id, 1, 'codex')).id);
-  } finally { reopened.close(); }
+  } finally {
+    reopened.close();
+  }
 });
 
 test('different task workspaces can own concurrent turns in the same journal', async t => {
   const { root, repo, store, workflow, workspace, workspaces, executions, sessions } = await fixture(t);
   const first = await executions.create(workspace.id, 1, 'codex');
   const firstRun = sessions.claim(first.sessionId, 'First task');
-  const otherTask = workflow.create(brief); workflow.approve(otherTask.id, 1);
+  const otherTask = workflow.create(brief);
+  workflow.approve(otherTask.id, 1);
   const otherWorkspace = await workspaces.create(otherTask.id, 1, repo, join(root, 'other-workspace'));
   const second = await executions.create(otherWorkspace.id, 1, 'claude');
   const secondRun = sessions.claim(second.sessionId, 'Independent task');
-  assert.ok(store.lease(workspace.id)); assert.ok(store.lease(otherWorkspace.id));
+  assert.ok(store.lease(workspace.id));
+  assert.ok(store.lease(otherWorkspace.id));
   sessions.settle(first.sessionId, firstRun.runId, result(), true);
   assert.ok(store.lease(otherWorkspace.id));
   sessions.settle(second.sessionId, secondRun.runId, result(), true);
@@ -305,14 +409,25 @@ test('startup that outlives cancellation retains its lease even before a provide
   const { store, workflow, task, workspace, executions, sessions } = await fixture(t);
   const execution = await executions.create(workspace.id, 1, 'codex');
   let resolveConnection!: (session: AgentSession) => void;
-  const connector: Connector = async () => new Promise(resolve => { resolveConnection = resolve; });
+  const connector: Connector = async () =>
+    new Promise(resolve => {
+      resolveConnection = resolve;
+    });
   let closed = false;
   const outcome = await runSession(store, execution.sessionId, 'Slow startup', { timeoutMs: 1000 }, connector);
   assert.equal(outcome.status, 'interrupted');
   assert.equal(sessions.get(execution.sessionId).phase, 'recovery_required');
   assert.equal(workflow.get(task.id).phase, 'recovery_required');
   assert.ok(store.lease(workspace.id));
-  resolveConnection({ turn: async () => { throw new Error('Must never send after timeout'); }, interrupt: async () => {}, close: async () => { closed = true; } });
+  resolveConnection({
+    turn: async () => {
+      throw new Error('Must never send after timeout');
+    },
+    interrupt: async () => {},
+    close: async () => {
+      closed = true;
+    },
+  });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(closed, true);
   assert.ok(store.lease(workspace.id));

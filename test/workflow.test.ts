@@ -9,7 +9,12 @@ import { Store } from '../src/store.js';
 import { Workflow, type Agent, type Evidence } from '../src/workflow.js';
 import { renderReport } from '../src/report.js';
 
-const brief = { title: 'Greeting', outcome: 'Print a greeting', criteria: ['Output is hello world', 'Output ends with a newline'], plan: 'Implement, simplify, validate, review, verify' };
+const brief = {
+  title: 'Greeting',
+  outcome: 'Print a greeting',
+  criteria: ['Output is hello world', 'Output ends with a newline'],
+  plan: 'Implement, simplify, validate, review, verify',
+};
 const implementer: Agent = { provider: 'codex', model: 'test-model', sessionId: 'implementation-session' };
 const reviewer: Agent = { provider: 'claude', model: 'test-review-model', sessionId: 'review-session' };
 
@@ -18,7 +23,10 @@ function fixture(t: { after(fn: () => void): void }) {
   const path = join(root, 'journal.sqlite');
   const store = new Store(path);
   const workflow = new Workflow(store);
-  t.after(() => { store.close(); rmSync(root, { recursive: true, force: true }); });
+  t.after(() => {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  });
   const task = workflow.create(brief);
   return { root, path, store, workflow, task };
 }
@@ -33,15 +41,23 @@ function implemented(workflow: Workflow, id: string) {
 function evidence(workflow: Workflow, id: string, kind: Evidence['kind'], changes: Partial<Evidence> = {}): Evidence {
   const task = workflow.get(id);
   return {
-    id: randomUUID(), attemptId: task.attempt!.id, version: task.version, artifact: task.attempt!.artifact!,
-    kind, outcome: 'passed', source: kind === 'review' ? 'agent' : 'controller',
-    summary: `Observed ${kind}`, criteria: task.brief.criteria,
-    ...(kind === 'review' ? { agent: reviewer } : {}), ...changes,
+    id: randomUUID(),
+    attemptId: task.attempt!.id,
+    version: task.version,
+    artifact: task.attempt!.artifact!,
+    kind,
+    outcome: 'passed',
+    source: kind === 'review' ? 'agent' : 'controller',
+    summary: `Observed ${kind}`,
+    criteria: task.brief.criteria,
+    ...(kind === 'review' ? { agent: reviewer } : {}),
+    ...changes,
   };
 }
 
 function allEvidence(workflow: Workflow, id: string): void {
-  for (const kind of ['simplification', 'validation', 'review', 'verification'] as const) workflow.record(id, evidence(workflow, id, kind));
+  for (const kind of ['simplification', 'validation', 'review', 'verification'] as const)
+    workflow.record(id, evidence(workflow, id, kind));
 }
 
 test('an approved implementation requires every evidence gate and criterion before completion', t => {
@@ -135,14 +151,23 @@ test('failed and skipped checks block completion and remain in history after ret
 test('a provider claim or synthetic test cannot establish real validation', t => {
   const { workflow, task } = fixture(t);
   implemented(workflow, task.id);
-  assert.throws(() => workflow.record(task.id, evidence(workflow, task.id, 'validation', { source: 'agent' })), /claims alone/);
-  assert.throws(() => workflow.record(task.id, evidence(workflow, task.id, 'verification', { source: 'synthetic' })), /Synthetic evidence/);
+  assert.throws(
+    () => workflow.record(task.id, evidence(workflow, task.id, 'validation', { source: 'agent' })),
+    /claims alone/,
+  );
+  assert.throws(
+    () => workflow.record(task.id, evidence(workflow, task.id, 'verification', { source: 'synthetic' })),
+    /Synthetic evidence/,
+  );
 });
 
 test('an implementer cannot approve their own review session', t => {
   const { workflow, task } = fixture(t);
   implemented(workflow, task.id);
-  assert.throws(() => workflow.record(task.id, evidence(workflow, task.id, 'review', { agent: implementer })), /independent/);
+  assert.throws(
+    () => workflow.record(task.id, evidence(workflow, task.id, 'review', { agent: implementer })),
+    /independent/,
+  );
   assert.equal(workflow.record(task.id, evidence(workflow, task.id, 'review')), true);
 });
 
@@ -198,8 +223,14 @@ test('journal and state survive an actual child controller exit without closing 
     process.stdout.write(JSON.stringify({ taskId: task.id, attemptId: attempt.id }), () => process.exit(17));
   `;
   let output = '';
-  try { execFileSync(process.execPath, ['--input-type=module', '-e', script, path], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }); }
-  catch (error) { output = (error as { stdout: string }).stdout; }
+  try {
+    execFileSync(process.execPath, ['--input-type=module', '-e', script, path], {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  } catch (error) {
+    output = (error as { stdout: string }).stdout;
+  }
   const result = JSON.parse(output) as { taskId: string; attemptId: string };
   assert.equal(workflow.get(result.taskId).phase, 'running');
   assert.equal(store.events(result.taskId).length, 3);
@@ -207,7 +238,10 @@ test('journal and state survive an actual child controller exit without closing 
   assert.deepEqual(workflow.recover(), []);
   assert.equal(workflow.get(result.taskId).phase, 'recovery_required');
   assert.throws(() => workflow.start(result.taskId, implementer), /current state/);
-  assert.equal(workflow.finish(result.taskId, result.attemptId, 1, 'succeeded', 'old', 'Untrusted late completion'), false);
+  assert.equal(
+    workflow.finish(result.taskId, result.attemptId, 1, 'succeeded', 'old', 'Untrusted late completion'),
+    false,
+  );
   workflow.confirmStopped(result.taskId, result.attemptId, 'Test process exited with code 17; no worker spawned');
   assert.notEqual(workflow.start(result.taskId, implementer).id, result.attemptId);
 });
@@ -218,10 +252,14 @@ test('invalid state changes roll back their journal entries and state', t => {
   assert.throws(() => workflow.approve(task.id, 42), /outdated/);
   assert.deepEqual(store.events(task.id), before);
   assert.equal(workflow.get(task.id).phase, 'draft');
-  assert.throws(() => store.transaction(() => {
-    store.append(task.id, 1, 'should.rollback', {});
-    throw new Error('Simulated write failure');
-  }), /Simulated/);
+  assert.throws(
+    () =>
+      store.transaction(() => {
+        store.append(task.id, 1, 'should.rollback', {});
+        throw new Error('Simulated write failure');
+      }),
+    /Simulated/,
+  );
   assert.deepEqual(store.events(task.id), before);
 });
 
@@ -234,7 +272,9 @@ test('two controller connections cannot approve a stale brief version', t => {
     workflow.revise(task.id, 1, { ...brief, outcome: 'Changed outcome' });
     assert.throws(() => other.approve(task.id, viewedVersion), /outdated/);
     assert.equal(other.get(task.id).approvedVersion, null);
-  } finally { otherStore.close(); }
+  } finally {
+    otherStore.close();
+  }
 });
 
 test('malformed or empty acceptance criteria cannot create tasks', t => {

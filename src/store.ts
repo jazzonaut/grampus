@@ -131,7 +131,9 @@ export class Store {
   }
 
   list<T>(): T[] {
-    return this.db.prepare('SELECT state FROM tasks ORDER BY rowid').all()
+    return this.db
+      .prepare('SELECT state FROM tasks ORDER BY rowid')
+      .all()
       .map(row => JSON.parse(String(row.state)) as T);
   }
 
@@ -141,19 +143,30 @@ export class Store {
   }
 
   guidedSummaries(): { id: string; title: string; status: string; stage: string }[] {
-    return this.db.prepare(`SELECT id, json_extract(state, '$.brief.title') AS title,
+    return this.db
+      .prepare(
+        `SELECT id, json_extract(state, '$.brief.title') AS title,
       json_extract(state, '$.guided.status') AS status, json_extract(state, '$.guided.stage') AS stage
-      FROM tasks WHERE json_type(state, '$.guided') = 'object' AND json_extract(state, '$.deletedAt') IS NULL ORDER BY rowid`).all()
-      .map(row => ({ id: String(row.id), title: String(row.title), status: String(row.status), stage: String(row.stage) }));
+      FROM tasks WHERE json_type(state, '$.guided') = 'object' AND json_extract(state, '$.deletedAt') IS NULL ORDER BY rowid`,
+      )
+      .all()
+      .map(row => ({
+        id: String(row.id),
+        title: String(row.title),
+        status: String(row.status),
+        stage: String(row.stage),
+      }));
   }
 
   save(id: string, state: unknown): void {
-    this.db.prepare('INSERT INTO tasks(id, state) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state')
+    this.db
+      .prepare('INSERT INTO tasks(id, state) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state')
       .run(id, JSON.stringify(state));
   }
 
   append(taskId: string, version: number, type: string, data: unknown): void {
-    this.db.prepare('INSERT INTO events(task_id, version, at, type, data) VALUES (?, ?, ?, ?, ?)')
+    this.db
+      .prepare('INSERT INTO events(task_id, version, at, type, data) VALUES (?, ?, ?, ?, ?)')
       .run(taskId, version, new Date().toISOString(), type, JSON.stringify(data));
   }
 
@@ -161,14 +174,22 @@ export class Store {
     this.get(taskId);
     if (types?.length === 0) return [];
     const filter = types ? ` AND type IN (${types.map(() => '?').join(',')})` : '';
-    return this.db.prepare(`SELECT * FROM events WHERE task_id = ?${filter} ORDER BY sequence`).all(taskId, ...(types ?? []))
+    return this.db
+      .prepare(`SELECT * FROM events WHERE task_id = ?${filter} ORDER BY sequence`)
+      .all(taskId, ...(types ?? []))
       .map(row => ({
-        sequence: Number(row.sequence), taskId: String(row.task_id), version: Number(row.version),
-        at: String(row.at), type: String(row.type), data: JSON.parse(String(row.data)) as unknown,
+        sequence: Number(row.sequence),
+        taskId: String(row.task_id),
+        version: Number(row.version),
+        at: String(row.at),
+        type: String(row.type),
+        data: JSON.parse(String(row.data)) as unknown,
       }));
   }
 
-  close(): void { this.db.close(); }
+  close(): void {
+    this.db.close();
+  }
 
   session<T>(id: string): T {
     const row = this.db.prepare('SELECT state FROM sessions WHERE id = ?').get(id);
@@ -177,24 +198,40 @@ export class Store {
   }
 
   sessions<T>(): T[] {
-    return this.db.prepare('SELECT state FROM sessions ORDER BY rowid').all().map(row => JSON.parse(String(row.state)) as T);
+    return this.db
+      .prepare('SELECT state FROM sessions ORDER BY rowid')
+      .all()
+      .map(row => JSON.parse(String(row.state)) as T);
   }
 
   saveSession(id: string, state: unknown): void {
-    this.db.prepare('INSERT INTO sessions(id, state) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state').run(id, JSON.stringify(state));
+    this.db
+      .prepare('INSERT INTO sessions(id, state) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state')
+      .run(id, JSON.stringify(state));
   }
 
   appendSession(id: string, type: string, data: unknown): void {
-    this.db.prepare('INSERT INTO session_events(session_id, at, type, data) VALUES (?, ?, ?, ?)').run(id, new Date().toISOString(), type, JSON.stringify(data));
+    this.db
+      .prepare('INSERT INTO session_events(session_id, at, type, data) VALUES (?, ?, ?, ?)')
+      .run(id, new Date().toISOString(), type, JSON.stringify(data));
   }
 
-  sessionEvents(id: string, types?: readonly string[]): { sequence: number; at: string; type: string; data: unknown }[] {
+  sessionEvents(
+    id: string,
+    types?: readonly string[],
+  ): { sequence: number; at: string; type: string; data: unknown }[] {
     this.session(id);
     if (types?.length === 0) return [];
     const filter = types ? ` AND type IN (${types.map(() => '?').join(',')})` : '';
-    return this.db.prepare(`SELECT * FROM session_events WHERE session_id = ?${filter} ORDER BY sequence`).all(id, ...(types ?? [])).map(row => ({
-      sequence: Number(row.sequence), at: String(row.at), type: String(row.type), data: JSON.parse(String(row.data)) as unknown,
-    }));
+    return this.db
+      .prepare(`SELECT * FROM session_events WHERE session_id = ?${filter} ORDER BY sequence`)
+      .all(id, ...(types ?? []))
+      .map(row => ({
+        sequence: Number(row.sequence),
+        at: String(row.at),
+        type: String(row.type),
+        data: JSON.parse(String(row.data)) as unknown,
+      }));
   }
 
   workspace<T>(id: string): T {
@@ -204,24 +241,37 @@ export class Store {
   }
 
   workspaces<T>(): T[] {
-    return this.db.prepare('SELECT state FROM workspaces ORDER BY rowid').all().map(row => JSON.parse(String(row.state)) as T);
+    return this.db
+      .prepare('SELECT state FROM workspaces ORDER BY rowid')
+      .all()
+      .map(row => JSON.parse(String(row.state)) as T);
   }
 
   saveWorkspace(id: string, taskId: string, pathKey: string, state: unknown): void {
-    this.db.prepare('INSERT INTO workspaces(id, task_id, path_key, state) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET path_key = excluded.path_key, state = excluded.state')
+    this.db
+      .prepare(
+        'INSERT INTO workspaces(id, task_id, path_key, state) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET path_key = excluded.path_key, state = excluded.state',
+      )
       .run(id, taskId, pathKey, JSON.stringify(state));
   }
 
   appendWorkspace(id: string, type: string, data: unknown): void {
-    this.db.prepare('INSERT INTO workspace_events(workspace_id, at, type, data) VALUES (?, ?, ?, ?)')
+    this.db
+      .prepare('INSERT INTO workspace_events(workspace_id, at, type, data) VALUES (?, ?, ?, ?)')
       .run(id, new Date().toISOString(), type, JSON.stringify(data));
   }
 
   workspaceEvents(id: string): { sequence: number; at: string; type: string; data: unknown }[] {
     this.workspace(id);
-    return this.db.prepare('SELECT * FROM workspace_events WHERE workspace_id = ? ORDER BY sequence').all(id).map(row => ({
-      sequence: Number(row.sequence), at: String(row.at), type: String(row.type), data: JSON.parse(String(row.data)) as unknown,
-    }));
+    return this.db
+      .prepare('SELECT * FROM workspace_events WHERE workspace_id = ? ORDER BY sequence')
+      .all(id)
+      .map(row => ({
+        sequence: Number(row.sequence),
+        at: String(row.at),
+        type: String(row.type),
+        data: JSON.parse(String(row.data)) as unknown,
+      }));
   }
 
   execution<T>(id: string): T {
@@ -232,33 +282,46 @@ export class Store {
 
   executionForSession<T>(id: string): T | null {
     const row = this.db.prepare('SELECT state FROM executions WHERE session_id = ?').get(id);
-    return row ? JSON.parse(String(row.state)) as T : null;
+    return row ? (JSON.parse(String(row.state)) as T) : null;
   }
 
   executions<T>(): T[] {
-    return this.db.prepare('SELECT state FROM executions ORDER BY rowid').all().map(row => JSON.parse(String(row.state)) as T);
+    return this.db
+      .prepare('SELECT state FROM executions ORDER BY rowid')
+      .all()
+      .map(row => JSON.parse(String(row.state)) as T);
   }
 
   saveExecution(id: string, taskId: string, workspaceId: string, sessionId: string, state: unknown): void {
-    this.db.prepare('INSERT INTO executions(id, task_id, workspace_id, session_id, state) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state')
+    this.db
+      .prepare(
+        'INSERT INTO executions(id, task_id, workspace_id, session_id, state) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state',
+      )
       .run(id, taskId, workspaceId, sessionId, JSON.stringify(state));
   }
 
   appendExecution(id: string, type: string, data: unknown): void {
-    this.db.prepare('INSERT INTO execution_events(execution_id, at, type, data) VALUES (?, ?, ?, ?)')
+    this.db
+      .prepare('INSERT INTO execution_events(execution_id, at, type, data) VALUES (?, ?, ?, ?)')
       .run(id, new Date().toISOString(), type, JSON.stringify(data));
   }
 
   executionEvents(id: string): { sequence: number; at: string; type: string; data: unknown }[] {
     this.execution(id);
-    return this.db.prepare('SELECT * FROM execution_events WHERE execution_id = ? ORDER BY sequence').all(id).map(row => ({
-      sequence: Number(row.sequence), at: String(row.at), type: String(row.type), data: JSON.parse(String(row.data)) as unknown,
-    }));
+    return this.db
+      .prepare('SELECT * FROM execution_events WHERE execution_id = ? ORDER BY sequence')
+      .all(id)
+      .map(row => ({
+        sequence: Number(row.sequence),
+        at: String(row.at),
+        type: String(row.type),
+        data: JSON.parse(String(row.data)) as unknown,
+      }));
   }
 
   lease<T>(workspaceId: string): T | null {
     const row = this.db.prepare('SELECT state FROM execution_leases WHERE workspace_id = ?').get(workspaceId);
-    return row ? JSON.parse(String(row.state)) as T : null;
+    return row ? (JSON.parse(String(row.state)) as T) : null;
   }
 
   check<T>(id: string): T {
@@ -268,17 +331,23 @@ export class Store {
   }
 
   checks<T>(executionId: string): T[] {
-    return this.db.prepare('SELECT state FROM checks WHERE execution_id = ? ORDER BY rowid').all(executionId)
+    return this.db
+      .prepare('SELECT state FROM checks WHERE execution_id = ? ORDER BY rowid')
+      .all(executionId)
       .map(row => JSON.parse(String(row.state)) as T);
   }
 
   saveCheck(id: string, executionId: string, state: unknown): void {
-    this.db.prepare('INSERT INTO checks(id, execution_id, state) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state')
+    this.db
+      .prepare(
+        'INSERT INTO checks(id, execution_id, state) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state',
+      )
       .run(id, executionId, JSON.stringify(state));
   }
 
   acquireLease(workspaceId: string, executionId: string, runId: string, state: unknown): void {
-    this.db.prepare('INSERT INTO execution_leases(workspace_id, execution_id, run_id, state) VALUES (?, ?, ?, ?)')
+    this.db
+      .prepare('INSERT INTO execution_leases(workspace_id, execution_id, run_id, state) VALUES (?, ?, ?, ?)')
       .run(workspaceId, executionId, runId, JSON.stringify(state));
   }
 
@@ -295,23 +364,38 @@ export class Store {
   }
 
   implementations<T>(executionId: string): T[] {
-    return this.db.prepare('SELECT state FROM implementations WHERE execution_id = ? ORDER BY rowid').all(executionId).map(row => JSON.parse(String(row.state)) as T);
+    return this.db
+      .prepare('SELECT state FROM implementations WHERE execution_id = ? ORDER BY rowid')
+      .all(executionId)
+      .map(row => JSON.parse(String(row.state)) as T);
   }
 
   saveImplementation(id: string, executionId: string, state: unknown): void {
-    this.db.prepare('INSERT INTO implementations(id, execution_id, state) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state').run(id, executionId, JSON.stringify(state));
+    this.db
+      .prepare(
+        'INSERT INTO implementations(id, execution_id, state) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state',
+      )
+      .run(id, executionId, JSON.stringify(state));
   }
 
   deliveries<T>(executionId: string): T[] {
-    return this.db.prepare('SELECT state FROM deliveries WHERE execution_id = ? ORDER BY rowid').all(executionId).map(row => JSON.parse(String(row.state)) as T);
+    return this.db
+      .prepare('SELECT state FROM deliveries WHERE execution_id = ? ORDER BY rowid')
+      .all(executionId)
+      .map(row => JSON.parse(String(row.state)) as T);
   }
 
   saveDelivery(id: string, executionId: string, state: unknown): void {
-    this.db.prepare('INSERT INTO deliveries(id, execution_id, state) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state').run(id, executionId, JSON.stringify(state));
+    this.db
+      .prepare(
+        'INSERT INTO deliveries(id, execution_id, state) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state',
+      )
+      .run(id, executionId, JSON.stringify(state));
   }
 
   releaseLease(workspaceId: string, executionId: string, runId: string): void {
-    const result = this.db.prepare('DELETE FROM execution_leases WHERE workspace_id = ? AND execution_id = ? AND run_id = ?')
+    const result = this.db
+      .prepare('DELETE FROM execution_leases WHERE workspace_id = ? AND execution_id = ? AND run_id = ?')
       .run(workspaceId, executionId, runId);
     if (result.changes !== 1) throw new Error('Execution lease no longer matches this run');
   }

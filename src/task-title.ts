@@ -10,23 +10,43 @@ export function parseTaskTitle(value: string): string | null {
 }
 
 /** One independent, best-effort naming turn per planning conversation. */
-export async function generateTaskTitle(store: Store, id: string, config: { provider: Provider; repo: string; request: string; timeoutMs?: number }, signal: AbortSignal, connector?: Connector): Promise<void> {
+export async function generateTaskTitle(
+  store: Store,
+  id: string,
+  config: { provider: Provider; repo: string; request: string; timeoutMs?: number },
+  signal: AbortSignal,
+  connector?: Connector,
+): Promise<void> {
   try {
     signal.throwIfAborted();
     const session = store.transaction(() => {
-      if (store.sessionEvents(id).some(event => event.type === 'kickoff.title_started' || event.type === 'kickoff.candidate')) return null;
+      if (
+        store
+          .sessionEvents(id)
+          .some(event => event.type === 'kickoff.title_started' || event.type === 'kickoff.candidate')
+      )
+        return null;
       const created = new Sessions(store).create(config.provider, config.repo);
       store.appendSession(id, 'kickoff.title_started', { sessionId: created.id });
       return created;
     });
     if (!session) return;
-    const result = await runSession(store, session.id, `Name this task from its description:\n${JSON.stringify(config.request)}`, {
-      purpose: 'title', signal,
-    }, connector);
-    const title = result.status === 'completed' && result.reply?.kind === 'message' ? parseTaskTitle(result.reply.text) : null;
-    if (title && !signal.aborted) store.transaction(() => {
-      if (!new Sessions(store).get(id).deletedAt) store.appendSession(id, 'kickoff.title_generated', { title });
-    });
+    const result = await runSession(
+      store,
+      session.id,
+      `Name this task from its description:\n${JSON.stringify(config.request)}`,
+      {
+        purpose: 'title',
+        signal,
+      },
+      connector,
+    );
+    const title =
+      result.status === 'completed' && result.reply?.kind === 'message' ? parseTaskTitle(result.reply.text) : null;
+    if (title && !signal.aborted)
+      store.transaction(() => {
+        if (!new Sessions(store).get(id).deletedAt) store.appendSession(id, 'kickoff.title_generated', { title });
+      });
   } catch {
     // Naming must never fail or change the planner's conversation.
   }

@@ -8,19 +8,35 @@ import { execFileSync } from 'node:child_process';
 import { Store } from '../src/store.js';
 import { currentProcessStartedAt } from '../src/process-identity.js';
 import { Sessions, runSession } from '../src/sessions.js';
-import { parseReply, subscriptionEnvironment, type Connector, type Reply, type TurnResult } from '../src/agents/types.js';
+import {
+  parseReply,
+  subscriptionEnvironment,
+  type Connector,
+  type Reply,
+  type TurnResult,
+} from '../src/agents/types.js';
 import { hasClaudeSubscription } from '../src/agents/claude.js';
 
 const message: Reply = { kind: 'message', text: 'hello', questions: [], findings: [] };
-const question: Reply = { kind: 'question', text: 'Choose a label', questions: [{ id: 'label', prompt: 'Label?', choices: [] }], findings: [] };
-function result(reply: Reply = message): TurnResult { return { status: 'completed', reply, usage: null, error: null }; }
+const question: Reply = {
+  kind: 'question',
+  text: 'Choose a label',
+  questions: [{ id: 'label', prompt: 'Label?', choices: [] }],
+  findings: [],
+};
+function result(reply: Reply = message): TurnResult {
+  return { status: 'completed', reply, usage: null, error: null };
+}
 
 function fixture(t: { after(fn: () => void): void }) {
   const directory = mkdtempSync(join(tmpdir(), 'grampus-session-test-'));
   const store = new Store(join(directory, 'journal.sqlite'));
   const sessions = new Sessions(store);
   const session = sessions.create('codex', directory);
-  t.after(() => { store.close(); rmSync(directory, { recursive: true, force: true }); });
+  t.after(() => {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
   return { directory, store, sessions, session };
 }
 
@@ -30,8 +46,18 @@ test('questions and answers survive reopening; reconnect receives the exact prov
   let count = 0;
   const connect: Connector = async (_, options) => {
     assert.equal(options.providerSessionId, count++ === 0 ? null : 'provider-session');
-    options.emit({ type: 'session.connected', data: { providerSessionId: 'provider-session', model: 'observed-model' } });
-    return { turn: async prompt => { prompts.push(prompt); return result(prompts.length === 1 ? question : message); }, interrupt: async () => {}, close: async () => {} };
+    options.emit({
+      type: 'session.connected',
+      data: { providerSessionId: 'provider-session', model: 'observed-model' },
+    });
+    return {
+      turn: async prompt => {
+        prompts.push(prompt);
+        return result(prompts.length === 1 ? question : message);
+      },
+      interrupt: async () => {},
+      close: async () => {},
+    };
   };
   await runSession(store, session.id, 'Ask me', {}, connect);
   assert.equal(sessions.get(session.id).phase, 'awaiting_answer');
@@ -39,7 +65,9 @@ test('questions and answers survive reopening; reconnect receives the exact prov
   try {
     await assert.rejects(runSession(reopened, session.id, 'Skip question', {}, connect), /Answer every/);
     await runSession(reopened, session.id, '', { answers: { label: 'reef' } }, connect);
-  } finally { reopened.close(); }
+  } finally {
+    reopened.close();
+  }
   assert.equal(sessions.get(session.id).phase, 'idle');
   assert.match(prompts[1]!, /reef/);
   assert.equal(sessions.get(session.id).model, 'observed-model');
@@ -52,8 +80,15 @@ test('answer turns retain controller instructions alongside validated user answe
   sessions.settle(session.id, first.runId, result(question), true);
   assert.throws(() => sessions.claim(session.id, 'Current controller instructions', { wrong: 'reef' }), /Answer every/);
   const answered = sessions.claim(session.id, 'Current controller instructions', { label: 'reef' });
-  assert.equal(answered.prompt, 'Current controller instructions\n\nUser answers to the pending questions:\n{"label":"reef"}');
-  assert.equal((store.sessionEvents(session.id).findLast(event => event.type === 'turn.requested')!.data as { prompt: string }).prompt, answered.prompt);
+  assert.equal(
+    answered.prompt,
+    'Current controller instructions\n\nUser answers to the pending questions:\n{"label":"reef"}',
+  );
+  assert.equal(
+    (store.sessionEvents(session.id).findLast(event => event.type === 'turn.requested')!.data as { prompt: string })
+      .prompt,
+    answered.prompt,
+  );
 });
 
 test('one controller owns a session and stale results cannot settle a later turn', t => {
@@ -75,7 +110,9 @@ test('interrupt request is persisted before provider interruption; late success 
   const connect: Connector = async (_, options) => ({
     turn: async () => {
       options.emit({ type: 'turn.started', data: {} });
-      const pending = new Promise<TurnResult>(resolve => { finish = resolve; });
+      const pending = new Promise<TurnResult>(resolve => {
+        finish = resolve;
+      });
       queueMicrotask(() => abort.abort());
       return pending;
     },
@@ -83,7 +120,9 @@ test('interrupt request is persisted before provider interruption; late success 
       assert.equal(sessions.get(session.id).phase, 'stop_requested');
       finish(result());
     },
-    close: async () => { closed = true; },
+    close: async () => {
+      closed = true;
+    },
   });
   const output = await runSession(store, session.id, 'Long turn', { signal: abort.signal }, connect);
   assert.equal(output.status, 'interrupted');
@@ -97,7 +136,13 @@ test('unconfirmed child shutdown requires recovery and blocks subsequent work', 
   const { store, sessions, session } = fixture(t);
   const connect: Connector = async (_, options) => {
     options.emit({ type: 'process.started', data: { pid: 12345 } });
-    return { turn: async () => result(), interrupt: async () => {}, close: async () => { throw new Error('Still alive'); } };
+    return {
+      turn: async () => result(),
+      interrupt: async () => {},
+      close: async () => {
+        throw new Error('Still alive');
+      },
+    };
   };
   const output = await runSession(store, session.id, 'Hello', {}, connect);
   assert.equal(output.status, 'failed');
@@ -122,17 +167,23 @@ test('a durable pre-connection boundary recovers without inventing provider shut
   assert.throws(() => sessions.requestConnection(session.id, claim.runId), /ownership changed/);
 });
 
-test('conversation recovery compares original Windows process identities rather than recycled PIDs', { skip: process.platform !== 'win32' }, t => {
-  const { store, sessions, session } = fixture(t);
-  const claim = sessions.claim(session.id, 'Fixture process identity');
-  sessions.event(session.id, claim.runId, { type: 'process.started', data: { pid: process.pid } });
-  assert.throws(() => sessions.recover(session.id), /controller is still alive/);
-  const saved = sessions.get(session.id), old = (BigInt(currentProcessStartedAt()!) - 1n).toString();
-  saved.run!.controllerStartedAt = old; saved.run!.providerStartedAt = old;
-  store.saveSession(session.id, saved);
-  sessions.recover(session.id);
-  assert.equal(sessions.get(session.id).phase, 'interrupted');
-});
+test(
+  'conversation recovery compares original Windows process identities rather than recycled PIDs',
+  { skip: process.platform !== 'win32' },
+  t => {
+    const { store, sessions, session } = fixture(t);
+    const claim = sessions.claim(session.id, 'Fixture process identity');
+    sessions.event(session.id, claim.runId, { type: 'process.started', data: { pid: process.pid } });
+    assert.throws(() => sessions.recover(session.id), /controller is still alive/);
+    const saved = sessions.get(session.id),
+      old = (BigInt(currentProcessStartedAt()!) - 1n).toString();
+    saved.run!.controllerStartedAt = old;
+    saved.run!.providerStartedAt = old;
+    store.saveSession(session.id, saved);
+    sessions.recover(session.id);
+    assert.equal(sessions.get(session.id).phase, 'interrupted');
+  },
+);
 
 test('unknown provider liveness cannot be cleared by a recovery guess', t => {
   const { sessions, session } = fixture(t);
@@ -154,33 +205,57 @@ test('a crashed controller is recoverable after both recorded processes have exi
     await new Promise(resolve => child.once('close', resolve));
     process.exit(17);
   `;
-  assert.throws(() => execFileSync(process.execPath, ['--input-type=module', '-e', script, join(directory, 'journal.sqlite'), session.id], { stdio: 'pipe' }));
+  assert.throws(() =>
+    execFileSync(
+      process.execPath,
+      ['--input-type=module', '-e', script, join(directory, 'journal.sqlite'), session.id],
+      { stdio: 'pipe' },
+    ),
+  );
   assert.equal(sessions.get(session.id).phase, 'running');
   sessions.recover(session.id);
   assert.equal(sessions.get(session.id).phase, 'interrupted');
   assert.ok(store.sessionEvents(session.id).some(e => e.type === 'session.recovered'));
 });
 
-for (const timeoutMs of [undefined, 0]) test(`agent turns have no automatic deadline (${timeoutMs ?? 'default'})`, async t => {
-  const { store, sessions, session } = fixture(t);
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  let interrupted = false;
-  const connect: Connector = async () => ({
-    turn: async () => { t.mock.timers.tick(3_600_000); return result(); },
-    interrupt: async () => { interrupted = true; }, close: async () => {},
+for (const timeoutMs of [undefined, 0])
+  test(`agent turns have no automatic deadline (${timeoutMs ?? 'default'})`, async t => {
+    const { store, sessions, session } = fixture(t);
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let interrupted = false;
+    const connect: Connector = async () => ({
+      turn: async () => {
+        t.mock.timers.tick(3_600_000);
+        return result();
+      },
+      interrupt: async () => {
+        interrupted = true;
+      },
+      close: async () => {},
+    });
+    const output = await runSession(
+      store,
+      session.id,
+      'Take the time needed',
+      timeoutMs === undefined ? {} : { timeoutMs },
+      connect,
+    );
+    assert.equal(output.status, 'completed');
+    assert.equal(interrupted, false);
+    assert.equal(sessions.get(session.id).phase, 'idle');
   });
-  const output = await runSession(store, session.id, 'Take the time needed', timeoutMs === undefined ? {} : { timeoutMs }, connect);
-  assert.equal(output.status, 'completed');
-  assert.equal(interrupted, false);
-  assert.equal(sessions.get(session.id).phase, 'idle');
-});
 
 test('a deadline interrupts the owned turn and never retries inference', async t => {
   const { store, sessions, session } = fixture(t);
   let finish!: (result: TurnResult) => void;
   let count = 0;
   const connect: Connector = async () => ({
-    turn: async () => { count++; return new Promise(resolve => { finish = resolve; }); },
+    turn: async () => {
+      count++;
+      return new Promise(resolve => {
+        finish = resolve;
+      });
+    },
     interrupt: async () => finish({ status: 'interrupted', reply: null, usage: null, error: null }),
     close: async () => {},
   });
@@ -193,8 +268,12 @@ test('provider errors are retained without an automatic inference retry', async 
   const { store, sessions, session } = fixture(t);
   let starts = 0;
   const connect: Connector = async () => ({
-    turn: async () => { starts++; throw new Error('Provider disconnected mid-turn'); },
-    interrupt: async () => {}, close: async () => {},
+    turn: async () => {
+      starts++;
+      throw new Error('Provider disconnected mid-turn');
+    },
+    interrupt: async () => {},
+    close: async () => {},
   });
   const output = await runSession(store, session.id, 'Hello', {}, connect);
   assert.equal(starts, 1);
@@ -205,7 +284,9 @@ test('provider errors are retained without an automatic inference retry', async 
 
 test('subscription authentication failure ends before any turn is sent', async t => {
   const { store, sessions, session } = fixture(t);
-  const connect: Connector = async () => { throw new Error('Subscription login required'); };
+  const connect: Connector = async () => {
+    throw new Error('Subscription login required');
+  };
   const output = await runSession(store, session.id, 'Hello', {}, connect);
   assert.equal(output.status, 'failed');
   assert.equal(sessions.get(session.id).phase, 'failed');
@@ -232,8 +313,19 @@ test('an aborted connection is shut down before the session can be reused', asyn
 
 test('structured replies reject malformed questions and unsupported review conclusions', () => {
   assert.throws(() => parseReply({ ...message, kind: 'question' }), /kind/);
-  assert.throws(() => parseReply({ ...question, questions: [...question.questions, ...question.questions] }), /questions/);
-  assert.throws(() => parseReply({ ...message, kind: 'review', findings: [{ severity: 'blocking', description: 'Bad', evidence: '' }] }), /findings/);
+  assert.throws(
+    () => parseReply({ ...question, questions: [...question.questions, ...question.questions] }),
+    /questions/,
+  );
+  assert.throws(
+    () =>
+      parseReply({
+        ...message,
+        kind: 'review',
+        findings: [{ severity: 'blocking', description: 'Bad', evidence: '' }],
+      }),
+    /findings/,
+  );
   assert.throws(() => parseReply('not json'));
   assert.deepEqual(parseReply(JSON.stringify(question)), question);
 });
@@ -252,8 +344,23 @@ test('API billing environment variables are removed without changing the host en
 
 test('Claude Team metadata without tokenSource is accepted; API and gateway accounts are not', () => {
   assert.equal(hasClaudeSubscription({ apiProvider: 'firstParty', subscriptionType: 'Claude Team' }), true);
-  assert.equal(hasClaudeSubscription({ apiProvider: 'firstParty', subscriptionType: 'max', tokenSource: 'claude.ai', apiKeySource: 'none' }), true);
-  assert.equal(hasClaudeSubscription({ apiProvider: 'firstParty', subscriptionType: 'Claude Team', apiKeySource: 'ANTHROPIC_API_KEY' }), false);
+  assert.equal(
+    hasClaudeSubscription({
+      apiProvider: 'firstParty',
+      subscriptionType: 'max',
+      tokenSource: 'claude.ai',
+      apiKeySource: 'none',
+    }),
+    true,
+  );
+  assert.equal(
+    hasClaudeSubscription({
+      apiProvider: 'firstParty',
+      subscriptionType: 'Claude Team',
+      apiKeySource: 'ANTHROPIC_API_KEY',
+    }),
+    false,
+  );
   assert.equal(hasClaudeSubscription({ apiProvider: 'gateway', subscriptionType: 'Claude Team' }), false);
   assert.equal(hasClaudeSubscription({ apiProvider: 'firstParty' }), false);
 });
@@ -274,5 +381,7 @@ test('schema 1 journals migrate without losing existing task history', t => {
     assert.deepEqual(store.get('old'), { title: 'preserved' });
     assert.equal(store.events('old').length, 1);
     assert.equal(new Sessions(store).create('claude', directory).phase, 'idle');
-  } finally { store.close(); }
+  } finally {
+    store.close();
+  }
 });

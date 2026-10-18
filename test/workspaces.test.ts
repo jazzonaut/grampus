@@ -12,10 +12,19 @@ import { Workspaces, type Workspace } from '../src/workspaces.js';
 import { currentProcessStartedAt } from '../src/process-identity.js';
 import { snapshotRepository } from '../src/artifacts.js';
 
-const brief = { title: 'Greeting', outcome: 'Print a greeting', criteria: ['Print hello'], plan: 'Add a command and check its output' };
+const brief = {
+  title: 'Greeting',
+  outcome: 'Print a greeting',
+  criteria: ['Print hello'],
+  plan: 'Add a command and check its output',
+};
 const agent = { provider: 'fixture', model: 'fixture', sessionId: 'fixture' };
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+  return execFileSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  }).trim();
 }
 
 function fixture(t: { after(fn: () => void): void }) {
@@ -37,15 +46,24 @@ function fixture(t: { after(fn: () => void): void }) {
   workflow.approve(task.id, task.version);
   const workspaces = new Workspaces(store);
   const destination = join(root, 'task workspace');
-  t.after(() => { store.close(); rmSync(root, { recursive: true, force: true }); });
+  t.after(() => {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  });
   return { root, repo, db, store, workflow, task, workspaces, destination };
 }
 
 function save(store: Store, workspace: Workspace): void {
   assert.ok(workspace.path);
   const path = workspace.path;
-  store.transaction(() => store.saveWorkspace(workspace.id, workspace.taskId,
-    process.platform === 'win32' ? path.toLowerCase() : path, workspace));
+  store.transaction(() =>
+    store.saveWorkspace(
+      workspace.id,
+      workspace.taskId,
+      process.platform === 'win32' ? path.toLowerCase() : path,
+      workspace,
+    ),
+  );
 }
 
 test('creates a locked worktree at the recorded base without touching dirty source changes', async t => {
@@ -63,18 +81,24 @@ test('creates a locked worktree at the recorded base without touching dirty sour
   assert.equal(readFileSync(join(destination, 'greeting.txt'), 'utf8'), 'hello\n');
   assert.equal(git(destination, 'branch', '--show-current'), created.branch);
   assert.ok(store.workspaceEvents(created.id).some(item => item.type === 'workspace.requested'));
-  assert.deepEqual(store.workspaceEvents(created.id).map(item => item.type), ['workspace.requested', 'git.started', 'git.exited', 'workspace.ready']);
+  assert.deepEqual(
+    store.workspaceEvents(created.id).map(item => item.type),
+    ['workspace.requested', 'git.started', 'git.exited', 'workspace.ready'],
+  );
   const reopened = new Store(db);
   try {
     const inspection = await new Workspaces(reopened).inspect(created.id);
     assert.equal(inspection.head, base);
     assert.equal(inspection.dirty, false);
     assert.equal(inspection.taskCurrent, true);
-  } finally { reopened.close(); }
+  } finally {
+    reopened.close();
+  }
 });
 
 test('isolated checkout avoids automatic CRLF conversion without changing repository configuration', async t => {
-  const f = fixture(t); git(f.repo, 'config', 'core.autocrlf', 'true');
+  const f = fixture(t);
+  git(f.repo, 'config', 'core.autocrlf', 'true');
   const created = await f.workspaces.create(f.task.id, 1, f.repo, f.destination);
   assert.equal(readFileSync(join(f.destination, 'greeting.txt'), 'utf8'), 'hello\n');
   assert.equal(git(f.repo, 'config', '--get', 'core.autocrlf'), 'true');
@@ -84,10 +108,13 @@ test('isolated checkout avoids automatic CRLF conversion without changing reposi
 test('explicit repository checkout attributes remain effective', async t => {
   const f = fixture(t);
   writeFileSync(join(f.repo, '.gitattributes'), 'greeting.txt text eol=crlf\n');
-  git(f.repo, 'add', '.'); git(f.repo, 'commit', '-m', 'Explicit CRLF attribute');
+  git(f.repo, 'add', '.');
+  git(f.repo, 'commit', '-m', 'Explicit CRLF attribute');
   const created = await f.workspaces.create(f.task.id, 1, f.repo, f.destination);
   assert.equal(readFileSync(join(f.destination, 'greeting.txt'), 'utf8'), 'hello\r\n');
-  assert.ok((await snapshotRepository(f.destination, created.baseCommit)).diff.some(file => file.path === 'greeting.txt'));
+  assert.ok(
+    (await snapshotRepository(f.destination, created.baseCommit)).diff.some(file => file.path === 'greeting.txt'),
+  );
 });
 
 test('approval, exact version and a real task are required before any Git mutation', async t => {
@@ -129,26 +156,34 @@ test('two controllers cannot reserve the same task and a moving base is pinned t
     assert.ok(created.path);
     assert.equal((await workspaces.inspect(created.id)).head, base);
     assert.equal(readFileSync(join(created.path, 'greeting.txt'), 'utf8'), 'hello\n');
-  } finally { secondStore.close(); }
+  } finally {
+    secondStore.close();
+  }
 });
 
 test('a proved-unused failed reservation can be released and explicitly recreated without deleting its old branch', async t => {
-  const f = fixture(t), branch = `grampus/${f.task.id}`, base = git(f.repo, 'rev-parse', 'HEAD');
+  const f = fixture(t),
+    branch = `grampus/${f.task.id}`,
+    base = git(f.repo, 'rev-parse', 'HEAD');
   git(f.repo, 'branch', branch);
   await assert.rejects(f.workspaces.create(f.task.id, 1, f.repo, f.destination), /needs recovery/);
   const failed = f.workspaces.list()[0]!;
   const released = await f.workspaces.release(failed.id);
-  assert.equal(released.phase, 'released'); assert.equal(existsSync(f.destination), false);
+  assert.equal(released.phase, 'released');
+  assert.equal(existsSync(f.destination), false);
   assert.equal(git(f.repo, 'rev-parse', branch), base);
   const created = await f.workspaces.create(f.task.id, 1, f.repo, f.destination);
-  assert.equal(created.id, failed.id); assert.equal(created.phase, 'ready'); assert.notEqual(created.branch, branch);
+  assert.equal(created.id, failed.id);
+  assert.equal(created.phase, 'ready');
+  assert.notEqual(created.branch, branch);
   assert.equal(git(f.repo, 'rev-parse', branch), base);
   assert.ok(f.store.workspaceEvents(created.id).some(event => event.type === 'workspace.released'));
   await assert.rejects(f.workspaces.release(created.id), /unused standalone/);
 });
 
 test('reservation release refuses existing files and missing Git exit proof', async t => {
-  const f = fixture(t); git(f.repo, 'branch', `grampus/${f.task.id}`);
+  const f = fixture(t);
+  git(f.repo, 'branch', `grampus/${f.task.id}`);
   await assert.rejects(f.workspaces.create(f.task.id, 1, f.repo, f.destination), /needs recovery/);
   const failed = f.workspaces.list()[0]!;
   failed.owner!.exitConfirmed = false;
@@ -156,24 +191,36 @@ test('reservation release refuses existing files and missing Git exit proof', as
   await assert.rejects(f.workspaces.release(failed.id), /confirmed Git exit/);
   failed.owner!.exitConfirmed = true;
   f.store.saveWorkspace(failed.id, f.task.id, f.destination.toLowerCase(), failed);
-  mkdirSync(f.destination); writeFileSync(join(f.destination, 'keep.txt'), 'preserved');
+  mkdirSync(f.destination);
+  writeFileSync(join(f.destination, 'keep.txt'), 'preserved');
   await assert.rejects(f.workspaces.release(failed.id), /files or Git registration exist/);
   assert.equal(readFileSync(join(f.destination, 'keep.txt'), 'utf8'), 'preserved');
   assert.equal(f.workspaces.get(failed.id).phase, 'recovery_required');
 });
 
-test('creation recovery distinguishes a restarted controller with the exact same recycled Windows PID', { skip: process.platform !== 'win32' }, async t => {
-  const f = fixture(t), created = await f.workspaces.create(f.task.id, 1, f.repo, f.destination);
-  created.phase = 'creating';
-  created.owner = { controllerPid: process.pid, controllerStartedAt: currentProcessStartedAt(), gitPid: null, exitConfirmed: true };
-  f.store.saveWorkspace(created.id, f.task.id, f.destination.toLowerCase(), created);
-  await assert.rejects(f.workspaces.recover(created.id), /still owned by this controller/);
-  created.owner.controllerStartedAt = (BigInt(currentProcessStartedAt()!) - 1n).toString();
-  f.store.saveWorkspace(created.id, f.task.id, f.destination.toLowerCase(), created);
-  const recovered = await f.workspaces.recover(created.id);
-  assert.equal(recovered.phase, 'ready'); assert.equal(recovered.owner, null);
-  assert.equal(git(f.destination, 'rev-parse', 'HEAD'), created.baseCommit);
-});
+test(
+  'creation recovery distinguishes a restarted controller with the exact same recycled Windows PID',
+  { skip: process.platform !== 'win32' },
+  async t => {
+    const f = fixture(t),
+      created = await f.workspaces.create(f.task.id, 1, f.repo, f.destination);
+    created.phase = 'creating';
+    created.owner = {
+      controllerPid: process.pid,
+      controllerStartedAt: currentProcessStartedAt(),
+      gitPid: null,
+      exitConfirmed: true,
+    };
+    f.store.saveWorkspace(created.id, f.task.id, f.destination.toLowerCase(), created);
+    await assert.rejects(f.workspaces.recover(created.id), /still owned by this controller/);
+    created.owner.controllerStartedAt = (BigInt(currentProcessStartedAt()!) - 1n).toString();
+    f.store.saveWorkspace(created.id, f.task.id, f.destination.toLowerCase(), created);
+    const recovered = await f.workspaces.recover(created.id);
+    assert.equal(recovered.phase, 'ready');
+    assert.equal(recovered.owner, null);
+    assert.equal(git(f.destination, 'rev-parse', 'HEAD'), created.baseCommit);
+  },
+);
 
 test('Git failure retains its reservation and prevents automatic replay or task revision', async t => {
   const { root, repo, store, workflow, task, workspaces, destination } = fixture(t);
@@ -221,8 +268,11 @@ test('a real controller crash before the ready transaction commits can be reconc
     await new Workspaces(store).create(process.argv[4], 1, process.argv[5], process.argv[6]);
     process.exit(2);
   `;
-  execFileSync(process.execPath, ['--input-type=module', '-e', script, storeUrl, workspacesUrl, db, task.id, repo, destination],
-    { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+  execFileSync(
+    process.execPath,
+    ['--input-type=module', '-e', script, storeUrl, workspacesUrl, db, task.id, repo, destination],
+    { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
+  );
   const interrupted = workspaces.list()[0]!;
   assert.equal(interrupted.phase, 'creating');
   assert.equal(interrupted.owner?.exitConfirmed, true);
@@ -277,8 +327,16 @@ test('revising a task preserves its workspace but makes the old version unusable
 test('workspace CLI persists state across processes and refuses Orca path overrides', t => {
   const { repo, db, task, destination } = fixture(t);
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
-  const run = (...args: string[]) => execFileSync(process.execPath, [cli, '--db', db, ...args], { encoding: 'utf8', windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-  assert.throws(() => run('workspace-new', task.id, '1', '--repo', repo, '--path', destination, '--orca'), /Orca chooses/);
+  const run = (...args: string[]) =>
+    execFileSync(process.execPath, [cli, '--db', db, ...args], {
+      encoding: 'utf8',
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  assert.throws(
+    () => run('workspace-new', task.id, '1', '--repo', repo, '--path', destination, '--orca'),
+    /Orca chooses/,
+  );
   const workspace = JSON.parse(run('workspace-new', task.id, '1', '--repo', repo, '--path', destination)) as Workspace;
   assert.equal(JSON.parse(run('workspace-inspect', workspace.id)).dirty, false);
   assert.equal(JSON.parse(run('workspace-show', workspace.id)).workspace.phase, 'ready');
@@ -304,5 +362,7 @@ test('schema 2 journals gain workspace tables without changing tasks or conversa
     assert.deepEqual(reopened.session('existing'), { id: 'existing', phase: 'idle' });
     assert.deepEqual(reopened.sessionEvents('existing')[0]?.data, { retained: true });
     assert.deepEqual(reopened.workspaces(), []);
-  } finally { reopened.close(); }
+  } finally {
+    reopened.close();
+  }
 });

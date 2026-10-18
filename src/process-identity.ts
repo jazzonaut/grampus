@@ -11,14 +11,24 @@ export function validProcessStartTime(value: unknown): value is string {
 export function inspectProcess(pid: number): ProcessObservation {
   if (process.platform !== 'win32' || !Number.isSafeInteger(pid) || pid < 1) return { state: 'unknown' };
   try {
-    const powershell = resolve(process.env.SystemRoot ?? process.env.WINDIR ?? '', 'System32/WindowsPowerShell/v1.0/powershell.exe');
+    const powershell = resolve(
+      process.env.SystemRoot ?? process.env.WINDIR ?? '',
+      'System32/WindowsPowerShell/v1.0/powershell.exe',
+    );
     const script = fileURLToPath(new URL('../../src/native/process.ps1', import.meta.url));
-    const value = JSON.parse(execFileSync(powershell,
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, String(pid)],
-      { encoding: 'utf8', windowsHide: true, timeout: 5000, maxBuffer: 4096, stdio: ['ignore', 'pipe', 'ignore'] })) as Record<string, unknown>;
-    if (value.state === 'present' && validProcessStartTime(value.startedAt)) return { state: 'present', startedAt: value.startedAt };
+    const value = JSON.parse(
+      execFileSync(
+        powershell,
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, String(pid)],
+        { encoding: 'utf8', windowsHide: true, timeout: 5000, maxBuffer: 4096, stdio: ['ignore', 'pipe', 'ignore'] },
+      ),
+    ) as Record<string, unknown>;
+    if (value.state === 'present' && validProcessStartTime(value.startedAt))
+      return { state: 'present', startedAt: value.startedAt };
     if (value.state === 'absent') return { state: 'absent' };
-  } catch { /* Missing helpers, denied access and timeouts cannot prove absence. */ }
+  } catch {
+    /* Missing helpers, denied access and timeouts cannot prove absence. */
+  }
   return { state: 'unknown' };
 }
 

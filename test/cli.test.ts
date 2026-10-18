@@ -17,7 +17,8 @@ test('CLI create, approve and show persist state across separate invocations', t
   const brief = join(root, 'brief.json');
   writeFileSync(brief, JSON.stringify({ title: 'CLI case', outcome: 'Persist', criteria: ['Saved'], plan: 'Store' }));
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
-  const run = (...args: string[]) => execFileSync(process.execPath, [cli, '--db', db, ...args], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  const run = (...args: string[]) =>
+    execFileSync(process.execPath, [cli, '--db', db, ...args], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
   const created = JSON.parse(run('create', brief)) as { id: string };
   run('approve', created.id, '1');
   const shown = JSON.parse(run('show', created.id)) as { task: { phase: string } };
@@ -40,5 +41,7 @@ test('demo reaches completion with explicitly synthetic evidence and retained re
     assert.match(report, /Synthetic demonstration/);
     assert.match(report, /recovery.required/);
     assert.match(report, /result.ignored/);
-  } finally { store.close(); }
+  } finally {
+    store.close();
+  }
 });
