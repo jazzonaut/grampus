@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { Store } from '../src/store.js';
 import { Workflow } from '../src/workflow.js';
 import { Workspaces, type Workspace } from '../src/workspaces.js';
+import { snapshotRepository } from '../src/artifacts.js';
 
 const brief = { title: 'Greeting', outcome: 'Print a greeting', criteria: ['Print hello'], plan: 'Add a command and check its output' };
 const agent = { provider: 'fixture', model: 'fixture', sessionId: 'fixture' };
@@ -69,6 +70,23 @@ test('creates a locked worktree at the recorded base without touching dirty sour
     assert.equal(inspection.dirty, false);
     assert.equal(inspection.taskCurrent, true);
   } finally { reopened.close(); }
+});
+
+test('isolated checkout avoids automatic CRLF conversion without changing repository configuration', async t => {
+  const f = fixture(t); git(f.repo, 'config', 'core.autocrlf', 'true');
+  const created = await f.workspaces.create(f.task.id, 1, f.repo, f.destination);
+  assert.equal(readFileSync(join(f.destination, 'greeting.txt'), 'utf8'), 'hello\n');
+  assert.equal(git(f.repo, 'config', '--get', 'core.autocrlf'), 'true');
+  assert.deepEqual((await snapshotRepository(f.destination, created.baseCommit)).diff, []);
+});
+
+test('explicit repository checkout attributes remain effective', async t => {
+  const f = fixture(t);
+  writeFileSync(join(f.repo, '.gitattributes'), 'greeting.txt text eol=crlf\n');
+  git(f.repo, 'add', '.'); git(f.repo, 'commit', '-m', 'Explicit CRLF attribute');
+  const created = await f.workspaces.create(f.task.id, 1, f.repo, f.destination);
+  assert.equal(readFileSync(join(f.destination, 'greeting.txt'), 'utf8'), 'hello\r\n');
+  assert.ok((await snapshotRepository(f.destination, created.baseCommit)).diff.some(file => file.path === 'greeting.txt'));
 });
 
 test('approval, exact version and a real task are required before any Git mutation', async t => {

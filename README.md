@@ -41,12 +41,14 @@ After `npm ci`, double-click **Grampus.cmd** or run:
 npm run ui
 ```
 
-The local dashboard opens in your browser. Choose **New task**, enter a small
+The local dashboard opens in your browser. Choose **New task**, enter an
 existing repository and describe the desired change. Discussion, plan approval,
 file authorization, simplification, questions, progress, recovery and reports are
 available in the interface. See [the dashboard walkthrough](docs/DASHBOARD.md).
-This developer distribution currently supports Windows and small UTF-8 text
-repositories up to 256 KiB; ordinary-project trials and packaging remain release work.
+This developer distribution supports Windows with explicit, bounded text context
+inside larger repositories, including unchanged binary assets. See
+[repository context and scale](docs/REPOSITORY-CONTEXT.md). Ordinary-project trials
+and packaging remain release work.
 
 ## CLI and integration tools
 
@@ -215,15 +217,18 @@ Use this form for standalone repositories. The destination must not exist, its
 parent must exist, and it must be outside existing worktrees and Git metadata.
 Grampus pins the base to a commit, creates `grampus/<task-id>`, and locks the worktree
 with its workspace id. Dirty and untracked files in the source checkout stay there.
-Git's normal checkout configuration, including filters and hooks, still applies.
+Standalone checkout disables automatic CRLF conversion for its single Git command
+so the pinned blob bytes stay comparable. Explicit checkout attributes, filters and
+hooks still apply; no Git configuration is changed.
 
 One reservation per task and destination is recorded in the selected journal before
 Git starts. A failed or interrupted creation is never automatically retried or
 removed. Recovery confirms process exit and adopts only the registered branch,
 ownership lock and clean recorded base. Unknown or live PIDs block recovery;
 missing checkouts, mismatched identity and dirty contents require investigation.
-`workspace-show` remains usable even if Git inspection fails. Git subprocesses have
-a 30-second timeout; this is not supervision of arbitrary hook/filter process trees.
+`workspace-show` remains usable even if Git inspection fails. Worktree creation has
+a five-minute Git timeout; routine inspection retains 30 seconds. This does not
+supervise arbitrary hook/filter process trees.
 
 Inspection reports current HEAD, tracked/untracked changes and whether the recorded
 task version remains approved. A revised task retains its old workspace but cannot
@@ -528,8 +533,11 @@ npm start -- execution-complete <implementation-execution-id>
 
 Artifact review uses a fresh independent session, verifies the submitted digest,
 supplies the repository text, instructions and diff, and verifies content again after
-provider shutdown. This initial mode supports at most 256 KiB of UTF-8 repository text;
-binary files and larger repositories need a future review-context strategy. Blocking
+provider shutdown. New guided tasks supply approved supporting text plus every
+changed file and repository instruction, with explicit omission records. Text
+context is bounded to 512 KiB and 256 files; individual text files remain limited
+to 256 KiB. Unselected binary assets are still hashed. See
+[repository context and scale](docs/REPOSITORY-CONTEXT.md). Blocking
 findings fail the review gate. Questions, interruptions and non-review replies leave
 it pending. Ordinary `session-send` replies still cannot pass gates. The provider's
 repository tools remain disabled; this reviews supplied content, not runtime behavior.

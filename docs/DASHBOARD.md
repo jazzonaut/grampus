@@ -10,18 +10,25 @@ and Claude subscription logins. It supports Windows 10 or later. This is the
 first functional alpha interface, not a packaged installer.
 
 Choose **New task**, enter the existing repository folder and describe the desired
-change. The planner receives the complete pinned Git tree of a small UTF-8 text
-repository (currently at most 256 KiB and 1024 files). It cannot edit files or run
-commands. Consequential questions appear in the discussion. Answer them, or ask
+change. Choose **Inspect repository context** to review suggested text files,
+search the pinned file inventory and add relevant callers, dependencies and tests.
+Search returns 100 paths per page; the whole repository no longer needs to fit
+in 256 KiB. The planner receives selected pinned text and an explicit omission
+summary. It cannot edit files or run commands. See
+[repository context and scale](REPOSITORY-CONTEXT.md) for budgets and limitations.
+Consequential questions appear in the discussion. Answer them, or ask
 for revisions, until the proposed plan describes the right outcome and examples.
 Planning consumes subscription usage only when you explicitly start/send a turn.
 Choose a two-, five- or ten-minute time limit per agent turn at kickoff; five
 minutes is the default. It applies to planning, implementation and independent
 review and is frozen into the proposed task recipe.
 
+During planning, use **Update context** to add missing files before sending the
+next explicit turn. This invalidates an earlier proposal without starting inference.
+
 Choose **Review for approval** to freeze the proposal as an unapproved guided task.
-Review its outcome, criteria, exact file actions, executable/arguments, expected
-output, agents, timeouts, pinned base and local delivery message. Approve the plan,
+Review its outcome, criteria, exact context and file actions, executable/arguments,
+expected output, agents, timeouts, pinned base and local delivery message. Approve the plan,
 then continue to prepare the isolated workspace. These remain separate actions.
 Generated checks need human inspection for relevance. Generated CommonJS inline
 Node checks are syntax checked without execution; other executables and scripts
@@ -64,7 +71,7 @@ manual. Preserve the checkout's `src/ui` and `src/native` alongside `dist` for t
 developer distribution. One guided task at a time runs per journal; planning
 sessions retain their existing session-level ownership rules.
 
-Remaining release work includes broader repository context selection, ordinary
+Remaining release work includes autonomous context retrieval, ordinary
 project trials, automatic review repair/arbitration, recipe revisions after
 approval, accessibility/browser coverage beyond the recorded trials, and clean
 distribution validation. No installer, scheduler, automatic push or PR is enabled.

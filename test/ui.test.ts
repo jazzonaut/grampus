@@ -53,7 +53,8 @@ test('dashboard requires its local token and origin, rejects stale decisions, an
   await ui.close(); ui = await startUi({ db, port: 0 }); url = new URL(ui.url); base = url.origin; token = url.hash.slice(1);
   const reopened = await (await req(`/api/tasks/${id}`)).json() as any;
   assert.equal(reopened.state.status, 'ready'); assert.equal(reopened.task.approvedVersion, 1);
-  assert.match(reopened.report, /Verify greeting/);
+  assert.equal(reopened.report, null);
+  assert.match((await (await req(`/api/tasks/${id}/report`)).json() as any).report, /Verify greeting/);
   const connector: Connector = async () => ({ turn: async () => ({ status: 'completed', reply: { kind: 'message', text: JSON.stringify(f.plan), questions: [], findings: [] }, usage: null, error: null }), close: async () => {}, interrupt: async () => {} });
   const planners = new Kickoffs(ui.store, connector);
   const kickoff = await (await req('/api/kickoffs', { repo: f.repo, request: 'Confirm greeting' })).json() as any;
@@ -131,11 +132,15 @@ test('kickoff clarifies consequential ambiguity, validates generated commands an
   await assert.rejects(kickoffs.send(id, 'Change it after conversion'), /already/);
 });
 
-test('kickoff refuses unsupported content before inference', t => {
+test('kickoff omits binary assets and rejects their explicit selection before inference', t => {
   const f = fixture(t), store = new Store(join(f.root, 'journal.sqlite')); t.after(() => { store.close(); f.cleanup(); });
   writeFileSync(join(f.repo, 'binary.bin'), Buffer.from([0, 1, 2])); f.git('add', '.'); f.git('commit', '-m', 'Binary fixture');
-  assert.throws(() => new Kickoffs(store).create({ repo: f.repo, request: 'Change something' }), /UTF-8/);
+  const kickoffs = new Kickoffs(store);
+  assert.throws(() => kickoffs.create({ repo: f.repo, request: 'Change something', contextFiles: ['binary.bin'] }), /UTF-8/);
   assert.equal(store.sessions().length, 0);
+  const id = kickoffs.create({ repo: f.repo, request: 'Change greeting' });
+  assert.deepEqual(kickoffs.view(id).config.files, ['greeting.js']);
+  assert.equal(kickoffs.view(id).config.context!.omittedFiles, 1);
 });
 
 test('generated inline checks with broken newline escaping are rejected before a task or command can run', async t => {

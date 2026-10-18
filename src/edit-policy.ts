@@ -157,14 +157,16 @@ export function deleteEditingFile(context: EditingContext, input: unknown, emit:
 
 export function verifyEditingScope(context: EditingContext, after: RepositorySnapshot): void {
   if (after.head !== context.snapshot.head || after.index !== context.snapshot.index || after.instructionsDigest !== context.snapshot.instructionsDigest) throw new Error('Editing changed Git state or repository instructions');
+  const beforeFiles = new Map(context.snapshot.files.map(file => [file.path, file]));
+  const afterFiles = new Map(after.files.map(file => [file.path, file]));
   for (const before of context.snapshot.files) {
-    const current = after.files.find(file => file.path === before.path);
+    const current = afterFiles.get(before.path);
     if (before.sha256 !== null && (!current || current.sha256 === null) && context.policy.delete?.some(path => key(path) === key(before.path))) continue;
     if (!current || current.sha256 === null && before.sha256 !== null || current.executable !== before.executable
       || current.sha256 !== before.sha256 && !context.policy.files.some(path => key(path) === key(before.path))) throw new Error('Editing changed content outside the explicit file policy');
   }
   for (const file of after.files) {
-    if (context.snapshot.files.some(before => before.path === file.path)) continue;
+    if (beforeFiles.has(file.path)) continue;
     if (file.sha256 === null || file.executable || !context.policy.create?.includes(file.path)) throw new Error('Editing changed file membership outside the explicit creation policy');
   }
   for (const path of context.policy.files) checkedFile(context, path);

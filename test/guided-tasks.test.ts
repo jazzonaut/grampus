@@ -108,7 +108,28 @@ test('failed simplification is retained and cannot start independent review or d
   await assert.rejects(f.tasks.run(id), /blocked/);
 });
 
-test('stale scopes and unsupported repository sizes stop before provider dispatch', windows, async t => {
+test('guided delivery verifies a larger repository while supplying only selected text context', windows, async t => {
+  const f = fixture(t), asset = Buffer.alloc(1024 * 1024, 255);
+  writeFileSync(join(f.repo, 'asset.bin'), asset); git(f.repo, 'add', '.'); git(f.repo, 'commit', '-m', 'Existing binary asset');
+  const plan = { ...f.plan, context: { files: ['greeting.js'] } };
+  let reviewed = false;
+  const configured = services();
+  configured.connector = async () => ({ turn: async prompt => {
+    assert.match(prompt, /"omittedFiles":1/); assert.match(prompt, /NOT reviewed/); reviewed = true;
+    return { status: 'completed', reply: review, usage: null, error: null };
+  }, close: async () => {}, interrupt: async () => {} });
+  const tasks = new GuidedTasks(f.store, configured), task = tasks.create(plan);
+  tasks.approve(task.id, 1, task.guided!.digest); await tasks.run(task.id);
+  const checkpoint = await tasks.authorize(task.id); assert.equal(checkpoint.status, 'awaiting_assessment', checkpoint.note);
+  const done = await tasks.assess(task.id, 'passed', 'One direct output statement, inspected with the existing repository instructions.');
+  assert.equal(done.status, 'complete', done.note); assert.equal(reviewed, true);
+  const view = guidedTaskView(f.store, task.id);
+  assert.deepEqual(readFileSync(join(view.workspace!.path!, 'asset.bin')), asset);
+  assert.equal(git(view.workspace!.path!, 'status', '--porcelain'), '');
+  assert.match(renderReport(f.store, task.id), /omittedFiles/);
+});
+
+test('stale scopes stop before dispatch while repository size is independent of selected context', windows, async t => {
   const f = fixture(t); let calls = 0;
   const tasks = new GuidedTasks(f.store, { ...services(), implementationRunner: async () => { calls++; throw new Error('Unexpected dispatch'); } });
   const id = f.create(); await tasks.run(id);
@@ -117,7 +138,9 @@ test('stale scopes and unsupported repository sizes stop before provider dispatc
   const stopped = await tasks.authorize(id);
   assert.equal(stopped.status, 'blocked', stopped.note); assert.equal(calls, 0);
   writeFileSync(join(f.repo, 'large.txt'), 'x'.repeat(256 * 1024)); git(f.repo, 'add', '.'); git(f.repo, 'commit', '-m', 'Too large for guided review');
-  assert.throws(() => tasks.create({ ...f.plan, workspace: { ...f.plan.workspace, path: join(f.root, 'another-workspace') } }), /256 KiB/);
+  const larger = tasks.create({ ...f.plan, context: { files: ['greeting.js'] }, workspace: { ...f.plan.workspace, path: join(f.root, 'another-workspace') } });
+  assert.ok(larger.guided!.plan.context!.totalBytes > 256 * 1024);
+  assert.deepEqual(larger.guided!.plan.context!.files, ['AGENTS.md', 'greeting.js']);
 });
 
 test('blocking review stops delivery and explicit retry uses fresh sessions with preserved files', windows, async t => {

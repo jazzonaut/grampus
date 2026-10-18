@@ -63,6 +63,8 @@ export function renderGuidedTask(store: Store, id: string, details = false): str
     lines.push('', `Approval digest: ${state.digest}`);
   }
   if (view.workspace) lines.push(`Workspace: ${view.workspace.path ?? '(creation not settled)'}`);
+  if (state.plan.context) lines.push(`Repository context: ${state.plan.context.files.length}/${state.plan.context.totalFiles} pinned files supplied; other files are omitted from prompts, not from artifact verification.`,
+    `Context files: ${state.plan.context.files.join(', ')}`, `Inventory digest: ${state.plan.context.inventoryDigest}`);
   if (state.policy) lines.push(`Authorized file actions: ${JSON.stringify({ files: state.policy.files, create: state.policy.create, delete: state.policy.delete })}`);
   if (state.status === 'awaiting_scope') lines.push('Inspect the repository instructions and files before authorizing. Use --details for retained instructions and changes.');
   for (const question of view.questions) lines.push(`Question [${question.id}]: ${question.prompt}`, ...(question.choices.length ? [`Choices: ${question.choices.join(' | ')}`] : []));

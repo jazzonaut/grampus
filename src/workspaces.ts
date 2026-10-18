@@ -54,7 +54,9 @@ function git(cwd: string, args: string[], started?: (pid: number | null) => void
   for (const key of Object.keys(env)) if (key.startsWith('GIT_') && key !== 'GIT_TERMINAL_PROMPT') delete env[key];
   return new Promise((resolveResult, reject) => {
     let startupError: unknown;
-    const child = execFile('git', ['-c', 'core.fsmonitor=false', '-C', cwd, ...args], { env, windowsHide: true, encoding: 'utf8', timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
+    const creating = args[0] === 'worktree' && args[1] === 'add';
+    const timeout = creating ? 300_000 : 30_000;
+    const child = execFile('git', ['-c', 'core.fsmonitor=false', ...(creating ? ['-c', 'core.autocrlf=false'] : []), '-C', cwd, ...args], { env, windowsHide: true, encoding: 'utf8', timeout, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
       if (startupError) reject(startupError);
       else if (error) reject(new Error(`Git ${args[0]} failed (${error.code ?? error.signal ?? 'unknown'}); inspect workspace state before retrying`));
       else resolveResult(stdout);

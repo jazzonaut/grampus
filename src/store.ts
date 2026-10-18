@@ -140,6 +140,18 @@ export class Store {
       .map(row => JSON.parse(String(row.state)) as T);
   }
 
+  /** Includes commits from other controller connections and writes on this one. */
+  revision(): string {
+    return `${this.db.prepare('PRAGMA data_version').get()!.data_version}:${this.db.prepare('SELECT total_changes() AS changes').get()!.changes}`;
+  }
+
+  guidedSummaries(): { id: string; title: string; status: string; stage: string }[] {
+    return this.db.prepare(`SELECT id, json_extract(state, '$.brief.title') AS title,
+      json_extract(state, '$.guided.status') AS status, json_extract(state, '$.guided.stage') AS stage
+      FROM tasks WHERE json_type(state, '$.guided') = 'object' ORDER BY rowid`).all()
+      .map(row => ({ id: String(row.id), title: String(row.title), status: String(row.status), stage: String(row.stage) }));
+  }
+
   save(id: string, state: unknown): void {
     this.db.prepare('INSERT INTO tasks(id, state) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state')
       .run(id, JSON.stringify(state));

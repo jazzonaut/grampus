@@ -13,9 +13,9 @@ manually coordinating every provider call, check and delivery command.
 - Existing Codex and Claude subscription logins, with independent other-provider
   review and no separately billed API access enabled automatically.
 - Standalone Git worktrees and optional local Orca workspaces.
-- Small text repositories within the implemented context and file-operation limits.
-  Larger repositories must be refused with an actionable explanation until review
-  context can be selected without hiding relevant code.
+- Regular-file repositories with bounded selected text context and unchanged binary
+  assets. Context omissions must be explicit; changed files and instructions cannot
+  be silently excluded. See [repository context and scale](REPOSITORY-CONTEXT.md).
 - One task executing at a time through the first guided workflow. Existing low-level
   commands remain available; they do not yet enforce a global worker limit.
 - Local checked commits and a journal-derived report. The user handles pushing.
@@ -58,7 +58,8 @@ completion pass offline verification on Node 24 and 25. A foreground guided CLI
 now connects the execution gates, including explicit scope/assessment checkpoints,
 questions, stop/retry and restart reconciliation. See
 [GUIDED-WORKFLOW.md](GUIDED-WORKFLOW.md).
-The complete offline suite now passes all 226 tests on Node 24 and 25, including
+At the previous dashboard checkpoint, the complete offline suite passed all 226
+tests on Node 24 and 25, including
 guided recovery, dashboard ownership/decision binding and native process settlement.
 
 The local dashboard now provides plain-language kickoff against a pinned small
@@ -72,10 +73,27 @@ A live standalone browser trial reached verified local delivery with Codex
 implementation and independent Claude review. An earlier generated-check failure
 stopped without delivery and remains recorded; generated inline JavaScript is now
 syntax checked before plan approval. This is fixture evidence, not an ordinary
-project trial. The current review context limit excludes the ordinary repositories
-inspected locally, so broader context selection is needed before those trials.
+project trial. The former full-repository context limit excluded the ordinary repositories
+inspected locally. Selected context now removes that blocker; this change has
+synthetic scale evidence and still needs ordinary-project trials.
 Both provider pairings/workspace modes still need ordinary-project evidence.
 Independent release review and clean distribution validation remain release work.
 
 See [NEXT-SESSION.md](NEXT-SESSION.md) for the latest implementation checkpoint and
 [INTEGRATION-EVIDENCE.md](INTEGRATION-EVIDENCE.md) for measured validation.
+
+## Selected-context checkpoint
+
+The dashboard now previews and searches a pinned repository inventory, supplies
+bounded selected text and exposes omissions before approval. Planning context can
+be expanded explicitly; old proposals are invalidated. Review requires every
+changed file and repository instruction alongside the approved supporting files.
+Artifact verification still covers the complete nonignored repository inventory.
+The 100k-file scale probe and guided-workspace trial used no live providers and do
+not replace gate 4. Ordinary-project trials, release review and distribution checks
+remain outstanding. See [REPOSITORY-CONTEXT.md](REPOSITORY-CONTEXT.md).
+
+Offline full suites passed all 235 tests on Node 24 and Node 25. Final focused
+context/dashboard checks also passed all 15 tests on both runtimes after the last
+state-race fixes. See [integration evidence](INTEGRATION-EVIDENCE.md) for the exact
+scope, browser checks, scale timings and remaining release gates.

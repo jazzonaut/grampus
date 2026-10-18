@@ -7,7 +7,8 @@ verified local delivery. It prints the next command at each checkpoint.
 
 For plain-language kickoff and on-screen controls, use the
 [local dashboard](DASHBOARD.md). This document describes the authored-plan CLI.
-This is an early Windows interface for small text repositories. Automated review
+This is an early Windows interface with bounded text context inside larger repositories.
+See [repository context and scale](REPOSITORY-CONTEXT.md) for selection and limits. Automated review
 repair/arbitration remains work.
 Author and resolve ambiguities in the brief before approving it. Checks and expected
 output must demonstrate the intended behavior; Grampus cannot establish their
@@ -33,7 +34,7 @@ npm start -- task-new my-task.json
 This stores a draft without creating a worktree or calling either provider. It
 resolves the repository and pins the base ref to a commit. The displayed approval
 digest covers the brief, all file scopes, commands, expected output, providers,
-models and delivery messages. Inspect that complete plan, then copy its displayed
+models, selected context and delivery messages. Inspect that complete plan, then copy its displayed
 command, which has this form:
 
 ```sh

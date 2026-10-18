@@ -106,6 +106,8 @@ conversation reply to repository changes, evidence acceptance or task completion
 | `src/check-recovery.ts` | Allocate receipt storage, validate completion proofs and check controller absence |
 | `src/process-identity.ts`, `src/native/process.ps1` | Observe Windows process creation times and distinguish a recycled PID from its former owner |
 | `src/repository-evidence.ts` | Collect stable workspace snapshots and bounded text review context |
+| `src/repository-context.ts` | Cache pinned inventories, select text context and paginate path search |
+| `src/context-probe.ts` | Offline file-count and byte-size scale probes |
 | `src/native/check.ps1`, `src/native/check.cs` | Compile and run the Windows Job Object helper |
 | `src/agents/types.ts` | Provider contract, reply validation, usage fields and subscription environment |
 | `src/agents/codex.ts` | Installed Codex app-server initialization, threads, turns and notifications |
@@ -405,7 +407,8 @@ external services, environment variables, additional rule formats and external e
 are outside this guarantee. The snapshot is two matching reads, not an atomic OS
 snapshot or a proof that a command never temporarily changed a file. Regular files and
 a resolved index are required; submodules and symlinks are refused. Limits are 32 MiB
-per input file, 128 MiB of input bytes and 4 MiB of retained structured changes.
+per input file and 4 MiB of retained structured changes; aggregate repository bytes
+are not capped by the context budget.
 
 The command request and before-snapshot are durable before dispatch. The initial
 supervisor runs on Windows 10+ through Windows PowerShell `Add-Type`, using checked-in
@@ -497,7 +500,11 @@ cannot be used for command or conversation ownership.
 `execution-review` enables artifact evidence explicitly; ordinary conversations retain
 their previous behavior. A fresh review binding pins the current successful digest.
 Before inference, the controller captures the workspace, checks the digest and supplies
-all snapshot-visible UTF-8 files (at most 256 KiB), discovered instructions and changes.
+the approved supporting-file selection, all changed UTF-8 files, discovered
+instructions and before/after evidence. Context is bounded to 512 KiB and 256 files;
+complete serialized review input is bounded to 2 MiB. Omitted-file counts and the
+full hashed-inventory digest remain explicit. Legacy tasks without a selection
+still use bounded full-repository context.
 File hashes are rechecked while building context; binary/larger input is refused.
 The final prompt is journaled. Provider tools remain disabled and the repository is
 treated as untrusted supplied content. This scope excludes ignored dependencies and
@@ -869,3 +876,19 @@ cannot be replayed through this helper; inspect and recover through the normal C
 The helper does not start a later slice automatically, invent simplification passes
 or recover provider work by replay. Sliced mode is separate from file-lifecycle and
 fault-injection variants.
+
+## Selected repository context
+
+New guided plans bind an exact supporting-file selection and pinned inventory digest.
+`repository-context.ts` caches immutable Git-tree metadata, reads selected blobs in
+one batch and provides bounded path-search pages. `repository-evidence.ts` always
+adds changed files and instructions to review context, verifies supplied file hashes
+and records omissions. Supporting text grants no write permission. Complete raw
+repository snapshots still bind checks and delivery. Delivery hashes Git blobs in
+bounded batches and edit-scope validation uses indexed lookups.
+
+The dashboard caches compact views by SQLite data version plus local write count,
+so external controller commits invalidate cached state. Full file inventories and
+delivery snapshots stay out of polling responses; reports load on demand.
+Read [repository context and scale](REPOSITORY-CONTEXT.md) for budgets, remaining
+limits and the reproducible offline scale probe.

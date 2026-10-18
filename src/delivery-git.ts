@@ -26,6 +26,7 @@ export function verifyTree(cwd: string, snapshot: RepositorySnapshot, tree?: str
   const expected = new Map(snapshot.files.filter(file => file.sha256 !== null).map(file => [file.path, file]));
   const entries = deliveryGit(cwd, ...(tree ? ['ls-tree', '-r', '-z', tree] : ['ls-files', '--stage', '-z'])).toString('utf8').split('\0').filter(Boolean);
   if (entries.length !== expected.size) throw new Error('Delivery tree has different paths from the checked artifact');
+  const blobs: { oid: string; sha256: string }[] = [];
   for (const entry of entries) {
     const tab = entry.indexOf('\t'); const path = entry.slice(tab + 1); const parts = entry.slice(0, tab).split(' ');
     const [mode, oid] = tree ? [parts[0], parts[2]] : parts;
@@ -34,10 +35,39 @@ export function verifyTree(cwd: string, snapshot: RepositorySnapshot, tree?: str
     if (!file || !['100644', '100755'].includes(mode ?? '') || mode !== wantedMode || (!tree && parts[2] !== '0')) {
       throw new Error('Delivery tree path or file mode differs from the checked artifact');
     }
-    const hash = createHash('sha256').update(deliveryGit(cwd, 'cat-file', 'blob', oid!)).digest('hex');
-    if (hash !== file.sha256) throw new Error('Delivery tree bytes differ from the checked artifact (including possible Git filters)');
+    blobs.push({ oid: oid!, sha256: file.sha256! });
     expected.delete(path);
   }
+  if (!blobs.length) return;
+  // Size first, then bounded batches: 100k paths must not spawn 100k Git processes.
+  const sizes = deliveryGitInput(cwd, Buffer.from(blobs.map(blob => `${blob.oid}\n`).join('')), 'cat-file', '--batch-check').toString('ascii').trim().split('\n');
+  if (sizes.length !== blobs.length) throw new Error('Delivery blob inventory is incomplete');
+  const metadata = blobs.map((blob, index) => {
+    const match = /^([a-f0-9]+) blob (\d+)$/.exec(sizes[index]!);
+    if (!match || match[1] !== blob.oid || Number(match[2]) > 32 * 1024 * 1024) throw new Error('Delivery blob inventory is invalid or oversized');
+    return { ...blob, bytes: Number(match[2]) };
+  });
+  let batch: typeof metadata = [], bytes = 0;
+  const verify = () => {
+    if (!batch.length) return;
+    const data = deliveryGitInput(cwd, Buffer.from(batch.map(blob => `${blob.oid}\n`).join('')), 'cat-file', '--batch');
+    let offset = 0;
+    for (const blob of batch) {
+      const end = data.indexOf(10, offset);
+      if (end < 0 || data.subarray(offset, end).toString('ascii') !== `${blob.oid} blob ${blob.bytes}`) throw new Error('Delivery blob response is invalid');
+      offset = end + 1; const content = data.subarray(offset, offset + blob.bytes); offset += blob.bytes;
+      if (content.length !== blob.bytes || data[offset++] !== 10 || createHash('sha256').update(content).digest('hex') !== blob.sha256) {
+        throw new Error('Delivery tree bytes differ from the checked artifact (including possible Git filters)');
+      }
+    }
+    if (offset !== data.length) throw new Error('Unexpected delivery blob response');
+    batch = []; bytes = 0;
+  };
+  for (const blob of metadata) {
+    if (bytes + blob.bytes + 100 > 8 * 1024 * 1024) verify();
+    batch.push(blob); bytes += blob.bytes + 100;
+  }
+  verify();
 }
 
 export interface DeliveryRequest {

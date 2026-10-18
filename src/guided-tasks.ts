@@ -188,7 +188,7 @@ export class GuidedTasks {
       case 'execution': await this.executions.create(state.workspaceId!, state.version, state.plan.implementation.provider, 'implementation', state.plan.implementation.model); break;
       case 'scope': {
         const snapshot = await this.checks.snapshot(executionId), cwd = this.workspaces.get(state.workspaceId!).path!;
-        boundedRepositoryFiles(cwd, snapshot);
+        boundedRepositoryFiles(cwd, snapshot, state.plan.context?.files);
         if (slice.mode !== 'no_change') prepareEditing({ cwd, snapshot, policy: this.policy(state, snapshot) });
         return snapshot;
       }
@@ -261,7 +261,7 @@ export class GuidedTasks {
         if (JSON.stringify(result.policy) !== JSON.stringify(state.policy)) throw new Error('Implementation result differs from the authorized file policy');
         if (result.phase === 'running' || result.phase === 'recovery_required') throw new Error(`Implementation needs recovery: ${result.id}`);
         if (result.phase !== 'completed' || !result.after) { block(result.error ?? result.result?.error ?? `Implementation ${result.phase}; inspect partial files and use task-retry.`); break; }
-        boundedRepositoryFiles(this.workspaces.get(state.workspaceId!).path!, result.after);
+        boundedRepositoryFiles(this.workspaces.get(state.workspaceId!).path!, result.after, state.plan.context?.files);
         advance(result.result?.reply?.kind === 'question' ? 'implementation' : 'validation', state => {
           state.answers = null; state.snapshot = result.after;
           if (result.result?.reply?.kind === 'question') { state.status = 'awaiting_answer'; state.note = 'Answer the implementation questions with task-answer.'; }

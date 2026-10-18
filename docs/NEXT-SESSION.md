@@ -25,6 +25,50 @@ with per-slice simplification, reviews and final whole-task acceptance.
 The user continued implementation in the
 same session and authorized pushing the repository.
 
+## Selected context and large-repository checkpoint
+
+New guided tasks separate agent context from full artifact verification. The former
+256 KiB/1024-file repository gate is removed. Pinned metadata is cached; selected
+blobs and original changed-file blobs are read in batches; path search returns 100
+entries per page. Context is visible and editable before approval, and changing it
+invalidates earlier proposals without starting inference. Supporting text does not
+grant write permission. Review includes all changed files and instructions and
+records what was omitted. See [REPOSITORY-CONTEXT.md](REPOSITORY-CONTEXT.md).
+
+The dashboard polls compact revision-cached data and loads reports on demand.
+Raw tree/index delivery uses bounded blob batches, edit-scope comparisons use maps,
+and snapshots reject oversized evidence during collection. Standalone checkout
+uses a one-command `core.autocrlf=false` override and a five-minute creation timeout;
+explicit attributes, hooks and filters remain effective and configuration is unchanged.
+
+A 100,002-file offline fixture measured 202 ms cold indexing, 9 ms paginated search,
+57 ms selected-blob context, a 10.5-second full snapshot and approximately 2.4 seconds
+each for raw commit-tree/index verification. These are synthetic local timings.
+A second fixture verified over 156 MiB of repository bytes, exceeding the former
+aggregate snapshot bound. HTTP reads against the actual 100,002-file guided
+checkpoint returned an 8.9 KB task view in 317 ms cold and 1.8 ms cached; the state
+list was 398 bytes. These measurements use the local offline fixture. A real guided 100,002-file worktree reached `awaiting_scope`
+with two context files and no provider calls. The first attempt exposed automatic
+Windows CRLF conversion and per-file old-blob fetching; its read-only capture was
+stopped, conservatively reconciled and retained. The corrected trial used a new
+workspace and reached its checkpoint in approximately 110.5 seconds.
+
+Complete offline suites passed all 235 tests on Node 25.8.1 and Node 24.22.0.
+Final focused context/dashboard runs passed all 15 tests on both runtimes after
+hardening context-change races and allowing later slices to edit earlier-created
+files. Future contents come from snapshots rather than being invented in planning.
+Full suites ran sequentially; see integration evidence for timings and limits.
+Browser trials covered 100k-file preview/search/pagination, preserving selected paths
+and typed input, context expansion/proposal invalidation and lazy report loading.
+The four question-binding probe assertions passed. Its fixture renderer now freezes
+background polling to avoid a harness race. No live inference was used for this slice.
+
+Next: ordinary-project trials using a small meaningful change and an explicitly
+inspected context selection. Cover review repair, interruption, both provider
+pairings and workspace modes, followed by independent release review and clean
+installation validation. Context suggestions are filename heuristics, not dependency
+analysis. Autonomous retrieval and approved-recipe/context revision remain work.
+
 ## Current Windows alpha checkpoint
 
 The first recovery investigation reproduced rapid Windows PID reuse. Workspace
@@ -110,13 +154,9 @@ offline assertions for clearing old answers and submitting rendered decision key
 the reusable probe is `test/browser-binding.probe.js`. Type/build, JS syntax and
 whitespace checks pass. Full-suite runs were sequential.
 
-Next: select review context without silently excluding relevant code so ordinary
-existing repositories can be supported. Every locally inspected ordinary repository
-exceeded the current 256 KiB gate. Then complete the release plan's real
-project trials (repair, interruption, both provider pairings and workspace modes),
-release review and clean developer-distribution validation. Preserve the scope and
-receipt safeguards; do not simply raise the limit or claim fixture trials satisfy
-the ordinary-project gate.
+The subsequent selected-context checkpoint above removes this full-repository
+blocker without hiding omissions. Ordinary-project trials, release review and clean
+distribution validation remain required; scale fixtures do not satisfy those gates.
 
 ## Read first
 

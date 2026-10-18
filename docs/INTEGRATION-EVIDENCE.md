@@ -939,3 +939,80 @@ message files, hooks and empty-commit behavior.
 - [libuv Windows process ownership](https://github.com/libuv/libuv/blob/v1.x/src/win/process.c)
 - Local Orca guide: `orca skills get orca-cli --json`, resolved through
   `ORCA_CLI_COMMAND`; installed CLI help for agent launch and worktree discovery.
+
+## Selected context and scale — 18 October 2026
+
+New guided tasks select bounded pinned text rather than admitting only repositories
+whose complete text fits 256 KiB. The approved context includes exact paths and a
+pinned inventory digest. Mandatory changed-file/instruction context cannot be
+silently dropped, and supporting text grants no editing permission. Planning context
+changes invalidate proposals and require an explicit next turn. The UI searches
+100 paths per page and displays omissions; directory summaries are bounded.
+
+The implementation caches immutable Git metadata, batches selected blobs and
+original changed-file blobs, batches raw commit/index verification by bytes, and
+uses maps for edit-scope comparisons. Full snapshots retain raw content checks;
+mutable file hashes are not reused from stat metadata. Repository byte count no
+longer imposes the former 128 MiB snapshot bound. Individual input files, retained
+changes and agent context still have separate limits, documented in
+[REPOSITORY-CONTEXT.md](REPOSITORY-CONTEXT.md).
+
+The Windows offline scale probe retained these synthetic local measurements:
+
+| Measurement | 100,002 files / 1,600,038 bytes | 10,002 files / 163,856,406 bytes |
+| --- | ---: | ---: |
+| Cold pinned index | 202 ms | 596 ms |
+| Selected blob context | 57 ms | 165 ms |
+| Full raw worktree snapshot | 10.53 s | 2.31 s |
+| Edit-scope verification | 165 ms | 22 ms |
+| Raw commit-tree verification | 2.40 s | 3.66 s |
+| Raw index verification | 2.45 s | 3.20 s |
+
+The file-count probe returned 100 search results in 8.8 ms; 100 cached metadata
+lookups took 0.16 ms. The byte-size probe ran alongside another worktree trial;
+these figures are local observations, not portable performance guarantees. The
+first checkout took 55.6 seconds. Each stability capture requires two matching
+snapshots, and a complete task requires several captures. Fast UI/context lookup
+does not eliminate full-repository disk costs.
+
+A real guided task prepared a standalone 100,002-file worktree and reached the
+explicit `awaiting_scope` checkpoint with just `AGENTS.md` and `target.js` supplied.
+Preparation took 110.5 seconds. Its fixed no-change brief was fixture-authored;
+no provider was called and no task completion or reviewed-delivery claim is made.
+The initial trial exposed automatic CRLF conversion and one original-blob Git
+process per changed file. That read-only capture was stopped and conservatively
+reconciled without replay; the corrected trial used a fresh workspace. Standalone
+checkout now disables automatic CRLF conversion for that single command, leaves
+configuration unchanged, preserves explicit attributes/filters and allows five
+minutes for creation. Original-blob reads are batched and evidence size is checked
+during collection. Dedicated tests verify LF preservation and explicit CRLF attributes.
+
+Read-only HTTP measurements against the real 100,002-file checkpoint returned an
+8,866-byte task response in 316.6 ms cold and 1.75 ms cached. The state list was
+398 bytes, taking 63.8 ms cold and 6.35 ms cached. No file inventory or report was
+serialized into those polls. A regression fixture also verifies bounded responses
+and invalidation after writes from another SQLite connection.
+
+The actual embedded browser verified a 100k-file preview, 100-result search pages,
+next-page navigation, adding a path, preserving input and selections across refresh,
+context expansion with proposal invalidation and no provider job, and lazy report
+loading that remains readable after refresh. The four offline question-round binding
+assertions passed. The probe now freezes periodic refresh during fixture rendering,
+removing a harness race with in-flight polling. These are DOM-driven Chromium
+checks; native input/accessibility and broader browser coverage remain release work.
+
+Complete offline suites passed all 235 tests on Node 25.8.1 (344.9 seconds) and
+Node 24.22.0 (348.6 seconds), without failures, cancellations or skips. After final
+hardening, all 15 focused context/dashboard tests passed again on both runtimes
+(19.2 and 19.1 seconds). They include allowing later slices to edit earlier-created
+files, refusing context changes racing with draft conversion, and refusing a settled
+response's proposal after another controller changes context. Type/build, browser
+JavaScript syntax and whitespace checks passed. Full suites ran sequentially.
+Logs and JSON probe evidence remain ignored under `.grampus/`.
+
+A larger-repository guided fixture also reached verified local delivery while
+preserving an unchanged binary asset. Implementation/review replies in that test
+are explicitly offline fixtures. No live model inference, ordinary-project trial,
+release-wide independent review, installer validation or Orca-host scale trial was
+performed for this change. Context suggestions are filename heuristics; autonomous
+retrieval and approved-recipe/context revision remain outstanding.

@@ -4,7 +4,6 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Store } from './store.js';
-import { Workflow } from './workflow.js';
 import { GuidedTasks, guidedDecisionKey } from './guided-tasks.js';
 import { guidedTaskView } from './guided-status.js';
 import { renderReport } from './report.js';
@@ -19,6 +18,8 @@ export interface UiOptions { db: string; port?: number }
 export async function startUi(options: UiOptions) {
   const store = new Store(options.db), tasks = new GuidedTasks(store), kickoffs = new Kickoffs(store);
   const token = randomBytes(32).toString('hex'), jobs = new Map<string, Job>();
+  let cachedState: { revision: string; value: unknown } | null = null;
+  const cachedViews = new Map<string, { revision: string; value: unknown }>();
   let origin = '';
   const json = (response: ServerResponse, code: number, body: unknown) => {
     response.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); response.end(JSON.stringify(body));
@@ -63,21 +64,40 @@ export async function startUi(options: UiOptions) {
       const supplied = Buffer.from(request.headers.authorization?.replace(/^Bearer /, '') ?? '');
       if (supplied.length !== token.length || !timingSafeEqual(supplied, Buffer.from(token))) { json(response, 401, { error: 'Open the complete local dashboard link printed by Grampus' }); return; }
       if (request.method === 'GET' && path === '/api/state') {
-        json(response, 200, { tasks: new Workflow(store).list().filter(task => task.guided).map(task => ({ id: task.id, title: task.brief.title, status: task.guided!.status, stage: task.guided!.stage })),
-          kickoffs: kickoffs.list(), jobs: Object.fromEntries(jobs), journal: store.path }); return;
+        const revision = store.revision();
+        if (cachedState?.revision !== revision) cachedState = { revision, value: { tasks: store.guidedSummaries(), kickoffs: kickoffs.list() } };
+        json(response, 200, { ...cachedState.value as object, jobs: Object.fromEntries(jobs), journal: store.path }); return;
       }
       const match = /^\/api\/(tasks|kickoffs)\/([a-f0-9-]+)(?:\/([a-z-]+))?$/.exec(path);
+      if (match && request.method === 'GET' && match[1] === 'tasks' && match[3] === 'report') {
+        json(response, 200, { report: renderReport(store, match[2]!) }); return;
+      }
       if (match && request.method === 'GET' && match[1] === 'tasks' && !match[3]) {
+        const revision = store.revision(), cached = cachedViews.get(match[2]!);
+        if (cached?.revision === revision) { json(response, 200, cached.value); return; }
         const view = guidedTaskView(store, match[2]!);
         let scopeFiles: { path: string; content: string | null }[] = [], scopeError: string | null = null;
         if (view.state.status === 'awaiting_scope' && view.workspace?.path && view.state.snapshot) {
-          try { scopeFiles = boundedRepositoryFiles(view.workspace.path, view.state.snapshot); }
+          try { scopeFiles = boundedRepositoryFiles(view.workspace.path, view.state.snapshot, view.state.plan.context?.files); }
           catch (error) { scopeError = error instanceof Error ? error.message : String(error); }
         }
-        json(response, 200, { ...view, scopeFiles, scopeError, events: store.events(match[2]!), report: renderReport(store, match[2]!) }); return;
+        // Never serialize the full hashed file inventory, delivery snapshot or report on a poll.
+        const compactState = { ...view.state, snapshot: view.state.snapshot ? { ...view.state.snapshot, files: [], index: '', totalFiles: view.state.snapshot.files.length } : null };
+        const value = { ...view, state: compactState, task: { ...view.task, guided: compactState },
+          implementations: view.implementations.map(run => ({ id: run.id, phase: run.phase, error: run.error })),
+          deliveries: view.deliveries.map(delivery => ({ ...delivery, request: null })),
+          scopeFiles, scopeError, events: store.events(match[2]!).slice(-30).map(event => ({ ...event, data: { note: (event.data as { note?: string })?.note } })), report: null };
+        if (cachedViews.size >= 4) cachedViews.delete(cachedViews.keys().next().value!);
+        cachedViews.set(match[2]!, { revision, value });
+        json(response, 200, value); return;
       }
       if (request.method !== 'POST') { json(response, 404, { error: 'Not found' }); return; }
       const payload = await body(request);
+      if (path === '/api/repositories/inspect') {
+        const inspected = kickoffs.inspect(payload as Parameters<Kickoffs['inspect']>[0]);
+        json(response, 200, { repo: inspected.repo, base: inspected.base, context: inspected.context }); return;
+      }
+      if (path === '/api/repositories/files') { json(response, 200, kickoffs.search(payload as Parameters<Kickoffs['search']>[0])); return; }
       if (path === '/api/kickoffs') { const id = kickoffs.create(payload as Parameters<Kickoffs['create']>[0]); json(response, 201, { id }); return; }
       if (path === '/api/tasks') { const task = tasks.create(payload.plan); json(response, 201, { id: task.id }); return; }
       if (!match || !match[3]) { json(response, 404, { error: 'Not found' }); return; }
@@ -85,6 +105,7 @@ export async function startUi(options: UiOptions) {
       if (jobs.get(id!)?.running && action !== 'stop') throw new Error('An action is already running; wait for settlement');
       if (kind === 'kickoffs') {
         const view = kickoffs.view(id!);
+        if (action === 'context') { json(response, 200, kickoffs.changeContext(id!, payload.files, payload.expected)); return; }
         if (action === 'stop') {
           if (!view.session.run) throw new Error('Planner has not started or has already settled; refresh its state');
           new Sessions(store).stop(id!, view.session.run.id, 'User requested a stop in the dashboard');

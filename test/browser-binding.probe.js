@@ -7,6 +7,9 @@
   const originalState = structuredClone(state), originalDetail = structuredClone(detail);
   const results = {};
   const pause = () => new Promise(resolve => setTimeout(resolve, 25));
+  // Freeze periodic refresh while rendering a fixture; an in-flight real poll is
+  // invalidated by refreshSerial, and cannot supersede the fixture render.
+  const refreshFixture = async () => { pending = true; try { await refresh(true); } finally { pending = false; } };
   try {
     const mock = structuredClone(originalDetail), list = structuredClone(originalState);
     let posted = null;
@@ -16,10 +19,10 @@
     };
     mock.state.status = 'awaiting_answer'; mock.state.stage = 'review'; mock.state.note = 'Offline browser fixture';
     mock.questionKey = 'review-round-one'; mock.questions = [{ id: 'same-id', prompt: 'First review question?', choices: [] }];
-    await refresh(true);
+    await refreshFixture();
     document.querySelector('#answer-0').value = 'Answer intended only for the first question';
     mock.questionKey = 'review-round-two'; mock.questions[0].prompt = 'A different review question reusing the same id?';
-    await refresh(true);
+    await refreshFixture();
     results.taskOldTextCleared = document.querySelector('#answer-0').value === '';
     const form = document.querySelector('#answer-form'), renderedKey = form.dataset.expected;
     document.querySelector('#answer-0').value = 'Current explicit answer';
@@ -34,10 +37,10 @@
     kickoff.turnKey = 'planner-round-one'; kickoff.session.phase = 'awaiting_answer'; kickoff.session.run = null;
     kickoff.session.lastReply = { kind: 'question', text: 'Offline fixture', questions: [{ id: 'same-id', prompt: 'First planning question?', choices: [] }], findings: [] };
     list.kickoffs = [kickoff]; list.jobs = {}; screen = 'kickoff'; selected = kickoff.id;
-    await refresh(true);
+    await refreshFixture();
     document.querySelector('#answer-0').value = 'Old planning answer';
     kickoff.turnKey = 'planner-round-two'; kickoff.session.lastReply.questions[0].prompt = 'A different planning question reusing the same id?';
-    await refresh(true);
+    await refreshFixture();
     results.plannerOldTextCleared = document.querySelector('#answer-0').value === '';
     const planningForm = document.querySelector('#planner-answer-form'), planningKey = planningForm.dataset.expected;
     document.querySelector('#answer-0').value = 'Current planning answer';

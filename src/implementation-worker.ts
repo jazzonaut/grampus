@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import { Store } from './store.js';
 import { Sessions } from './sessions.js';
 import { Workspaces } from './workspaces.js';
-import { captureRepository } from './repository-evidence.js';
+import { captureRepository, repositoryContext } from './repository-evidence.js';
+import { Workflow } from './workflow.js';
 import type { ImplementationRequest, ImplementationRun } from './implementations.js';
 import type { Execution, ExecutionLease } from './execution-state.js';
 import { editingFileContext, prepareEditing } from './edit-policy.js';
@@ -20,12 +21,15 @@ async function main(): Promise<void> {
     const workspaces = new Workspaces(store); const snapshot = await captureRepository(workspaces, execution);
     const editing = { cwd: session.cwd, policy: run.policy, snapshot }; prepareEditing(editing);
     const fileContext = session.provider === 'codex' ? `\nCurrent editable file contents:\n${editingFileContext(editing)}` : '';
+    const selected = new Workflow(store).get(execution.taskId).guided?.plan.context?.files;
+    const supplied = selected ? repositoryContext(session.cwd, snapshot, selected) : null;
+    if (supplied) store.appendExecution(execution.id, 'implementation.context_captured', { artifact: snapshot.artifact, ...supplied.coverage });
     agent = await connectAgent(session.provider, { cwd: session.cwd, providerSessionId: session.providerSessionId, model: session.model,
       signal: new AbortController().signal, editing, emit: event => {
         const current = sessions.get(session.id);
         if (current.phase !== 'running' || !sessions.event(session.id, run.id, event)) throw new Error('Native implementation no longer owns an active turn');
       } });
-    const result: TurnResult = await agent.turn(`${request.prompt}\n\nAuthorized existing editable files: ${JSON.stringify(run.policy.files)}\nAuthorized new files (existing parent directories only): ${JSON.stringify(run.policy.create ?? [])}\nAuthorized deletion-only files (unchanged snapshot bytes): ${JSON.stringify(run.policy.delete ?? [])}\nSnapshot file names: ${JSON.stringify(snapshot.files.filter(file => file.sha256 !== null).map(file => file.path))}\nRepository instructions (apply within the explicit tool policy):\n${JSON.stringify(snapshot.instructions)}${fileContext}`);
+    const result: TurnResult = await agent.turn(`${request.prompt}\n\nAuthorized existing editable files: ${JSON.stringify(run.policy.files)}\nAuthorized new files (existing parent directories only): ${JSON.stringify(run.policy.create ?? [])}\nAuthorized deletion-only files (unchanged snapshot bytes): ${JSON.stringify(run.policy.delete ?? [])}\n${supplied ? `Selected repository context (read-only supporting files; does not expand editing permission). Omitted files have not been supplied; ask for missing dependencies instead of guessing:\n${JSON.stringify(supplied)}` : `Snapshot file count: ${snapshot.files.length}`}\nRepository instructions (apply within the explicit tool policy):\n${JSON.stringify(snapshot.instructions)}${fileContext}`);
     await agent.close(); agent = null;
     const path = join(run.receipt!.directory, 'result.json');
     writeFileSync(`${path}.tmp`, JSON.stringify({ id: run.id, result })); renameSync(`${path}.tmp`, path);
