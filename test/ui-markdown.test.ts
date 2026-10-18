@@ -32,6 +32,17 @@ test('dashboard Markdown formats agent explanations, nested lists, tables and co
   assert.match(html, /<blockquote>/);
 });
 
+test('the planning sidebar uses saved task names and escapes them, retaining the description fallback', () => {
+  const { context } = dashboard();
+  context.items = [
+    { id: 'named', title: 'Fix <login> & logout', config: { request: 'Please could you look into a very long description' }, session: { phase: 'running' } },
+    { id: 'legacy', config: { request: 'Older description' }, session: { phase: 'idle' } },
+  ];
+  const html = runInContext('state.kickoffs = items; nav()', context) as string;
+  assert.match(html, /Fix &lt;login&gt; &amp; logout/); assert.match(html, /Older description/);
+  assert.doesNotMatch(html, /Please could you|<login>/);
+});
+
 test('agent Markdown escapes HTML, blocks executable links and avoids image requests', () => {
   const { render } = dashboard();
   const html = render('<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[run](javascript:alert%281%29) [encoded](jav&#x61;script:alert%281%29) [file](file:///C:/secret) [app](vscode:open)\n\n![remote image](https://example.com/track.png)\n\n[Spec](https://example.com/spec "Specification")');
