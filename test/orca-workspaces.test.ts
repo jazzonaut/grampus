@@ -10,7 +10,7 @@ import { Executions } from '../src/execution/executions.js';
 import { runSession } from '../src/execution/sessions.js';
 import type { Connector } from '../src/providers/types.js';
 import { Sessions } from '../src/execution/sessions.js';
-import { type CheckProcessOptions } from '../src/process/check-process.js';
+import type { CheckProcessOptions } from '../src/process/check-process.js';
 import type { ExecutionLease } from '../src/execution/execution-state.js';
 import { git, fixture, windows, implementationFixture } from './helpers/orca.js';
 
@@ -97,10 +97,10 @@ test('missing, duplicate and truncated Orca discovery results retain the reserva
 test('Orca instance replacement at the same path is rejected while ordinary comment edits are allowed', async t => {
   const { repo, task, workspaces, state } = fixture(t);
   const created = await workspaces.createOrca(task.id, 1, repo, 'main');
-  state.worktree!.comment = 'User edited the status';
+  state.worktree!['comment'] = 'User edited the status';
   assert.equal((await workspaces.inspect(created.id)).dirty, false);
-  state.worktree!.instanceId = 'instance-b';
-  state.worktree!.identity = { key: 'wt2:local:instance-b', instanceId: 'instance-b', executionHostId: 'local' };
+  state.worktree!['instanceId'] = 'instance-b';
+  state.worktree!['identity'] = { key: 'wt2:local:instance-b', instanceId: 'instance-b', executionHostId: 'local' };
   await assert.rejects(workspaces.inspect(created.id), /instance.*changed/);
 });
 
@@ -109,13 +109,13 @@ test('Orca recovery refuses an altered base or dirty checkout and never resets c
   state.loseReply = true;
   await assert.rejects(workspaces.createOrca(task.id, 1, repo, 'main'));
   const saved = workspaces.list()[0]!;
-  state.worktree!.baseRef = 'other-base';
+  state.worktree!['baseRef'] = 'other-base';
   await assert.rejects(workspaces.recover(saved.id), /does not match/);
-  state.worktree!.baseRef = saved.baseCommit;
-  writeFileSync(join(String(state.worktree!.path), 'extra.txt'), 'preserve this');
+  state.worktree!['baseRef'] = saved.baseCommit;
+  writeFileSync(join(String(state.worktree!['path']), 'extra.txt'), 'preserve this');
   await assert.rejects(workspaces.recover(saved.id), /clean base commit/);
   assert.equal(workspaces.get(saved.id).phase, 'recovery_required');
-  assert.match(git(String(state.worktree!.path), 'status', '--porcelain'), /extra.txt/);
+  assert.match(git(String(state.worktree!['path']), 'status', '--porcelain'), /extra.txt/);
 });
 
 test('Orca compatibility and approval failures stop before reserving or creating a workspace', async t => {
@@ -185,8 +185,8 @@ test('Orca execution holds a lease during identity inspection and refuses a repl
   };
   assert.equal((await runSession(store, execution.sessionId, 'First', {}, connector, workspaces)).status, 'completed');
   assert.equal(store.lease(workspace.id), null);
-  state.worktree!.instanceId = 'replacement';
-  state.worktree!.identity = { key: 'wt2:local:replacement', instanceId: 'replacement', executionHostId: 'local' };
+  state.worktree!['instanceId'] = 'replacement';
+  state.worktree!['identity'] = { key: 'wt2:local:replacement', instanceId: 'replacement', executionHostId: 'local' };
   assert.equal((await runSession(store, execution.sessionId, 'Second', {}, connector, workspaces)).status, 'failed');
   assert.equal(turns, 1);
   assert.equal(store.lease(workspace.id), null);
@@ -219,7 +219,7 @@ test(
   async t => {
     const f = await implementationFixture(t);
     let dispatched = false;
-    f.state.worktree!.instanceId = 'replacement';
+    f.state.worktree!['instanceId'] = 'replacement';
     const rejected = await f.implementations.run(f.execution.id, f.policy, undefined, {}, async options => {
       dispatched = true;
       return editedResult(options);
@@ -230,7 +230,7 @@ test(
     const g = await implementationFixture(t);
     const edited = await g.implementations.run(g.execution.id, g.policy, undefined, {}, async options => {
       const result = editedResult(options);
-      g.state.worktree!.isArchived = true;
+      g.state.worktree!['isArchived'] = true;
       return result;
     });
     assert.equal(edited.phase, 'failed');

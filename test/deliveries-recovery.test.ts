@@ -6,7 +6,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Executions } from '../src/execution/executions.js';
-import { type Delivery } from '../src/execution/deliveries.js';
+import type { Delivery } from '../src/execution/deliveries.js';
 import { runCheckProcess } from '../src/process/check-process.js';
 import { windows, git, fixture, deadController, crash } from './helpers/deliveries.js';
 

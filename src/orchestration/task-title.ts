@@ -1,4 +1,4 @@
-import { Store } from '../persistence/store.js';
+import type { Store } from '../persistence/store.js';
 import { Sessions, runSession } from '../execution/sessions.js';
 import type { Connector, Provider } from '../providers/types.js';
 

@@ -1,8 +1,10 @@
+import type { RepositoryAccess } from '../repository/repository-tools.js';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { resolve } from 'node:path';
 import { statSync } from 'node:fs';
-import { Store } from '../persistence/store.js';
+import type { Store } from '../persistence/store.js';
+import { processLimits } from '../config/limits.js';
 import { agentTimeout } from './agent-timeout.js';
 import { connectAgent } from '../providers/index.js';
 import { Workspaces } from '../repository/workspaces.js';
@@ -283,7 +285,7 @@ export class Sessions {
 
 export interface RunOptions {
   purpose?: 'title';
-  repository?: import('../repository/repository-tools.js').RepositoryAccess;
+  repository?: RepositoryAccess;
   timeoutMs?: number;
   interruptAfterMs?: number;
   signal?: AbortSignal;
@@ -349,7 +351,7 @@ export async function runSession(
     sessions.stop(id, claim.runId, reason);
     if (agent) void agent.interrupt().catch(() => {});
     else connectionAbort.abort();
-    graceTimer = setTimeout(stopNow, 5000);
+    graceTimer = setTimeout(stopNow, processLimits.stopGraceMs);
   };
   const aborted = () => requestStop('user interrupt');
   const emit = (event: AgentEvent): void => {

@@ -1,12 +1,16 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Store } from '../persistence/store.js';
-import { Workspaces } from './workspaces.js';
+import type { Store } from '../persistence/store.js';
+import type { Workspaces } from './workspaces.js';
 import { snapshotRepository, type RepositorySnapshot } from './artifacts.js';
 import type { Execution } from '../execution/execution-state.js';
 import { Workflow } from '../domain/workflow.js';
-import { contextLimits, contextPaths, instructionPath } from './repository-context.js';
+import { contextPaths, instructionPath } from './repository-context.js';
+import { contextLimits, formatBytes, repositoryLimits } from '../config/limits.js';
+
+const { files: contextFiles, fileBytes: contextFileBytes, bytes: contextBytes } = contextLimits;
+const reviewBudget = formatBytes(repositoryLimits.reviewContextBytes);
 
 /** Caller must hold the workspace lease throughout collection and acceptance. */
 export async function captureRepository(workspaces: Workspaces, execution: Execution): Promise<RepositorySnapshot> {
@@ -53,8 +57,8 @@ export async function reviewContext(
           diff: supplied.diff ?? snapshot.diff,
         },
   );
-  if (Buffer.byteLength(context) > 2 * 1024 * 1024)
-    throw new Error('Review instructions and context exceed the 2 MiB inline budget');
+  if (Buffer.byteLength(context) > repositoryLimits.reviewContextBytes)
+    throw new Error(`Review instructions and context exceed the ${reviewBudget} inline budget`);
   const event = { artifact: snapshot.artifact, ...supplied.coverage, bytes: Buffer.byteLength(context) };
   store.appendExecution(execution.id, 'review.context_captured', event);
   store.append(execution.taskId, execution.version, 'review.context_captured', event);
@@ -99,7 +103,9 @@ export function repositoryContext(
     const mandatory = instructionPath(file.path);
     if (files.length >= contextLimits.files) {
       if (exploration && !mandatory) continue;
-      throw new Error('Required context exceeds 256 files; reduce the selected context or repository instructions');
+      throw new Error(
+        `Required context exceeds ${contextFiles} files; reduce the selected context or repository instructions`,
+      );
     }
     if (file.sha256 === null) {
       files.push({ path: file.path, content: null });
@@ -109,7 +115,9 @@ export function repositoryContext(
     if (!stat.isFile() || stat.isSymbolicLink())
       throw new Error(`Required context at ${file.path} must be a regular file without links`);
     if (!exploration && stat.size > contextLimits.fileBytes)
-      throw new Error(`Required context at ${file.path} must be a regular UTF-8 text file of at most 256 KiB`);
+      throw new Error(
+        `Required context at ${file.path} must be a regular UTF-8 text file of at most ${formatBytes(contextFileBytes)}`,
+      );
     const data = readFileSync(join(cwd, file.path));
     if (createHash('sha256').update(data).digest('hex') !== file.sha256)
       throw new Error('Repository changed while preparing review context');
@@ -124,7 +132,7 @@ export function repositoryContext(
     ) {
       if (exploration && !mandatory) continue;
       throw new Error(
-        `Required context at ${file.path} exceeds the text budget (256 files, 256 KiB each, 512 KiB total); reduce selected context or repository instructions`,
+        `Required context at ${file.path} exceeds the text budget (${contextFiles} files, ${formatBytes(contextFileBytes)} each, ${formatBytes(contextBytes)} total); reduce selected context or repository instructions`,
       );
     }
     size += data.length;
@@ -142,11 +150,14 @@ export function repositoryContext(
     }
   }
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  if (Buffer.byteLength(JSON.stringify({ instructions: snapshot.instructions, diff, files })) > 2 * 1024 * 1024)
-    throw new Error('Review instructions and context exceed the 2 MiB inline budget');
+  if (
+    Buffer.byteLength(JSON.stringify({ instructions: snapshot.instructions, diff, files })) >
+    repositoryLimits.reviewContextBytes
+  )
+    throw new Error(`Review instructions and context exceed the ${reviewBudget} inline budget`);
   const coverage = {
     selected: files.map(file => file.path),
-    mandatory: exploration ? [...required].slice(0, 100) : [...required],
+    mandatory: exploration ? [...required].slice(0, repositoryLimits.reviewListPage) : [...required],
     mandatoryTotal: required.size,
     totalFiles: snapshot.files.length,
     omittedFiles: snapshot.files.length - files.length,
@@ -158,8 +169,10 @@ export function repositoryContext(
   const changes = {
     total: snapshot.diff.length,
     inline: diff.length,
-    files: snapshot.diff.slice(0, 100).map(({ path, before, after }) => ({ path, before, after })),
-    nextOffset: snapshot.diff.length > 100 ? 100 : null,
+    files: snapshot.diff
+      .slice(0, repositoryLimits.reviewListPage)
+      .map(({ path, before, after }) => ({ path, before, after })),
+    nextOffset: snapshot.diff.length > repositoryLimits.reviewListPage ? repositoryLimits.reviewListPage : null,
   };
   return { files, coverage, ...(exploration ? { diff, changes } : {}) };
 }

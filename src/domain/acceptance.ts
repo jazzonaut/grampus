@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { RepositorySnapshot } from '../repository/artifacts.js';
 import type { CheckProcessResult } from '../process/check-process.js';
+import { acceptanceLimits, formatBytes } from '../config/limits.js';
+
+const { textBytes, expectationsBytes } = acceptanceLimits;
 
 export interface AcceptanceExpectations {
   stderr?: string;
@@ -10,23 +13,26 @@ export interface AcceptanceExpectations {
 }
 
 export function validateExpectations(expectedStdout: unknown, expectations: unknown): void {
-  if (expectedStdout !== undefined && (typeof expectedStdout !== 'string' || Buffer.byteLength(expectedStdout) > 65536))
-    throw new Error('expectedStdout must be text at most 64 KiB');
+  if (
+    expectedStdout !== undefined &&
+    (typeof expectedStdout !== 'string' || Buffer.byteLength(expectedStdout) > textBytes)
+  )
+    throw new Error(`expectedStdout must be text at most ${formatBytes(textBytes)}`);
   if (expectations !== undefined) {
     if (
       !expectations ||
       typeof expectations !== 'object' ||
       Array.isArray(expectations) ||
       Object.keys(expectations).some(key => !['stderr', 'stdoutJson', 'files'].includes(key)) ||
-      Buffer.byteLength(JSON.stringify(expectations)) > 128 * 1024
+      Buffer.byteLength(JSON.stringify(expectations)) > expectationsBytes
     )
-      throw new Error('Invalid acceptance expectations (at most 128 KiB)');
+      throw new Error(`Invalid acceptance expectations (at most ${formatBytes(expectationsBytes)})`);
     const value = expectations as AcceptanceExpectations;
-    if (value.stderr !== undefined && (typeof value.stderr !== 'string' || Buffer.byteLength(value.stderr) > 65536))
-      throw new Error('Expected stderr must be text at most 64 KiB');
+    if (value.stderr !== undefined && (typeof value.stderr !== 'string' || Buffer.byteLength(value.stderr) > textBytes))
+      throw new Error(`Expected stderr must be text at most ${formatBytes(textBytes)}`);
     if (value.files !== undefined) {
-      if (!Array.isArray(value.files) || !value.files.length || value.files.length > 64)
-        throw new Error('Supply 1–64 file expectations');
+      if (!Array.isArray(value.files) || !value.files.length || value.files.length > acceptanceLimits.files)
+        throw new Error(`Supply 1–${acceptanceLimits.files} file expectations`);
       const paths = new Set<string>();
       for (const file of value.files) {
         if (
@@ -36,7 +42,7 @@ export function validateExpectations(expectedStdout: unknown, expectations: unkn
           Object.keys(file).some(key => !['path', 'absent', 'content', 'sha256'].includes(key)) ||
           typeof file.path !== 'string' ||
           !file.path ||
-          file.path.length > 4096 ||
+          file.path.length > acceptanceLimits.pathCharacters ||
           /[\\:\0]/.test(file.path) ||
           file.path.split('/').some(part => !part || part === '.' || part === '..' || part.toLowerCase() === '.git')
         )
@@ -48,7 +54,7 @@ export function validateExpectations(expectedStdout: unknown, expectations: unkn
           (file.absent !== undefined && file.absent !== true) ||
           (file.absent && (file.content !== undefined || file.sha256 !== undefined)) ||
           (file.content !== undefined &&
-            (typeof file.content !== 'string' || Buffer.byteLength(file.content) > 65536)) ||
+            (typeof file.content !== 'string' || Buffer.byteLength(file.content) > textBytes)) ||
           (file.sha256 !== undefined && (typeof file.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(file.sha256)))
         )
           throw new Error('Invalid file content, hash or absence expectation');

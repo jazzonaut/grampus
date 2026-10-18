@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import type { RepositorySnapshot } from './artifacts.js';
+import { processLimits, repositoryLimits } from '../config/limits.js';
 
 /** Used inside the supervised writer, and for read-only delivery reconciliation. */
 export function deliveryGit(cwd: string, ...args: string[]): Buffer {
@@ -18,8 +19,8 @@ function invokeGit(cwd: string, args: string[], input?: Buffer): Buffer {
     return execFileSync('git', ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', cwd, ...args], {
       env,
       windowsHide: true,
-      timeout: 30_000,
-      maxBuffer: 34 * 1024 * 1024,
+      timeout: processLimits.gitTimeoutMs,
+      maxBuffer: repositoryLimits.deliveryGitOutputBytes,
       stdio: ['pipe', 'pipe', 'pipe'],
       ...(input !== undefined ? { input } : {}),
     });
@@ -76,7 +77,7 @@ export function verifyTree(cwd: string, snapshot: RepositorySnapshot, tree?: str
   if (sizes.length !== blobs.length) throw new Error('Delivery blob inventory is incomplete');
   const metadata = blobs.map((blob, index) => {
     const match = /^([a-f0-9]+) blob (\d+)$/.exec(sizes[index]!);
-    if (!match || match[1] !== blob.oid || Number(match[2]) > 32 * 1024 * 1024)
+    if (!match || match[1] !== blob.oid || Number(match[2]) > repositoryLimits.fileBytes)
       throw new Error('Delivery blob inventory is invalid or oversized');
     return { ...blob, bytes: Number(match[2]) };
   });
@@ -106,9 +107,10 @@ export function verifyTree(cwd: string, snapshot: RepositorySnapshot, tree?: str
     bytes = 0;
   };
   for (const blob of metadata) {
-    if (bytes + blob.bytes + 100 > 8 * 1024 * 1024) verify();
+    const framed = blob.bytes + repositoryLimits.deliveryBlobOverheadBytes;
+    if (bytes + framed > repositoryLimits.deliveryBlobBatchBytes) verify();
     batch.push(blob);
-    bytes += blob.bytes + 100;
+    bytes += framed;
   }
   verify();
 }

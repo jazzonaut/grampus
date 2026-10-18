@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { statSync } from 'node:fs';
-import { Store } from '../persistence/store.js';
+import type { Store } from '../persistence/store.js';
+import { commandLimits, formatBytes } from '../config/limits.js';
 import { Sessions } from '../execution/sessions.js';
 import { Workflow, activeCriteria, type Task } from '../domain/workflow.js';
 import { Workspaces } from '../repository/workspaces.js';
@@ -56,8 +57,8 @@ export interface RepositoryCheck {
 }
 
 function validate(spec: CheckSpec): void {
-  if (!spec || typeof spec.name !== 'string' || !spec.name.trim() || spec.name.length > 200)
-    throw new Error('Check name is required (at most 200 characters)');
+  if (!spec || typeof spec.name !== 'string' || !spec.name.trim() || spec.name.length > commandLimits.nameCharacters)
+    throw new Error(`Check name is required (at most ${commandLimits.nameCharacters} characters)`);
   if (
     Object.keys(spec).some(
       key =>
@@ -116,9 +117,11 @@ function validate(spec: CheckSpec): void {
     spec.file.includes('\0')
   )
     throw new Error('Check arguments must be strings without NUL');
-  if (JSON.stringify(spec.args).length > 24_000) throw new Error('Check arguments exceed the current limit');
-  if (!Number.isSafeInteger(spec.timeoutMs) || spec.timeoutMs < 100 || spec.timeoutMs > 600_000)
-    throw new Error('Check timeout must be between 100 and 600000 ms');
+  if (JSON.stringify(spec.args).length > commandLimits.argsCharacters)
+    throw new Error('Check arguments exceed the current limit');
+  const { minTimeoutMs, maxTimeoutMs } = commandLimits;
+  if (!Number.isSafeInteger(spec.timeoutMs) || spec.timeoutMs < minTimeoutMs || spec.timeoutMs > maxTimeoutMs)
+    throw new Error(`Check timeout must be between ${minTimeoutMs} and ${maxTimeoutMs} ms`);
   if (
     typeof spec.artifact !== 'string' ||
     typeof spec.instructionsDigest !== 'string' ||
@@ -187,10 +190,10 @@ export class Checks {
       !['passed', 'failed', 'skipped'].includes(assessment.outcome) ||
       typeof assessment.summary !== 'string' ||
       !assessment.summary.trim() ||
-      Buffer.byteLength(assessment.summary) > 16 * 1024
+      Buffer.byteLength(assessment.summary) > commandLimits.assessmentBytes
     ) {
       throw new Error(
-        'Simplification requires artifact, instructionsDigest, outcome (passed/failed/skipped) and a nonempty summary (at most 16 KiB)',
+        `Simplification requires artifact, instructionsDigest, outcome (passed/failed/skipped) and a nonempty summary (at most ${formatBytes(commandLimits.assessmentBytes)})`,
       );
     }
     const runId = randomUUID();

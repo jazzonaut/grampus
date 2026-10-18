@@ -1,4 +1,5 @@
 import { RpcProcess, type RpcMessage } from '../process/process.js';
+import { providerLimits } from '../config/limits.js';
 import { applicationVersion } from '../config/runtime.js';
 import { mcpInstructions } from './integrations.js';
 import { referenceInstructions } from '../repository/reference-folders.js';
@@ -30,7 +31,12 @@ async function reportIntegrations(rpc: RpcProcess, threadId: string, emit: Conne
       const page: {
         data: { name: string; runtimeStatus?: string | null; tools: Record<string, unknown>; authStatus: string }[];
         nextCursor: string | null;
-      } = await rpc.request('mcpServerStatus/list', { threadId, detail: 'toolsAndAuthOnly', limit: 100, cursor });
+      } = await rpc.request('mcpServerStatus/list', {
+        threadId,
+        detail: 'toolsAndAuthOnly',
+        limit: providerLimits.mcpStatusPage,
+        cursor,
+      });
       servers.push(
         ...page.data.map(item => ({
           name: item.name,
@@ -40,7 +46,7 @@ async function reportIntegrations(rpc: RpcProcess, threadId: string, emit: Conne
         })),
       );
       cursor = page.nextCursor;
-    } while (cursor && servers.length < 1000);
+    } while (cursor && servers.length < providerLimits.mcpStatusTotal);
     emit({ type: 'integrations.updated', data: { servers } });
   } catch {
     emit({
@@ -100,7 +106,7 @@ export async function connectCodex(options: ConnectOptions): Promise<AgentSessio
       const configured = JSON.parse(JSON.stringify(server, (_key, value) => (value === null ? undefined : value)));
       overrides[`mcp_servers.${name}`] = {
         ...configured,
-        enabled: options.purpose !== 'title' && server.enabled !== false,
+        enabled: options.purpose !== 'title' && server['enabled'] !== false,
       };
     }
     const params = {
@@ -207,17 +213,17 @@ export class CodexSession implements AgentSession {
           !active ||
           active.stopping ||
           active.turnId === null ||
-          p?.threadId !== this.threadId ||
-          p.turnId !== active.turnId ||
-          typeof p.callId !== 'string' ||
-          p.namespace != null
+          p?.['threadId'] !== this.threadId ||
+          p['turnId'] !== active.turnId ||
+          typeof p['callId'] !== 'string' ||
+          p['namespace'] != null
         )
           throw new Error('Repository tool call lacks current turn ownership');
-        const callKey = `tool:${p.callId}`;
-        if (active.toolCalls.has(callKey) || active.toolCalls.size >= 512)
+        const callKey = `tool:${p['callId']}`;
+        if (active.toolCalls.has(callKey) || active.toolCalls.size >= providerLimits.turnToolCalls)
           throw new Error('Duplicate repository tool call or turn tool limit exceeded');
         active.toolCalls.add(callKey);
-        const result = this.readRepository(String(p.tool), p.arguments);
+        const result = this.readRepository(String(p['tool']), p['arguments']);
         return { success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(result) }] };
       } catch (error) {
         return {
@@ -232,15 +238,15 @@ export class CodexSession implements AgentSession {
         active &&
         !active.stopping &&
         active.turnId !== null &&
-        p?.threadId === this.threadId &&
-        p.turnId === active.turnId &&
-        typeof p.itemId === 'string';
-      const changes = matches ? active.patches.get(p.itemId as string) : undefined;
-      if (matches) active.patches.delete(p.itemId as string); // One decision per item, including denials.
+        p?.['threadId'] === this.threadId &&
+        p['turnId'] === active.turnId &&
+        typeof p['itemId'] === 'string';
+      const changes = matches ? active.patches.get(p['itemId'] as string) : undefined;
+      if (matches) active.patches.delete(p['itemId'] as string); // One decision per item, including denials.
       if (
         changes &&
         p &&
-        p.grantRoot == null &&
+        p['grantRoot'] == null &&
         Object.keys(p).every(field =>
           ['threadId', 'turnId', 'itemId', 'reason', 'grantRoot', 'startedAtMs'].includes(field),
         )
@@ -262,39 +268,40 @@ export class CodexSession implements AgentSession {
   private message(message: RpcMessage): void {
     if (!message.method || !this.active) return;
     const p = message.params as Record<string, any> | undefined;
-    if (!p || p.threadId !== this.threadId) return;
+    if (!p || p['threadId'] !== this.threadId) return;
     const active = this.active;
     if (message.method === 'turn/started') {
-      if (typeof p.turn?.id !== 'string' || (active.turnId && active.turnId !== p.turn.id)) return;
-      active.turnId = p.turn.id;
+      if (typeof p['turn']?.id !== 'string' || (active.turnId && active.turnId !== p['turn'].id)) return;
+      active.turnId = p['turn'].id;
       this.emit({ type: 'turn.started', data: { providerTurnId: active.turnId } });
     }
-    if (p.turnId && active.turnId && p.turnId !== active.turnId) return;
-    if (this.editing && active.turnId !== null && p.turnId === active.turnId && !active.stopping) {
-      if (message.method === 'item/started' && p.item?.type === 'fileChange' && typeof p.item.id === 'string') {
-        if (active.seenItems.has(p.item.id)) active.patches.delete(p.item.id);
+    if (p['turnId'] && active.turnId && p['turnId'] !== active.turnId) return;
+    if (this.editing && active.turnId !== null && p['turnId'] === active.turnId && !active.stopping) {
+      if (message.method === 'item/started' && p['item']?.type === 'fileChange' && typeof p['item'].id === 'string') {
+        if (active.seenItems.has(p['item'].id)) active.patches.delete(p['item'].id);
         else {
-          if (active.seenItems.size >= 64) throw new Error('Native patch item limit exceeded');
-          active.seenItems.add(p.item.id);
-          if (p.item.status === 'inProgress') active.patches.set(p.item.id, p.item.changes);
+          if (active.seenItems.size >= providerLimits.turnPatchItems)
+            throw new Error('Native patch item limit exceeded');
+          active.seenItems.add(p['item'].id);
+          if (p['item'].status === 'inProgress') active.patches.set(p['item'].id, p['item'].changes);
         }
       }
-      if (message.method === 'item/fileChange/patchUpdated' && active.patches.has(p.itemId))
-        active.patches.set(p.itemId, p.changes);
-      if (message.method === 'item/completed' && p.item?.type === 'fileChange') active.patches.delete(p.item.id);
+      if (message.method === 'item/fileChange/patchUpdated' && active.patches.has(p['itemId']))
+        active.patches.set(p['itemId'], p['changes']);
+      if (message.method === 'item/completed' && p['item']?.type === 'fileChange') active.patches.delete(p['item'].id);
     }
     if (message.method === 'item/agentMessage/delta') {
-      this.emit({ type: 'output.delta', data: { text: String(p.delta) } });
+      this.emit({ type: 'output.delta', data: { text: String(p['delta']) } });
     }
-    if (message.method === 'item/completed' && p.item?.type === 'agentMessage') active.text = String(p.item.text);
+    if (message.method === 'item/completed' && p['item']?.type === 'agentMessage') active.text = String(p['item'].text);
     if (message.method === 'thread/tokenUsage/updated') {
-      const inputTokens = numeric(p.tokenUsage?.last?.inputTokens);
+      const inputTokens = numeric(p['tokenUsage']?.last?.inputTokens);
       if (inputTokens !== null)
         this.emit({
           type: 'context.updated',
-          data: { inputTokens, windowTokens: numeric(p.tokenUsage?.modelContextWindow) },
+          data: { inputTokens, windowTokens: numeric(p['tokenUsage']?.modelContextWindow) },
         });
-      const total = p.tokenUsage?.total;
+      const total = p['tokenUsage']?.total;
       active.usage = {
         scope: 'provider-session-cumulative',
         inputTokens: numeric(total?.inputTokens),
@@ -306,16 +313,16 @@ export class CodexSession implements AgentSession {
       this.emit({ type: 'usage.updated', data: active.usage });
     }
     if (message.method === 'turn/completed') {
-      if (active.turnId && p.turn.id !== active.turnId) return;
+      if (active.turnId && p['turn'].id !== active.turnId) return;
       this.active = null;
       const status =
-        p.turn.status === 'completed' ? 'completed' : p.turn.status === 'interrupted' ? 'interrupted' : 'failed';
+        p['turn'].status === 'completed' ? 'completed' : p['turn'].status === 'interrupted' ? 'interrupted' : 'failed';
       try {
         active.resolve({
           status,
           reply: status === 'completed' ? parseReply(active.text) : null,
           usage: active.usage,
-          error: p.turn.error?.message ?? null,
+          error: p['turn'].error?.message ?? null,
         });
       } catch (error) {
         active.reject(error instanceof Error ? error : new Error(String(error)));

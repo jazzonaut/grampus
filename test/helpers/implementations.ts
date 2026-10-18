@@ -9,8 +9,8 @@ import { Workspaces } from '../../src/repository/workspaces.js';
 import { Executions } from '../../src/execution/executions.js';
 import { Checks } from '../../src/verification/checks.js';
 import { Implementations } from '../../src/execution/implementations.js';
-import { type EditPolicy } from '../../src/execution/edit-policy.js';
-import { type CheckProcessOptions } from '../../src/process/check-process.js';
+import type { EditPolicy } from '../../src/execution/edit-policy.js';
+import type { CheckProcessOptions } from '../../src/process/check-process.js';
 import type { Reply } from '../../src/providers/types.js';
 
 export const windows = { skip: process.platform !== 'win32' };

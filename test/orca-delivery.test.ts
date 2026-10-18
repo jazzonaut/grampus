@@ -37,9 +37,9 @@ test('Orca slices reuse the original instance and base, with identity checks bef
   assert.equal(f.workflow.get(f.task.id).phase, 'ready');
   assert.equal(f.workflow.get(f.task.id).slice!.completed.length, 1);
   const executions = new Executions(f.store, f.workspaces);
-  f.state.worktree!.isArchived = true;
+  f.state.worktree!['isArchived'] = true;
   await assert.rejects(executions.create(f.workspace.id, 1, 'codex'), /changed/);
-  f.state.worktree!.isArchived = false;
+  f.state.worktree!['isArchived'] = false;
   const next = await executions.create(f.workspace.id, 1, 'codex');
   assert.equal(next.headAtCreation, first.commit);
   const snapshot = await f.checks.snapshot(next.id);
@@ -92,7 +92,7 @@ test('Orca delivery worker rechecks ownership before staging and before commit',
           const workspaces = new Workspaces(store, f.client);
           const inspect = workspaces.inspect.bind(workspaces);
           workspaces.inspect = async (...args) => {
-            if (++observations === changeAt) f.state.worktree!.isArchived = true;
+            if (++observations === changeAt) f.state.worktree!['isArchived'] = true;
             return inspect(...args);
           };
           return workspaces;
@@ -134,7 +134,7 @@ test('Orca identity replacement after a confirmed commit cannot complete the tas
   const f = await deliveryFixture(t);
   const delivery = await f.deliveries.run(f.execution.id, f.spec, undefined, async options => {
     const result = await supervisedOrcaWriter(f, options);
-    f.state.worktree!.isArchived = true;
+    f.state.worktree!['isArchived'] = true;
     return result;
   });
   assert.equal(delivery.phase, 'failed');

@@ -11,9 +11,11 @@ import { editingFileContext, prepareEditing } from './edit-policy.js';
 import { connectAgent } from '../providers/index.js';
 import type { AgentSession, TurnResult } from '../providers/types.js';
 import { taskCheckEvidence } from '../verification/check-evidence.js';
+import { parseSettings, useSettings } from '../config/settings.js';
 
 async function main(): Promise<void> {
   const request = JSON.parse(readFileSync(process.argv[2]!, 'utf8')) as ImplementationRequest;
+  useSettings(parseSettings(request.settings, 'the implementation request'));
   const store = new Store(request.database);
   let agent: AgentSession | null = null;
   try {

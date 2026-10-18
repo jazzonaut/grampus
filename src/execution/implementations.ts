@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Store } from '../persistence/store.js';
+import type { Store } from '../persistence/store.js';
 import { agentTimeout } from './agent-timeout.js';
 import { Sessions, type RunOptions } from './sessions.js';
 import { Workspaces } from '../repository/workspaces.js';
@@ -29,6 +29,7 @@ import {
 import { parseReply, type TurnResult } from '../providers/types.js';
 import type { RepositorySnapshot } from '../repository/artifacts.js';
 import { currentProcessStartedAt } from '../process/process-identity.js';
+import { currentSettings, type Settings } from '../config/settings.js';
 
 export interface ImplementationRun {
   id: string;
@@ -49,6 +50,8 @@ export interface ImplementationRequest {
   database: string;
   id: string;
   prompt: string;
+  /** The controller's settings, so the worker never rereads config.json. */
+  settings: Settings;
 }
 
 export class Implementations {
@@ -192,6 +195,7 @@ export class Implementations {
           database: this.store.path,
           id: run.id,
           prompt: claimedPrompt,
+          settings: currentSettings(),
         } satisfies ImplementationRequest),
       );
       this.store.transaction(() => {

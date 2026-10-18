@@ -3,11 +3,12 @@ import { randomUUID } from 'node:crypto';
 import { lstatSync, realpathSync, statSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { Store } from '../persistence/store.js';
+import type { Store } from '../persistence/store.js';
 import type { Task } from '../domain/workflow.js';
 import { OrcaCli, type OrcaWorkspaceClient, type OrcaWorktree } from './orca.js';
 import { currentProcessStartedAt, inspectProcess } from '../process/process-identity.js';
 import { processAlive } from '../verification/check-recovery.js';
+import { processLimits } from '../config/limits.js';
 
 export interface Workspace {
   id: string;
@@ -85,11 +86,11 @@ function git(cwd: string, args: string[], started?: (pid: number | null) => void
   return new Promise((resolveResult, reject) => {
     let startupError: unknown;
     const creating = args[0] === 'worktree' && args[1] === 'add';
-    const timeout = creating ? 300_000 : 30_000;
+    const timeout = creating ? processLimits.worktreeCreateTimeoutMs : processLimits.gitTimeoutMs;
     const child = execFile(
       'git',
       ['-c', 'core.fsmonitor=false', ...(creating ? ['-c', 'core.autocrlf=false'] : []), '-C', cwd, ...args],
-      { env, windowsHide: true, encoding: 'utf8', timeout, maxBuffer: 4 * 1024 * 1024 },
+      { env, windowsHide: true, encoding: 'utf8', timeout, maxBuffer: processLimits.toolOutputBytes },
       (error, stdout) => {
         if (startupError) reject(startupError);
         else if (error)
@@ -126,12 +127,12 @@ async function worktrees(repository: string): Promise<Worktree[]> {
             return space < 0 ? [field, ''] : [field.slice(0, space), field.slice(space + 1)];
           }),
       );
-      if (!fields.worktree) throw new Error('Unrecognized Git worktree listing');
+      if (!fields['worktree']) throw new Error('Unrecognized Git worktree listing');
       return {
-        path: exists(fields.worktree) ? realpathSync.native(fields.worktree) : fields.worktree,
-        ...(fields.HEAD ? { head: fields.HEAD } : {}),
-        ...(fields.branch ? { branch: fields.branch } : {}),
-        ...(fields.locked !== undefined ? { locked: fields.locked } : {}),
+        path: exists(fields['worktree']) ? realpathSync.native(fields['worktree']) : fields['worktree'],
+        ...(fields['HEAD'] ? { head: fields['HEAD'] } : {}),
+        ...(fields['branch'] ? { branch: fields['branch'] } : {}),
+        ...(fields['locked'] !== undefined ? { locked: fields['locked'] } : {}),
       };
     });
 }

@@ -56,7 +56,9 @@ and development command can run simultaneously.
 
 `GRAMPUS_HOME` and `--db` remain explicit data overrides; using the same override
 for both copies deliberately shares their journal. Use `--port` to override a
-dashboard port, including when running multiple development checkouts. Provider
+dashboard port for one launch, including when running multiple development checkouts,
+or set `dashboardPort` in the data directory's optional `config.json` to change it
+permanently ([configuration](CONFIGURATION.md)). Provider
 subscription credentials are still shared through the providers' existing logins.
 Isolation does not prevent two tasks from targeting the same externally managed
 repository or workspace; use separate task workspaces.

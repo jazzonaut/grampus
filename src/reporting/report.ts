@@ -1,4 +1,4 @@
-import { Store } from '../persistence/store.js';
+import type { Store } from '../persistence/store.js';
 import { Workflow, activeSlice } from '../domain/workflow.js';
 import type { Execution } from '../execution/execution-state.js';
 import { explorationSummary } from '../repository/repository-tools.js';

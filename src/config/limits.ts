@@ -1,0 +1,310 @@
+// Fixed limits. Each value bounds something that is checked before approval, recorded as evidence,
+// compared during recovery, or stops work before inference. They are deliberately not overridable:
+// changing one changes what an approval digest, a check record or a recovery comparison means.
+// Operational values that may be tuned per installation live in settings.ts.
+// Rule: no new magic numbers. Add a bound here or an operational value to settings.ts.
+// The native supervisor (process/native/check.cs) keeps its own C# constants: a 2 MiB combined output
+// cap, a 100 ms job drain and a 5 s termination grace. Change them there and in docs together.
+
+/** One kibibyte. */
+export const KiB = 1024;
+/** One mebibyte. */
+export const MiB = 1024 * KiB;
+
+/** Render a limit for messages and prompts, e.g. `256 KiB` or `1 MiB`, so text cannot drift from the value. */
+export function formatBytes(bytes: number): string {
+  if (bytes >= MiB && bytes % MiB === 0) return `${bytes / MiB} MiB`;
+  if (bytes >= KiB && bytes % KiB === 0) return `${bytes / KiB} KiB`;
+  return `${bytes} bytes`;
+}
+
+/** Bounds on an approved guided plan. All are checked when the plan is normalised, before approval. */
+export const planLimits = {
+  /** Encoded size of a whole guided plan proposal; stops oversized planner output before parsing. */
+  planBytes: 1 * MiB,
+  /** Free text in plans, kickoff messages and manual assessment summaries. */
+  textBytes: 16_000,
+  /** Characters in a command name or model name. */
+  nameCharacters: 200,
+  /** Bytes in a delivery commit message, checked at approval and again before the Git write. */
+  commitMessageBytes: 8192,
+  /** Ordered slices in one brief; each is a separate verified delivery. */
+  slices: 64,
+  /** Most automatic repair rounds a plan may approve after blocking reviews. */
+  reviewRepairRounds: 2,
+} as const;
+
+/** Inclusive ranges for an approved workflow policy. Settings defaults must also fall inside them. */
+export const workflowPolicyBounds = {
+  /** Check and acceptance repair rounds per slice. */
+  repairRounds: { min: 0, max: 5 },
+  /** Turns before a fresh provider conversation. */
+  maxSessionTurns: { min: 1, max: 50 },
+  /** Observed input tokens before a fresh provider conversation. */
+  maxContextTokens: { min: 8000, max: 1_000_000 },
+} as const;
+
+/**
+ * Native editing scope. File and scope sizes are checked at plan approval and again before editing,
+ * so an approved plan can always be executed; payload bounds apply to every authorised tool call.
+ */
+export const editLimits = {
+  /** Largest regular UTF-8 file in an edit or delete scope. */
+  fileBytes: 1 * MiB,
+  /** Total existing bytes across one slice's edit and delete scope. */
+  scopeBytes: 4 * MiB,
+  /** Inline editable file context in a Codex starting prompt. */
+  inlineBytes: 768 * KiB,
+  /** Largest single file inlined when exploration can page the remainder. */
+  inlineFileBytes: 256 * KiB,
+  /** Headroom kept below `inlineBytes` for the descriptors of deferred files. */
+  inlineReserveBytes: 64 * KiB,
+  /** Text in one Edit or Write call, or one patch diff; bounds what a single authorised call can carry. */
+  payloadBytes: 256 * KiB,
+  /** Encoded size of a structured final reply accepted through the Claude tool hook. */
+  structuredReplyBytes: 64 * KiB,
+  /** Distinct paths in one edit policy, and file changes in one patch. */
+  paths: 64,
+  /** Characters in one repository-relative path of an edit policy. */
+  pathCharacters: 512,
+  /** Characters in the scoped delete tool's path argument, enforced by its schema before policy checks. */
+  deletePathCharacters: 32_768,
+} as const;
+
+/** Supervised commands: checks, preparation, acceptance, delivery and implementation turns. */
+export const commandLimits = {
+  /** Shortest deadline for a supervised command. */
+  minTimeoutMs: 100,
+  /** Longest deadline for a supervised command; zero (no deadline) is allowed only where stated. */
+  maxTimeoutMs: 600_000,
+  /** Deadline of the delivery commit. Part of the delivery request, which recovery compares exactly. */
+  deliveryTimeoutMs: 120_000,
+  /** Characters in a check name. */
+  nameCharacters: 200,
+  /** JSON-encoded characters of a command's literal arguments. */
+  argsCharacters: 24_000,
+  /** Bytes of each output stream retained in the journal as the check preview; full logs stay on disk. */
+  previewBytes: 64 * KiB,
+  /** Bytes of one supervisor protocol line or completion receipt accepted from the native host. */
+  protocolBytes: 4096,
+  /** Bytes in a recorded simplification assessment summary. */
+  assessmentBytes: 16 * KiB,
+} as const;
+
+/** Acceptance expectations, checked at approval. */
+export const acceptanceLimits = {
+  /** Expected stdout, expected stderr or expected file content. */
+  textBytes: 64 * KiB,
+  /** Encoded size of all additional expectations. */
+  expectationsBytes: 128 * KiB,
+  /** File expectations in one acceptance command. */
+  files: 64,
+  /** Characters in a file expectation path. */
+  pathCharacters: 4096,
+} as const;
+
+/** Paging and excerpts of check output. Excerpts feed repair prompts, so they bound prompt growth. */
+export const checkOutputLimits = {
+  /** Default characters per check log page. */
+  pageCharacters: 12_000,
+  /** Largest check log page; the dashboard reads pages of this size. */
+  maxPageCharacters: 16_000,
+  /** Read buffer when paging durable logs; keeps memory bounded for any log size. */
+  readBufferBytes: 64 * KiB,
+  /** Logs up to this size are summarised whole; larger ones as preview head plus tail. */
+  summaryWholeBytes: 64_000,
+  /** Bytes read from the end of a large log for its summary. */
+  summaryTailBytes: 16_000,
+  /** Characters of the journal preview kept at the start of a large log summary. */
+  summaryHeadCharacters: 4000,
+  /** Default excerpt length. */
+  excerptCharacters: 5000,
+  /** Excerpt of a failure reason, expectation or previous reply in repair feedback. */
+  feedbackCharacters: 2000,
+  /** Stdout excerpt in repair feedback. */
+  feedbackStdoutCharacters: 4000,
+  /** Stderr excerpt in repair feedback. */
+  feedbackStderrCharacters: 6000,
+} as const;
+
+/** Independent review. History limits stop before inference instead of silently omitting findings. */
+export const reviewLimits = {
+  /** Earlier verdicts for one slice; beyond this the task stops for a revision. */
+  historyVerdicts: 8,
+  /** Encoded size of the earlier verdicts sent to the reviewer. */
+  historyBytes: 128 * KiB,
+  /** Bytes in a reviewer's simplification summary. */
+  simplificationSummaryBytes: 12_000,
+} as const;
+
+/** Provider turn bounds enforced by the controller. */
+export const providerLimits = {
+  /** Repository tool calls in one Codex turn. */
+  turnToolCalls: 512,
+  /** Native patch items tracked in one Codex turn. */
+  turnPatchItems: 64,
+  /** Codex MCP server status entries requested per page. */
+  mcpStatusPage: 100,
+  /** Codex MCP server status entries read in total; stops an endless cursor. */
+  mcpStatusTotal: 1000,
+  /** Claude agent turns within one conversation turn. */
+  claudeMaxTurns: 64,
+  /** Claude agent turns for the task naming call. */
+  claudeTitleMaxTurns: 3,
+} as const;
+
+/** Repository snapshots and reads. Snapshot bounds are part of what an artifact digest can cover. */
+export const repositoryLimits = {
+  /** Largest file in a snapshot, a repository read, a reference folder or a delivery blob. */
+  fileBytes: 32 * MiB,
+  /** Output buffer for snapshot Git plumbing. */
+  gitOutputBytes: 32 * MiB,
+  /** Output buffer for delivery Git plumbing: one largest file plus framing. */
+  deliveryGitOutputBytes: 34 * MiB,
+  /** Bytes of blob content verified per delivery `cat-file --batch` call. */
+  deliveryBlobBatchBytes: 8 * MiB,
+  /** Framing allowance per blob in a delivery verification batch. */
+  deliveryBlobOverheadBytes: 100,
+  /** Retained change evidence (diff content) in one snapshot. */
+  changeEvidenceBytes: 4 * MiB,
+  /** Inline review instructions and context. */
+  reviewContextBytes: 2 * MiB,
+  /** Paths listed per page of review coverage and changed files. */
+  reviewListPage: 100,
+  /** Pinned trees kept in the in-memory inventory cache. */
+  cacheEntries: 4,
+  /** Total estimated size of the in-memory inventory cache. */
+  cacheBytes: 64 * MiB,
+  /** Largest directories reported in an inventory summary. */
+  summaryDirectories: 50,
+  /** Suggested context files for a new plan. */
+  suggestedFiles: 64,
+  /** Characters in a pinned inventory search query. */
+  searchQueryCharacters: 512,
+  /** Matches per page of a pinned inventory search. */
+  searchPage: 100,
+} as const;
+
+/** Context sent inline to planners and reviewers. Checked when context is selected and again at review. */
+export const contextLimits = {
+  /** Total bytes of selected or required context. */
+  bytes: 512 * KiB,
+  /** Bytes of one context file. */
+  fileBytes: 256 * KiB,
+  /** Files in selected or required context. */
+  files: 256,
+} as const;
+
+/** Reference folders: read-only roots approved with the plan. */
+export const referenceLimits = {
+  /** Reference folders per plan. */
+  folders: 16,
+  /** Files in one plain reference folder inventory. */
+  files: 100_000,
+} as const;
+
+/** The shared repository tools. Every result is journaled, so each page is bounded. */
+export const repositoryToolLimits = {
+  /** Characters of tool text arguments. */
+  argumentCharacters: 512,
+  /** Paths, changed files or checks per page. */
+  listPage: 100,
+  /** Default and largest character page. */
+  pageCharacters: 12_000,
+  /** Default line page. */
+  pageLines: 200,
+  /** Largest line page. */
+  maxPageLines: 400,
+  /** Encoded bytes of one page of content. */
+  resultBytes: 24_000,
+  /** Files scanned per search page. */
+  searchFiles: 128,
+  /** Bytes scanned per search page; larger files are skipped and must be read directly. */
+  searchBytes: 4 * MiB,
+  /** Matches returned per search page. */
+  searchMatches: 50,
+  /** Matches reported per file before it is marked as having more. */
+  searchFileMatches: 10,
+  /** Characters of each reported match line. */
+  matchCharacters: 300,
+  /** Largest installed dependency source file. */
+  dependencyFileBytes: 4 * MiB,
+  /** Characters in a dependency search query. */
+  dependencyQueryCharacters: 256,
+  /** Matches per dependency search page. */
+  dependencyMatches: 10,
+  /** Characters of context either side of a dependency match. */
+  dependencySnippetCharacters: 160,
+  /** Claude repository MCP server call timeout. */
+  mcpTimeoutMs: 30_000,
+  /** Claude scoped delete tool call timeout. */
+  deleteToolTimeoutMs: 5000,
+} as const;
+
+/** Dashboard server. */
+export const serverLimits = {
+  /** Request body size for the API and for a worker request. */
+  requestBytes: 1 * MiB,
+  /** Trailing characters of worker stderr kept as the job error. */
+  workerErrorCharacters: 16_000,
+  /** Characters of an event note in polling responses. */
+  eventNoteCharacters: 1200,
+  /** Characters of the task note in polling responses. */
+  stateNoteCharacters: 3000,
+  /** A failed-check note longer than this is replaced by the check's summary in polling responses. */
+  stateNoteSummaryThreshold: 4000,
+  /** Recent events included in a task polling response. */
+  recentEvents: 30,
+  /** Characters of a tool argument shown in live planner progress. */
+  progressTextCharacters: 180,
+  /** Node HTTP request timeout. */
+  requestTimeoutMs: 15_000,
+  /** Node HTTP header timeout. */
+  headersTimeoutMs: 10_000,
+} as const;
+
+/** Process control. These bound startup, shutdown and IPC so that no wait is unbounded. */
+export const processLimits = {
+  /** Default deadline for short helper commands such as version probes. */
+  commandTimeoutMs: 15_000,
+  /** Output buffer for short helper commands. */
+  commandOutputBytes: 1 * MiB,
+  /** Largest JSON-RPC line from Codex app-server. */
+  rpcLineBytes: 1 * MiB,
+  /** Default JSON-RPC request deadline. */
+  rpcRequestTimeoutMs: 15_000,
+  /** JSON-RPC shutdown: terminate the server after this delay. */
+  rpcTerminateMs: 1000,
+  /** JSON-RPC shutdown: force-kill after this delay. */
+  rpcKillMs: 2000,
+  /** JSON-RPC shutdown: report an unconfirmed exit after this delay. */
+  rpcShutdownMs: 4000,
+  /** Claude shutdown: force-kill after this delay. */
+  claudeKillMs: 3000,
+  /** Claude shutdown: report an unconfirmed exit after this delay. */
+  claudeShutdownMs: 5000,
+  /** Grace after a stop request before a session turn settles as stopped. */
+  stopGraceMs: 5000,
+  /** Interval at which running actions poll the journal for a persisted stop request. */
+  stopPollMs: 250,
+  /** Check host: deadline for the supervisor to receive its request. */
+  supervisorStartupMs: 20_000,
+  /** Check host: allowance after a check's own deadline, a result or a stop before the supervisor is killed. */
+  supervisorSettleMs: 15_000,
+  /** Controller-side allowance for the supervisor to report after startup, a result or a stop. */
+  supervisorReportMs: 20_000,
+  /** Process identity query deadline. */
+  identityTimeoutMs: 5000,
+  /** Process identity query output size. */
+  identityOutputBytes: 4096,
+  /** SQLite busy timeout for journal connections. */
+  journalBusyMs: 5000,
+  /** Deadline for ordinary Git commands. */
+  gitTimeoutMs: 30_000,
+  /** Deadline for creating a worktree, which checks out every file. */
+  worktreeCreateTimeoutMs: 300_000,
+  /** Output buffer for workspace and Orca commands. */
+  toolOutputBytes: 4 * MiB,
+  /** Deadline for one Orca CLI call. */
+  orcaTimeoutMs: 120_000,
+} as const;

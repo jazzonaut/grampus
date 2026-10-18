@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { type CheckProcessResult } from '../src/process/check-process.js';
+import type { CheckProcessResult } from '../src/process/check-process.js';
 import type { ExecutionLease } from '../src/execution/execution-state.js';
 import { git, windows, deliveryFixture, supervisedOrcaWriter } from './helpers/orca.js';
 
@@ -27,7 +27,7 @@ test('Orca lost-reply delivery recovery needs a receipt and the original workspa
         f.store.releaseLease(f.workspace.id, f.execution.id, lease.runId);
         f.store.acquireLease(f.workspace.id, f.execution.id, lease.runId, { ...lease, controllerPid: pid });
       });
-      if (replaced) f.state.worktree!.isArchived = true;
+      if (replaced) f.state.worktree!['isArchived'] = true;
       const recovered = await f.deliveries.recover(delivery.id);
       assert.equal(recovered.phase, replaced ? 'failed' : 'delivered');
       assert.equal(recovered.outcome, replaced ? null : mode === 'commit' ? 'committed' : 'no_change');
@@ -49,9 +49,9 @@ test('Orca no-change delivery verifies the original instance in the worker and a
       { ...f.spec, mode: 'no_change' },
       undefined,
       async options => {
-        if (archive === 'worker') f.state.worktree!.isArchived = true;
+        if (archive === 'worker') f.state.worktree!['isArchived'] = true;
         const result = await supervisedOrcaWriter(f, options);
-        if (archive === 'acceptance') f.state.worktree!.isArchived = true;
+        if (archive === 'acceptance') f.state.worktree!['isArchived'] = true;
         return result;
       },
     );

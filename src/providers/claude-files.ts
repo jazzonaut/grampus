@@ -1,6 +1,7 @@
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { deleteEditingFile, type EditingContext } from '../execution/edit-policy.js';
+import { editLimits } from '../config/limits.js';
 import type { AgentEvent } from './types.js';
 
 /** One in-process tool; the worker's turn and durable journal fence every unlink. */
@@ -8,7 +9,7 @@ export function claudeDeleteTool(context: EditingContext, emit: (event: AgentEve
   return tool(
     'delete_file',
     'Delete one exact file from the approved deletion-only list. No directories, wildcards, edits or shell commands.',
-    { file_path: z.string().min(1).max(32768) },
+    { file_path: z.string().min(1).max(editLimits.deletePathCharacters) },
     async input => {
       try {
         if (!ownsTurn()) throw new Error('No active implementation turn owns this deletion');

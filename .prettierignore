@@ -4,3 +4,4 @@ package-lock.json
 *.md
 src/process/native/
 eslint-suppressions.json
+.claude/

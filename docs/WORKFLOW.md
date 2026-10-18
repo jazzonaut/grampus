@@ -41,6 +41,10 @@ The policy is part of the approved plan, visible at approval and editable in
 }
 ```
 
+These are the defaults for a new plan that omits the policy or some of its fields;
+`defaultWorkflowPolicy` in `config.json` changes them for new plans only
+([configuration](CONFIGURATION.md)).
+
 `mode` defaults to `automatic`. `mode: "supervised"` adds file-authorization and
 manual-simplification checkpoints and leaves failed checks for a manual retry (see
 [the guided CLI](GUIDED-WORKFLOW.md#supervised-mode)).

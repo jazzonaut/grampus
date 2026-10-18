@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Sessions, runSession } from '../src/execution/sessions.js';
-import { type ImplementationRun } from '../src/execution/implementations.js';
+import type { ImplementationRun } from '../src/execution/implementations.js';
 import { runCheckProcess } from '../src/process/check-process.js';
 import type { ExecutionLease } from '../src/execution/execution-state.js';
 import { windows, fixture, fakeResult } from './helpers/implementations.js';

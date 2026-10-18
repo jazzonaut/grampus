@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { basename } from 'node:path';
 import { deliveryGit, deliveryGitInput } from './delivery-git.js';
+import { contextLimits, formatBytes, repositoryLimits } from '../config/limits.js';
 
-export const contextLimits = { bytes: 512 * 1024, fileBytes: 256 * 1024, files: 256 };
+const contextBudget = `Select up to ${contextLimits.files} text files, ${formatBytes(contextLimits.fileBytes)} each and ${formatBytes(contextLimits.bytes)} total.`;
 export interface RepositoryEntry {
   path: string;
   oid: string;
@@ -66,16 +67,19 @@ export function pinnedRepository(repo: string, base: string, subtree = ''): Pinn
     digest: createHash('sha256').update(raw).digest('hex'),
     directories: [...directories]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, 50)
+      .slice(0, repositoryLimits.summaryDirectories)
       .map(([path, files]) => ({ path, files })),
   };
   const bytes = raw.length * 4;
-  while (cache.size && (cache.size >= 4 || cachedBytes + bytes > 64 * 1024 * 1024)) {
+  while (
+    cache.size &&
+    (cache.size >= repositoryLimits.cacheEntries || cachedBytes + bytes > repositoryLimits.cacheBytes)
+  ) {
     const oldest = cache.keys().next().value!;
     cachedBytes -= cache.get(oldest)!.bytes;
     cache.delete(oldest);
   }
-  if (bytes <= 64 * 1024 * 1024) {
+  if (bytes <= repositoryLimits.cacheBytes) {
     cache.set(key, { tree, bytes });
     cachedBytes += bytes;
   }
@@ -89,7 +93,7 @@ export function contextPaths(value: unknown): string[] {
     value.some(path => typeof path !== 'string' || !path || path.includes('\0')) ||
     new Set(value).size !== value.length
   )
-    throw new Error('Context files must be at most 256 distinct exact repository paths');
+    throw new Error(`Context files must be at most ${contextLimits.files} distinct exact repository paths`);
   return [...value] as string[];
 }
 export const instructionPath = (path: string) => ['AGENTS.md', 'CLAUDE.md'].includes(basename(path));
@@ -133,10 +137,7 @@ export function pinnedContext(repo: string, base: string, selection?: unknown, r
       bytes + entry.bytes > contextLimits.bytes ||
       chosen.length >= contextLimits.files
     ) {
-      if (mandatory)
-        throw new Error(
-          `Selected context exceeds its budget at ${entry.path}. Select up to 256 text files, 256 KiB each and 512 KiB total.`,
-        );
+      if (mandatory) throw new Error(`Selected context exceeds its budget at ${entry.path}. ${contextBudget}`);
       continue;
     }
     chosen.push(entry);
@@ -196,20 +197,25 @@ function suggestedEntries(tree: PinnedRepository, request: string): RepositoryEn
     })
     .filter(item => item.score >= 0 && item.entry.bytes <= contextLimits.fileBytes)
     .sort((a, b) => b.score - a.score || a.index - b.index)
-    .slice(0, 64)
+    .slice(0, repositoryLimits.suggestedFiles)
     .map(item => item.entry);
 }
 
 export function searchPinnedFiles(repo: string, base: string, query = '', offset = 0) {
   const tree = pinnedRepository(repo, base);
-  if (!Number.isSafeInteger(offset) || offset < 0 || typeof query !== 'string' || query.length > 512)
+  if (
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    typeof query !== 'string' ||
+    query.length > repositoryLimits.searchQueryCharacters
+  )
     throw new Error('Invalid repository search');
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   let matches = 0;
   const files: RepositoryEntry[] = [];
   for (const entry of tree.entries)
     if (words.every(word => entry.path.toLowerCase().includes(word))) {
-      if (matches >= offset && files.length < 100) files.push(entry);
+      if (matches >= offset && files.length < repositoryLimits.searchPage) files.push(entry);
       matches++;
     }
   return {

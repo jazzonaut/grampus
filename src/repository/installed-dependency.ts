@@ -2,12 +2,15 @@ import { createRequire } from 'node:module';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
+import { formatBytes, repositoryToolLimits } from '../config/limits.js';
+
+const limits = repositoryToolLimits;
 
 /** Read installed package source without giving agents shell or filesystem-wide access. */
 export function readInstalledDependency(repo: string, input: Record<string, unknown>) {
-  const name = input.package,
-    path = input.path ?? 'package.json',
-    from = input.from ?? '.';
+  const name = input['package'],
+    path = input['path'] ?? 'package.json',
+    from = input['from'] ?? '.';
   if (
     typeof name !== 'string' ||
     !/^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/i.test(name) ||
@@ -53,19 +56,19 @@ export function readInstalledDependency(repo: string, input: Record<string, unkn
   if (!within(root, packageRoot) || !within(packageRoot, file))
     throw new Error('Dependency source must resolve inside this repository and package');
   const stat = statSync(file);
-  if (!stat.isFile() || stat.size > 4 * 1024 * 1024)
-    throw new Error('Dependency source must be a regular text file up to 4 MiB');
+  if (!stat.isFile() || stat.size > limits.dependencyFileBytes)
+    throw new Error(`Dependency source must be a regular text file up to ${formatBytes(limits.dependencyFileBytes)}`);
   const bytes = readFileSync(file),
     text = bytes.toString('utf8');
   if (bytes.includes(0) || !Buffer.from(text).equals(bytes)) throw new Error('Dependency source is not UTF-8 text');
-  const offset = input.offset ?? 0,
-    limit = input.limit ?? 12000;
+  const offset = input['offset'] ?? 0,
+    limit = input['limit'] ?? limits.pageCharacters;
   if (
     !Number.isSafeInteger(offset) ||
     Number(offset) < 0 ||
     !Number.isSafeInteger(limit) ||
     Number(limit) < 1 ||
-    Number(limit) > 12000
+    Number(limit) > limits.pageCharacters
   )
     throw new Error('Invalid dependency read offset or limit');
   const info = JSON.parse(readFileSync(manifest, 'utf8'));
@@ -76,19 +79,32 @@ export function readInstalledDependency(repo: string, input: Record<string, unkn
     resolvedPath: file,
     sha256: createHash('sha256').update(bytes).digest('hex'),
   };
-  if (input.query !== undefined) {
-    if (typeof input.query !== 'string' || !input.query.trim() || input.query.length > 256)
-      throw new Error('Dependency search requires 1–256 literal characters');
+  if (input['query'] !== undefined) {
+    if (
+      typeof input['query'] !== 'string' ||
+      !input['query'].trim() ||
+      input['query'].length > limits.dependencyQueryCharacters
+    )
+      throw new Error(`Dependency search requires 1–${limits.dependencyQueryCharacters} literal characters`);
     const source = text.toLowerCase(),
-      query = input.query.toLowerCase(),
+      query = input['query'].toLowerCase(),
       matches: { offset: number; content: string }[] = [];
     let cursor = Number(offset),
       found: number;
-    while (matches.length < 10 && (found = source.indexOf(query, cursor)) >= 0) {
-      matches.push({ offset: found, content: text.slice(Math.max(0, found - 160), found + query.length + 160) });
+    const context = limits.dependencySnippetCharacters;
+    while (matches.length < limits.dependencyMatches && (found = source.indexOf(query, cursor)) >= 0) {
+      matches.push({
+        offset: found,
+        content: text.slice(Math.max(0, found - context), found + query.length + context),
+      });
       cursor = found + query.length;
     }
-    return { ...identity, query: input.query, matches, nextOffset: source.indexOf(query, cursor) >= 0 ? cursor : null };
+    return {
+      ...identity,
+      query: input['query'],
+      matches,
+      nextOffset: source.indexOf(query, cursor) >= 0 ? cursor : null,
+    };
   }
   return {
     ...identity,

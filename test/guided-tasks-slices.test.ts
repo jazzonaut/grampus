@@ -1,4 +1,5 @@
 // Guided task tests: large planned slices with paged cumulative review.
+import type { Delivery } from '../src/execution/deliveries.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
@@ -154,7 +155,7 @@ test(
     assert.equal(next.status, 'awaiting_scope', next.note);
     assert.equal(next.sliceIndex, 1);
     assert.notEqual(next.executionId, first.executionId);
-    const firstDelivery = f.store.deliveries<import('../src/execution/deliveries.js').Delivery>(first.executionId!)[0]!;
+    const firstDelivery = f.store.deliveries<Delivery>(first.executionId!)[0]!;
     const workspace = guidedTaskView(f.store, id).workspace!;
     const libraryBlob = git(workspace.path!, 'rev-parse', 'HEAD:greeting.js');
     await tasks.authorize(id);

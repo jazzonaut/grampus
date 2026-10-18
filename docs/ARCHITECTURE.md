@@ -274,7 +274,8 @@ same rules everywhere:
 `server/ui-server.ts` serves the dashboard and a JSON API over the same journal; it is not a second
 workflow engine.
 
-- Listens on `127.0.0.1` only, port 4317 installed or 4318 development.
+- Listens on `127.0.0.1` only, port 4317 installed or 4318 development unless `config.json` sets
+  `dashboardPort` ([CONFIGURATION.md](CONFIGURATION.md)).
 - A random 32-byte token per launch is passed in the URL fragment and required as a bearer token on
   every API call (constant-time comparison).
 - The `Host` header must match and any `Origin` must equal the local origin.
@@ -287,11 +288,20 @@ workflow engine.
   restarting the server is never evidence that work stopped. Polling responses are cached by journal
   revision and exclude large snapshots.
 
+## Configuration
+
+Fixed bounds live in `config/limits.ts`, each documented with what it bounds. Operational values
+(dashboard port, usage polling, defaults for new plans) live in `config/settings.ts`; an optional
+`config.json` in the data directory overrides them and is validated strictly. The CLI loads it once at
+startup and passes the loaded values to dashboard and implementation workers in their requests.
+Defaults are copied into a plan when it is created, so settings never change an approved plan or
+recorded evidence. Details are in [CONFIGURATION.md](CONFIGURATION.md).
+
 ## Usage accounting
 
 Providers report cumulative usage per provider session. `reporting/task-usage.ts` keeps the latest snapshot
 for each distinct session linked to a task (planning, naming, implementation, review) and sums
-sessions once, separately per provider. Claude usage is sampled every 15 seconds during a turn and
+sessions once, separately per provider. Claude usage is sampled every 15 seconds (`usagePollIntervalMs`) during a turn and
 replaced by the final result; interim snapshots are marked incomplete. Missing values stay unknown
 and mark totals partial. Claude's estimated USD never becomes billed cost, which is always unknown.
 
@@ -311,6 +321,9 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | --- | --- | --- |
 | `/` | `cli.ts` | Command parsing and entry point (`dist/src/cli.js`, also the installed launcher target); Ctrl+C handling |
 | `config/` | `runtime.ts` | Application root, version, installed or development channel, data directory, update |
+| | `limits.ts` | Fixed, documented bounds bound into approval, evidence or recovery; not configurable |
+| | `settings.ts` | Operational settings, their defaults and the validated optional `<data directory>/config.json` |
+| | `environment.d.ts` | Typed declarations of the environment variables Grampus reads |
 | `persistence/` | `store.ts` | SQLite schema, version check, transactions and journal access |
 | `domain/` | `workflow.ts`, `workflow-policy.ts` | Briefs, versions, attempts, evidence, gates, slices and completion; workflow policy validation |
 | | `guided-plan.ts` | Plan normalization, slice file simulation and approval digest |

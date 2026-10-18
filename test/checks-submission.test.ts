@@ -184,26 +184,26 @@ test('CLI snapshots, executes and submits a check across separate controllers wi
       file: process.execPath,
       args: ['greeting.js'],
       timeoutMs: 3000,
-      artifact: snapshot.artifact,
-      instructionsDigest: snapshot.instructionsDigest,
+      artifact: snapshot['artifact'],
+      instructionsDigest: snapshot['instructionsDigest'],
     }),
   );
   const check = invoke('execution-check', f.execution.id, specFile);
-  assert.equal(check.phase, 'passed');
-  assert.equal(invoke('check-show', check.id as string).id, check.id);
-  assert.equal(invoke('execution-finish', f.execution.id, check.id as string).phase, 'awaiting_verification');
+  assert.equal(check['phase'], 'passed');
+  assert.equal(invoke('check-show', check['id'] as string)['id'], check['id']);
+  assert.equal(invoke('execution-finish', f.execution.id, check['id'] as string)['phase'], 'awaiting_verification');
   const acceptance = {
     name: 'Greeting acceptance',
     file: process.execPath,
     args: ['greeting.js'],
     timeoutMs: 3000,
-    artifact: snapshot.artifact,
-    instructionsDigest: snapshot.instructionsDigest,
+    artifact: snapshot['artifact'],
+    instructionsDigest: snapshot['instructionsDigest'],
     criteria: ['Print hello'],
     expectedStdout: 'hello\n',
   };
   writeFileSync(specFile, JSON.stringify(acceptance));
-  assert.equal(invoke('execution-verify', f.execution.id, specFile).phase, 'passed');
+  assert.equal(invoke('execution-verify', f.execution.id, specFile)['phase'], 'passed');
   assert.throws(() => invoke('execution-complete', f.execution.id), /simplification/);
 });
 

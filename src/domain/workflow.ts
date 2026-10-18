@@ -1,5 +1,7 @@
+import type { GuidedState } from '../orchestration/guided-tasks.js';
 import { randomUUID } from 'node:crypto';
-import { Store } from '../persistence/store.js';
+import { planLimits } from '../config/limits.js';
+import type { Store } from '../persistence/store.js';
 import type { Workspace } from '../repository/workspaces.js';
 import { assertTaskExecutionIdle } from '../execution/execution-state.js';
 import type { Execution } from '../execution/execution-state.js';
@@ -71,7 +73,7 @@ export interface Task {
   attempt: Attempt | null;
   evidence: Evidence[];
   decisions: { id: string; version: number; rationale: string; accepted: boolean }[];
-  guided?: import('../orchestration/guided-tasks.js').GuidedState;
+  guided?: GuidedState;
   slice?: {
     index: number;
     completed: {
@@ -118,8 +120,8 @@ export function validateBrief(brief: Brief): void {
   brief.criteria.forEach(value => nonempty(value, 'criterion'));
   if (new Set(brief.criteria).size !== brief.criteria.length) throw new Error('Acceptance criteria must be distinct');
   if (brief.slices !== undefined) {
-    if (!Array.isArray(brief.slices) || brief.slices.length < 1 || brief.slices.length > 64)
-      throw new Error('Plan requires 1–64 ordered slices');
+    if (!Array.isArray(brief.slices) || brief.slices.length < 1 || brief.slices.length > planLimits.slices)
+      throw new Error(`Plan requires 1–${planLimits.slices} ordered slices`);
     for (const slice of brief.slices) {
       if (
         !slice ||

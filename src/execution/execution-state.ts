@@ -4,7 +4,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { Session } from './sessions.js';
 import type { Task } from '../domain/workflow.js';
 import type { Workspace } from '../repository/workspaces.js';
-import { Store } from '../persistence/store.js';
+import type { Store } from '../persistence/store.js';
 import { currentProcessStartedAt } from '../process/process-identity.js';
 
 export interface Execution {

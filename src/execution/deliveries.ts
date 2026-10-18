@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Store } from '../persistence/store.js';
+import type { Store } from '../persistence/store.js';
+import { commandLimits, planLimits } from '../config/limits.js';
 import { Workflow } from '../domain/workflow.js';
 import { Sessions } from './sessions.js';
 import { Workspaces } from '../repository/workspaces.js';
@@ -134,13 +135,13 @@ export class Deliveries {
       !spec.message.trim() ||
       spec.message.includes('\0') ||
       /Grampus-Delivery:/i.test(spec.message) ||
-      Buffer.byteLength(spec.message) > 8192 ||
+      Buffer.byteLength(spec.message) > planLimits.commitMessageBytes ||
       !Number.isSafeInteger(spec.timeoutMs) ||
-      spec.timeoutMs < 100 ||
-      spec.timeoutMs > 600_000
+      spec.timeoutMs < commandLimits.minTimeoutMs ||
+      spec.timeoutMs > commandLimits.maxTimeoutMs
     ) {
       throw new Error(
-        'Delivery requires artifact, instructionsDigest, message (1–8192 bytes, no reserved marker), timeoutMs (100–600000) and optional mode (commit or no_change)',
+        `Delivery requires artifact, instructionsDigest, message (1–${planLimits.commitMessageBytes} bytes, no reserved marker), timeoutMs (${commandLimits.minTimeoutMs}–${commandLimits.maxTimeoutMs}) and optional mode (commit or no_change)`,
       );
     }
     if (process.platform !== 'win32') throw new Error('Supervised delivery currently requires Windows');

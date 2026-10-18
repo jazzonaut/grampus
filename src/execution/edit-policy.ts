@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import type { RepositorySnapshot } from '../repository/artifacts.js';
 import { parseReply, type AgentEvent } from '../providers/types.js';
+import { editLimits, formatBytes, processLimits } from '../config/limits.js';
 
 export interface EditPolicy {
   artifact: string;
@@ -17,16 +18,10 @@ export interface EditingContext {
   policy: EditPolicy;
   snapshot: RepositorySnapshot;
 }
-export const editLimits = {
-  fileBytes: 1024 * 1024,
-  scopeBytes: 4 * 1024 * 1024,
-  inlineBytes: 768 * 1024,
-  inlineFileBytes: 256 * 1024,
-};
 export function checkEditableSize(path: string, bytes: number): void {
   if (bytes > editLimits.fileBytes)
     throw new Error(
-      `Editable text file "${path}" is ${bytes} bytes; the limit is 1 MiB (${editLimits.fileBytes} bytes). Revise the task scope or split the file before retrying.`,
+      `Editable text file "${path}" is ${bytes} bytes; the limit is ${formatBytes(editLimits.fileBytes)} (${editLimits.fileBytes} bytes). Revise the task scope or split the file before retrying.`,
     );
 }
 export const deleteFileTool = 'mcp__grampus_files__delete_file';
@@ -52,12 +47,12 @@ export function validateEditPolicy(policy: EditPolicy): void {
   const paths = [...policy.files, ...(policy.create ?? []), ...(policy.delete ?? [])];
   if (
     paths.length < 1 ||
-    paths.length > 64 ||
+    paths.length > editLimits.paths ||
     paths.some(
       path =>
         typeof path !== 'string' ||
         !path ||
-        path.length > 512 ||
+        path.length > editLimits.pathCharacters ||
         isAbsolute(path) ||
         /[\\:<>"|?*\x00-\x1f]/.test(path) ||
         path
@@ -75,7 +70,7 @@ export function validateEditPolicy(policy: EditPolicy): void {
     new Set(paths.map(key)).size !== paths.length
   )
     throw new Error(
-      'Edit policy requires current digests and 1–64 distinct relative file paths; repository controls cannot be edited',
+      `Edit policy requires current digests and 1–${editLimits.paths} distinct relative file paths; repository controls cannot be edited`,
     );
 }
 
@@ -168,7 +163,7 @@ function requireVisibleCreation(context: EditingContext, path: string): void {
   const result = spawnSync(
     'git',
     ['--no-optional-locks', '-C', context.cwd, 'check-ignore', '--no-index', '-q', '--', path],
-    { env, windowsHide: true, timeout: 30_000, stdio: 'pipe' },
+    { env, windowsHide: true, timeout: processLimits.gitTimeoutMs, stdio: 'pipe' },
   );
   if (result.error || result.status !== 1)
     throw new Error('Creation paths must be visible to repository snapshots, not ignored');
@@ -189,7 +184,7 @@ export function prepareEditing(context: EditingContext): void {
   }
   if (bytes > editLimits.scopeBytes)
     throw new Error(
-      'Editable text exceeds the 4 MiB scope limit. Revise the task into smaller slices before retrying.',
+      `Editable text exceeds the ${formatBytes(editLimits.scopeBytes)} scope limit. Revise the task into smaller slices before retrying.`,
     );
   for (const path of context.policy.create ?? []) {
     if (
@@ -212,7 +207,8 @@ export function editingFileContext(context: EditingContext, exploration = false)
       if (
         exploration &&
         file.bytes &&
-        (file.bytes.length > editLimits.inlineFileBytes || size + bytes > editLimits.inlineBytes - 64 * 1024)
+        (file.bytes.length > editLimits.inlineFileBytes ||
+          size + bytes > editLimits.inlineBytes - editLimits.inlineReserveBytes)
       ) {
         const deferred = {
           path: file.path,
@@ -231,7 +227,7 @@ export function editingFileContext(context: EditingContext, exploration = false)
   );
   if (Buffer.byteLength(content) > editLimits.inlineBytes)
     throw new Error(
-      'Editable file context exceeds 768 KiB; enable repository exploration or revise the task into smaller slices',
+      `Editable file context exceeds ${formatBytes(editLimits.inlineBytes)}; enable repository exploration or revise the task into smaller slices`,
     );
   return content;
 }
@@ -259,8 +255,8 @@ export function authorizeFileChanges(
 ): boolean {
   const paths: string[] = [];
   try {
-    if (!Array.isArray(changes) || !changes.length || changes.length > 64)
-      throw new Error('Patch requires 1–64 explicitly scoped file changes');
+    if (!Array.isArray(changes) || !changes.length || changes.length > editLimits.paths)
+      throw new Error(`Patch requires 1–${editLimits.paths} explicitly scoped file changes`);
     for (const change of changes) {
       if (
         !change ||
@@ -275,7 +271,7 @@ export function authorizeFileChanges(
         ) ||
         typeof change.diff !== 'string' ||
         change.diff.includes('\0') ||
-        Buffer.byteLength(change.diff) > 256 * 1024
+        Buffer.byteLength(change.diff) > editLimits.payloadBytes
       )
         throw new Error(
           'Only bounded text updates, explicit additions and explicit deletions without moves are allowed',
@@ -319,7 +315,7 @@ export function authorizeEditTool(
   let path: string | null = null;
   try {
     if (name === 'StructuredOutput') {
-      if (Buffer.byteLength(JSON.stringify(input) ?? '') > 64 * 1024)
+      if (Buffer.byteLength(JSON.stringify(input) ?? '') > editLimits.structuredReplyBytes)
         throw new Error('Structured reply exceeds the current size limit');
       parseReply(input);
       emit({ type: 'tool.authorized', data: { tool: name, path: null } });
@@ -329,8 +325,8 @@ export function authorizeEditTool(
       throw new Error('Only Read, Edit, Write and the scoped deletion tool are enabled');
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid tool input');
     const fields = input as Record<string, unknown>;
-    if (typeof fields.file_path !== 'string') throw new Error('Tool requires file_path');
-    const file = checkedFile(context, fields.file_path, name === 'Write');
+    if (typeof fields['file_path'] !== 'string') throw new Error('Tool requires file_path');
+    const file = checkedFile(context, fields['file_path'], name === 'Write');
     path = file.path;
     const creation = context.policy.create?.some(value => key(value) === key(path!));
     if (name === deleteFileTool) requireDeletion(context, file);
@@ -354,7 +350,7 @@ export function authorizeEditTool(
         field =>
           typeof fields[field] !== 'string' ||
           fields[field].includes('\0') ||
-          Buffer.byteLength(fields[field]) > 256 * 1024,
+          Buffer.byteLength(fields[field]) > editLimits.payloadBytes,
       )
     )
       throw new Error('File tool text exceeds the allowed format or size');

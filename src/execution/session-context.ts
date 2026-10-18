@@ -1,10 +1,15 @@
 import type { Store } from '../persistence/store.js';
 import type { Session } from './sessions.js';
-import { defaultWorkflowPolicy, type WorkflowPolicy } from '../domain/workflow-policy.js';
+import type { WorkflowPolicy } from '../domain/workflow-policy.js';
+import { currentSettings } from '../config/settings.js';
 import { agentToolsetVersion } from '../providers/types.js';
 
 /** Decide at a settled boundary using current context, never cumulative token spend. */
-export function sessionContinuation(store: Store, session: Session, policy: WorkflowPolicy = defaultWorkflowPolicy) {
+export function sessionContinuation(
+  store: Store,
+  session: Session,
+  policy: WorkflowPolicy = currentSettings().defaultWorkflowPolicy,
+) {
   const peers = store
     .sessions<Session>()
     .filter(item => item.provider === session.provider && item.providerSessionId === session.providerSessionId);

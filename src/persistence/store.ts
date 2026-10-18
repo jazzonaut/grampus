@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { defaultDataDirectory } from '../config/runtime.js';
+import { processLimits } from '../config/limits.js';
 
 /** The default journal for this installed or development copy. */
 export function defaultDatabasePath(): string {
@@ -92,12 +93,12 @@ const expectedTables = [...schema.matchAll(/CREATE TABLE (\w+)/g)].map(match => 
 
 type SchemaState = 'empty' | 'current' | 'foreign';
 function schemaState(db: DatabaseSync): SchemaState {
-  const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
+  const version = Number(db.prepare('PRAGMA user_version').get()?.['user_version']);
   const tables = new Set(
     db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
       .all()
-      .map(row => String(row.name)),
+      .map(row => String(row['name'])),
   );
   if (version === 0 && tables.size === 0) return 'empty';
   return version === schemaVersion && expectedTables.every(table => tables.has(table)) ? 'current' : 'foreign';
@@ -125,7 +126,7 @@ export class Store {
       // Inspect read-only first: setting WAL mode or creating tables would rewrite an older journal.
       const existing = new DatabaseSync(path, { readOnly: true });
       try {
-        existing.exec('PRAGMA busy_timeout = 5000;');
+        existing.exec(`PRAGMA busy_timeout = ${processLimits.journalBusyMs};`);
         if (schemaState(existing) === 'foreign') throw refuse(this.path);
       } finally {
         existing.close();
@@ -134,7 +135,7 @@ export class Store {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     try {
-      this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
+      this.db.exec(`PRAGMA busy_timeout = ${processLimits.journalBusyMs}; PRAGMA foreign_keys = ON;`);
       this.db.exec('BEGIN IMMEDIATE');
       try {
         // Recheck under the write lock: another process may have created the schema meanwhile.
@@ -173,19 +174,19 @@ export class Store {
   get<T>(id: string): T {
     const row = this.db.prepare('SELECT state FROM tasks WHERE id = ?').get(id);
     if (!row) throw new Error(`Task not found: ${id}`);
-    return JSON.parse(String(row.state)) as T;
+    return JSON.parse(String(row['state'])) as T;
   }
 
   list<T>(): T[] {
     return this.db
       .prepare('SELECT state FROM tasks ORDER BY rowid')
       .all()
-      .map(row => JSON.parse(String(row.state)) as T);
+      .map(row => JSON.parse(String(row['state'])) as T);
   }
 
   /** Includes commits from other controller connections and writes on this one. */
   revision(): string {
-    return `${this.db.prepare('PRAGMA data_version').get()!.data_version}:${this.db.prepare('SELECT total_changes() AS changes').get()!.changes}`;
+    return `${this.db.prepare('PRAGMA data_version').get()!['data_version']}:${this.db.prepare('SELECT total_changes() AS changes').get()!['changes']}`;
   }
 
   guidedSummaries(): { id: string; title: string; status: string; stage: string }[] {
@@ -197,10 +198,10 @@ export class Store {
       )
       .all()
       .map(row => ({
-        id: String(row.id),
-        title: String(row.title),
-        status: String(row.status),
-        stage: String(row.stage),
+        id: String(row['id']),
+        title: String(row['title']),
+        status: String(row['status']),
+        stage: String(row['stage']),
       }));
   }
 
@@ -224,12 +225,12 @@ export class Store {
       .prepare(`SELECT * FROM events WHERE task_id = ?${filter} ORDER BY sequence`)
       .all(taskId, ...(types ?? []))
       .map(row => ({
-        sequence: Number(row.sequence),
-        taskId: String(row.task_id),
-        version: Number(row.version),
-        at: String(row.at),
-        type: String(row.type),
-        data: JSON.parse(String(row.data)) as unknown,
+        sequence: Number(row['sequence']),
+        taskId: String(row['task_id']),
+        version: Number(row['version']),
+        at: String(row['at']),
+        type: String(row['type']),
+        data: JSON.parse(String(row['data'])) as unknown,
       }));
   }
 
@@ -240,14 +241,14 @@ export class Store {
   session<T>(id: string): T {
     const row = this.db.prepare('SELECT state FROM sessions WHERE id = ?').get(id);
     if (!row) throw new Error(`Session not found: ${id}`);
-    return JSON.parse(String(row.state)) as T;
+    return JSON.parse(String(row['state'])) as T;
   }
 
   sessions<T>(): T[] {
     return this.db
       .prepare('SELECT state FROM sessions ORDER BY rowid')
       .all()
-      .map(row => JSON.parse(String(row.state)) as T);
+      .map(row => JSON.parse(String(row['state'])) as T);
   }
 
   saveSession(id: string, state: unknown): void {
@@ -273,24 +274,24 @@ export class Store {
       .prepare(`SELECT * FROM session_events WHERE session_id = ?${filter} ORDER BY sequence`)
       .all(id, ...(types ?? []))
       .map(row => ({
-        sequence: Number(row.sequence),
-        at: String(row.at),
-        type: String(row.type),
-        data: JSON.parse(String(row.data)) as unknown,
+        sequence: Number(row['sequence']),
+        at: String(row['at']),
+        type: String(row['type']),
+        data: JSON.parse(String(row['data'])) as unknown,
       }));
   }
 
   workspace<T>(id: string): T {
     const row = this.db.prepare('SELECT state FROM workspaces WHERE id = ?').get(id);
     if (!row) throw new Error(`Workspace not found: ${id}`);
-    return JSON.parse(String(row.state)) as T;
+    return JSON.parse(String(row['state'])) as T;
   }
 
   workspaces<T>(): T[] {
     return this.db
       .prepare('SELECT state FROM workspaces ORDER BY rowid')
       .all()
-      .map(row => JSON.parse(String(row.state)) as T);
+      .map(row => JSON.parse(String(row['state'])) as T);
   }
 
   saveWorkspace(id: string, taskId: string, pathKey: string, state: unknown): void {
@@ -313,29 +314,29 @@ export class Store {
       .prepare('SELECT * FROM workspace_events WHERE workspace_id = ? ORDER BY sequence')
       .all(id)
       .map(row => ({
-        sequence: Number(row.sequence),
-        at: String(row.at),
-        type: String(row.type),
-        data: JSON.parse(String(row.data)) as unknown,
+        sequence: Number(row['sequence']),
+        at: String(row['at']),
+        type: String(row['type']),
+        data: JSON.parse(String(row['data'])) as unknown,
       }));
   }
 
   execution<T>(id: string): T {
     const row = this.db.prepare('SELECT state FROM executions WHERE id = ?').get(id);
     if (!row) throw new Error(`Execution not found: ${id}`);
-    return JSON.parse(String(row.state)) as T;
+    return JSON.parse(String(row['state'])) as T;
   }
 
   executionForSession<T>(id: string): T | null {
     const row = this.db.prepare('SELECT state FROM executions WHERE session_id = ?').get(id);
-    return row ? (JSON.parse(String(row.state)) as T) : null;
+    return row ? (JSON.parse(String(row['state'])) as T) : null;
   }
 
   executions<T>(): T[] {
     return this.db
       .prepare('SELECT state FROM executions ORDER BY rowid')
       .all()
-      .map(row => JSON.parse(String(row.state)) as T);
+      .map(row => JSON.parse(String(row['state'])) as T);
   }
 
   saveExecution(id: string, taskId: string, workspaceId: string, sessionId: string, state: unknown): void {
@@ -358,29 +359,29 @@ export class Store {
       .prepare('SELECT * FROM execution_events WHERE execution_id = ? ORDER BY sequence')
       .all(id)
       .map(row => ({
-        sequence: Number(row.sequence),
-        at: String(row.at),
-        type: String(row.type),
-        data: JSON.parse(String(row.data)) as unknown,
+        sequence: Number(row['sequence']),
+        at: String(row['at']),
+        type: String(row['type']),
+        data: JSON.parse(String(row['data'])) as unknown,
       }));
   }
 
   lease<T>(workspaceId: string): T | null {
     const row = this.db.prepare('SELECT state FROM execution_leases WHERE workspace_id = ?').get(workspaceId);
-    return row ? (JSON.parse(String(row.state)) as T) : null;
+    return row ? (JSON.parse(String(row['state'])) as T) : null;
   }
 
   check<T>(id: string): T {
     const row = this.db.prepare('SELECT state FROM checks WHERE id = ?').get(id);
     if (!row) throw new Error(`Check not found: ${id}`);
-    return JSON.parse(String(row.state)) as T;
+    return JSON.parse(String(row['state'])) as T;
   }
 
   checks<T>(executionId: string): T[] {
     return this.db
       .prepare('SELECT state FROM checks WHERE execution_id = ? ORDER BY rowid')
       .all(executionId)
-      .map(row => JSON.parse(String(row.state)) as T);
+      .map(row => JSON.parse(String(row['state'])) as T);
   }
 
   saveCheck(id: string, executionId: string, state: unknown): void {
@@ -400,20 +401,20 @@ export class Store {
   delivery<T>(id: string): T {
     const row = this.db.prepare('SELECT state FROM deliveries WHERE id = ?').get(id);
     if (!row) throw new Error(`Delivery not found: ${id}`);
-    return JSON.parse(String(row.state)) as T;
+    return JSON.parse(String(row['state'])) as T;
   }
 
   implementation<T>(id: string): T {
     const row = this.db.prepare('SELECT state FROM implementations WHERE id = ?').get(id);
     if (!row) throw new Error(`Implementation run not found: ${id}`);
-    return JSON.parse(String(row.state)) as T;
+    return JSON.parse(String(row['state'])) as T;
   }
 
   implementations<T>(executionId: string): T[] {
     return this.db
       .prepare('SELECT state FROM implementations WHERE execution_id = ? ORDER BY rowid')
       .all(executionId)
-      .map(row => JSON.parse(String(row.state)) as T);
+      .map(row => JSON.parse(String(row['state'])) as T);
   }
 
   saveImplementation(id: string, executionId: string, state: unknown): void {
@@ -428,7 +429,7 @@ export class Store {
     return this.db
       .prepare('SELECT state FROM deliveries WHERE execution_id = ? ORDER BY rowid')
       .all(executionId)
-      .map(row => JSON.parse(String(row.state)) as T);
+      .map(row => JSON.parse(String(row['state'])) as T);
   }
 
   saveDelivery(id: string, executionId: string, state: unknown): void {

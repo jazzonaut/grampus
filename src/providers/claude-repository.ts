@@ -2,6 +2,9 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { repositoryTools, repositoryToolDefinitions, type RepositoryAccess } from '../repository/repository-tools.js';
 import type { AgentEvent } from './types.js';
+import { repositoryToolLimits } from '../config/limits.js';
+
+const pageLimit = () => z.number().int().min(1).max(repositoryToolLimits.pageCharacters).optional();
 
 export const isRepositoryTool = (name: string) =>
   repositoryToolDefinitions.some(def => name === `mcp__grampus_repository__${def.name}`);
@@ -10,7 +13,7 @@ export function claudeRepository(access: RepositoryAccess, emit: (event: AgentEv
     name: 'grampus_repository',
     version: '1.0.0',
     alwaysLoad: true,
-    timeout: 30000,
+    timeout: repositoryToolLimits.mcpTimeoutMs,
     tools: claudeRepositoryTools(access, emit, ownsTurn),
   });
 }
@@ -26,7 +29,7 @@ export function claudeRepositoryTools(
       path: z.string(),
       mode: z.enum(['lines', 'characters']).optional(),
       offset: z.number().int().nonnegative().optional(),
-      limit: z.number().int().min(1).max(12000).optional(),
+      limit: pageLimit(),
       root: z.string().optional(),
     },
     {
@@ -40,13 +43,13 @@ export function claudeRepositoryTools(
       path: z.string().optional(),
       side: z.enum(['before', 'after']).optional(),
       offset: z.number().int().nonnegative().optional(),
-      limit: z.number().int().min(1).max(12000).optional(),
+      limit: pageLimit(),
     },
     {
       checkId: z.string().optional(),
       stream: z.enum(['stdout', 'stderr', 'spec']).optional(),
       offset: z.number().int().nonnegative().optional(),
-      limit: z.number().int().min(1).max(12000).optional(),
+      limit: pageLimit(),
     },
     {
       package: z.string(),
@@ -54,7 +57,7 @@ export function claudeRepositoryTools(
       from: z.string().optional(),
       query: z.string().optional(),
       offset: z.number().int().nonnegative().optional(),
-      limit: z.number().int().min(1).max(12000).optional(),
+      limit: pageLimit(),
     },
   ];
   return repositoryToolDefinitions.map((def, index) =>

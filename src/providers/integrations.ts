@@ -36,7 +36,7 @@ export function projectMcpServers(source: string, cwd: string): Record<string, M
     }
   };
   const config = read(join(process.env.CLAUDE_CONFIG_DIR ?? homedir(), '.claude.json'));
-  const project = Object.entries(config.projects ?? {}).find(([path]) => key(path) === key(source))?.[1] as
+  const project = Object.entries(config['projects'] ?? {}).find(([path]) => key(path) === key(source))?.[1] as
     Record<string, any> | undefined;
   const shared = read(join(source, '.mcp.json'));
   const settings = {
@@ -44,25 +44,25 @@ export function projectMcpServers(source: string, cwd: string): Record<string, M
     ...read(join(source, '.claude', 'settings.local.json')),
   };
   const enabled = new Set<string>([
-    ...(project?.enabledMcpjsonServers ?? []),
-    ...(settings.enabledMcpjsonServers ?? []),
+    ...(project?.['enabledMcpjsonServers'] ?? []),
+    ...(settings['enabledMcpjsonServers'] ?? []),
   ]);
   const approvedShared = Object.fromEntries(
-    Object.entries(shared.mcpServers ?? {}).filter(
+    Object.entries(shared['mcpServers'] ?? {}).filter(
       ([name]) =>
         enabled.has(name) ||
-        project?.enableAllProjectMcpServers === true ||
-        settings.enableAllProjectMcpServers === true,
+        project?.['enableAllProjectMcpServers'] === true ||
+        settings['enableAllProjectMcpServers'] === true,
     ),
   );
   const disabled = new Set<string>([
-    ...(config.disabledMcpServers ?? []),
-    ...(project?.disabledMcpServers ?? []),
-    ...(project?.disabledMcpjsonServers ?? []),
-    ...(settings.disabledMcpjsonServers ?? []),
+    ...(config['disabledMcpServers'] ?? []),
+    ...(project?.['disabledMcpServers'] ?? []),
+    ...(project?.['disabledMcpjsonServers'] ?? []),
+    ...(settings['disabledMcpjsonServers'] ?? []),
   ]);
   return Object.fromEntries(
-    Object.entries({ ...approvedShared, ...(project?.mcpServers ?? {}) }).filter(
+    Object.entries({ ...approvedShared, ...(project?.['mcpServers'] ?? {}) }).filter(
       ([name]) => !disabled.has(name) && name !== 'grampus_repository' && name !== 'grampus_files',
     ),
   ) as Record<string, McpServerConfig>;

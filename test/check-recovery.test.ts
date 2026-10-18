@@ -139,7 +139,7 @@ test(
     assert.equal(result.exitConfirmed, true);
     assert.ok(observedStartedAt, 'The running supervisor must have an observable creation time');
     const saved = JSON.parse(readFileSync(join(directory, 'completion.json'), 'utf8')) as Record<string, unknown>;
-    assert.equal(saved.supervisorStartedAt, observedStartedAt);
+    assert.equal(saved['supervisorStartedAt'], observedStartedAt);
     assert.equal(readReceipt(receipt, supervisorPid, toolPid).reason, 'exited');
   },
 );

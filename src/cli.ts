@@ -18,7 +18,8 @@ import { Implementations } from './execution/implementations.js';
 import { GuidedTasks } from './orchestration/guided-tasks.js';
 import { guidedTaskView, renderGuidedTask } from './orchestration/guided-status.js';
 import type { SimplificationAssessment } from './verification/checks.js';
-import { defaultDashboardPort, updateInstallation, versionInformation, versionLabel } from './config/runtime.js';
+import { defaultDataDirectory, updateInstallation, versionInformation, versionLabel } from './config/runtime.js';
+import { currentSettings, loadSettings, useSettings } from './config/settings.js';
 
 const help = `Grampus — local agent controller
   task-revise <id> <version> <file.json>  Revise a settled recipe; retain files and require fresh approval
@@ -122,8 +123,11 @@ async function main(): Promise<void> {
     console.log(help);
     return;
   }
+  // Loaded once per launch; workers started from here receive these values instead of rereading the file.
+  // An update never depends on settings, so an invalid config.json cannot block installing a fix.
+  if (action !== 'update') useSettings(loadSettings(defaultDataDirectory()));
   if (values.version || action === 'version') {
-    const info = versionInformation();
+    const info = versionInformation(currentSettings().dashboardPort);
     console.log(
       values.json
         ? JSON.stringify(info, null, 2)
@@ -138,7 +142,7 @@ async function main(): Promise<void> {
     return;
   }
   if (action === 'ui') {
-    const port = Number(values.port ?? defaultDashboardPort);
+    const port = Number(values.port ?? currentSettings().dashboardPort);
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Port must be 0–65535');
     const { startUi } = await import('./server/ui-server.js');
     const ui = await startUi({ db: values.db ?? defaultDatabasePath(), port });

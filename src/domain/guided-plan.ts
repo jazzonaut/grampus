@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { validateBrief, type Brief } from './workflow.js';
-import { checkEditableSize, editLimits, validateEditPolicy, type EditPolicy } from '../execution/edit-policy.js';
+import { checkEditableSize, validateEditPolicy, type EditPolicy } from '../execution/edit-policy.js';
+import { commandLimits, editLimits, formatBytes, planLimits } from '../config/limits.js';
+import { currentSettings } from '../config/settings.js';
 import { gitText } from '../repository/delivery-git.js';
 import type { Provider } from '../providers/types.js';
 import { pinnedContext, pinnedRepository } from '../repository/repository-context.js';
@@ -49,26 +51,28 @@ export interface GuidedPlan {
   slices: GuidedSlice[];
 }
 
-function object(value: unknown, keys: string[], label: string): Record<string, unknown> {
+/** Accept a plain object with only the named fields; their values are still unvalidated. */
+function object<K extends string>(value: unknown, keys: readonly K[], label: string): Partial<Record<K, unknown>> {
   if (
     !value ||
     typeof value !== 'object' ||
     Array.isArray(value) ||
-    Object.keys(value).some(key => !keys.includes(key))
+    Object.keys(value).some(key => !keys.some(allowed => allowed === key))
   ) {
     throw new Error(`Invalid ${label}; allowed fields: ${keys.join(', ')}`);
   }
-  return value as Record<string, unknown>;
+  return value;
 }
-function text(value: unknown, label: string, limit = 16000): string {
+function text(value: unknown, label: string, limit: number = planLimits.textBytes): string {
   if (typeof value !== 'string' || !value.trim() || value.includes('\0') || Buffer.byteLength(value) > limit)
     throw new Error(`${label} must be nonempty text (at most ${limit} bytes)`);
   return value;
 }
 function timeout(value: unknown): number {
-  const result = value ?? 120000;
-  if (!Number.isSafeInteger(result) || Number(result) < 100 || Number(result) > 600000)
-    throw new Error('Timeout must be 100–600000 ms');
+  const result = value ?? currentSettings().defaultCheckTimeoutMs;
+  const { minTimeoutMs: min, maxTimeoutMs: max } = commandLimits;
+  if (!Number.isSafeInteger(result) || Number(result) < min || Number(result) > max)
+    throw new Error(`Timeout must be ${min}–${max} ms`);
   return Number(result);
 }
 function command(
@@ -76,11 +80,8 @@ function command(
   acceptance: boolean,
   defaultName = acceptance ? 'Acceptance' : 'Validation',
 ): GuidedSlice['acceptance'] {
-  const item = object(
-    value,
-    ['name', 'file', 'args', 'timeoutMs', ...(acceptance ? ['expectedStdout', 'expectations'] : [])],
-    `${defaultName.toLowerCase()} command`,
-  );
+  const fields = ['name', 'file', 'args', 'timeoutMs', 'expectedStdout', 'expectations'] as const;
+  const item = object(value, acceptance ? fields : fields.slice(0, 4), `${defaultName.toLowerCase()} command`);
   const file = item.file === 'node' ? process.execPath : text(item.file, 'Command executable');
   if (
     !isAbsolute(file) ||
@@ -91,12 +92,14 @@ function command(
   if (
     !Array.isArray(item.args) ||
     item.args.some(arg => typeof arg !== 'string' || arg.includes('\0')) ||
-    JSON.stringify(item.args).length > 24000
+    JSON.stringify(item.args).length > commandLimits.argsCharacters
   )
-    throw new Error('Command args must be an array of strings (at most 24000 encoded characters)');
+    throw new Error(
+      `Command args must be an array of strings (at most ${commandLimits.argsCharacters} encoded characters)`,
+    );
   if (acceptance) validateExpectations(item.expectedStdout, item.expectations);
   return {
-    name: text(item.name ?? defaultName, 'Command name', 200),
+    name: text(item.name ?? defaultName, 'Command name', planLimits.nameCharacters),
     file,
     args: item.args as string[],
     timeoutMs: timeout(item.timeoutMs),
@@ -110,7 +113,7 @@ function agent(value: unknown, defaultProvider: Provider): GuidedAgent {
   const item = object(value ?? {}, ['provider', 'model'], 'agent');
   const provider = item.provider ?? defaultProvider;
   if (provider !== 'codex' && provider !== 'claude') throw new Error('Provider must be codex or claude');
-  return { provider, model: item.model == null ? null : text(item.model, 'Model', 200) };
+  return { provider, model: item.model == null ? null : text(item.model, 'Model', planLimits.nameCharacters) };
 }
 
 /** Normalize once; approval covers this exact plan, including checks, paths and pinned base. */
@@ -119,7 +122,8 @@ export function normalizeGuidedPlan(
   directory = process.cwd(),
   existingWorkspace?: GuidedPlan['workspace'],
 ): GuidedPlan {
-  if (Buffer.byteLength(JSON.stringify(input) ?? '') > 1024 * 1024) throw new Error('Guided plan exceeds 1 MiB');
+  if (Buffer.byteLength(JSON.stringify(input) ?? '') > planLimits.planBytes)
+    throw new Error(`Guided plan exceeds ${formatBytes(planLimits.planBytes)}`);
   const value = object(
     input,
     [
@@ -198,8 +202,12 @@ export function normalizeGuidedPlan(
   let reviewPolicy: GuidedPlan['reviewPolicy'];
   if (value.reviewPolicy !== undefined) {
     const policy = object(value.reviewPolicy, ['repairRounds', 'arbitrator'], 'review policy');
-    if (!Number.isInteger(policy.repairRounds) || Number(policy.repairRounds) < 0 || Number(policy.repairRounds) > 2)
-      throw new Error('Approve 0–2 automatic repair rounds');
+    if (
+      !Number.isInteger(policy.repairRounds) ||
+      Number(policy.repairRounds) < 0 ||
+      Number(policy.repairRounds) > planLimits.reviewRepairRounds
+    )
+      throw new Error(`Approve 0–${planLimits.reviewRepairRounds} automatic repair rounds`);
     reviewPolicy = {
       repairRounds: Number(policy.repairRounds),
       ...(policy.arbitrator === undefined ? {} : { arbitrator: agent(policy.arbitrator, implementation.provider) }),
@@ -241,7 +249,7 @@ export function normalizeGuidedPlan(
     }
     if (scopeBytes > editLimits.scopeBytes)
       throw new Error(
-        'Editable text exceeds the 4 MiB scope limit. Revise the task into smaller slices before approval.',
+        `Editable text exceeds the ${formatBytes(editLimits.scopeBytes)} scope limit. Revise the task into smaller slices before approval.`,
       );
     for (const path of scope.create ?? []) {
       if (present.has(pathKey(path))) throw new Error(`Creation path already exists before this slice: ${path}`);
@@ -254,7 +262,7 @@ export function normalizeGuidedPlan(
       deleted.add(pathKey(path));
       earlierCreations.delete(path);
     }
-    const message = text(item.message, 'Commit message', 8192);
+    const message = text(item.message, 'Commit message', planLimits.commitMessageBytes);
     if (/Grampus-Delivery:/i.test(message))
       throw new Error('Commit message cannot contain the reserved Grampus-Delivery marker');
     return {
@@ -282,9 +290,9 @@ export function normalizeGuidedPlan(
   };
 }
 
-/** Without an explicit review policy, review repairs share the check allowance, up to two. */
+/** Without an explicit review policy, review repairs share the check allowance, up to the approvable maximum. */
 export function reviewRepairRounds(plan: GuidedPlan): number {
-  return plan.reviewPolicy?.repairRounds ?? Math.min(2, plan.workflowPolicy.repairRounds);
+  return plan.reviewPolicy?.repairRounds ?? Math.min(planLimits.reviewRepairRounds, plan.workflowPolicy.repairRounds);
 }
 
 export function guidedPlanDigest(plan: GuidedPlan): string {

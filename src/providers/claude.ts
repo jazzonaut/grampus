@@ -1,6 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { authorizeEditTool, editingInstructions } from '../execution/edit-policy.js';
+import { processLimits, providerLimits, repositoryToolLimits } from '../config/limits.js';
+import { currentSettings } from '../config/settings.js';
 import {
   query,
   createSdkMcpServer,
@@ -108,7 +110,7 @@ export class ClaudeSession implements AgentSession {
           name: 'grampus_files',
           version: '1.0.0',
           alwaysLoad: true,
-          timeout: 5000,
+          timeout: repositoryToolLimits.deleteToolTimeoutMs,
           tools: [
             claudeDeleteTool(
               options.editing,
@@ -147,7 +149,7 @@ export class ClaudeSession implements AgentSession {
             ? titleInstructions
             : `${options.editing ? editingInstructions : instructions}\n${mcpInstructions}${options.repository ? `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}` : ''}`,
         outputFormat: { type: 'json_schema', schema: replySchema },
-        maxTurns: options.purpose === 'title' ? 3 : 64,
+        maxTurns: options.purpose === 'title' ? providerLimits.claudeTitleMaxTurns : providerLimits.claudeMaxTurns,
         includePartialMessages: true,
         ...(options.editing
           ? {
@@ -353,7 +355,7 @@ export class ClaudeSession implements AgentSession {
     });
     this.usageTimer = setInterval(() => {
       void this.sampleUsage();
-    }, 15_000);
+    }, currentSettings().usagePollIntervalMs);
     this.input.push({
       type: 'user',
       session_id: this.sessionId,
@@ -394,13 +396,16 @@ export class ClaudeSession implements AgentSession {
     clearInterval(this.usageTimer);
     this.input.close();
     this.query.close();
-    const force = setTimeout(() => this.child?.kill('SIGKILL'), 3000);
+    const force = setTimeout(() => this.child?.kill('SIGKILL'), processLimits.claudeKillMs);
     let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
         this.exited,
         new Promise<never>((_, reject) => {
-          deadline = setTimeout(() => reject(new Error('Claude process shutdown unconfirmed')), 5000);
+          deadline = setTimeout(
+            () => reject(new Error('Claude process shutdown unconfirmed')),
+            processLimits.claudeShutdownMs,
+          );
         }),
       ]);
       await this.consumption;

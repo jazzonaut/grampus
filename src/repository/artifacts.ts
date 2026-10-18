@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { formatBytes, processLimits, repositoryLimits } from '../config/limits.js';
 
 export interface RepositorySnapshot {
   artifact: string;
@@ -29,7 +30,13 @@ function gitBytes(cwd: string, args: string[], input?: Buffer): Promise<Buffer> 
     const child = execFile(
       'git',
       ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', cwd, ...args],
-      { env, windowsHide: true, timeout: 30_000, maxBuffer: 32 * 1024 * 1024, encoding: 'buffer' },
+      {
+        env,
+        windowsHide: true,
+        timeout: processLimits.gitTimeoutMs,
+        maxBuffer: repositoryLimits.gitOutputBytes,
+        encoding: 'buffer',
+      },
       (error, stdout) => (error ? reject(new Error(`Snapshot Git ${args[0]} failed`)) : resolveResult(stdout)),
     );
     child.stdin?.on('error', () => {});
@@ -87,7 +94,8 @@ export async function snapshotRepository(cwd: string, base: string): Promise<Rep
     if (!stat.isFile() || stat.isSymbolicLink())
       throw new Error('Snapshot requires regular files; symlinks and special files are unsupported');
     // Process each file separately; repository byte count is not prompt or memory size.
-    if (stat.size > 32 * 1024 * 1024) throw new Error(`Repository file exceeds the 32 MiB snapshot limit: ${path}`);
+    if (stat.size > repositoryLimits.fileBytes)
+      throw new Error(`Repository file exceeds the ${formatBytes(repositoryLimits.fileBytes)} snapshot limit: ${path}`);
     return readFileSync(path);
   };
   for (const name of names) {
@@ -129,7 +137,8 @@ export async function snapshotRepository(cwd: string, base: string): Promise<Rep
       };
       // Refuse oversized evidence while collecting it, before retaining a repository-wide diff.
       retainedBytes += Buffer.byteLength(JSON.stringify(change)) + (original?.bytes ?? 0);
-      if (retainedBytes > 4 * 1024 * 1024) throw new Error('Repository change evidence exceeds the current size limit');
+      if (retainedBytes > repositoryLimits.changeEvidenceBytes)
+        throw new Error('Repository change evidence exceeds the current size limit');
       diff.push(change);
     }
   }
@@ -172,7 +181,7 @@ export async function snapshotRepository(cwd: string, base: string): Promise<Rep
     parent = dirname(parent);
     level++;
   }
-  if (Buffer.byteLength(JSON.stringify(diff)) > 4 * 1024 * 1024)
+  if (Buffer.byteLength(JSON.stringify(diff)) > repositoryLimits.changeEvidenceBytes)
     throw new Error('Repository change evidence exceeds the current size limit');
   const instructionsDigest = digest(JSON.stringify(instructions));
   const artifact = `sha256:${digest(JSON.stringify({ head, index, files, diff, instructionsDigest }))}`;

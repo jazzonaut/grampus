@@ -24,6 +24,7 @@ export const installedBuild: BuildInfo | null = existsSync(buildFile)
   ? (JSON.parse(readFileSync(buildFile, 'utf8')) as BuildInfo)
   : null;
 export const applicationChannel = installedBuild ? 'installed' : 'development';
+/** Built-in dashboard port; `dashboardPort` in config.json overrides it (see settings.ts). */
 export const defaultDashboardPort = installedBuild ? 4317 : 4318;
 
 export function defaultDataDirectory(): string {
@@ -41,14 +42,15 @@ export function defaultDataDirectory(): string {
   return installedBuild ? join(base, 'installed') : join(base, 'development', checkout);
 }
 
-export function versionInformation() {
+/** `dashboardPort` is the effective port; callers with loaded settings pass `currentSettings().dashboardPort`. */
+export function versionInformation(dashboardPort = defaultDashboardPort) {
   return {
     version: applicationVersion,
     channel: applicationChannel,
     build: installedBuild,
     applicationRoot,
     dataDirectory: defaultDataDirectory(),
-    dashboardPort: defaultDashboardPort,
+    dashboardPort,
     node: process.version,
     nodeExecutable: process.execPath,
   };

@@ -27,7 +27,7 @@ function dashboard() {
     location: { hash: '' },
     sessionStorage: { getItem: () => null, setItem() {} },
   });
-  context.window = context;
+  context['window'] = context;
   for (const file of [
     'node_modules/markdown-it/dist/browser/markdown-it.umd.min.js',
     'src/ui/markdown.js',
@@ -47,7 +47,7 @@ function dashboard() {
 
 test('MCP cards always show only connected names and tool counts in the compact list', () => {
   const { context } = dashboard();
-  context.servers = [
+  context['servers'] = [
     { name: 'Linear <project>', status: 'connected', tools: 82, auth: 'oAuth' },
     { name: 'Disabled connector', status: 'disabled' },
     { name: 'Failed connector', status: 'failed' },
@@ -70,7 +70,7 @@ test('MCP cards always show only connected names and tool counts in the compact 
 
 test('failed checks start collapsed and load bounded plain-text output on demand', () => {
   const { context } = dashboard();
-  context.check = {
+  context['check'] = {
     id: 'check-a',
     spec: { name: 'PDF validation', file: 'node', args: [] },
     phase: 'failed',
@@ -94,8 +94,8 @@ test('failed checks start collapsed and load bounded plain-text output on demand
 
 test('MCP connections are the last sidebar panel on both planning and task pages', () => {
   const { context } = dashboard();
-  context.servers = [{ name: 'Linear', status: 'connected', tools: 82 }];
-  context.plan = {
+  context['servers'] = [{ name: 'Linear', status: 'connected', tools: 82 }];
+  context['plan'] = {
     brief: { title: 'A task', outcome: 'An outcome', plan: 'An approach', criteria: ['A criterion'] },
     workspace: { repo: 'C:/repo', base: 'abc', path: 'C:/work' },
     workflowPolicy,
@@ -142,7 +142,7 @@ test('dashboard Markdown formats agent explanations, nested lists, tables and co
 
 test('the planning sidebar uses saved task names and escapes them, retaining the description fallback', () => {
   const { context } = dashboard();
-  context.items = [
+  context['items'] = [
     {
       id: 'named',
       title: 'Fix <login> & logout',
@@ -159,7 +159,7 @@ test('the planning sidebar uses saved task names and escapes them, retaining the
 
 test('plan revisions, repair budgets and structured acceptance remain reviewable and escaped', () => {
   const { context } = dashboard();
-  context.view = {
+  context['view'] = {
     state: {
       status: 'blocked',
       plan: {
@@ -186,7 +186,7 @@ test('plan revisions, repair budgets and structured acceptance remain reviewable
 
 test('usage cards separate metrics, format costs, distinguish missing measurements and refresh values', () => {
   const { context } = dashboard();
-  context.view = {
+  context['view'] = {
     usage: [
       {
         provider: 'claude',
@@ -237,7 +237,7 @@ test('agent Markdown escapes HTML, blocks executable links and avoids image requ
 
 test('blocked file scopes explain why unchanged retry repeats the failure', () => {
   const { context } = dashboard();
-  context.view = { state: { status: 'blocked', stage: 'scope' } };
+  context['view'] = { state: { status: 'blocked', stage: 'scope' } };
   const html = runInContext('taskAction(view)', context) as string;
   assert.match(html, /revise this task’s plan/);
   assert.match(html, /same approved scope/);
@@ -246,7 +246,7 @@ test('blocked file scopes explain why unchanged retry repeats the failure', () =
 test('question suggestions render inline Markdown and copy the exact editable answer without submitting', async () => {
   const { context, listeners } = dashboard();
   const choice = '**Same as JNow** (`pdfkit-latest` 2.0.15); install allowed';
-  context.questions = [
+  context['questions'] = [
     { id: 'deps', prompt: 'Which **dependencies**?', choices: [choice, '[spec](https://example.com)'] },
   ];
   const html = runInContext('questionsForm(questions, true)', context) as string;
@@ -284,7 +284,7 @@ test('question suggestions render inline Markdown and copy the exact editable an
 
 test('proposed plans render narrative Markdown while command arguments stay literal', () => {
   const { context } = dashboard();
-  context.plan = {
+  context['plan'] = {
     brief: {
       title: 'PDF export',
       outcome: '**Export PDF**',
@@ -316,7 +316,7 @@ test('proposed plans render narrative Markdown while command arguments stay lite
 
 test('preparation commands are visible for approval and failures offer a preparation retry', () => {
   const { context } = dashboard();
-  context.plan = {
+  context['plan'] = {
     brief: {
       title: 'Restore prerequisites',
       outcome: 'Run checks',
@@ -345,7 +345,7 @@ test('preparation commands are visible for approval and failures offer a prepara
   assert.match(html, /&lt;restore&gt;/);
   assert.match(html, /Preparation after implementation/);
   assert.match(html, /&lt;refresh&gt;/);
-  context.view = { state: { status: 'blocked', stage: 'refresh' } };
+  context['view'] = { state: { status: 'blocked', stage: 'refresh' } };
   const action = runInContext('taskAction(view)', context) as string;
   assert.match(action, /Retry preparation/);
   assert.match(action, /implementation attempt and retained files are preserved/);
@@ -359,13 +359,13 @@ test('start planning shows progress before its request resolves and prevents dup
   });
   let posts = 0,
     submitted: any;
-  context.FormData = class extends Map<string, string> {
+  context['FormData'] = class extends Map<string, string> {
     constructor(form: { values: Record<string, string> }) {
       super();
       for (const [key, value] of Object.entries(form.values)) this.set(key, value);
     }
   };
-  context.fetch = async (path: string, options: { method: string; body: string }) => {
+  context['fetch'] = async (path: string, options: { method: string; body: string }) => {
     if (path === '/api/kickoffs') {
       posts++;
       submitted = JSON.parse(options.body);
@@ -396,7 +396,7 @@ test('start planning shows progress before its request resolves and prevents dup
 
 test('planner progress renders real activity safely and elapsed time without percentages', () => {
   const { context } = dashboard();
-  context.item = {
+  context['item'] = {
     session: { phase: 'running' },
     progress: {
       stage: 'responding',
@@ -423,7 +423,7 @@ test('planner progress renders real activity safely and elapsed time without per
 
 test('task work shows stage, current activity and elapsed time through quiet periods and stops', () => {
   const { context } = dashboard();
-  context.view = {
+  context['view'] = {
     state: { status: 'running', stage: 'implementation', owner: { token: 'owned' }, ...cycles },
     events: [],
     progress: {
@@ -464,13 +464,13 @@ test('timeline starts with the latest three entries and can expand beyond the po
     type: `event.${index}`,
     data: { note: `Note <${index}>` },
   }));
-  context.view = { state: { version: 1, digest: 'fixture' }, events: events.slice(-30), eventCount: events.length };
+  context['view'] = { state: { version: 1, digest: 'fixture' }, events: events.slice(-30), eventCount: events.length };
   const list = { tasks: [{ id: 'task' }], kickoffs: [], jobs: {}, journal: '' };
   const requests: string[] = [];
-  context.fetch = async (path: string) => {
+  context['fetch'] = async (path: string) => {
     requests.push(path);
     return new Response(
-      JSON.stringify(path.endsWith('/events') ? { events } : path === '/api/state' ? list : context.view),
+      JSON.stringify(path.endsWith('/events') ? { events } : path === '/api/state' ? list : context['view']),
     );
   };
   runInContext("selected = 'task'; screen = 'task'; taskPage = () => timelineCard(view);", context);
@@ -488,7 +488,7 @@ test('timeline starts with the latest three entries and can expand beyond the po
   assert.match(html, /aria-expanded="true"/);
   assert.match(html, /Note &lt;0&gt;/);
   events.push({ sequence: 56, at: '2026-01-01T00:00:01Z', type: 'event.latest', data: { note: 'Latest' } });
-  context.view = { state: { version: 1, digest: 'fixture' }, events: events.slice(-30), eventCount: events.length };
+  context['view'] = { state: { version: 1, digest: 'fixture' }, events: events.slice(-30), eventCount: events.length };
   await runInContext('refresh()', context);
   assert.match(runInContext('timelineCard(view)', context) as string, /event · latest/);
   assert.equal(requests.filter(path => path.endsWith('/events')).length, 2);

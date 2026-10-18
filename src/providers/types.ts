@@ -1,3 +1,6 @@
+import type { RepositoryAccess } from '../repository/repository-tools.js';
+import type { EditingContext } from '../execution/edit-policy.js';
+import { reviewLimits } from '../config/limits.js';
 export type Provider = 'codex' | 'claude';
 export const agentToolsetVersion = 3;
 
@@ -107,7 +110,7 @@ export function parseReply(value: unknown): Reply {
       !['passed', 'failed'].includes(r.simplification.outcome) ||
       typeof r.simplification.summary !== 'string' ||
       !r.simplification.summary.trim() ||
-      Buffer.byteLength(r.simplification.summary) > 12000)
+      Buffer.byteLength(r.simplification.summary) > reviewLimits.simplificationSummaryBytes)
   )
     throw new Error('Invalid independent simplification assessment');
   return r as Reply;
@@ -143,8 +146,8 @@ export interface AgentSession {
 export interface ConnectOptions {
   purpose?: 'title';
   configurationCwd?: string;
-  repository?: import('../repository/repository-tools.js').RepositoryAccess;
-  editing?: import('../execution/edit-policy.js').EditingContext;
+  repository?: RepositoryAccess;
+  editing?: EditingContext;
   cwd: string;
   providerSessionId: string | null;
   model: string | null;

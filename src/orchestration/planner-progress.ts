@@ -1,4 +1,5 @@
 import type { Session } from '../execution/sessions.js';
+import { serverLimits } from '../config/limits.js';
 
 interface Event {
   at: string;
@@ -24,18 +25,19 @@ export function agentProgress(
     integrationCalls = 0,
     fileRequests = 0;
   const recent: { at: string; label: string }[] = [];
-  const brief = (value: unknown) => (typeof value === 'string' ? value.replace(/[\x00-\x1f]/g, ' ').slice(0, 180) : '');
+  const brief = (value: unknown) =>
+    typeof value === 'string' ? value.replace(/[\x00-\x1f]/g, ' ').slice(0, serverLimits.progressTextCharacters) : '';
   const repositoryAction = (tool: unknown, args: Record<string, unknown>, complete: boolean) => {
-    const prefix = args.root && args.root !== 'task' ? `${brief(args.root)}/` : '';
+    const prefix = args['root'] && args['root'] !== 'task' ? `${brief(args['root'])}/` : '';
     switch (tool) {
       case 'grampus_read_file':
-        return `${complete ? 'Read' : 'Reading'} ${prefix}${brief(args.path) || 'repository file'}`;
+        return `${complete ? 'Read' : 'Reading'} ${prefix}${brief(args['path']) || 'repository file'}`;
       case 'grampus_read_changes':
-        return `${complete ? 'Read' : 'Reading'} changes${args.path ? ` in ${prefix}${brief(args.path)}` : ''}`;
+        return `${complete ? 'Read' : 'Reading'} changes${args['path'] ? ` in ${prefix}${brief(args['path'])}` : ''}`;
       case 'grampus_list_files':
-        return `${complete ? 'Listed' : 'Listing'} ${prefix || 'repository '}files${args.query ? ` matching “${brief(args.query)}”` : ''}`;
+        return `${complete ? 'Listed' : 'Listing'} ${prefix || 'repository '}files${args['query'] ? ` matching “${brief(args['query'])}”` : ''}`;
       case 'grampus_search':
-        return `${complete ? 'Searched' : 'Searching'} ${prefix || 'repository'}${args.query ? ` for “${brief(args.query)}”` : ''}`;
+        return `${complete ? 'Searched' : 'Searching'} ${prefix || 'repository'}${args['query'] ? ` for “${brief(args['query'])}”` : ''}`;
       default:
         return complete ? 'Read repository context' : 'Reading repository context';
     }
@@ -55,18 +57,18 @@ export function agentProgress(
       case 'repository.tool_requested':
         stage = 'working';
         repositoryRequest = {
-          ...((data.arguments as Record<string, unknown>) ?? {}),
-          ...(data.root ? { root: data.root } : {}),
+          ...((data['arguments'] as Record<string, unknown>) ?? {}),
+          ...(data['root'] ? { root: data['root'] } : {}),
         };
-        activity = repositoryAction(data.tool, repositoryRequest, false);
+        activity = repositoryAction(data['tool'], repositoryRequest, false);
         break;
       case 'repository.tool_result': {
         stage = 'working';
         repositoryCalls++;
-        const result = (data.result as Record<string, unknown>) ?? {};
+        const result = (data['result'] as Record<string, unknown>) ?? {};
         label = repositoryAction(
-          data.tool,
-          { ...repositoryRequest, ...result, ...(data.root ? { root: data.root } : {}) },
+          data['tool'],
+          { ...repositoryRequest, ...result, ...(data['root'] ? { root: data['root'] } : {}) },
           true,
         );
         activity = 'Agent is working with the retrieved context';
@@ -76,7 +78,7 @@ export function agentProgress(
         stage = 'working';
         integrationCalls++;
         label = `Requested ${
-          brief(data.tool)
+          brief(data['tool'])
             .replace(/^mcp__/, '')
             .replaceAll('__', ' · ') || 'integration tool'
         }`;
@@ -84,10 +86,12 @@ export function agentProgress(
         break;
       case 'tool.authorized': {
         stage = 'working';
-        const paths = Array.isArray(data.paths)
-          ? data.paths.map(brief).filter(Boolean).slice(0, 3).join(', ')
-          : brief(data.path);
-        const editing = ['apply_patch', 'Write', 'Edit', 'mcp__grampus_files__delete_file'].includes(String(data.tool));
+        const paths = Array.isArray(data['paths'])
+          ? data['paths'].map(brief).filter(Boolean).slice(0, 3).join(', ')
+          : brief(data['path']);
+        const editing = ['apply_patch', 'Write', 'Edit', 'mcp__grampus_files__delete_file'].includes(
+          String(data['tool']),
+        );
         if (editing) fileRequests++;
         label = `${editing ? 'Requested file changes' : 'Requested file access'}${paths ? `: ${paths}` : ''}`;
         activity = label;
@@ -95,7 +99,7 @@ export function agentProgress(
       }
       case 'tool.deleted':
         stage = 'working';
-        label = `Deleted ${brief(data.path) || 'authorized file'}`;
+        label = `Deleted ${brief(data['path']) || 'authorized file'}`;
         activity = label;
         break;
       case 'output.delta':

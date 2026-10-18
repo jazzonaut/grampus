@@ -32,6 +32,13 @@ is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 - Bug fixes start with a failing test. Tests use real temporary Git repositories and SQLite
   files; fake providers live in the tests, not in `src/`.
 - New lint violations are not allowed. `eslint-suppressions.json` only shrinks.
+- No new magic numbers: add a fixed bound to `src/config/limits.ts` (anything bound into approval,
+  evidence or recovery) or an operational value to `src/config/settings.ts` (overridable through
+  `config.json`, documented in [docs/CONFIGURATION.md](docs/CONFIGURATION.md)). Library code reads
+  `currentSettings()`; entry points install settings once.
+- The compiler runs with `noPropertyAccessFromIndexSignature` and `verbatimModuleSyntax`: use
+  `import type` for type-only imports and bracket access (`value['key']`) only for genuinely dynamic
+  records. New environment variables are declared in `src/config/environment.d.ts`.
 - Document exported functions, classes and non-obvious invariants with TSDoc. Each module
   starts with a short comment saying what it owns. Explain why, not what.
 - Docs move with code: update the current-state docs in the same commit. Mark unbuilt

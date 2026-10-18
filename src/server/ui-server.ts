@@ -11,7 +11,9 @@ import { Kickoffs } from '../orchestration/kickoff.js';
 import { boundedRepositoryFiles } from '../repository/repository-evidence.js';
 import { editingScopeFiles } from '../execution/edit-policy.js';
 import { Sessions } from '../execution/sessions.js';
-import { defaultDashboardPort, versionInformation } from '../config/runtime.js';
+import { versionInformation } from '../config/runtime.js';
+import { checkOutputLimits, formatBytes, serverLimits } from '../config/limits.js';
+import { currentSettings } from '../config/settings.js';
 import { TaskLifecycle } from '../orchestration/task-lifecycle.js';
 import { suggestReferenceFolders } from '../repository/reference-folders.js';
 import type { Task } from '../domain/workflow.js';
@@ -54,7 +56,7 @@ export async function startUi(options: UiOptions) {
     });
     let output = '';
     child.stderr.on('data', (chunk: Buffer) => {
-      output = (output + chunk.toString('utf8')).slice(-16000);
+      output = (output + chunk.toString('utf8')).slice(-serverLimits.workerErrorCharacters);
     });
     child.on('error', error => {
       job.running = false;
@@ -67,7 +69,7 @@ export async function startUi(options: UiOptions) {
       job.running = false;
       if (code !== 0) job.error = output.trim() || job.error || `Worker exited (${code})`;
     });
-    child.stdin.end(JSON.stringify({ db: store.path, id, action, payload }));
+    child.stdin.end(JSON.stringify({ db: store.path, id, action, payload, settings: currentSettings() }));
   };
   async function body(request: IncomingMessage): Promise<Record<string, any>> {
     if (request.headers['content-type'] !== 'application/json') throw new Error('Use application/json');
@@ -75,7 +77,8 @@ export async function startUi(options: UiOptions) {
     const chunks: Buffer[] = [];
     for await (const chunk of request) {
       bytes += chunk.length;
-      if (bytes > 1024 * 1024) throw new Error('Request exceeds 1 MiB');
+      if (bytes > serverLimits.requestBytes)
+        throw new Error(`Request exceeds ${formatBytes(serverLimits.requestBytes)}`);
       chunks.push(chunk);
     }
     const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -126,7 +129,7 @@ export async function startUi(options: UiOptions) {
           ...(cachedState.value as object),
           jobs: Object.fromEntries(jobs),
           journal: store.path,
-          application: versionInformation(),
+          application: versionInformation(currentSettings().dashboardPort),
         });
         return;
       }
@@ -138,7 +141,12 @@ export async function startUi(options: UiOptions) {
             sequence: event.sequence,
             at: event.at,
             type: event.type,
-            data: { note: outputExcerpt((event.data as { note?: string } | null)?.note ?? '', 1200) },
+            data: {
+              note: outputExcerpt(
+                (event.data as { note?: string } | null)?.note ?? '',
+                serverLimits.eventNoteCharacters,
+              ),
+            },
           })),
         });
         return;
@@ -162,7 +170,13 @@ export async function startUi(options: UiOptions) {
         json(
           response,
           200,
-          readCheckLog(check, stream as 'stdout' | 'stderr', offset, 16000, params.get('raw') === '1'),
+          readCheckLog(
+            check,
+            stream as 'stdout' | 'stderr',
+            offset,
+            checkOutputLimits.maxPageCharacters,
+            params.get('raw') === '1',
+          ),
         );
         return;
       }
@@ -206,9 +220,9 @@ export async function startUi(options: UiOptions) {
           .flatMap(execution => store.checks<RepositoryCheck>(execution.id));
         const failed = historyChecks.findLast(check => check.phase === 'failed');
         const note =
-          view.state.note.length > 4000 && failed
+          view.state.note.length > serverLimits.stateNoteSummaryThreshold && failed
             ? `Check ${failed.spec.name} failed.\n${checkIssue(failed)}\nRetained check: ${failed.id}`
-            : outputExcerpt(view.state.note, 3000);
+            : outputExcerpt(view.state.note, serverLimits.stateNoteCharacters);
         const compactState = {
           ...view.state,
           note,
@@ -249,11 +263,16 @@ export async function startUi(options: UiOptions) {
           scopeFiles,
           scopeError,
           eventCount: events.length,
-          events: events.slice(-30).map(event => ({
+          events: events.slice(-serverLimits.recentEvents).map(event => ({
             sequence: event.sequence,
             at: event.at,
             type: event.type,
-            data: { note: outputExcerpt((event.data as { note?: string } | null)?.note ?? '', 1200) },
+            data: {
+              note: outputExcerpt(
+                (event.data as { note?: string } | null)?.note ?? '',
+                serverLimits.eventNoteCharacters,
+              ),
+            },
           })),
           report: null,
         };
@@ -268,7 +287,7 @@ export async function startUi(options: UiOptions) {
       }
       const payload = await body(request);
       if (path === '/api/references/suggest') {
-        json(response, 200, { suggestions: suggestReferenceFolders(String(payload.request ?? '')) });
+        json(response, 200, { suggestions: suggestReferenceFolders(String(payload['request'] ?? '')) });
         return;
       }
       if (path === '/api/repositories/inspect') {
@@ -286,7 +305,7 @@ export async function startUi(options: UiOptions) {
         return;
       }
       if (path === '/api/tasks') {
-        const task = tasks.create(payload.plan);
+        const task = tasks.create(payload['plan']);
         json(response, 201, { id: task.id });
         return;
       }
@@ -301,19 +320,23 @@ export async function startUi(options: UiOptions) {
         const lifecycle = new TaskLifecycle(store);
         const result =
           action === 'delete'
-            ? lifecycle.delete(kind as 'tasks' | 'kickoffs', id!, payload.expected)
-            : lifecycle.reset(kind as 'tasks' | 'kickoffs', id!, payload.expected);
+            ? lifecycle.delete(kind as 'tasks' | 'kickoffs', id!, payload['expected'])
+            : lifecycle.reset(kind as 'tasks' | 'kickoffs', id!, payload['expected']);
         json(response, 200, result);
         return;
       }
       if (kind === 'kickoffs') {
         const view = kickoffs.view(id!);
         if (action === 'context') {
-          json(response, 200, kickoffs.changeContext(id!, payload.files, payload.expected));
+          json(response, 200, kickoffs.changeContext(id!, payload['files'], payload['expected']));
           return;
         }
         if (action === 'references') {
-          json(response, 200, kickoffs.changeContext(id!, view.config.files, payload.expected, payload.references));
+          json(
+            response,
+            200,
+            kickoffs.changeContext(id!, view.config.files, payload['expected'], payload['references']),
+          );
           return;
         }
         if (action === 'stop') {
@@ -323,13 +346,13 @@ export async function startUi(options: UiOptions) {
           return;
         }
         if (action === 'prepare') {
-          if (typeof payload.digest !== 'string')
+          if (typeof payload['digest'] !== 'string')
             throw new Error('Preparing approval requires the displayed proposal digest');
-          json(response, 201, { id: kickoffs.prepare(id!, payload.digest) });
+          json(response, 201, { id: kickoffs.prepare(id!, payload['digest']) });
           return;
         }
         if (action !== 'plan' && action !== 'planner-recover') throw new Error('Unknown kickoff action');
-        if (action === 'plan' && payload.expected !== view.turnKey)
+        if (action === 'plan' && payload['expected'] !== view.turnKey)
           throw new Error('Planning state changed; inspect the current discussion');
         launch(id!, action, payload);
       } else {
@@ -341,13 +364,13 @@ export async function startUi(options: UiOptions) {
         }
         // Every decision names the exact state displayed to the user. A stale tab cannot authorize new bytes.
         const expected = guidedDecisionKey(view.state, view.questionKey);
-        if (payload.expected !== expected)
+        if (payload['expected'] !== expected)
           throw new Error('Task changed since you inspected it; refresh before taking this action');
         if (action === 'approve') {
-          const approved = new GuidedTasks(store, { expectedState: payload.expected }).approve(
+          const approved = new GuidedTasks(store, { expectedState: payload['expected'] }).approve(
             id!,
-            payload.version,
-            payload.digest,
+            payload['version'],
+            payload['digest'],
           );
           if (approved.plan.workflowPolicy.mode === 'automatic') {
             launch(id!, 'run', { expected: guidedDecisionKey(approved) });
@@ -367,12 +390,12 @@ export async function startUi(options: UiOptions) {
       else response.end();
     });
   });
-  server.requestTimeout = 15000;
-  server.headersTimeout = 10000;
+  server.requestTimeout = serverLimits.requestTimeoutMs;
+  server.headersTimeout = serverLimits.headersTimeoutMs;
   try {
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
-      server.listen(options.port ?? defaultDashboardPort, '127.0.0.1', () => {
+      server.listen(options.port ?? currentSettings().dashboardPort, '127.0.0.1', () => {
         server.off('error', reject);
         resolve();
       });

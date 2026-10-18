@@ -1,4 +1,6 @@
 // Guided task tests: blocking reviews and review or implementation questions.
+import type { Execution } from '../src/execution/execution-state.js';
+import type { Workspace } from '../src/repository/workspaces.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -50,15 +52,12 @@ test('blocking review stops delivery and explicit retry uses fresh sessions with
   assert.equal(failed.status, 'blocked', failed.note);
   assert.equal(reviews, 1);
   assert.equal(f.store.deliveries(failed.executionId!).length, 0);
-  const previous = f.store.execution<import('../src/execution/execution-state.js').Execution>(failed.executionId!);
+  const previous = f.store.execution<Execution>(failed.executionId!);
   const next = await tasks.retry(id);
   assert.equal(next.status, 'awaiting_scope', next.note);
   assert.notEqual(next.executionId, failed.executionId);
-  assert.notEqual(
-    f.store.execution<import('../src/execution/execution-state.js').Execution>(next.executionId!).sessionId,
-    previous.sessionId,
-  );
-  const workspace = f.store.workspace<import('../src/repository/workspaces.js').Workspace>(next.workspaceId!);
+  assert.notEqual(f.store.execution<Execution>(next.executionId!).sessionId, previous.sessionId);
+  const workspace = f.store.workspace<Workspace>(next.workspaceId!);
   assert.equal(readFileSync(join(workspace.path!, 'greeting.js'), 'utf8'), "console.log('hello world');\n");
   assert.match(next.feedback, /Concrete offline finding/);
   const repaired = await tasks.authorize(id);

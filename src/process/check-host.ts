@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
+import { commandLimits, processLimits } from '../config/limits.js';
 
 // A detached Node host survives the controller's libuv job. Windows PowerShell
 // needs its normal hidden-console launch, so the host owns that child until exit.
@@ -28,7 +29,7 @@ output.on('line', line => {
       if (message.type === 'started') clearTimeout(deadline);
       if (message.type === 'result') {
         clearTimeout(deadline);
-        deadline = setTimeout(() => child.kill(), 15_000);
+        deadline = setTimeout(() => child.kill(), processLimits.supervisorSettleMs);
       }
     } catch {
       /* The owning controller validates the protocol. */
@@ -42,12 +43,12 @@ const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 let requested = false;
 let unlimited = false;
 let stopping = false;
-let deadline = setTimeout(() => child.kill(), 20_000);
+let deadline = setTimeout(() => child.kill(), processLimits.supervisorStartupMs);
 const stop = () => {
   if (stopping) return;
   stopping = true;
   clearTimeout(deadline);
-  deadline = setTimeout(() => child.kill(), 15_000);
+  deadline = setTimeout(() => child.kill(), processLimits.supervisorSettleMs);
   if (!child.stdin.writableEnded) child.stdin.end('\n');
 };
 input.on('line', line => {
@@ -58,11 +59,13 @@ input.on('line', line => {
   try {
     const request = JSON.parse(line) as Record<string, unknown>;
     clearTimeout(deadline);
-    const timeout = Number(request.timeoutMs);
+    const timeout = Number(request['timeoutMs']);
     unlimited = timeout === 0;
     deadline = setTimeout(
       () => child.kill(),
-      Number.isSafeInteger(timeout) && timeout >= 100 && timeout <= 600_000 ? timeout + 15_000 : 20_000,
+      Number.isSafeInteger(timeout) && timeout >= commandLimits.minTimeoutMs && timeout <= commandLimits.maxTimeoutMs
+        ? timeout + processLimits.supervisorSettleMs
+        : processLimits.supervisorStartupMs,
     );
     child.stdin.write(`${JSON.stringify({ ...request, supervisorPid: process.pid })}\n`);
     requested = true;

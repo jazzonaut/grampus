@@ -53,7 +53,8 @@ copy uses port 4318 and its own data directory, so it can run alongside an insta
 copy (port 4317).
 
 Use `npm run ui -- --port <n>`, `--db <path>` or `--no-open` to change the port,
-journal or browser behaviour.
+journal or browser behaviour. Persistent overrides such as the dashboard port and the
+default check timeout go in an optional `config.json`; see [configuration](docs/CONFIGURATION.md).
 
 ## The dashboard
 
@@ -146,6 +147,7 @@ Contributor rules and pitfalls are in [AGENTS.md](AGENTS.md).
 | [docs/GUIDED-WORKFLOW.md](docs/GUIDED-WORKFLOW.md) | Authored JSON plans, the guided CLI and supervised mode |
 | [docs/REPOSITORY-CONTEXT.md](docs/REPOSITORY-CONTEXT.md) | Repository exploration, reference folders, MCP connections, limits |
 | [docs/INSTALLATION.md](docs/INSTALLATION.md) | Installing, updating and running alongside a checkout |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Optional `config.json` settings and what stays fixed |
 | [docs/RELEASE.md](docs/RELEASE.md) | Windows alpha scope and remaining release gates |
 | [docs/PLAN.md](docs/PLAN.md) | Current improvement plan |
 | [docs/ENGINEERING_DIRECTION.md](docs/ENGINEERING_DIRECTION.md) | Long-term engineering direction |

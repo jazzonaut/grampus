@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { processLimits } from '../config/limits.js';
 
 export type ProcessObservation = { state: 'present'; startedAt: string } | { state: 'absent' | 'unknown' };
 export function validProcessStartTime(value: unknown): value is string {
@@ -20,12 +21,18 @@ export function inspectProcess(pid: number): ProcessObservation {
       execFileSync(
         powershell,
         ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, String(pid)],
-        { encoding: 'utf8', windowsHide: true, timeout: 5000, maxBuffer: 4096, stdio: ['ignore', 'pipe', 'ignore'] },
+        {
+          encoding: 'utf8',
+          windowsHide: true,
+          timeout: processLimits.identityTimeoutMs,
+          maxBuffer: processLimits.identityOutputBytes,
+          stdio: ['ignore', 'pipe', 'ignore'],
+        },
       ),
     ) as Record<string, unknown>;
-    if (value.state === 'present' && validProcessStartTime(value.startedAt))
-      return { state: 'present', startedAt: value.startedAt };
-    if (value.state === 'absent') return { state: 'absent' };
+    if (value['state'] === 'present' && validProcessStartTime(value['startedAt']))
+      return { state: 'present', startedAt: value['startedAt'] };
+    if (value['state'] === 'absent') return { state: 'absent' };
   } catch {
     /* Missing helpers, denied access and timeouts cannot prove absence. */
   }

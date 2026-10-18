@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import type { CheckReceipt } from '../verification/check-recovery.js';
+import { commandLimits, processLimits } from '../config/limits.js';
 
 export interface CheckProcessResult {
   reason: string;
@@ -34,7 +35,7 @@ function output(path: string): { text: string; truncated: boolean; available: bo
     return { text: '', truncated: false, available: false };
   }
   try {
-    const buffer = Buffer.alloc(64 * 1024);
+    const buffer = Buffer.alloc(commandLimits.previewBytes);
     const count = readSync(fd, buffer, 0, buffer.length, 0);
     return {
       text: buffer.subarray(0, count).toString('utf8'),
@@ -63,7 +64,8 @@ export function retainedOutput(
 export async function runCheckProcess(options: CheckProcessOptions): Promise<CheckProcessResult> {
   if (
     !Number.isSafeInteger(options.timeoutMs) ||
-    (options.timeoutMs !== 0 && (options.timeoutMs < 100 || options.timeoutMs > 600_000))
+    (options.timeoutMs !== 0 &&
+      (options.timeoutMs < commandLimits.minTimeoutMs || options.timeoutMs > commandLimits.maxTimeoutMs))
   )
     throw new Error('Invalid supervised process timeout');
   if (process.platform !== 'win32') throw new Error('Repository checks currently require Windows 10 or later');
@@ -107,7 +109,7 @@ export async function runCheckProcess(options: CheckProcessOptions): Promise<Che
       if (stopping) return;
       stopping = true;
       clearTimeout(deadline);
-      deadline = setTimeout(fail, 20_000);
+      deadline = setTimeout(fail, processLimits.supervisorReportMs);
       if (!child.stdin.writableEnded) child.stdin.end('\n');
     };
     const fail = () => {
@@ -122,7 +124,7 @@ export async function runCheckProcess(options: CheckProcessOptions): Promise<Che
     const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
     lines.on('line', line => {
       try {
-        if (line.length > 4096 || receivedResult) throw new Error('Invalid check protocol');
+        if (line.length > commandLimits.protocolBytes || receivedResult) throw new Error('Invalid check protocol');
         const message = JSON.parse(line) as {
           type: string;
           pid?: number;
@@ -147,14 +149,14 @@ export async function runCheckProcess(options: CheckProcessOptions): Promise<Che
             exitConfirmed: message.exitConfirmed,
           };
           clearTimeout(deadline);
-          deadline = setTimeout(fail, 20_000);
+          deadline = setTimeout(fail, processLimits.supervisorReportMs);
         } else throw new Error('Invalid check protocol');
       } catch {
         fail();
       }
     });
     // Bound startup and shutdown even when the worker itself has no deadline.
-    deadline = setTimeout(fail, options.timeoutMs + 20_000);
+    deadline = setTimeout(fail, options.timeoutMs + processLimits.supervisorReportMs);
     options.signal?.addEventListener('abort', stop, { once: true });
     try {
       if (child.pid) options.started('supervisor', child.pid);

@@ -23,7 +23,7 @@ test('a new journal gets the current schema at version 1 and reopens with its re
   store.close();
   const db = new DatabaseSync(path);
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get()!.user_version, 1);
+    assert.equal(db.prepare('PRAGMA user_version').get()!['user_version'], 1);
   } finally {
     db.close();
   }

@@ -6,7 +6,7 @@ import { writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runSession } from '../src/execution/sessions.js';
-import { Checks } from '../src/verification/checks.js';
+import type { Checks } from '../src/verification/checks.js';
 import { runCheckProcess, retainedOutput } from '../src/process/check-process.js';
 import type { ExecutionLease } from '../src/execution/execution-state.js';
 import type { Connector, Reply } from '../src/providers/types.js';

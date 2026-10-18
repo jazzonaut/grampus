@@ -35,10 +35,11 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   (provider events, journal payloads, API bodies, plan files), discriminated unions instead
   of `any` and casts, TSDoc on exported surfaces. Recovery, artifact binding and no-replay
   semantics stay unchanged; the existing tests are the safety net.
-- **Central configuration.** Limits and tunables live in one typed, documented module. An
-  optional validated `config.json` in the data directory overrides operational values (ports,
-  polling, concurrency, stall threshold, default policy). Limits bound into approval digests or
-  evidence stay fixed.
+- **Central configuration.** Done 19 October 2026. Fixed limits are in `src/config/limits.ts` and
+  operational settings in `src/config/settings.ts`; an optional validated `config.json` in the data
+  directory overrides ports, usage polling, the default check timeout and the default workflow
+  policy ([CONFIGURATION.md](CONFIGURATION.md)). Concurrency and stall threshold keys are accepted
+  but **Planned**. The stricter compiler flags from the structure step landed at the same time.
 - **Configurable quality passes.** Declarative pass definitions (no code plugins) of two kinds:
   review lenses folded into the independent review turn, and edit passes that run as a scoped
   agent turn before review and invalidate earlier evidence. Built-ins: simplification (lens,
@@ -74,8 +75,9 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
 
 - **Check timeout loses output.** A combined validation command exceeded its 120 s limit and
   left an empty log; the same checks run separately passed in about 55 s. Stream check output
-  to the durable log as it arrives, record `CHECK_TIMEOUT` with elapsed time and limit, make
-  the default configurable, and have the planner prefer separate named checks. Investigate the
+  to the durable log as it arrives, record `CHECK_TIMEOUT` with elapsed time and limit, and
+  have the planner prefer separate named checks. The default for new plans is now configurable
+  (`defaultCheckTimeoutMs` in `config.json`). Investigate the
   slowdown (concurrent load, cold caches in a fresh worktree) with per-check timings.
 - **Retrying validation starts a new implementation attempt.** Timeouts and other
   infrastructure failures on an unchanged artifact must offer **Rerun checks**: validation

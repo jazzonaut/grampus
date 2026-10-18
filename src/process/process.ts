@@ -5,13 +5,18 @@ import {
   type SpawnOptionsWithoutStdio,
 } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { processLimits } from '../config/limits.js';
 
-export function command(file: string, args: string[], timeout = 15_000): Promise<string> {
+export function command(
+  file: string,
+  args: string[],
+  timeout: number = processLimits.commandTimeoutMs,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       file,
       args,
-      { timeout, maxBuffer: 1024 * 1024, windowsHide: true, encoding: 'utf8' },
+      { timeout, maxBuffer: processLimits.commandOutputBytes, windowsHide: true, encoding: 'utf8' },
       (error, stdout, stderr) => {
         if (error)
           reject(
@@ -61,7 +66,7 @@ export class RpcProcess {
     this.child.stderr.resume();
     const lines = createInterface({ input: this.child.stdout, crlfDelay: Infinity });
     lines.on('line', line => {
-      if (Buffer.byteLength(line) > 1024 * 1024) {
+      if (Buffer.byteLength(line) > processLimits.rpcLineBytes) {
         this.fail(new Error('RPC message too large'));
         return;
       }
@@ -143,7 +148,7 @@ export class RpcProcess {
     return this.child.pid;
   }
 
-  request<T>(method: string, params: unknown, timeout = 15_000): Promise<T> {
+  request<T>(method: string, params: unknown, timeout: number = processLimits.rpcRequestTimeoutMs): Promise<T> {
     if (this.stopped) return Promise.reject(new Error('RPC process unavailable'));
     const id = ++this.sequence;
     return new Promise<T>((resolve, reject) => {
@@ -164,14 +169,14 @@ export class RpcProcess {
   async close(): Promise<void> {
     this.fail(new Error('RPC client closed'));
     this.child.stdin.end();
-    const timer = setTimeout(() => this.child.kill(), 1000);
-    const force = setTimeout(() => this.child.kill('SIGKILL'), 2000);
+    const timer = setTimeout(() => this.child.kill(), processLimits.rpcTerminateMs);
+    const force = setTimeout(() => this.child.kill('SIGKILL'), processLimits.rpcKillMs);
     let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
         this.exited,
         new Promise<never>((_, reject) => {
-          deadline = setTimeout(() => reject(new Error('RPC shutdown unconfirmed')), 4000);
+          deadline = setTimeout(() => reject(new Error('RPC shutdown unconfirmed')), processLimits.rpcShutdownMs);
         }),
       ]);
     } finally {

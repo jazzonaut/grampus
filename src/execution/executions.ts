@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Store } from '../persistence/store.js';
+import type { Store } from '../persistence/store.js';
 import { Workflow } from '../domain/workflow.js';
 import { Sessions } from './sessions.js';
 import { Workspaces } from '../repository/workspaces.js';

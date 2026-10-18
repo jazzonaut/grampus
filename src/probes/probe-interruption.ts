@@ -5,7 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { Store } from '../persistence/store.js';
+import type { Store } from '../persistence/store.js';
 import { Sessions } from '../execution/sessions.js';
 import { Workflow } from '../domain/workflow.js';
 import { Workspaces, type Workspace } from '../repository/workspaces.js';

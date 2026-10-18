@@ -1,7 +1,10 @@
+import { commandLimits } from '../config/limits.js';
+
 /** Zero disables the deadline; positive limits are an explicit low-level opt-in. */
 export function agentTimeout(value: unknown = 0): number {
-  if (!Number.isSafeInteger(value) || (value !== 0 && (Number(value) < 100 || Number(value) > 600_000))) {
-    throw new Error('Agent timeout must be 0 (no deadline) or 100–600000 ms');
+  const { minTimeoutMs: min, maxTimeoutMs: max } = commandLimits;
+  if (!Number.isSafeInteger(value) || (value !== 0 && (Number(value) < min || Number(value) > max))) {
+    throw new Error(`Agent timeout must be 0 (no deadline) or ${min}–${max} ms`);
   }
   return Number(value);
 }

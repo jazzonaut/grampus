@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir, hostname } from 'node:os';
 import { join } from 'node:path';
-import { Store } from '../persistence/store.js';
+import type { Store } from '../persistence/store.js';
+import { commandLimits } from '../config/limits.js';
 import type { ExecutionLease } from '../execution/execution-state.js';
 import type { CheckProcessResult } from '../process/check-process.js';
 import { inspectProcess, validProcessStartTime } from '../process/process-identity.js';
@@ -42,33 +43,33 @@ export function readReceipt(
   toolPid: number | null,
 ): CheckProcessResult {
   const path = join(receipt.directory, 'completion.json');
-  if (statSync(path).size > 4096) throw new Error('Invalid supervisor completion receipt');
+  if (statSync(path).size > commandLimits.protocolBytes) throw new Error('Invalid supervisor completion receipt');
   const value = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
   if (
-    value.protocol !== 1 ||
-    value.checkId !== receipt.checkId ||
-    value.token !== receipt.token ||
-    value.exitConfirmed !== true ||
-    !Number.isSafeInteger(value.supervisorPid) ||
-    (value.supervisorPid as number) < 1 ||
-    !Number.isSafeInteger(value.toolPid) ||
-    (value.toolPid as number) < 0 ||
-    !Number.isSafeInteger(value.exitCode) ||
-    (value.exitCode as number) < 0 ||
-    (value.supervisorStartedAt != null && !validProcessStartTime(value.supervisorStartedAt)) ||
+    value['protocol'] !== 1 ||
+    value['checkId'] !== receipt.checkId ||
+    value['token'] !== receipt.token ||
+    value['exitConfirmed'] !== true ||
+    !Number.isSafeInteger(value['supervisorPid']) ||
+    (value['supervisorPid'] as number) < 1 ||
+    !Number.isSafeInteger(value['toolPid']) ||
+    (value['toolPid'] as number) < 0 ||
+    !Number.isSafeInteger(value['exitCode']) ||
+    (value['exitCode'] as number) < 0 ||
+    (value['supervisorStartedAt'] != null && !validProcessStartTime(value['supervisorStartedAt'])) ||
     !['exited', 'interrupted', 'timed_out', 'output_limit', 'descendants_remaining', 'supervisor_error'].includes(
-      value.reason as string,
+      value['reason'] as string,
     ) ||
-    (supervisorPid !== null && value.supervisorPid !== supervisorPid) ||
-    (toolPid !== null && value.toolPid !== toolPid)
+    (supervisorPid !== null && value['supervisorPid'] !== supervisorPid) ||
+    (toolPid !== null && value['toolPid'] !== toolPid)
   ) {
     throw new Error('Supervisor completion receipt does not match this check');
   }
-  if (processAlive(value.supervisorPid as number, value.supervisorStartedAt))
+  if (processAlive(value['supervisorPid'] as number, value['supervisorStartedAt']))
     throw new Error('Supervisor is still alive or unverifiable');
   return {
-    reason: value.reason as string,
-    exitCode: value.exitCode as number,
+    reason: value['reason'] as string,
+    exitCode: value['exitCode'] as number,
     exitConfirmed: true,
     stdout: '',
     stderr: '',

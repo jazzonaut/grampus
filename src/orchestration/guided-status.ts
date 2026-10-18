@@ -1,4 +1,4 @@
-import { Store } from '../persistence/store.js';
+import type { Store } from '../persistence/store.js';
 import { Workflow } from '../domain/workflow.js';
 import { GuidedTasks, guidedQuestionKey } from './guided-tasks.js';
 import { Sessions } from '../execution/sessions.js';

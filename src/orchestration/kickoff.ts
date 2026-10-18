@@ -1,7 +1,8 @@
+import type { Task } from '../domain/workflow.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { Store } from '../persistence/store.js';
+import type { Store } from '../persistence/store.js';
 import { Sessions, runSession, type Session } from '../execution/sessions.js';
 import { gitText } from '../repository/delivery-git.js';
 import { pinnedContext, searchPinnedFiles, type ContextSummary } from '../repository/repository-context.js';
@@ -14,14 +15,14 @@ import { integrationSummary } from '../providers/integrations.js';
 import { plannerProgress } from './planner-progress.js';
 import { normalizeReferences, suggestReferenceFolders, type ReferenceFolder } from '../repository/reference-folders.js';
 import { generateTaskTitle } from './task-title.js';
-import { editLimits } from '../execution/edit-policy.js';
+import { commandLimits, editLimits, formatBytes, planLimits } from '../config/limits.js';
 
 // Sent on every turn, including resumed ones, so the planning contract never depends on history.
-const slicePlanningInstructions = `Plan the full requested outcome using 1–64 ordered slices, each an independently verifiable delivery. Use one slice when the task is small; decompose larger tasks into sequential slices. Preserve the full ticket scope unless the user explicitly changes it. Do not ask the user to choose a partial deliverable merely because a ticket is large or marked XL. Propose the decomposition yourself after investigating the repository; ask questions only for consequential missing requirements or decisions.
+const slicePlanningInstructions = `Plan the full requested outcome using 1–${planLimits.slices} ordered slices, each an independently verifiable delivery. Use one slice when the task is small; decompose larger tasks into sequential slices. Preserve the full ticket scope unless the user explicitly changes it. Do not ask the user to choose a partial deliverable merely because a ticket is large or marked XL. Propose the decomposition yourself after investigating the repository; ask questions only for consequential missing requirements or decisions.
 Include brief.slices with each slice's title, plan and nonempty criteria array. Slice criteria must be exact strings from brief.criteria and together cover every task criterion. Supply one matching top-level slices execution configuration per brief slice, in the same order, with exact file scope, validation, acceptance and delivery message. Each intermediate slice's acceptance must independently verify its assigned criteria; the final slice must independently verify every task criterion, including earlier slices and integration. Include edge cases, exact output and errors. Return the complete plan when revising it.
-Every task starts in a fresh worktree without ignored dependencies, caches or generated prerequisites. Infer preparation from the repository's package manifests, lockfiles, workspace configuration, tool versions, scripts and documentation using repository exploration. Do not assume dependencies from the source checkout are available. When needed, include optional top-level preparation: {name,file,args,timeoutMs}, using the same command format as validation. This approved command runs before file authorization in each attempt and again after implementation before validation, unless that slice supplies its own preparation command. It must be repeatable and leave Git-visible inputs unchanged; prefer the repository's locked/frozen restore or install. Commands run from the task worktree root, so pass the correct project/workspace directory in arguments. Allow sufficient bounded time (up to 600000 ms) for a fresh restore. Omit preparation only when the checks need no setup; explain that assumption in the brief. Do not hard-code a package manager from another repository or ask the user for commands you can discover.
+Every task starts in a fresh worktree without ignored dependencies, caches or generated prerequisites. Infer preparation from the repository's package manifests, lockfiles, workspace configuration, tool versions, scripts and documentation using repository exploration. Do not assume dependencies from the source checkout are available. When needed, include optional top-level preparation: {name,file,args,timeoutMs}, using the same command format as validation. This approved command runs before file authorization in each attempt and again after implementation before validation, unless that slice supplies its own preparation command. It must be repeatable and leave Git-visible inputs unchanged; prefer the repository's locked/frozen restore or install. Commands run from the task worktree root, so pass the correct project/workspace directory in arguments. Allow sufficient bounded time (up to ${commandLimits.maxTimeoutMs} ms) for a fresh restore. Omit preparation only when the checks need no setup; explain that assumption in the brief. Do not hard-code a package manager from another repository or ask the user for commands you can discover.
 If a slice changes dependencies or other generated inputs, include its exact manifest and lockfile/generated paths in scope, and optional slices[i].preparation: {name,file,args,timeoutMs} to refresh prerequisites and generate those inputs after implementation. This command may change only that slice's authorized files; Git state and repository instructions must stay unchanged. The implementer cannot run commands, so use this step for lockfile generation rather than asking the implementer to invent lockfile contents. Keep validation and acceptance read-only; do not hide installation or lockfile updates inside them. Preparation and its failures are separate from validation, and setup retry does not rerun implementation. These are generic repository commands, not a Node/pnpm-specific feature. The full commands, timeouts and file permissions require the normal plan approval.
-Repository scope follows Git: planning sees tracked files from the pinned commit; execution excludes untracked gitignored dependencies, caches and build output. Do not invent a filename denylist or omit a tracked lockfile needed for the requested change. Editing supports regular UTF-8 files up to ${editLimits.fileBytes} bytes (1 MiB) each, ${editLimits.scopeBytes} existing bytes (4 MiB) per slice, and 256 KiB per individual edit/patch text. Large text is read through paginated repository tools rather than copied wholesale into the starting prompt. New files require existing parent directories. If the required outcome cannot be completed within these capabilities, explain the limitation and ask a consequential question instead of proposing an unexecutable plan or silently narrowing the outcome.`;
+Repository scope follows Git: planning sees tracked files from the pinned commit; execution excludes untracked gitignored dependencies, caches and build output. Do not invent a filename denylist or omit a tracked lockfile needed for the requested change. Editing supports regular UTF-8 files up to ${editLimits.fileBytes} bytes (${formatBytes(editLimits.fileBytes)}) each, ${editLimits.scopeBytes} existing bytes (${formatBytes(editLimits.scopeBytes)}) per slice, and ${formatBytes(editLimits.payloadBytes)} per individual edit/patch text. Large text is read through paginated repository tools rather than copied wholesale into the starting prompt. New files require existing parent directories. If the required outcome cannot be completed within these capabilities, explain the limitation and ask a consequential question instead of proposing an unexecutable plan or silently narrowing the outcome.`;
 
 interface Kickoff {
   references: ReferenceFolder[];
@@ -37,8 +38,13 @@ interface Kickoff {
 const last = <T>(events: { type: string; data: unknown }[], type: string): T | null =>
   (events.findLast(event => event.type === type)?.data as T) ?? null;
 function text(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !value.trim() || value.includes('\0') || Buffer.byteLength(value) > 16000)
-    throw new Error(`${label} must be nonempty text, at most 16000 bytes`);
+  if (
+    typeof value !== 'string' ||
+    !value.trim() ||
+    value.includes('\0') ||
+    Buffer.byteLength(value) > planLimits.textBytes
+  )
+    throw new Error(`${label} must be nonempty text, at most ${planLimits.textBytes} bytes`);
   return value;
 }
 
@@ -55,7 +61,7 @@ export class Kickoffs {
           !session.deletedAt && this.store.sessionEvents(session.id).some(event => event.type === 'kickoff.created'),
       )
       .map(session => this.view(session.id))
-      .filter(view => !view.taskId || !this.store.get<import('../domain/workflow.js').Task>(view.taskId).deletedAt);
+      .filter(view => !view.taskId || !this.store.get<Task>(view.taskId).deletedAt);
   }
   view(id: string) {
     return this.store.transaction(() => {

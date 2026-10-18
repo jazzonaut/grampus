@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Executions } from '../src/execution/executions.js';
 import { Sessions } from '../src/execution/sessions.js';
-import { type ImplementationRun } from '../src/execution/implementations.js';
+import type { ImplementationRun } from '../src/execution/implementations.js';
 import { windows, git, fixture } from './helpers/implementations.js';
 
 function crashCode(

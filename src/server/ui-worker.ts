@@ -2,14 +2,18 @@ import { Store } from '../persistence/store.js';
 import { GuidedTasks } from '../orchestration/guided-tasks.js';
 import { Kickoffs } from '../orchestration/kickoff.js';
 import { Sessions } from '../execution/sessions.js';
+import { processLimits, serverLimits } from '../config/limits.js';
+import { parseSettings, useSettings } from '../config/settings.js';
 
 async function main() {
   let input = '';
   for await (const chunk of process.stdin) {
     input += chunk;
-    if (Buffer.byteLength(input) > 1024 * 1024) throw new Error('Request too large');
+    if (Buffer.byteLength(input) > serverLimits.requestBytes) throw new Error('Request too large');
   }
-  const { db, id, action, payload } = JSON.parse(input);
+  const { db, id, action, payload, settings } = JSON.parse(input);
+  // The dashboard passes the settings it loaded at startup; the worker never rereads config.json.
+  useSettings(parseSettings(settings, 'the dashboard worker request'));
   const store = new Store(db),
     tasks = new GuidedTasks(store, { expectedState: payload.expected }),
     kickoffs = new Kickoffs(store);
@@ -23,7 +27,7 @@ async function main() {
           } catch {
             abort.abort();
           }
-        }, 250)
+        }, processLimits.stopPollMs)
       : null;
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);

@@ -1,4 +1,6 @@
 // Guided task tests: acceptance, workspace creation, selected context and no-change delivery.
+import type { Workspace } from '../src/repository/workspaces.js';
+import type { Execution } from '../src/execution/execution-state.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -56,7 +58,7 @@ test(
     assert.equal(released.status, 'ready');
     assert.equal(released.pending, null);
     assert.equal(released.owner, null);
-    assert.equal(f.store.workspaces<import('../src/repository/workspaces.js').Workspace>()[0]!.phase, 'released');
+    assert.equal(f.store.workspaces<Workspace>()[0]!.phase, 'released');
     assert.equal(f.store.executions().length, 0);
     const continued = await f.tasks.run(id);
     assert.equal(continued.status, 'awaiting_scope', continued.note);
@@ -76,11 +78,7 @@ test('failed simplification is retained and cannot start independent review or d
   assert.ok(
     new Workflow(f.store).get(id).evidence.some(item => item.kind === 'simplification' && item.outcome === 'skipped'),
   );
-  assert.equal(
-    f.store.executions<import('../src/execution/execution-state.js').Execution>().filter(item => item.role === 'review')
-      .length,
-    0,
-  );
+  assert.equal(f.store.executions<Execution>().filter(item => item.role === 'review').length, 0);
   assert.equal(f.store.deliveries(failed.executionId!).length, 0);
   await assert.rejects(f.tasks.run(id), /blocked/);
 });
@@ -136,7 +134,7 @@ test('stale scopes stop before dispatch while repository size is independent of 
   const id = f.create();
   await tasks.run(id);
   const state = tasks.get(id),
-    workspace = f.store.workspace<import('../src/repository/workspaces.js').Workspace>(state.workspaceId!);
+    workspace = f.store.workspace<Workspace>(state.workspaceId!);
   writeFileSync(join(workspace.path!, 'greeting.js'), "console.log('external change');\n");
   const stopped = await tasks.authorize(id);
   assert.equal(stopped.status, 'blocked', stopped.note);

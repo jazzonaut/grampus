@@ -1,4 +1,4 @@
-import { Store } from '../persistence/store.js';
+import type { Store } from '../persistence/store.js';
 import { Kickoffs } from './kickoff.js';
 import { GuidedTasks, guidedDecisionKey, guidedQuestionKey } from './guided-tasks.js';
 import { assertTaskExecutionIdle, type Execution } from '../execution/execution-state.js';

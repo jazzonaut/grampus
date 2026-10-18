@@ -5,7 +5,7 @@ import tseslint from 'typescript-eslint';
 import globals from 'globals';
 
 export default tseslint.config(
-  { ignores: ['dist/', 'node_modules/', 'src/ui/vendor/', 'web/dist/'] },
+  { ignores: ['dist/', 'node_modules/', 'src/ui/vendor/', 'web/dist/', '.claude/'] },
   js.configs.recommended,
   {
     files: ['**/*.ts'],
@@ -14,6 +14,8 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
       '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/consistent-type-imports': 'error',
+      '@typescript-eslint/no-import-type-side-effects': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       complexity: ['error', 20],
       'max-lines': ['error', { max: 800, skipBlankLines: true, skipComments: true }],

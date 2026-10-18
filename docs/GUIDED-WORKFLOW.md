@@ -31,7 +31,8 @@ A plan contains:
 - Optional `workflowPolicy`, `reviewPolicy`, top-level `preparation`, `context` and
   `references`.
 
-Commands use `name`, `file`, `args` and `timeoutMs` (default 120000, at most 600000).
+Commands use `name`, `file`, `args` and `timeoutMs` (default 120000 or the configured
+`defaultCheckTimeoutMs`, at most 600000; see [configuration](CONFIGURATION.md)).
 There is no shell. `file: "node"` resolves to the current Node executable; other
 executables need absolute paths. Commands run at the task worktree root.
 

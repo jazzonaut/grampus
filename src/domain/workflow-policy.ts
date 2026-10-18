@@ -1,3 +1,6 @@
+import { workflowPolicyBounds } from '../config/limits.js';
+import { currentSettings } from '../config/settings.js';
+
 export interface WorkflowPolicy {
   mode: 'automatic' | 'supervised';
   repairRounds: number;
@@ -5,14 +8,9 @@ export interface WorkflowPolicy {
   maxContextTokens: number;
 }
 
-export const defaultWorkflowPolicy: WorkflowPolicy = {
-  mode: 'automatic',
-  repairRounds: 2,
-  maxSessionTurns: 6,
-  maxContextTokens: 120000,
-};
-
+/** Omitted fields come from the configured default policy (settings.ts); the result is approved as a whole. */
 export function normalizeWorkflowPolicy(value: unknown): WorkflowPolicy {
+  const defaultWorkflowPolicy = currentSettings().defaultWorkflowPolicy;
   if (value === undefined) return { ...defaultWorkflowPolicy };
   if (
     !value ||
@@ -24,11 +22,8 @@ export function normalizeWorkflowPolicy(value: unknown): WorkflowPolicy {
   const policy = { ...defaultWorkflowPolicy, ...value };
   if (!['automatic', 'supervised'].includes(policy.mode))
     throw new Error('Workflow mode must be automatic or supervised');
-  for (const [key, min, max] of [
-    ['repairRounds', 0, 5],
-    ['maxSessionTurns', 1, 50],
-    ['maxContextTokens', 8000, 1000000],
-  ] as const) {
+  for (const key of ['repairRounds', 'maxSessionTurns', 'maxContextTokens'] as const) {
+    const { min, max } = workflowPolicyBounds[key];
     if (!Number.isSafeInteger(policy[key]) || policy[key] < min || policy[key] > max)
       throw new Error(`${key} must be ${min}–${max}`);
   }

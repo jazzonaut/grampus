@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { activeCriteria } from '../src/domain/workflow.js';
-import { type Delivery } from '../src/execution/deliveries.js';
+import type { Delivery } from '../src/execution/deliveries.js';
 import { windows, git, invoke, fixture, type Fixture } from './helpers/slices.js';
 
 async function gated(f: Fixture, execution = f.execution) {
