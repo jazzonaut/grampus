@@ -59,11 +59,16 @@ export async function startUi(options: UiOptions) {
       response.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
       if (request.headers.host !== new URL(origin).host || (request.headers.origin && request.headers.origin !== origin)) { json(response, 403, { error: 'Local origin required' }); return; }
       const path = new URL(request.url ?? '/', origin).pathname;
-      const assets: Record<string, [string, string]> = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/app.css': ['app.css', 'text/css'], '/favicon.svg': ['favicon.svg', 'image/svg+xml'] };
+      const assets: Record<string, [string, string]> = {
+        '/': ['src/ui/index.html', 'text/html'], '/app.js': ['src/ui/app.js', 'text/javascript'],
+        '/app.css': ['src/ui/app.css', 'text/css'], '/favicon.svg': ['src/ui/favicon.svg', 'image/svg+xml'],
+        '/markdown.js': ['src/ui/markdown.js', 'text/javascript'],
+        '/vendor/markdown-it.js': ['node_modules/markdown-it/dist/browser/markdown-it.umd.min.js', 'text/javascript'],
+      };
       if (request.method === 'GET' && assets[path]) {
         const [file, mime] = assets[path]!;
         response.writeHead(200, { 'Content-Type': `${mime}; charset=utf-8` });
-        response.end(readFileSync(new URL(`../../src/ui/${file}`, import.meta.url))); return;
+        response.end(readFileSync(new URL(`../../${file}`, import.meta.url))); return;
       }
       const supplied = Buffer.from(request.headers.authorization?.replace(/^Bearer /, '') ?? '');
       if (supplied.length !== token.length || !timingSafeEqual(supplied, Buffer.from(token))) { json(response, 401, { error: 'Open the complete local dashboard link printed by Grampus' }); return; }
@@ -86,8 +91,9 @@ export async function startUi(options: UiOptions) {
         if (view.state.status === 'awaiting_scope' && view.workspace?.path && view.state.snapshot) {
           try {
             const slice = view.state.plan.slices[view.state.sliceIndex]!;
-            const selection = view.state.plan.context?.files;
-            scopeFiles = boundedRepositoryFiles(view.workspace.path, view.state.snapshot, selection ? [...new Set([...selection, ...slice.scope.files, ...(slice.scope.delete ?? [])])] : undefined);
+            const selection = [...new Set([...(view.state.policy?.files ?? slice.scope.files), ...(slice.scope.delete ?? [])])];
+            const current = { ...view.state.snapshot, diff: view.state.snapshot.diff.filter(change => selection.includes(change.path)) };
+            scopeFiles = boundedRepositoryFiles(view.workspace.path, current, selection);
           }
           catch (error) { scopeError = error instanceof Error ? error.message : String(error); }
         }

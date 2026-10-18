@@ -119,6 +119,29 @@ test('Claude repository handlers recheck ownership and journaling even without S
   })();
 });
 
+test('Claude exposes snapshot change pagination and fences its results by ownership and journaling', async t => {
+  const f = fixture(t); writeFileSync(join(f.repo, 'src/dependency.js'), '\u0001'.repeat(24000));
+  const snapshot = await snapshotRepository(f.repo, f.base); let active = true;
+  const events: AgentEvent[] = [];
+  const changes = claudeRepositoryTools({ repo: f.repo, snapshot }, event => events.push(event), () => active).find(tool => tool.name === 'grampus_read_changes')!;
+  const input = { path: 'src/dependency.js', side: 'before' as const, offset: 0, limit: 12000 };
+  const result = await changes.handler(input, undefined);
+  assert.equal(result.isError, undefined); assert.match(JSON.stringify(result.content), /hidden-contract-4829/);
+  assert.ok(events.some(event => event.type === 'repository.tool_result'));
+  const invoke = repositoryTools({ repo: f.repo, snapshot }, () => {}, () => true);
+  let offset: number | null = 0, content = '';
+  while (offset !== null) {
+    const page = invoke('grampus_read_changes', { path: 'src/dependency.js', offset }) as any;
+    assert.ok(Buffer.byteLength(JSON.stringify(page)) < 64 * 1024);
+    content += page.content; offset = page.nextOffset;
+  }
+  assert.equal(content, '\u0001'.repeat(24000));
+  active = false; assert.equal((await changes.handler(input, undefined)).isError, true);
+  const failed = claudeRepositoryTools({ repo: f.repo, snapshot }, () => { throw new Error('Journal unavailable'); }, () => true).find(tool => tool.name === 'grampus_read_changes')!;
+  assert.equal((await failed.handler(input, undefined)).isError, true);
+  assert.equal(isRepositoryTool('mcp__grampus_repository__grampus_read_changes'), true);
+});
+
 test('kickoff starts without file selection, discovers its own edit scope and records exploration', async t => {
   const f = fixture(t), store = new Store(join(f.root, 'journal.sqlite')); f.cleanup.push(() => store.close());
   const connector: Connector = async (_provider, options) => ({

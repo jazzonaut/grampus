@@ -116,6 +116,10 @@ checkpoint when changes are needed. Inspect retained files, findings and any
 delivery changes first. It creates a fresh attempt/session,
 preserves partial files, carries review feedback and prepares a fresh authorization
 checkpoint. It does not reset Git or automatically alter the approved scope.
+For a deletion-only slice whose files are already absent, authorizing the fresh
+checkpoint proceeds directly to validation. It still requires fresh simplification,
+independent review, acceptance and delivery; the original commit delivery mode is
+preserved, and no empty editing policy or redundant implementation turn is created.
 
 After a controller exits unexpectedly:
 

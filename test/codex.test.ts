@@ -61,6 +61,27 @@ test('Codex repository calls are bound to the current thread and turn, journaled
     { servers: [{ name: 'fixture', status: 'ready', tools: 1, auth: 'notLoggedIn' }] });
 });
 
+test('Codex serves paginated snapshot changes through its owned dynamic tool transport', async t => {
+  const context = editingFixture(t), events: AgentEvent[] = [];
+  context.snapshot.diff = [{ path: 'file.txt', before: 'a'.repeat(40), after: 'b'.repeat(40), encoding: 'utf8', content: 'after', previousEncoding: 'utf8', previousContent: 'before' }];
+  const agent = fixture(`
+    if (r.method === 'turn/start') {
+      note('turn/started', { turn: { id: 'turn-1' } });
+      send({ id: r.id, result: { turn: { id: 'turn-1' } } });
+      send({ id: 'changes', method: 'item/tool/call', params: { threadId: 'thread-1', turnId: 'turn-1', callId: 'changes-1', tool: 'grampus_read_changes', arguments: { path: 'file.txt', side: 'before', limit: 3 } } });
+    }
+    if (r.id === 'changes') {
+      const page = JSON.parse(r.result.contentItems[0].text);
+      if (!r.result.success || page.content !== 'bef' || page.nextOffset !== 3) process.exit(3);
+      note('item/completed', { item: { type: 'agentMessage', text: JSON.stringify(reply) } });
+      note('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
+    }
+  `, events, undefined, undefined, { repo: context.cwd, snapshot: context.snapshot });
+  try { assert.equal((await agent.turn('Inspect the original change')).status, 'completed'); }
+  finally { await agent.close(); }
+  assert.ok(events.some(event => event.type === 'repository.tool_result' && (event.data as { tool: string }).tool === 'grampus_read_changes'));
+});
+
 function editingFixture(t: { after(fn: () => void): void }): EditingContext {
   const cwd = mkdtempSync(join(tmpdir(), 'grampus-codex-patch-'));
   writeFileSync(join(cwd, 'file.txt'), 'before\n');

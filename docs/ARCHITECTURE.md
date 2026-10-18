@@ -239,6 +239,21 @@ task criteria. Approval binds the entire plan. New planned tasks have a `slice`
 progress record with a zero-based current index and completed delivery references.
 Existing tasks without progress retain their original single-slice behavior.
 
+Guided plan normalization simulates file existence through the ordered scopes,
+starting from the pinned inventory. Edit/delete actions must target an existing
+exact path; creations must be absent, including Windows case-insensitive collisions.
+Deleted paths cannot be recreated later in the same plan. A deletion-only retry
+with no remaining file actions retains a null editing policy and proceeds from
+fresh scope authorization to validation, keeping every subsequent gate and delivery.
+
+Exploration-enabled execution and review contexts bound inline files and diff
+content independently of cumulative task changes. Change summaries are paginated;
+`grampus_read_changes` serves recorded before/after content from the bound snapshot
+through both provider tool transports. The full snapshot still binds all evidence.
+Instructions remain inline, and selected-context tasks retain their strict budget.
+The browser's authorization display includes current-slice file actions and
+instructions without pulling earlier slices' contents into its file budget.
+
 `activeCriteria` selects the intermediate slice's criteria, or every task criterion
 for the final slice. Check mapping and gate coverage both use this selection.
 Session context supplies the whole brief, current slice, prior delivered heads and

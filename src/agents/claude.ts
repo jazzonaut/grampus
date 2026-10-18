@@ -7,7 +7,7 @@ import { claudeRepository, isRepositoryTool } from './claude-repository.js';
 import { explorationInstructions } from '../repository-tools.js';
 import { allowMcpTool, isExternalMcpTool, mcpInstructions, projectMcpServers } from '../integrations.js';
 import { referenceInstructions } from '../reference-folders.js';
-import { instructions, replySchema, parseReply, subscriptionEnvironment, numeric, type AgentSession, type ConnectOptions, type TurnResult, type Usage } from './types.js';
+import { instructions, titleInstructions, replySchema, parseReply, subscriptionEnvironment, numeric, type AgentSession, type ConnectOptions, type TurnResult, type Usage } from './types.js';
 
 class InputQueue implements AsyncIterable<SDKUserMessage> {
   private values: SDKUserMessage[] = [];
@@ -61,10 +61,10 @@ class ClaudeSession implements AgentSession {
       tools: [claudeDeleteTool(options.editing, options.emit, () => !!this.active && !this.stopRequested && !this.stopped && !this.closing)],
     }) : null;
     this.query = query({ prompt: this.input, options: {
-      cwd: options.cwd, tools: options.editing ? ['Read', 'Edit', 'Write', 'ToolSearch'] : ['ToolSearch'], permissionMode: 'default',
-      mcpServers: { ...projectMcpServers(options.configurationCwd ?? options.cwd, options.cwd), ...(fileServer ? { grampus_files: fileServer } : {}), ...(options.repository ? { grampus_repository: claudeRepository(options.repository, options.emit, () => !!this.active && !this.stopRequested && !this.stopped && !this.closing) } : {}) },
-      strictMcpConfig: false, systemPrompt: `${options.editing ? editingInstructions : instructions}\n${mcpInstructions}${options.repository ? `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}` : ''}`, outputFormat: { type: 'json_schema', schema: replySchema },
-      maxTurns: 64, includePartialMessages: true,
+      cwd: options.cwd, tools: options.purpose === 'title' ? [] : options.editing ? ['Read', 'Edit', 'Write', 'ToolSearch'] : ['ToolSearch'], permissionMode: 'default',
+      mcpServers: options.purpose === 'title' ? {} : { ...projectMcpServers(options.configurationCwd ?? options.cwd, options.cwd), ...(fileServer ? { grampus_files: fileServer } : {}), ...(options.repository ? { grampus_repository: claudeRepository(options.repository, options.emit, () => !!this.active && !this.stopRequested && !this.stopped && !this.closing) } : {}) },
+      strictMcpConfig: options.purpose === 'title', systemPrompt: options.purpose === 'title' ? titleInstructions : `${options.editing ? editingInstructions : instructions}\n${mcpInstructions}${options.repository ? `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}` : ''}`, outputFormat: { type: 'json_schema', schema: replySchema },
+      maxTurns: options.purpose === 'title' ? 3 : 64, includePartialMessages: true,
       ...(options.editing ? { hooks: { PreToolUse: [{ hooks: [async input => {
         if (input.hook_event_name !== 'PreToolUse') return {};
         if (options.repository && isRepositoryTool(input.tool_name)) return {};
@@ -74,6 +74,7 @@ class ClaudeSession implements AgentSession {
       }] }] } } : {}),
       env: { ...subscriptionEnvironment(), CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' },
       canUseTool: async (name, input) => {
+        if (options.purpose === 'title') return { behavior: 'deny', message: 'Task naming does not use tools' };
         if (allowMcpTool(name, options.emit, !!this.active && !this.stopRequested && !this.stopped && !this.closing)) return { behavior: 'allow' as const, updatedInput: input };
         if (options.repository && isRepositoryTool(name)) return { behavior: 'allow' as const, updatedInput: input };
         if (options.editing) {

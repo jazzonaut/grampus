@@ -164,6 +164,7 @@ function processAlive(pid: number): boolean {
 }
 
 export interface RunOptions {
+  purpose?: 'title';
   repository?: import('./repository-tools.js').RepositoryAccess;
   timeoutMs?: number;
   interruptAfterMs?: number;
@@ -245,7 +246,7 @@ export async function runSession(store: Store, id: string, prompt: string, optio
     }
     connectionPending = true;
     const connection = Promise.resolve().then(() => connect(claim.session.provider, { cwd: claim.session.cwd, providerSessionId: claim.session.providerSessionId,
-      model: claim.session.model, configurationCwd, signal: connectionAbort.signal, emit, ...(repository ? { repository } : {}) })).then(value => {
+      model: claim.session.model, configurationCwd, signal: connectionAbort.signal, emit, ...(options.purpose ? { purpose: options.purpose } : {}), ...(repository ? { repository } : {}) })).then(value => {
       connectionPending = false; agent = value; connectionFinished = true; return value;
     }, error => { connectionPending = false; throw error; });
     // If startup outlives the deadline, close it when it eventually returns. Never send a prompt.

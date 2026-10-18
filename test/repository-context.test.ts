@@ -12,6 +12,7 @@ import { Kickoffs } from '../src/kickoff.js';
 import { normalizeGuidedPlan, guidedPlanDigest } from '../src/guided-plan.js';
 import type { Connector } from '../src/agents/types.js';
 import { startUi } from '../src/ui-server.js';
+import { repositoryTools } from '../src/repository-tools.js';
 
 function fixture(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-context-')), repo = join(root, 'repo'); mkdirSync(repo);
@@ -63,6 +64,46 @@ test('selected review context includes all changed files and verifies omitted-fi
   assert.throws(() => repositoryContext(f.repo, after, ['main.js']), /changed/);
 });
 
+test('exploration pages cumulative changes beyond inline byte and file budgets without dropping evidence', async t => {
+  const f = fixture(t), base = f.base;
+  for (const name of ['a.js', 'b.js', 'c.js']) {
+    writeFileSync(join(f.repo, name), `// ${name}\n${'// padding\n'.repeat(19000)}`);
+    f.git('add', '.'); f.git('commit', '-m', `Deliver ${name}`);
+  }
+  const snapshot = await snapshotRepository(f.repo, base);
+  assert.throws(() => repositoryContext(f.repo, snapshot, []), /text budget/);
+  const supplied = repositoryContext(f.repo, snapshot, [], true);
+  assert.ok(Buffer.byteLength(JSON.stringify(supplied)) < 2 * 1024 * 1024);
+  assert.equal(supplied.changes!.total, 3); assert.ok(supplied.files.length < 4);
+  const events: any[] = [];
+  const read = repositoryTools({ repo: f.repo, snapshot }, event => events.push(event), () => true);
+  for (const path of ['a.js', 'b.js', 'c.js']) {
+    let offset: number | null = 0, content = '';
+    while (offset !== null) {
+      const page = read('grampus_read_changes', { path, offset, side: 'after' }) as any;
+      assert.ok(Buffer.byteLength(JSON.stringify(page)) < 64 * 1024);
+      assert.equal(page.source, snapshot.artifact); content += page.content; offset = page.nextOffset;
+    }
+    assert.equal(content, snapshot.diff.find(change => change.path === path)!.content);
+    assert.equal((read('grampus_read_changes', { path, side: 'before' }) as any).content, null);
+  }
+  assert.throws(() => read('grampus_read_changes', { path: '../outside' }), /inventory/);
+  assert.throws(() => repositoryTools({ repo: f.repo, base }, () => {}, () => true)('grampus_read_changes', {}), /workspace snapshot/);
+  assert.ok(events.some(event => event.type === 'repository.tool_result'));
+  for (let index = 0; index < 260; index++) writeFileSync(join(f.repo, 'many', `new-${index}.js`), `// new ${index}\n`);
+  const many = await snapshotRepository(f.repo, base), paged = repositoryContext(f.repo, many, [], true);
+  assert.ok(paged.files.length <= 256); assert.equal(paged.changes!.nextOffset, 100);
+  const list = repositoryTools({ repo: f.repo, snapshot: many }, () => {}, () => true);
+  const paths: string[] = []; let offset: number | null = 0;
+  while (offset !== null) {
+    const page = list('grampus_read_changes', { offset }) as any;
+    paths.push(...page.files.map((file: any) => file.path)); offset = page.nextOffset;
+  }
+  assert.deepEqual(paths, many.diff.map(change => change.path));
+  writeFileSync(join(f.repo, 'a.js'), 'concurrent edit');
+  assert.throws(() => repositoryContext(f.repo, many, [], true), /changed/);
+});
+
 test('snapshot batches original blobs while retaining exact text and binary before/after evidence', async t => {
   const f = fixture(t);
   writeFileSync(join(f.repo, 'tiny.bin'), Buffer.from([0, 1, 255])); f.git('add', '.'); f.git('commit', '-m', 'Binary baseline');
@@ -96,12 +137,35 @@ test('approval binds selected supporting files and cannot authorize an uninspect
   assert.ok(!twoSlices.context!.files.includes('created.js'), 'future contents are supplied from the later snapshot, not invented during approval');
 });
 
+test('plan approval validates file existence across slices, including deletion and creation collisions', t => {
+  const f = fixture(t);
+  const sliced = (scopes: { files: string[]; create?: string[]; delete?: string[] }[]) => ({ ...f.plan,
+    brief: { ...f.plan.brief, slices: scopes.map((_, index) => ({ title: `Slice ${index + 1}`, plan: 'Apply the approved file actions', criteria: f.plan.brief.criteria })) },
+    slices: scopes.map(scope => ({ ...f.plan.slices[0]!, scope })),
+  });
+  for (const scopes of [
+    [{ files: [], delete: ['main.js'] }, { files: ['main.js'] }],
+    [{ files: [], delete: ['main.js'] }, { files: [], delete: ['main.js'] }],
+    [{ files: [], create: ['main.js'] }],
+    [{ files: [], create: ['new.js'] }, { files: [], create: ['new.js'] }],
+    [{ files: [], delete: ['main.js'] }, { files: [], create: ['main.js'] }],
+  ]) assert.throws(() => normalizeGuidedPlan(sliced(scopes)), /absent|exist|recreat/i);
+  const valid = normalizeGuidedPlan(sliced([
+    { files: [], create: ['new.js'] }, { files: ['new.js'] }, { files: [], delete: ['new.js'] },
+  ]));
+  assert.equal(valid.slices.length, 3);
+  if (process.platform === 'win32') assert.throws(() => normalizeGuidedPlan(sliced([{ files: [], create: ['MAIN.js'] }])), /exist/i);
+});
+
 test('context expansion invalidates a proposal and explicitly resupplies pinned files on the next turn', async t => {
   const f = fixture(t); let lastPrompt = '';
-  const connector: Connector = async () => ({ turn: async prompt => {
+  const connector: Connector = async (_, options) => {
+    if (options.purpose === 'title') throw new Error('Naming unavailable in this planner fixture');
+    return { turn: async prompt => {
     lastPrompt = prompt;
     return { status: 'completed', reply: { kind: 'message', text: JSON.stringify(f.plan), questions: [], findings: [] }, usage: null, error: null };
-  }, close: async () => {}, interrupt: async () => {} });
+  }, close: async () => {}, interrupt: async () => {} };
+  };
   const kickoffs = new Kickoffs(f.store, connector), id = kickoffs.create({ repo: f.repo, request: 'Change main greeting', contextFiles: ['main.js'] });
   const ready = await kickoffs.send(id); assert.ok(ready.candidate); assert.doesNotMatch(lastPrompt, /export const value/);
   const expanded = kickoffs.changeContext(id, ['main.js', 'helper.js'], ready.turnKey);

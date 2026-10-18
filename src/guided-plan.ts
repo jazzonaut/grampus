@@ -90,6 +90,9 @@ export function normalizeGuidedPlan(input: unknown, directory = process.cwd()): 
   if (review.provider === implementation.provider) throw new Error('The guided workflow requires the other provider for independent review');
   if (!Array.isArray(value.slices) || value.slices.length !== (brief.slices?.length ?? 1)) throw new Error('Supply one execution configuration for each approved slice (one for an unsliced brief)');
   const earlierCreations = new Set<string>();
+  const pathKey = (path: string) => process.platform === 'win32' ? path.toLowerCase() : path;
+  const present = new Map(pinnedRepository(repo, base).entries.map(entry => [pathKey(entry.path), entry.path]));
+  const deleted = new Set<string>();
   const slices = value.slices.map((raw): GuidedSlice => {
     const item = object(raw, ['scope', 'validation', 'acceptance', 'message', 'mode'], 'slice configuration');
     const mode = item.mode ?? 'commit';
@@ -99,11 +102,17 @@ export function normalizeGuidedPlan(input: unknown, directory = process.cwd()): 
       if (!Array.isArray(scope.files) || scope.files.length || scope.create !== undefined || scope.delete !== undefined) throw new Error('No-change delivery requires scope: { files: [] }');
     } else validateEditPolicy({ ...scope, artifact: `sha256:${'0'.repeat(64)}`, instructionsDigest: '0'.repeat(64) });
     for (const path of [...scope.files, ...(scope.delete ?? [])]) {
+      if (present.get(pathKey(path)) !== path) throw new Error(`File action is absent before this slice (use its exact path): ${path}`);
       if (!exploration && !context.files.includes(path) && !earlierCreations.has(path)) throw new Error(`Select ${path} as repository context before approving its file action`);
-      if (exploration && !earlierCreations.has(path) && !pinnedRepository(repo, base).byPath.has(path)) throw new Error(`File action is absent from the pinned repository: ${path}`);
     }
-    for (const path of scope.create ?? []) earlierCreations.add(path);
-    for (const path of scope.delete ?? []) earlierCreations.delete(path);
+    for (const path of scope.create ?? []) {
+      if (present.has(pathKey(path))) throw new Error(`Creation path already exists before this slice: ${path}`);
+      if (deleted.has(pathKey(path))) throw new Error(`Cannot recreate a path deleted by an earlier slice: ${path}`);
+      present.set(pathKey(path), path); earlierCreations.add(path);
+    }
+    for (const path of scope.delete ?? []) {
+      present.delete(pathKey(path)); deleted.add(pathKey(path)); earlierCreations.delete(path);
+    }
     const message = text(item.message, 'Commit message', 8192);
     if (/Grampus-Delivery:/i.test(message)) throw new Error('Commit message cannot contain the reserved Grampus-Delivery marker');
     return { scope, mode, validation: command(item.validation, false), acceptance: command(item.acceptance, true) as GuidedSlice['acceptance'], message };

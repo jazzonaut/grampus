@@ -4,7 +4,7 @@ import { mcpInstructions } from '../integrations.js';
 import { referenceInstructions } from '../reference-folders.js';
 import { repositoryTools, repositoryToolDefinitions, explorationInstructions, type RepositoryAccess } from '../repository-tools.js';
 import { authorizeFileChanges, implementationInstructions, type EditingContext } from '../edit-policy.js';
-import { instructions, replySchema, parseReply, subscriptionEnvironment, numeric, type AgentSession, type ConnectOptions, type TurnResult, type Usage } from './types.js';
+import { instructions, titleInstructions, replySchema, parseReply, subscriptionEnvironment, numeric, type AgentSession, type ConnectOptions, type TurnResult, type Usage } from './types.js';
 
 async function reportIntegrations(rpc: RpcProcess, threadId: string, emit: ConnectOptions['emit']) {
   try {
@@ -39,16 +39,16 @@ export async function connectCodex(options: ConnectOptions): Promise<AgentSessio
     for (const [name, server] of Object.entries(effective.config.mcp_servers ?? {})) {
       // config/read materializes optional fields as null; TOML overrides cannot represent null.
       const configured = JSON.parse(JSON.stringify(server, (_key, value) => value === null ? undefined : value));
-      overrides[`mcp_servers.${name}`] = { ...configured, enabled: server.enabled !== false };
+      overrides[`mcp_servers.${name}`] = { ...configured, enabled: options.purpose !== 'title' && server.enabled !== false };
     }
     const params = {
       cwd: options.cwd, modelProvider: 'openai', approvalPolicy: 'untrusted', sandbox: 'read-only',
-      developerInstructions: options.editing ? implementationInstructions('Use only apply_patch to update approved existing files, add explicitly authorized new files or delete explicitly authorized unchanged files, using their supplied contents (null means absent). Parent directories must already exist. Deletion paths cannot be updated or recreated. Do not move files or delete directories. Each patch requires controller approval.') : instructions, config: overrides,
+      developerInstructions: options.purpose === 'title' ? titleInstructions : options.editing ? implementationInstructions('Use only apply_patch to update approved existing files, add explicitly authorized new files or delete explicitly authorized unchanged files, using their supplied contents (null means absent). Parent directories must already exist. Deletion paths cannot be updated or recreated. Do not move files or delete directories. Each patch requires controller approval.') : instructions, config: overrides,
       ...(options.editing ? { approvalsReviewer: 'user' } : {}),
       ...(options.repository && !options.providerSessionId ? { dynamicTools: repositoryToolDefinitions.map(tool => ({ type: 'function', ...tool })) } : {}),
       ...(options.model ? { model: options.model } : {}),
     };
-    params.developerInstructions += `\n${mcpInstructions}`;
+    if (options.purpose !== 'title') params.developerInstructions += `\n${mcpInstructions}`;
     if (options.repository) params.developerInstructions += `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}`;
     const thread = await rpc.request<{ thread: { id: string }; model: string; approvalPolicy?: unknown; approvalsReviewer?: unknown; sandbox?: { type?: string; networkAccess?: boolean } }>(
       options.providerSessionId ? 'thread/resume' : 'thread/start',
@@ -58,7 +58,7 @@ export async function connectCodex(options: ConnectOptions): Promise<AgentSessio
     if (options.editing && (thread.approvalPolicy !== 'untrusted' || thread.approvalsReviewer !== 'user'
       || thread.sandbox?.type !== 'readOnly' || thread.sandbox.networkAccess === true)) throw new Error('Codex did not confirm controller approvals and read-only sandbox');
     options.emit({ type: 'session.connected', data: { providerSessionId: thread.thread.id, model: thread.model, auth: 'subscription' } });
-    await reportIntegrations(rpc, thread.thread.id, options.emit);
+    if (options.purpose !== 'title') await reportIntegrations(rpc, thread.thread.id, options.emit);
     options.signal.throwIfAborted();
     return new CodexSession(rpc, thread.thread.id, options.emit, options.editing, options.repository);
   } catch (error) { await rpc.close(); options.emit({ type: 'process.exit_confirmed', data: {} }); throw error; }

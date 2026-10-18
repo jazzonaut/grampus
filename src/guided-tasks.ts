@@ -169,10 +169,11 @@ export class GuidedTasks {
       state.pending = { stage: state.stage, known, assessment: state.assessment, controller: { ...state.owner! } }; state.status = 'running'; state.note = `Running ${state.stage}.`;
     });
   }
-  private policy(state: GuidedState, snapshot: RepositorySnapshot): EditPolicy {
+  private policy(state: GuidedState, snapshot: RepositorySnapshot): EditPolicy | null {
     const scope = state.plan.slices[state.sliceIndex]!.scope;
     const present = (path: string) => snapshot.files.some(file => file.path === path && file.sha256 !== null);
     const created = (scope.create ?? []).filter(present);
+    if (!scope.files.length && !scope.create?.length && scope.delete?.length && !scope.delete.some(present)) return null;
     return { artifact: snapshot.artifact, instructionsDigest: snapshot.instructionsDigest, files: [...scope.files, ...created],
       ...((scope.create ?? []).some(path => !present(path)) ? { create: scope.create!.filter(path => !present(path)) } : {}),
       ...((scope.delete ?? []).some(present) ? { delete: scope.delete!.filter(present) } : {}) };
@@ -189,8 +190,9 @@ export class GuidedTasks {
       case 'execution': await this.executions.create(state.workspaceId!, state.version, state.plan.implementation.provider, 'implementation', state.plan.implementation.model); break;
       case 'scope': {
         const snapshot = await this.checks.snapshot(executionId), cwd = this.workspaces.get(state.workspaceId!).path!;
-        boundedRepositoryFiles(cwd, snapshot, state.plan.context?.files);
-        if (slice.mode !== 'no_change') prepareEditing({ cwd, snapshot, policy: this.policy(state, snapshot) });
+        boundedRepositoryFiles(cwd, snapshot, state.plan.context?.files, state.plan.context?.exploration === true);
+        const policy = slice.mode === 'no_change' ? null : this.policy(state, snapshot);
+        if (policy) prepareEditing({ cwd, snapshot, policy });
         return snapshot;
       }
       case 'implementation': await new Implementations(this.store, this.workspaces).run(executionId, state.policy!,
@@ -262,7 +264,7 @@ export class GuidedTasks {
         if (JSON.stringify(result.policy) !== JSON.stringify(state.policy)) throw new Error('Implementation result differs from the authorized file policy');
         if (result.phase === 'running' || result.phase === 'recovery_required') throw new Error(`Implementation needs recovery: ${result.id}`);
         if (result.phase !== 'completed' || !result.after) { block(result.error ?? result.result?.error ?? `Implementation ${result.phase}; inspect partial files and use task-retry.`); break; }
-        boundedRepositoryFiles(this.workspaces.get(state.workspaceId!).path!, result.after, state.plan.context?.files);
+        boundedRepositoryFiles(this.workspaces.get(state.workspaceId!).path!, result.after, state.plan.context?.files, state.plan.context?.exploration === true);
         advance(result.result?.reply?.kind === 'question' ? 'implementation' : 'validation', state => {
           state.answers = null; state.snapshot = result.after;
           if (result.result?.reply?.kind === 'question') { state.status = 'awaiting_answer'; state.note = 'Answer the implementation questions with task-answer.'; }
@@ -363,7 +365,7 @@ export class GuidedTasks {
   async authorize(id: string, signal?: AbortSignal): Promise<GuidedState> {
     if (this.current(id).status !== 'awaiting_scope') throw new Error('No file authorization is pending');
     return this.owned(id, async (token, signal) => {
-      this.change(id, token, 'guided.scope_authorized', state => { state.stage = state.plan.slices[state.sliceIndex]!.mode === 'no_change' ? 'validation' : 'implementation'; state.status = 'ready'; });
+      this.change(id, token, 'guided.scope_authorized', state => { state.stage = state.policy === null ? 'validation' : 'implementation'; state.status = 'ready'; });
       await this.drive(id, token, signal);
     }, signal, false, 'awaiting_scope');
   }

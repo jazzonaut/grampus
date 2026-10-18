@@ -14,6 +14,7 @@ import type { Reply } from '../src/agents/types.js';
 import type { ImplementationRun } from '../src/implementations.js';
 import { renderReport } from '../src/report.js';
 import { Kickoffs } from '../src/kickoff.js';
+import { repositoryTools } from '../src/repository-tools.js';
 
 const windows = { skip: process.platform !== 'win32' };
 const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
@@ -341,26 +342,70 @@ test('implementation questions require explicit answers and a fresh scope author
   assert.equal(done.status, 'complete', done.note);
 });
 
-test('planned ordered slices require separate assessments and final whole-task acceptance', windows, async t => {
+test('deletion-only retries validate retained deletion with fresh gates and no empty editing policy', windows, async t => {
+  const f = fixture(t), marker = join(f.root, 'validation-attempted'); let implementations = 0;
+  const configured = services();
+  configured.implementationRunner = options => {
+    implementations++;
+    return runCheckProcess({ ...options, args: ['-e', `const fs=require('node:fs');fs.unlinkSync('greeting.js');
+      fs.writeFileSync(${JSON.stringify(join(options.receipt!.directory, 'result.json'))},JSON.stringify({id:${JSON.stringify(options.receipt!.checkId)},result:{status:'completed',reply:${JSON.stringify(message)},usage:null,error:null}}));`] });
+  };
+  const tasks = new GuidedTasks(f.store, configured);
+  const task = tasks.create({ ...f.plan, brief: { title: 'Remove greeting', outcome: 'Remove the obsolete greeting', criteria: ['greeting.js is absent'], plan: 'Delete, validate, review and deliver' },
+    slices: [{ scope: { files: [], delete: ['greeting.js'] },
+      validation: { file: 'node', args: ['-e', `const fs=require('node:fs');if(!fs.existsSync(${JSON.stringify(marker)})){fs.writeFileSync(${JSON.stringify(marker)},'attempted');process.exit(7)};require('node:assert/strict').equal(fs.existsSync('greeting.js'),false);`] },
+      acceptance: { file: 'node', args: ['-e', "require('node:assert/strict').equal(require('node:fs').existsSync('greeting.js'),false);console.log('absent');"], expectedStdout: 'absent\n' }, message: 'Remove obsolete greeting' }],
+  });
+  tasks.approve(task.id, 1, task.guided!.digest); await tasks.run(task.id);
+  const failed = await tasks.authorize(task.id); assert.equal(failed.status, 'blocked', failed.note);
+  const retried = await tasks.retry(task.id); assert.equal(retried.status, 'awaiting_scope', retried.note);
+  assert.notEqual(retried.executionId, failed.executionId); assert.equal(retried.policy, null);
+  const assessed = await tasks.authorize(task.id); assert.equal(assessed.status, 'awaiting_assessment', assessed.note);
+  assert.equal(implementations, 1);
+  const done = await tasks.assess(task.id, 'passed', 'The retained deletion is complete and fresh validation confirms absence');
+  assert.equal(done.status, 'complete', done.note);
+  assert.equal(git(guidedTaskView(f.store, task.id).workspace!.path!, 'status', '--porcelain'), '');
+  assert.equal(guidedTaskView(f.store, task.id).deliveries[0]!.outcome, 'committed');
+});
+
+test('three large planned slices page cumulative review and require separate assessments and final whole-task acceptance', windows, async t => {
   const f = fixture(t);
-  writeFileSync(join(f.repo, 'cli.js'), "console.log('pending');\n"); git(f.repo, 'add', '.'); git(f.repo, 'commit', '-m', 'CLI fixture baseline');
-  const criteria = ['Library exposes hello world', 'CLI prints hello world with a newline'];
+  writeFileSync(join(f.repo, 'cli.js'), "console.log('pending');\n"); writeFileSync(join(f.repo, 'notes.js'), 'module.exports = null;\n');
+  git(f.repo, 'add', '.'); git(f.repo, 'commit', '-m', 'CLI fixture baseline');
+  const criteria = ['Library exposes hello world', 'CLI prints hello world with a newline', 'Notes expose the documented contract'];
   const libraryCheck = "require('node:assert/strict').equal(require('./greeting.js'),'hello world');console.log('library ok');";
   const allCheck = libraryCheck + "require('node:assert/strict').equal(require('node:child_process').execFileSync(process.execPath,['cli.js'],{encoding:'utf8'}),'hello world\\n');console.log('cli ok');";
+  const finalCheck = allCheck + "require('node:assert/strict').equal(require('./notes.js'),'documented');console.log('notes ok');";
   const plan = { ...f.plan, brief: { ...f.plan.brief, criteria, slices: [
     { title: 'Library', plan: 'Expose the greeting', criteria: [criteria[0]!] }, { title: 'CLI integration', plan: 'Reuse the library and verify both', criteria: [criteria[1]!] },
+    { title: 'Notes and final integration', plan: 'Document the contract and verify all criteria', criteria: [criteria[2]!] },
   ] }, slices: [
     { scope: { files: ['greeting.js'] }, validation: { file: 'node', args: ['-e', libraryCheck], timeoutMs: 15000 },
       acceptance: { file: 'node', args: ['-e', libraryCheck], expectedStdout: 'library ok\n', timeoutMs: 15000 }, message: 'Expose greeting library' },
     { scope: { files: ['cli.js'] }, validation: { file: 'node', args: ['-e', allCheck], timeoutMs: 15000 },
       acceptance: { file: 'node', args: ['-e', allCheck], expectedStdout: 'library ok\ncli ok\n', timeoutMs: 15000 }, message: 'Integrate greeting CLI' },
+    { scope: { files: ['notes.js'] }, validation: { file: 'node', args: ['-e', finalCheck], timeoutMs: 15000 },
+      acceptance: { file: 'node', args: ['-e', finalCheck], expectedStdout: 'library ok\ncli ok\nnotes ok\n', timeoutMs: 15000 }, message: 'Document and verify greeting' },
   ] };
   const tasks = new GuidedTasks(f.store, { ...services(), implementationRunner: options => {
     const run = f.store.implementation<ImplementationRun>(options.receipt!.checkId);
-    const file = run.policy.files[0]!, source = file === 'greeting.js' ? "module.exports = 'hello world';\n" : "console.log(require('./greeting.js'));\n";
-    return runCheckProcess({ ...options, args: ['-e', `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(file)},${JSON.stringify(source)});
+    const file = run.policy.files[0]!, source = file === 'greeting.js' ? "module.exports = 'hello world';\n" : file === 'cli.js' ? "console.log(require('./greeting.js'));\n" : "module.exports = 'documented';\n";
+    return runCheckProcess({ ...options, args: ['-e', `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(file)},${JSON.stringify(source)}+'//'+ 'x'.repeat(190*1024));
       fs.writeFileSync(${JSON.stringify(join(options.receipt!.directory, 'result.json'))},JSON.stringify({id:${JSON.stringify(options.receipt!.checkId)},result:{status:'completed',reply:${JSON.stringify(message)},usage:null,error:null}}));`] });
-  } });
+  }, connector: async (_, options) => ({ turn: async prompt => {
+    assert.ok(Buffer.byteLength(prompt) < 2 * 1024 * 1024);
+    const access = options.repository!; assert.ok('snapshot' in access);
+    const read = repositoryTools(access, options.emit, () => true);
+    if ('snapshot' in access) for (const change of access.snapshot.diff) for (const side of ['before', 'after'] as const) {
+      let offset: number | null = 0, content = '';
+      while (offset !== null) {
+        const page = read('grampus_read_changes', { path: change.path, side, offset }) as { content: string | null; nextOffset: number | null };
+        content += page.content ?? ''; offset = page.nextOffset;
+      }
+      assert.equal(content, (side === 'before' ? change.previousContent : change.content) ?? '');
+    }
+    return { status: 'completed', reply: review, usage: null, error: null };
+  }, close: async () => {}, interrupt: async () => {} }) });
   const kickoffs = new Kickoffs(f.store, async () => ({
     turn: async () => ({ status: 'completed', reply: { ...message, text: JSON.stringify(plan) }, usage: null, error: null }),
     interrupt: async () => {}, close: async () => {},
@@ -368,7 +413,7 @@ test('planned ordered slices require separate assessments and final whole-task a
   const kickoffId = kickoffs.create({ repo: f.repo, request: 'Deliver the full greeting library and CLI task in sequential slices' });
   const proposal = await kickoffs.send(kickoffId); assert.equal(proposal.error, null);
   const id = kickoffs.prepare(kickoffId, proposal.candidateDigest!), draft = tasks.get(id);
-  assert.equal(draft.status, 'draft'); assert.equal(draft.plan.slices.length, 2);
+  assert.equal(draft.status, 'draft'); assert.equal(draft.plan.slices.length, 3);
   tasks.approve(id, draft.version, draft.digest);
   await tasks.run(id); const first = await tasks.authorize(id); assert.equal(first.status, 'awaiting_assessment', first.note);
   const next = await tasks.assess(id, 'passed', 'One exported string; the CLI remains for the next slice');
@@ -377,12 +422,15 @@ test('planned ordered slices require separate assessments and final whole-task a
   const workspace = guidedTaskView(f.store, id).workspace!;
   const libraryBlob = git(workspace.path!, 'rev-parse', 'HEAD:greeting.js');
   await tasks.authorize(id);
-  const done = await tasks.assess(id, 'passed', 'The CLI reuses the delivered library with one output statement');
+  const third = await tasks.assess(id, 'passed', 'The CLI reuses the delivered library with one output statement');
+  assert.equal(third.status, 'awaiting_scope', third.note); assert.equal(third.sliceIndex, 2);
+  const finalAssessment = await tasks.authorize(id); assert.equal(finalAssessment.status, 'awaiting_assessment', finalAssessment.note);
+  const done = await tasks.assess(id, 'passed', 'The documented contract and final integration are consistent');
   assert.equal(done.status, 'complete', done.note);
-  assert.equal(git(workspace.path!, 'rev-parse', 'HEAD^'), firstDelivery.commit);
+  assert.equal(git(workspace.path!, 'rev-parse', 'HEAD~2'), firstDelivery.commit);
   assert.equal(git(workspace.path!, 'rev-parse', 'HEAD:greeting.js'), libraryBlob);
   assert.deepEqual(guidedTaskView(f.store, id).checks.at(-1)!.spec.criteria, criteria);
-  assert.equal(new Workflow(f.store).get(id).slice!.completed.length, 2);
+  assert.equal(new Workflow(f.store).get(id).slice!.completed.length, 3);
 });
 
 for (const gate of ['validation', 'acceptance'] as const) test(`a failing ${gate} command is retained and cannot reach delivery or replay itself`, windows, async t => {

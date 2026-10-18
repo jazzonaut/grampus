@@ -24,7 +24,7 @@ async function main(): Promise<void> {
     const plan = new Workflow(store).get(execution.taskId).guided?.plan;
     const context = plan?.context;
     const selected = context?.files;
-    const supplied = selected ? repositoryContext(session.cwd, snapshot, selected) : null;
+    const supplied = selected ? repositoryContext(session.cwd, snapshot, selected, context?.exploration === true) : null;
     if (supplied) store.appendExecution(execution.id, 'implementation.context_captured', { artifact: snapshot.artifact, ...supplied.coverage });
     agent = await connectAgent(session.provider, { cwd: session.cwd, configurationCwd: workspaces.get(execution.workspaceId).repository, providerSessionId: session.providerSessionId, model: session.model,
       signal: new AbortController().signal, editing, ...(context?.exploration ? { repository: { repo: session.cwd, snapshot, references: plan?.references ?? [], editable: [...run.policy.files, ...(run.policy.create ?? []), ...(run.policy.delete ?? [])] } } : {}), emit: event => {

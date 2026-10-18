@@ -25,7 +25,22 @@ also have read access, separately from the exact approved file changes. See
 [repository context and scale](REPOSITORY-CONTEXT.md) for behavior and limits.
 Consequential questions appear in the discussion. Answer them, or ask
 for revisions, until the proposed plan describes the right outcome and examples.
+Discussion messages, plan descriptions and loaded reports render Markdown, including
+lists, tables, links and code blocks. Questions and clickable suggestions support
+inline formatting; choosing a suggestion fills its answer box for editing before
+submission. Commands, file contents and expected output remain literal text.
 Planning consumes subscription usage only when you explicitly start/send a turn.
+Starting planning also requests a short task name from the selected provider in a
+separate background turn, using only the description and no tools. The name is
+saved in the journal and used in the sidebar and subsequent task plan. Naming
+runs at most once per conversation and does not affect planning questions or
+progress. If it fails, times out, or planning finishes first, the sidebar uses the
+proposed plan's title when available, otherwise the start of the description.
+Starting planning immediately shows repository preparation, followed by the agent's
+connection and response status, elapsed time, recent repository reads/searches and
+MCP requests. Activity comes from the current planning turn; no percentage is
+estimated. Elapsed and last-activity times keep updating between agent events, and
+saved activity remains visible if you leave and return during the turn.
 The planner covers the full requested task and can propose 1–64 ordered slices.
 Larger tickets are split into independently verifiable deliveries, each with its
 own file scope, checks and commit message. The final slice verifies every task

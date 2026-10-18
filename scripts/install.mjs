@@ -129,7 +129,8 @@ export function buildSnapshot(source, root, stage, npmCli) {
   // Importing the CLI verifies its runtime imports; doctor additionally probes installed external CLIs on request.
   const info = JSON.parse(run(process.execPath, [join(stage, 'dist', 'src', 'cli.js'), 'version', '--json'], { cwd: stage }));
   if (info.channel !== 'installed' || info.version !== pkg.version || info.build?.id !== id) throw new Error('Installed version smoke check failed.');
-  for (const file of ['src/ui/index.html', 'src/ui/app.js', 'src/ui/app.css', 'src/ui/favicon.svg', 'src/native/check.ps1', 'src/native/check.cs', 'src/native/process.ps1',
+  for (const file of ['src/ui/index.html', 'src/ui/app.js', 'src/ui/app.css', 'src/ui/favicon.svg', 'src/ui/markdown.js',
+    'node_modules/markdown-it/dist/browser/markdown-it.umd.min.js', 'src/native/check.ps1', 'src/native/check.cs', 'src/native/process.ps1',
     'dist/src/ui-worker.js', 'dist/src/check-host.js', 'dist/src/delivery-worker.js', 'dist/src/implementation-worker.js',
     `node_modules/@anthropic-ai/claude-agent-sdk-win32-${process.arch}/claude.exe`]) {
     if (!existsSync(join(stage, file))) throw new Error(`Snapshot is missing a required runtime asset: ${file}`);

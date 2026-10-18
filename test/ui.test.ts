@@ -144,6 +144,45 @@ test('dashboard workers use real file/check checkpoints without bypassing assess
   assert.equal(view.state.reviewId, null); assert.equal(f.git('rev-parse', 'HEAD'), view.state.plan.workspace.base);
 });
 
+test('dashboard exposes live planner activity across polls without changing the displayed decision', async t => {
+  const f = fixture(t), ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+  let markStarted!: () => void, finish!: () => void;
+  const started = new Promise<void>(resolve => { markStarted = resolve; });
+  const finished = new Promise<void>(resolve => { finish = resolve; });
+  let emit!: Parameters<Connector>[1]['emit'];
+  const connector: Connector = async (_, options) => {
+    if (options.purpose === 'title') throw new Error('Naming unavailable in this planner fixture');
+    emit = options.emit;
+    emit({ type: 'session.connected', data: { providerSessionId: 'offline-progress', model: null } });
+    return { turn: async () => {
+      emit({ type: 'turn.started', data: {} }); markStarted(); await finished;
+      return { status: 'completed', reply: { kind: 'question', text: 'Please confirm the output', questions: [{ id: 'output', prompt: 'Keep hello?', choices: ['yes'] }], findings: [] }, usage: null, error: null };
+    }, close: async () => {}, interrupt: async () => {} };
+  };
+  const kickoffs = new Kickoffs(ui.store, connector), id = kickoffs.create({ repo: f.repo, request: 'Check the greeting', provider: 'claude' });
+  const sending = kickoffs.send(id);
+  t.after(async () => { finish(); await sending; await ui.close(); f.cleanup(); });
+  await started;
+  const url = new URL(ui.url), headers = { Authorization: `Bearer ${url.hash.slice(1)}` };
+  const get = async () => ((await (await fetch(url.origin + '/api/state', { headers })).json()) as any).kickoffs.find((item: any) => item.id === id);
+  const first = await get();
+  assert.equal(first.progress.stage, 'working');
+  emit({ type: 'repository.tool_requested', data: { tool: 'grampus_read_file', arguments: { path: 'greeting.js' } } });
+  emit({ type: 'repository.tool_result', data: { tool: 'grampus_read_file', result: { path: 'greeting.js', lines: ['HIDDEN FILE CONTENT'] } } });
+  emit({ type: 'output.delta', data: { text: 'HIDDEN PARTIAL RESPONSE' } });
+  const updated = await get();
+  assert.equal(updated.turnKey, first.turnKey);
+  assert.equal(updated.progress.stage, 'responding');
+  assert.equal(updated.progress.repositoryCalls, 1);
+  assert.equal(updated.progress.recent[0].label, 'Read greeting.js');
+  assert.doesNotMatch(JSON.stringify(updated.progress), /HIDDEN/);
+  assert.equal(updated.progress.startedAt, first.progress.startedAt);
+  finish(); await sending;
+  const settled = await get();
+  assert.equal(settled.progress, null); assert.equal(settled.session.phase, 'awaiting_answer');
+  assert.notEqual(settled.turnKey, first.turnKey);
+});
+
 test('kickoff clarifies consequential ambiguity, validates generated commands and creates only an unapproved draft', async t => {
   const f = fixture(t), store = new Store(join(f.root, 'journal.sqlite')); t.after(() => { store.close(); f.cleanup(); });
   const replies: Reply[] = [{ kind: 'question', text: 'Which greeting should be preserved?', questions: [{ id: 'greeting', prompt: 'Which exact greeting?', choices: ['hello', 'hello world'] }], findings: [] },
@@ -151,11 +190,14 @@ test('kickoff clarifies consequential ambiguity, validates generated commands an
     { kind: 'message', text: 'This is not a validated plan.', questions: [], findings: [] },
     { kind: 'message', text: JSON.stringify(f.plan), questions: [], findings: [] }];
   let seen = '';
-  const connector: Connector = async (_, options) => ({ turn: async prompt => {
+  const connector: Connector = async (_, options) => {
+    if (options.purpose === 'title') throw new Error('Naming unavailable in this planner fixture');
+    return { turn: async prompt => {
     seen += prompt;
     options.emit({ type: 'session.connected', data: { providerSessionId: 'offline-planner', model: 'offline-fixture' } });
     return { status: 'completed', reply: replies.shift()!, usage: null, error: null };
-  }, close: async () => {}, interrupt: async () => {} });
+  }, close: async () => {}, interrupt: async () => {} };
+  };
   const kickoffs = new Kickoffs(store, connector), id = kickoffs.create({ repo: f.repo, request: 'Verify the greeting', provider: 'claude', contextFiles: ['greeting.js'] });
   assert.equal(store.list().length, 0); assert.equal(store.workspaces().length, 0);
   const question = await kickoffs.send(id); assert.equal(question.session.phase, 'awaiting_answer');
@@ -195,11 +237,14 @@ test('kickoff plans the full ticket across ordered slices on initial and resumed
     { kind: 'message', text: JSON.stringify(plan), questions: [], findings: [] },
   ];
   const prompts: string[] = [];
-  const connector: Connector = async (_, options) => ({ turn: async prompt => {
+  const connector: Connector = async (_, options) => {
+    if (options.purpose === 'title') throw new Error('Naming unavailable in this planner fixture');
+    return { turn: async prompt => {
     prompts.push(prompt);
     options.emit({ type: 'session.connected', data: { providerSessionId: 'offline-multislice-planner', model: 'fixture' } });
     return { status: 'completed', reply: replies.shift()!, usage: null, error: null };
-  }, close: async () => {}, interrupt: async () => {} });
+  }, close: async () => {}, interrupt: async () => {} };
+  };
   const kickoffs = new Kickoffs(store, connector), id = kickoffs.create({ repo: f.repo, request: 'Plan this XL ticket in full: verify greeting syntax and output' });
   const question = await kickoffs.send(id);
   assert.equal(question.session.phase, 'awaiting_answer');
@@ -263,7 +308,8 @@ test('a revision request invalidates an older proposal even if its worker exits 
 test('an explicit continuation after first-turn connection failure resupplies pinned files and the planning protocol', async t => {
   const f = fixture(t), store = new Store(join(f.root, 'journal.sqlite')); t.after(() => { store.close(); f.cleanup(); });
   let connections = 0, supplied = '';
-  const connector: Connector = async () => {
+  const connector: Connector = async (_, options) => {
+    if (options.purpose === 'title') throw new Error('Naming unavailable in this planner fixture');
     if (++connections === 1) throw new Error('Offline first-connection failure');
     return { turn: async prompt => { supplied = prompt; return { status: 'completed', reply: { kind: 'message', text: JSON.stringify(f.plan), questions: [], findings: [] }, usage: null, error: null }; }, close: async () => {}, interrupt: async () => {} };
   };
@@ -317,7 +363,10 @@ test('a reopened dashboard observes the original live worker, refuses takeover a
 test('planner answers bind the displayed turn even when later questions reuse the same id', async t => {
   const f = fixture(t), store = new Store(join(f.root, 'journal.sqlite')); t.after(() => { store.close(); f.cleanup(); });
   let turns = 0;
-  const connector: Connector = async () => ({ turn: async () => ({ status: 'completed', reply: { kind: 'question', text: 'Clarify the example', questions: [{ id: 'example', prompt: ++turns === 1 ? 'Which greeting?' : 'Should that greeting also apply to the edge case?', choices: [] }], findings: [] }, usage: null, error: null }), close: async () => {}, interrupt: async () => {} });
+  const connector: Connector = async (_, options) => {
+    if (options.purpose === 'title') throw new Error('Naming unavailable in this planner fixture');
+    return { turn: async () => ({ status: 'completed', reply: { kind: 'question', text: 'Clarify the example', questions: [{ id: 'example', prompt: ++turns === 1 ? 'Which greeting?' : 'Should that greeting also apply to the edge case?', choices: [] }], findings: [] }, usage: null, error: null }), close: async () => {}, interrupt: async () => {} };
+  };
   const planners = new Kickoffs(store, connector), id = planners.create({ repo: f.repo, request: 'Update greeting' });
   const first = await planners.send(id);
   const second = await planners.send(id, undefined, { example: 'hello' }, undefined, first.turnKey);

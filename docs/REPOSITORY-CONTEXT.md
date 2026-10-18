@@ -26,8 +26,8 @@ files are not exposed. Symlinks, filesystem aliases and non-UTF-8 text are refus
 
 Repository exploration never grants write permission. Approval still freezes the
 pinned base, repository-read capability, exact file actions and check commands.
-Review receives changed files, before/after evidence and repository instructions
-upfront, then can inspect surrounding code itself. Unread files remain covered by
+Review receives repository instructions, bounded starting text and a change inventory,
+then can page through all recorded before/after evidence and surrounding code. Unread files remain covered by
 artifact verification, but hashing does not establish semantic review coverage.
 Requests and the exact bounded tool results, including source identities, file hashes,
 pagination and omissions, are retained in the session journal. The dashboard shows
@@ -40,8 +40,11 @@ the only automatically supplied files. Optional initial context is explicit:
 "context": { "files": ["src/greeting.js"], "exploration": true }
 ```
 
-Existing edit/delete paths must exist in the pinned inventory, but need not be in
-starting hints. Existing saved plans and kickoff conversations retain their approved
+Existing edit/delete paths must exist at the start of their slice, including files
+created by an earlier slice, but need not be in starting hints. Plan validation
+tracks creations and deletions through the entire sequence: it rejects edits or
+repeat deletions after removal, creation collisions and recreation of deleted paths.
+Existing saved plans and kickoff conversations retain their approved
 capabilities and digests; start a new task to enable exploration. Explicit
 `"exploration": false` preserves selected-context behavior for newly authored plans.
 Low-level conversation sessions do not gain repository access implicitly.
@@ -95,9 +98,16 @@ existing subscriptions and retain fixtures and journals under `.grampus/`.
   initial-context restriction. Existing turn deadlines and interruption apply.
 
 - Initial supplied text context: at most 256 files, 256 KiB per file and 512 KiB in total.
-  Required files exceeding the budget stop the workflow; nothing is truncated.
-- Complete review envelope, including instructions and before/after evidence:
-  at most 2 MiB. Retained repository change evidence remains limited to 4 MiB.
+  Exploration-enabled tasks defer excess changed-file text and diff content to
+  `grampus_read_changes`, keeping the full evidence in the bound snapshot. Without
+  a path, the tool lists 100 changed paths per page; with a path and `side: "before"`
+  or `"after"`, it pages recorded content by string offset, including deleted files
+  and long lines. Follow `nextOffset` until null. Each content page contains at most
+  12,000 characters and approximately 24 KiB of JSON text. Tool results remain
+  ownership-checked and journaled. Legacy selected-context tasks retain strict limits.
+- Inline review envelopes remain bounded to 2 MiB. Splitting work no longer
+  accumulates all earlier file contents into this envelope. Retained repository
+  change evidence remains limited to 4 MiB; repository instructions must fit inline.
 - Raw snapshots process files individually, with a 32 MiB per-file limit and no
   aggregate repository byte cap. Git metadata subprocess output remains bounded.
 - An LRU cache holds immutable pinned-tree metadata, bounded to four trees and
