@@ -188,6 +188,9 @@ export function deleteEditingFile(context: EditingContext, input: unknown, emit:
 }
 
 export function verifyEditingScope(context: EditingContext, after: RepositorySnapshot): void {
+  if (after.head === context.snapshot.head && after.instructionsDigest === context.snapshot.instructionsDigest && after.index !== context.snapshot.index) {
+    throw new Error('Files were staged or unstaged during this attempt. Edits are preserved. Finish staging, then choose Retry repair.');
+  }
   if (after.head !== context.snapshot.head || after.index !== context.snapshot.index || after.instructionsDigest !== context.snapshot.instructionsDigest) throw new Error('Editing changed Git state or repository instructions');
   const beforeFiles = new Map(context.snapshot.files.map(file => [file.path, file]));
   const afterFiles = new Map(after.files.map(file => [file.path, file]));

@@ -592,11 +592,26 @@ export class GuidedTasks {
         this.change(id, token, 'guided.preparation_retry_requested', current => { current.snapshot = snapshot; current.status = 'ready'; current.note = ''; });
         await this.drive(id, token, signal); return;
       }
-      this.prepareRetry(id, token, 'guided.retry_requested');
+      this.prepareRetry(id, token, 'guided.retry_requested', await this.implementationRetrySnapshot(state));
       await this.drive(id, token, signal);
     }, signal, false, allowed);
   }
-  private prepareRetry(id: string, token: string, type: string): void {
+  private async implementationRetrySnapshot(state: GuidedState): Promise<RepositorySnapshot | undefined> {
+    if (state.stage !== 'implementation' || !state.executionId || !state.snapshot || !state.policy) return;
+    const workspace = this.workspaces.get(state.workspaceId!);
+    // The failed execution is settled and cannot acquire another operation lease.
+    // The controller owns the task; bind this read to the next leased scope step.
+    assertTaskExecutionIdle(this.store, workspace.taskId);
+    await this.workspaces.inspect(workspace.id, false);
+    const snapshot = await snapshotRepository(workspace.path!, workspace.baseCommit);
+    assertTaskExecutionIdle(this.store, workspace.taskId);
+    // An explicit retry accepts the user's staging, while preserving HEAD,
+    // instruction and file-scope guards. Automatic repairs keep their old anchor.
+    verifyEditingScope({ cwd: workspace.path!, policy: state.policy,
+      snapshot: { ...state.snapshot, index: snapshot.index } }, snapshot);
+    return snapshot;
+  }
+  private prepareRetry(id: string, token: string, type: string, explicitSnapshot?: RepositorySnapshot): void {
     this.store.transaction(() => {
       const state = this.get(id);
       const previous = state.executionId ? new Sessions(this.store).get(this.executions.get(state.executionId).sessionId).lastReply : null;
@@ -611,7 +626,8 @@ export class GuidedTasks {
       this.change(id, token, type, current => {
         current.feedback = JSON.stringify(feedback); current.stage = current.workspaceId ? 'execution' : 'workspace'; current.status = 'ready'; current.pending = null;
         current.implementationContinuation = state.executionId; current.reviewContinuation = state.reviewId ?? state.reviewContinuation ?? null;
-        current.retryAnchor = this.automatic(state) && state.snapshot ? { artifact: state.snapshot.artifact, instructionsDigest: state.snapshot.instructionsDigest } : null;
+        const anchor = explicitSnapshot ?? state.snapshot;
+        current.retryAnchor = this.automatic(state) && anchor ? { artifact: anchor.artifact, instructionsDigest: anchor.instructionsDigest } : null;
         current.executionId = null; current.reviewId = null; current.validationId = null; current.snapshot = null; current.policy = null; current.assessment = null; current.answers = null;
         if (current.reviewCycle) current.reviewCycle.arbitrating = false;
       });
@@ -625,7 +641,7 @@ export class GuidedTasks {
       if (state.status === 'blocked' && ['preparation', 'refresh', 'delivery'].includes(state.stage)) throw new Error('Inspect and resolve this operational failure before automatic work');
       this.change(id, token, 'guided.automation_authorized', current => { current.automationEnabled = true; });
       if (state.status === 'blocked') {
-        this.prepareRetry(id, token, 'guided.retry_requested');
+        this.prepareRetry(id, token, 'guided.retry_requested', await this.implementationRetrySnapshot(state));
       } else this.change(id, token, 'guided.automatic_continuation', current => {
         if (current.status === 'awaiting_scope') current.stage = current.policy === null ? this.afterImplementation(current) : 'implementation';
         else if (current.status === 'awaiting_assessment') current.stage = 'review_execution';

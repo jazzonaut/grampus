@@ -16,6 +16,12 @@ attention. An ordinary failed test does not require a manual retry or another ap
 of the same file list. Valid tests and acceptance criteria must not be weakened to pass.
 The agent may repair a defective test when it can establish the defect with evidence.
 
+Staging or unstaging files during an implementation stops that attempt because its
+Git checkpoint changed. Finish staging, then choose **Retry repair**. Explicit retry
+preserves those staged files and authorized edits, checks that HEAD, instructions
+and file scope still match, and takes a new checkpoint. Automatic repair never
+silently adopts an externally changed checkpoint.
+
 The independent reviewer supplies an explicit simplification assessment of the current
 artifact. Grampus verifies that assessment's reviewer, attempt, version and artifact
 before recording it as **agent evidence**, rather than inferring it from a passing check.
