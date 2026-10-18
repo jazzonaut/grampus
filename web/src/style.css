@@ -1,0 +1,74 @@
+@import 'tailwindcss';
+@import '@nuxt/ui';
+@import './theme/theme.css';
+
+@theme {
+  /* System fonts only: the CSP has no font-src and nothing is fetched remotely. */
+  --font-sans: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+
+@layer base {
+  html {
+    height: 100%;
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  /* Match the dark canvas before the script applies the class, so dark systems do not flash white. */
+  @media (prefers-color-scheme: dark) {
+    html:not(.light) {
+      background-color: var(--color-slate-900);
+    }
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: var(--ui-bg);
+    color: var(--ui-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Keyboard focus is always visible, including on elements Nuxt UI does not style. */
+  :focus-visible {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: 2px;
+  }
+}
+
+/* Rendered Markdown (components/MarkdownView.vue). The HTML comes from markdown-it, so it has
+   no classes of its own. */
+@layer components {
+  .grampus-markdown p {
+    @apply my-2 first:mt-0 last:mb-0;
+  }
+  .grampus-markdown ul {
+    @apply my-2 list-disc pl-5;
+  }
+  .grampus-markdown ol {
+    @apply my-2 list-decimal pl-5;
+  }
+  .grampus-markdown :is(h1, h2, h3, h4) {
+    @apply mt-3 mb-1 font-semibold text-highlighted;
+  }
+  .grampus-markdown a {
+    @apply text-primary underline underline-offset-2;
+  }
+  .grampus-markdown code {
+    @apply rounded-sm bg-elevated px-1 py-0.5 font-mono text-[0.85em];
+  }
+  .grampus-markdown pre {
+    @apply my-2 overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs;
+  }
+  .grampus-markdown pre code {
+    @apply bg-transparent p-0;
+  }
+  .grampus-markdown blockquote {
+    @apply my-2 border-l-2 border-accented pl-3 text-toned;
+  }
+}
