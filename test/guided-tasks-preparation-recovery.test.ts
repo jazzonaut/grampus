@@ -4,11 +4,11 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GuidedTasks } from '../src/guided-tasks.js';
-import { guidedTaskView } from '../src/guided-status.js';
-import { Workflow } from '../src/workflow.js';
-import { runCheckProcess } from '../src/check-process.js';
-import { Checks, type RepositoryCheck } from '../src/checks.js';
+import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { guidedTaskView } from '../src/orchestration/guided-status.js';
+import { Workflow } from '../src/domain/workflow.js';
+import { runCheckProcess } from '../src/process/check-process.js';
+import { Checks, type RepositoryCheck } from '../src/verification/checks.js';
 import { windows, preparation, git, services, fixture } from './helpers/guided-tasks.js';
 
 for (const stage of ['initial', 'slice'] as const)
@@ -61,8 +61,8 @@ test('recovery adopts a completed preparation without replaying it or starting i
   const file = join(f.root, 'crash-preparation.mjs');
   writeFileSync(
     file,
-    `import {Store} from ${JSON.stringify(new URL('../src/store.js', import.meta.url).href)};
-    import {GuidedTasks} from ${JSON.stringify(new URL('../src/guided-tasks.js', import.meta.url).href)};
+    `import {Store} from ${JSON.stringify(new URL('../src/persistence/store.js', import.meta.url).href)};
+    import {GuidedTasks} from ${JSON.stringify(new URL('../src/orchestration/guided-tasks.js', import.meta.url).href)};
     const store=new Store(${JSON.stringify(f.store.path)}),append=store.append.bind(store);
     store.append=(id,version,type,data)=>{if(type==='guided.step_finished'&&data.stage==='scope')process.exit(29);append(id,version,type,data)};
     await new GuidedTasks(store).run(${JSON.stringify(task.id)});throw new Error('Expected controller exit');`,

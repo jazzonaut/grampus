@@ -1,10 +1,10 @@
 // Guided task tests: approved repair budgets and fresh arbitration.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GuidedTasks } from '../src/guided-tasks.js';
-import { guidedTaskView } from '../src/guided-status.js';
-import type { Reply } from '../src/agents/types.js';
-import { renderReport } from '../src/report.js';
+import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { guidedTaskView } from '../src/orchestration/guided-status.js';
+import type { Reply } from '../src/providers/types.js';
+import { renderReport } from '../src/reporting/report.js';
 import { windows, review, services, fixture } from './helpers/guided-tasks.js';
 
 test(

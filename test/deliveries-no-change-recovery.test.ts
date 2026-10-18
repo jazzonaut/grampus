@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type Delivery } from '../src/deliveries.js';
+import { type Delivery } from '../src/execution/deliveries.js';
 import { windows, git, noChangeFixture, deadController, crash } from './helpers/deliveries.js';
 
 test(

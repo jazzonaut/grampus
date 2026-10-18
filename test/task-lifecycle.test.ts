@@ -4,12 +4,12 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store } from '../src/store.js';
-import { Kickoffs } from '../src/kickoff.js';
-import { TaskLifecycle } from '../src/task-lifecycle.js';
-import { GuidedTasks, guidedDecisionKey } from '../src/guided-tasks.js';
-import type { Task } from '../src/workflow.js';
-import type { Session } from '../src/sessions.js';
+import { Store } from '../src/persistence/store.js';
+import { Kickoffs } from '../src/orchestration/kickoff.js';
+import { TaskLifecycle } from '../src/orchestration/task-lifecycle.js';
+import { GuidedTasks, guidedDecisionKey } from '../src/orchestration/guided-tasks.js';
+import type { Task } from '../src/domain/workflow.js';
+import type { Session } from '../src/execution/sessions.js';
 
 function fixture(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-lifecycle-')),

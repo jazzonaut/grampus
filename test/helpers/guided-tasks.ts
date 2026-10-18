@@ -5,10 +5,10 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Store } from '../../src/store.js';
-import { GuidedTasks, type GuidedServices } from '../../src/guided-tasks.js';
-import { runCheckProcess } from '../../src/check-process.js';
-import type { Reply } from '../../src/agents/types.js';
+import { Store } from '../../src/persistence/store.js';
+import { GuidedTasks, type GuidedServices } from '../../src/orchestration/guided-tasks.js';
+import { runCheckProcess } from '../../src/process/check-process.js';
+import type { Reply } from '../../src/providers/types.js';
 
 export const windows = { skip: process.platform !== 'win32' };
 
@@ -119,7 +119,7 @@ export function crashProgram(
   writeFileSync(
     file,
     `
-    import {join} from 'node:path'; import {Store} from ${url('store')}; import {GuidedTasks} from ${url('guided-tasks')}; import {runCheckProcess} from ${url('check-process')};
+    import {join} from 'node:path'; import {Store} from ${url('persistence/store')}; import {GuidedTasks} from ${url('orchestration/guided-tasks')}; import {runCheckProcess} from ${url('process/check-process')};
     const message = ${JSON.stringify(message)}, review = ${JSON.stringify(review)};
     const serviceFactory = ${services.toString()};
     const store = new Store(${JSON.stringify(f.store.path)}); const append = store.append.bind(store);

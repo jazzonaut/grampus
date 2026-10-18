@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { command, RpcProcess } from '../src/process.js';
+import { command, RpcProcess } from '../src/process/process.js';
 
 test('commands pass arguments without shell expansion', async () => {
   const literal = '$(not-a-command); `literal` & | spaces';

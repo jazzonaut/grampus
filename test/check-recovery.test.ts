@@ -4,10 +4,10 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { readReceipt, requireDeadController } from '../src/check-recovery.js';
-import type { ExecutionLease } from '../src/execution-state.js';
-import { currentProcessStartedAt, inspectProcess } from '../src/process-identity.js';
-import { runCheckProcess } from '../src/check-process.js';
+import { readReceipt, requireDeadController } from '../src/verification/check-recovery.js';
+import type { ExecutionLease } from '../src/execution/execution-state.js';
+import { currentProcessStartedAt, inspectProcess } from '../src/process/process-identity.js';
+import { runCheckProcess } from '../src/process/check-process.js';
 
 const windows = { skip: process.platform !== 'win32' };
 function startTime(): string {

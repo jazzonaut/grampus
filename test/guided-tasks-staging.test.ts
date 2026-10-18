@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GuidedTasks } from '../src/guided-tasks.js';
-import { guidedTaskView } from '../src/guided-status.js';
+import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import { windows, review, git, services, fixture } from './helpers/guided-tasks.js';
 
 for (const action of ['retry', 'automate'] as const)

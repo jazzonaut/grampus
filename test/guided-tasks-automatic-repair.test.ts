@@ -2,9 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { GuidedTasks } from '../src/guided-tasks.js';
-import type { ImplementationRun } from '../src/implementations.js';
-import { Sessions } from '../src/sessions.js';
+import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import type { ImplementationRun } from '../src/execution/implementations.js';
+import { Sessions } from '../src/execution/sessions.js';
 import { windows, review, services, fixture } from './helpers/guided-tasks.js';
 
 test('automatic work repairs a failed check with complete evidence and resumes its implementer', windows, async t => {

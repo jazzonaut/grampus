@@ -8,10 +8,10 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseSync } from 'node:sqlite';
-import { Store } from '../src/store.js';
-import { Checks, type RepositoryCheck } from '../src/checks.js';
-import { runCheckProcess } from '../src/check-process.js';
-import { processAlive } from '../src/check-recovery.js';
+import { Store } from '../src/persistence/store.js';
+import { Checks, type RepositoryCheck } from '../src/verification/checks.js';
+import { runCheckProcess } from '../src/process/check-process.js';
+import { processAlive } from '../src/verification/check-recovery.js';
 import { windows, fixture, alive, deadController, crashDuringInspection } from './helpers/checks.js';
 
 async function waitFor(predicate: () => boolean, timeout = 10_000): Promise<void> {
@@ -69,7 +69,7 @@ test('rapid zero-exit tools wait for job settlement instead of failing on transi
 
 test('timeout terminates a real tool tree before releasing the workspace', windows, async t => {
   const f = await fixture(t);
-  const identityModule = JSON.stringify(new URL('../src/process-identity.js', import.meta.url).href);
+  const identityModule = JSON.stringify(new URL('../src/process/process-identity.js', import.meta.url).href);
   const spec =
     await f.spec(`const {spawn}=require('node:child_process'); const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
     import(${identityModule}).then(({inspectProcess}) => console.log(JSON.stringify({ childPid: child.pid, tool: inspectProcess(process.pid), child: inspectProcess(child.pid) })));

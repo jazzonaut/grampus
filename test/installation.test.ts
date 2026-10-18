@@ -53,15 +53,19 @@ test('installed snapshots launch independently, preserve data and switch version
     const candidate = installer.createVersionDirectory(installRoot, '0.1.0'),
       stage = candidate.directory;
     const digest = installer.copySourceSnapshot(source, stage);
-    mkdirSync(join(stage, 'dist', 'src'), { recursive: true });
+    mkdirSync(join(stage, 'dist', 'src', 'config'), { recursive: true });
+    mkdirSync(join(stage, 'dist', 'src', 'persistence'), { recursive: true });
     copyFileSync(
-      fileURLToPath(new URL('../src/runtime.js', import.meta.url)),
-      join(stage, 'dist', 'src', 'runtime.js'),
+      fileURLToPath(new URL('../src/config/runtime.js', import.meta.url)),
+      join(stage, 'dist', 'src', 'config', 'runtime.js'),
     );
-    copyFileSync(fileURLToPath(new URL('../src/store.js', import.meta.url)), join(stage, 'dist', 'src', 'store.js'));
+    copyFileSync(
+      fileURLToPath(new URL('../src/persistence/store.js', import.meta.url)),
+      join(stage, 'dist', 'src', 'persistence', 'store.js'),
+    );
     writeFileSync(
       join(stage, 'dist', 'src', 'cli.js'),
-      `import {versionInformation} from './runtime.js'; console.log(JSON.stringify({...versionInformation(), message: ${JSON.stringify(message)}, cwd: process.cwd(), args: process.argv.slice(2)}));`,
+      `import {versionInformation} from './config/runtime.js'; console.log(JSON.stringify({...versionInformation(), message: ${JSON.stringify(message)}, cwd: process.cwd(), args: process.argv.slice(2)}));`,
     );
     const build = {
       id: candidate.id,

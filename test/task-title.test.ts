@@ -4,10 +4,10 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store } from '../src/store.js';
-import { Kickoffs } from '../src/kickoff.js';
-import { generateTaskTitle, parseTaskTitle } from '../src/task-title.js';
-import type { Connector, Reply, TurnResult } from '../src/agents/types.js';
+import { Store } from '../src/persistence/store.js';
+import { Kickoffs } from '../src/orchestration/kickoff.js';
+import { generateTaskTitle, parseTaskTitle } from '../src/orchestration/task-title.js';
+import type { Connector, Reply, TurnResult } from '../src/providers/types.js';
 
 function fixture(t: { after(fn: () => void): void }) {
   const repo = mkdtempSync(join(tmpdir(), 'grampus-title-'));

@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { activeCriteria } from '../src/workflow.js';
-import { type Delivery } from '../src/deliveries.js';
+import { activeCriteria } from '../src/domain/workflow.js';
+import { type Delivery } from '../src/execution/deliveries.js';
 import { windows, git, invoke, fixture, type Fixture } from './helpers/slices.js';
 
 async function gated(f: Fixture, execution = f.execution) {
@@ -49,7 +49,7 @@ function crash(f: Fixture, spec: unknown): Delivery {
       '--input-type=module',
       '-e',
       `
-    import {Store} from ${url('store')}; import {Deliveries} from ${url('deliveries')}; import {runCheckProcess} from ${url('check-process')};
+    import {Store} from ${url('persistence/store')}; import {Deliveries} from ${url('execution/deliveries')}; import {runCheckProcess} from ${url('process/check-process')};
     await new Deliveries(new Store(${JSON.stringify(f.db)})).run(${JSON.stringify(f.execution.id)},${JSON.stringify(spec)},undefined,
       async options => { await runCheckProcess(options); process.exit(0); });`,
     ],

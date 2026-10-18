@@ -4,12 +4,12 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { Store } from '../../src/store.js';
-import { Workflow } from '../../src/workflow.js';
-import { Workspaces } from '../../src/workspaces.js';
-import { Executions } from '../../src/executions.js';
-import { Checks, type CheckSpec } from '../../src/checks.js';
-import type { ExecutionLease } from '../../src/execution-state.js';
+import { Store } from '../../src/persistence/store.js';
+import { Workflow } from '../../src/domain/workflow.js';
+import { Workspaces } from '../../src/repository/workspaces.js';
+import { Executions } from '../../src/execution/executions.js';
+import { Checks, type CheckSpec } from '../../src/verification/checks.js';
+import type { ExecutionLease } from '../../src/execution/execution-state.js';
 
 export const windows = { skip: process.platform !== 'win32' };
 
@@ -94,7 +94,7 @@ export function deadController(f: Awaited<ReturnType<typeof fixture>>): void {
 
 export function crashDuringInspection(f: Awaited<ReturnType<typeof fixture>>, operation: string): void {
   const url = (name: string) => JSON.stringify(new URL(`../../src/${name}.js`, import.meta.url).href);
-  const code = `import {Store} from ${url('store')}; import {Checks} from ${url('checks')}; import {Workspaces} from ${url('workspaces')};
+  const code = `import {Store} from ${url('persistence/store')}; import {Checks} from ${url('verification/checks')}; import {Workspaces} from ${url('repository/workspaces')};
     const store = new Store(${JSON.stringify(f.db)}); const workspaces = new Workspaces(store);
     workspaces.inspect = async () => process.exit(0); const checks = new Checks(store, workspaces); ${operation}`;
   execFileSync(process.execPath, ['--input-type=module', '-e', code], { windowsHide: true, stdio: 'pipe' });

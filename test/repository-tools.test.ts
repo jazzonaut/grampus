@@ -4,13 +4,13 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { repositoryTools } from '../src/repository-tools.js';
-import { snapshotRepository } from '../src/artifacts.js';
-import { authorizeEditTool } from '../src/edit-policy.js';
-import { Kickoffs } from '../src/kickoff.js';
-import { Store } from '../src/store.js';
-import type { AgentEvent, Connector } from '../src/agents/types.js';
-import { claudeRepositoryTools, isRepositoryTool } from '../src/agents/claude-repository.js';
+import { repositoryTools } from '../src/repository/repository-tools.js';
+import { snapshotRepository } from '../src/repository/artifacts.js';
+import { authorizeEditTool } from '../src/execution/edit-policy.js';
+import { Kickoffs } from '../src/orchestration/kickoff.js';
+import { Store } from '../src/persistence/store.js';
+import type { AgentEvent, Connector } from '../src/providers/types.js';
+import { claudeRepositoryTools, isRepositoryTool } from '../src/providers/claude-repository.js';
 
 function fixture(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-explore-')),

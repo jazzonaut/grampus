@@ -6,10 +6,10 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseSync } from 'node:sqlite';
-import { Store } from '../src/store.js';
-import { Executions } from '../src/executions.js';
-import { Sessions } from '../src/sessions.js';
-import { type ImplementationRun } from '../src/implementations.js';
+import { Store } from '../src/persistence/store.js';
+import { Executions } from '../src/execution/executions.js';
+import { Sessions } from '../src/execution/sessions.js';
+import { type ImplementationRun } from '../src/execution/implementations.js';
 import { windows, git, fixture } from './helpers/implementations.js';
 
 function crashCode(
@@ -19,8 +19,8 @@ function crashCode(
   remove = false,
 ): string {
   const url = (name: string) => JSON.stringify(new URL(`../src/${name}.js`, import.meta.url).href);
-  return `import {Store} from ${url('store')}; import {Implementations} from ${url('implementations')}; import {Workspaces} from ${url('workspaces')};
-    import {runCheckProcess} from ${url('check-process')};
+  return `import {Store} from ${url('persistence/store')}; import {Implementations} from ${url('execution/implementations')}; import {Workspaces} from ${url('repository/workspaces')};
+    import {runCheckProcess} from ${url('process/check-process')};
     const store = new Store(${JSON.stringify(f.db)}); const workspaces = new Workspaces(store);
     ${before ? 'workspaces.inspect = async () => process.exit(0);' : ''}
     await new Implementations(store, workspaces).run(${JSON.stringify(f.execution.id)}, ${JSON.stringify(f.policy)}, undefined, {},

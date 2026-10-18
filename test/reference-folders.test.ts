@@ -4,10 +4,10 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inspectReference, normalizeReferences, suggestReferenceFolders } from '../src/reference-folders.js';
-import { repositoryTools } from '../src/repository-tools.js';
-import { normalizeGuidedPlan } from '../src/guided-plan.js';
-import { allowMcpTool, isExternalMcpTool, projectMcpServers } from '../src/integrations.js';
+import { inspectReference, normalizeReferences, suggestReferenceFolders } from '../src/repository/reference-folders.js';
+import { repositoryTools } from '../src/repository/repository-tools.js';
+import { normalizeGuidedPlan } from '../src/domain/guided-plan.js';
+import { allowMcpTool, isExternalMcpTool, projectMcpServers } from '../src/providers/integrations.js';
 
 function fixture(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-references-')),

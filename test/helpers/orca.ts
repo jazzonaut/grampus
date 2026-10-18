@@ -3,15 +3,15 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { Store } from '../../src/store.js';
-import { Workflow, type Brief } from '../../src/workflow.js';
-import { Workspaces } from '../../src/workspaces.js';
-import { OrcaCli, type OrcaTransport } from '../../src/orca.js';
-import { Executions } from '../../src/executions.js';
-import { Checks } from '../../src/checks.js';
-import { Implementations } from '../../src/implementations.js';
-import { Deliveries } from '../../src/deliveries.js';
-import { runCheckProcess, type CheckProcessOptions } from '../../src/check-process.js';
+import { Store } from '../../src/persistence/store.js';
+import { Workflow, type Brief } from '../../src/domain/workflow.js';
+import { Workspaces } from '../../src/repository/workspaces.js';
+import { OrcaCli, type OrcaTransport } from '../../src/repository/orca.js';
+import { Executions } from '../../src/execution/executions.js';
+import { Checks } from '../../src/verification/checks.js';
+import { Implementations } from '../../src/execution/implementations.js';
+import { Deliveries } from '../../src/execution/deliveries.js';
+import { runCheckProcess, type CheckProcessOptions } from '../../src/process/check-process.js';
 
 export const brief = {
   title: 'Orca fixture',
@@ -174,8 +174,8 @@ export async function supervisedOrcaWriter(
   const identityFile = join(f.root, 'orca-identity.json');
   writeFileSync(identityFile, JSON.stringify(f.state.worktree));
   const url = (name: string) => JSON.stringify(new URL(`../../src/${name}.js`, import.meta.url).href);
-  const script = `import {readFileSync} from 'node:fs'; import {deliverRepository} from ${url('delivery-operation')};
-    import {Workspaces} from ${url('workspaces')}; import {OrcaCli} from ${url('orca')};
+  const script = `import {readFileSync} from 'node:fs'; import {deliverRepository} from ${url('execution/delivery-operation')};
+    import {Workspaces} from ${url('repository/workspaces')}; import {OrcaCli} from ${url('repository/orca')};
     const request=JSON.parse(readFileSync(process.argv[1],'utf8'));
     const client=new OrcaCli(async()=>JSON.stringify({ok:true,result:{worktree:JSON.parse(readFileSync(process.argv[2],'utf8'))}}));
     console.log(await deliverRepository(request,process.argv[1]+'.message',store=>new Workspaces(store,client)));`;

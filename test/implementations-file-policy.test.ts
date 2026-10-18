@@ -13,8 +13,8 @@ import {
   validateEditPolicy,
   verifyEditingScope,
   type EditPolicy,
-} from '../src/edit-policy.js';
-import { snapshotRepository } from '../src/artifacts.js';
+} from '../src/execution/edit-policy.js';
+import { snapshotRepository } from '../src/repository/artifacts.js';
 import { windows, reply, fixture, fakeResult } from './helpers/implementations.js';
 
 test('file policy allows only existing text paths and validates structured output without permitting other tools', async t => {

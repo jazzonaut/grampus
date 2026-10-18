@@ -5,18 +5,24 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { expectedStdout, fixtureFiles, oracle, obsoleteFile, obsoleteContent } from '../src/multifile-fixture.js';
-import { Store } from '../src/store.js';
-import { Workflow } from '../src/workflow.js';
-import { Workspaces } from '../src/workspaces.js';
-import { Executions } from '../src/executions.js';
-import { Checks } from '../src/checks.js';
-import { interruptAfterEdit } from '../src/probe-interruption.js';
-import { Implementations } from '../src/implementations.js';
-import { runCheckProcess } from '../src/check-process.js';
-import { runSession } from '../src/sessions.js';
-import { Deliveries } from '../src/deliveries.js';
-import { renderReport } from '../src/report.js';
+import {
+  expectedStdout,
+  fixtureFiles,
+  oracle,
+  obsoleteFile,
+  obsoleteContent,
+} from '../src/probes/multifile-fixture.js';
+import { Store } from '../src/persistence/store.js';
+import { Workflow } from '../src/domain/workflow.js';
+import { Workspaces } from '../src/repository/workspaces.js';
+import { Executions } from '../src/execution/executions.js';
+import { Checks } from '../src/verification/checks.js';
+import { interruptAfterEdit } from '../src/probes/probe-interruption.js';
+import { Implementations } from '../src/execution/implementations.js';
+import { runCheckProcess } from '../src/process/check-process.js';
+import { runSession } from '../src/execution/sessions.js';
+import { Deliveries } from '../src/execution/deliveries.js';
+import { renderReport } from '../src/reporting/report.js';
 import { library, command } from './helpers/multifile-probe.js';
 
 for (const mode of ['existing', 'new', 'delete'] as const)
@@ -73,8 +79,8 @@ for (const mode of ['existing', 'new', 'delete'] as const)
         : `require('node:fs').writeFileSync('summary.cjs', 'exports.summarize = () => null;\\n'); setTimeout(() => {}, 30000);`;
       writeFileSync(
         controller,
-        `import {Store} from ${url('store')}; import {Implementations} from ${url('implementations')};
-    import {runCheckProcess} from ${url('check-process')};
+        `import {Store} from ${url('persistence/store')}; import {Implementations} from ${url('execution/implementations')};
+    import {runCheckProcess} from ${url('process/check-process')};
     const store = new Store(${JSON.stringify(store.path)});
     await new Implementations(store).run(${JSON.stringify(execution.id)}, ${JSON.stringify(policy)}, undefined, {},
       options => runCheckProcess({...options, args: ['-e', ${JSON.stringify(tool)}]}));`,

@@ -11,7 +11,7 @@ import {
   editingScopeFiles,
   prepareEditing,
   type EditingContext,
-} from '../src/edit-policy.js';
+} from '../src/execution/edit-policy.js';
 
 function fixture(t: { after(fn: () => void): void }, contents: Record<string, string>) {
   const cwd = mkdtempSync(join(tmpdir(), 'grampus-text-policy-'));

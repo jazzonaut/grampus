@@ -4,10 +4,10 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GuidedTasks } from '../src/guided-tasks.js';
-import { guidedTaskView } from '../src/guided-status.js';
-import { Workflow } from '../src/workflow.js';
-import { renderReport } from '../src/report.js';
+import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { guidedTaskView } from '../src/orchestration/guided-status.js';
+import { Workflow } from '../src/domain/workflow.js';
+import { renderReport } from '../src/reporting/report.js';
 import { windows, cli, review, git, services, fixture } from './helpers/guided-tasks.js';
 
 test('guided acceptance verifies JSON values and file bytes through supervised delivery', windows, async t => {
@@ -56,7 +56,7 @@ test(
     assert.equal(released.status, 'ready');
     assert.equal(released.pending, null);
     assert.equal(released.owner, null);
-    assert.equal(f.store.workspaces<import('../src/workspaces.js').Workspace>()[0]!.phase, 'released');
+    assert.equal(f.store.workspaces<import('../src/repository/workspaces.js').Workspace>()[0]!.phase, 'released');
     assert.equal(f.store.executions().length, 0);
     const continued = await f.tasks.run(id);
     assert.equal(continued.status, 'awaiting_scope', continued.note);
@@ -77,7 +77,8 @@ test('failed simplification is retained and cannot start independent review or d
     new Workflow(f.store).get(id).evidence.some(item => item.kind === 'simplification' && item.outcome === 'skipped'),
   );
   assert.equal(
-    f.store.executions<import('../src/execution-state.js').Execution>().filter(item => item.role === 'review').length,
+    f.store.executions<import('../src/execution/execution-state.js').Execution>().filter(item => item.role === 'review')
+      .length,
     0,
   );
   assert.equal(f.store.deliveries(failed.executionId!).length, 0);
@@ -135,7 +136,7 @@ test('stale scopes stop before dispatch while repository size is independent of 
   const id = f.create();
   await tasks.run(id);
   const state = tasks.get(id),
-    workspace = f.store.workspace<import('../src/workspaces.js').Workspace>(state.workspaceId!);
+    workspace = f.store.workspace<import('../src/repository/workspaces.js').Workspace>(state.workspaceId!);
   writeFileSync(join(workspace.path!, 'greeting.js'), "console.log('external change');\n");
   const stopped = await tasks.authorize(id);
   assert.equal(stopped.status, 'blocked', stopped.note);

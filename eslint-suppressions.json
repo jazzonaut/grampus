@@ -1,20 +1,234 @@
 {
-  "src/acceptance.ts": {
+  "src/cli.ts": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    },
+    "complexity": {
+      "count": 1
+    },
+    "max-depth": {
+      "count": 5
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/domain/acceptance.ts": {
     "complexity": {
       "count": 2
     }
   },
-  "src/agents/claude-files.ts": {
+  "src/domain/guided-plan.ts": {
+    "complexity": {
+      "count": 2
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/execution/deliveries.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/execution/delivery-operation.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/execution/edit-policy.ts": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 14
+    },
+    "complexity": {
+      "count": 4
+    },
+    "no-control-regex": {
+      "count": 1
+    },
+    "preserve-caught-error": {
+      "count": 1
+    }
+  },
+  "src/execution/execution-state.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/execution/executions.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 2
+    },
+    "max-params": {
+      "count": 1
+    }
+  },
+  "src/execution/implementation-worker.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/execution/implementations.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/execution/sessions.ts": {
+    "complexity": {
+      "count": 3
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-unsafe-finally": {
+      "count": 2
+    }
+  },
+  "src/orchestration/guided-status.ts": {
+    "@typescript-eslint/switch-exhaustiveness-check": {
+      "count": 1
+    },
+    "complexity": {
+      "count": 2
+    },
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "src/orchestration/guided-tasks.ts": {
+    "@typescript-eslint/switch-exhaustiveness-check": {
+      "count": 3
+    },
+    "complexity": {
+      "count": 3
+    },
+    "max-lines": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 2
+    }
+  },
+  "src/orchestration/kickoff.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 8
+    },
+    "complexity": {
+      "count": 2
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "preserve-caught-error": {
+      "count": 1
+    }
+  },
+  "src/orchestration/planner-progress.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "no-control-regex": {
+      "count": 1
+    }
+  },
+  "src/orchestration/task-lifecycle.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/orchestration/task-title.ts": {
+    "no-control-regex": {
+      "count": 1
+    },
+    "no-useless-escape": {
+      "count": 1
+    }
+  },
+  "src/persistence/store.ts": {
+    "@typescript-eslint/restrict-template-expressions": {
+      "count": 3
+    }
+  },
+  "src/probes/mcp-probe.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 6
+    }
+  },
+  "src/probes/multifile-probe.ts": {
+    "complexity": {
+      "count": 2
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/probes/probe-interruption.ts": {
+    "complexity": {
+      "count": 1
+    },
+    "max-depth": {
+      "count": 1
+    },
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/probes/probe.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    },
+    "@typescript-eslint/prefer-promise-reject-errors": {
+      "count": 1
+    }
+  },
+  "src/probes/task-probe.ts": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/process/check-process.ts": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/providers/claude-files.ts": {
     "@typescript-eslint/require-await": {
       "count": 1
     }
   },
-  "src/agents/claude-repository.ts": {
+  "src/providers/claude-repository.ts": {
     "@typescript-eslint/require-await": {
       "count": 1
     }
   },
-  "src/agents/claude.ts": {
+  "src/providers/claude.ts": {
     "@typescript-eslint/require-await": {
       "count": 2
     },
@@ -25,7 +239,7 @@
       "count": 2
     }
   },
-  "src/agents/codex.ts": {
+  "src/providers/codex.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
     },
@@ -48,169 +262,7 @@
       "count": 3
     }
   },
-  "src/agents/types.ts": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/artifacts.ts": {
-    "complexity": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "src/check-evidence.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 3
-    }
-  },
-  "src/check-output.ts": {
-    "complexity": {
-      "count": 1
-    },
-    "no-control-regex": {
-      "count": 2
-    }
-  },
-  "src/check-process.ts": {
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "src/checks.ts": {
-    "complexity": {
-      "count": 2
-    },
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "src/cli.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    },
-    "complexity": {
-      "count": 1
-    },
-    "max-depth": {
-      "count": 5
-    },
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "src/deliveries.ts": {
-    "complexity": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "src/delivery-operation.ts": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/edit-policy.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 14
-    },
-    "complexity": {
-      "count": 4
-    },
-    "no-control-regex": {
-      "count": 1
-    },
-    "preserve-caught-error": {
-      "count": 1
-    }
-  },
-  "src/execution-state.ts": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/executions.ts": {
-    "complexity": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 2
-    },
-    "max-params": {
-      "count": 1
-    }
-  },
-  "src/guided-plan.ts": {
-    "complexity": {
-      "count": 2
-    },
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "src/guided-status.ts": {
-    "@typescript-eslint/switch-exhaustiveness-check": {
-      "count": 1
-    },
-    "complexity": {
-      "count": 2
-    },
-    "no-control-regex": {
-      "count": 1
-    }
-  },
-  "src/guided-tasks.ts": {
-    "@typescript-eslint/switch-exhaustiveness-check": {
-      "count": 3
-    },
-    "complexity": {
-      "count": 3
-    },
-    "max-lines": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 2
-    }
-  },
-  "src/implementation-worker.ts": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/implementations.ts": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/installed-dependency.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    },
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/integrations.ts": {
+  "src/providers/integrations.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 2
     },
@@ -224,70 +276,36 @@
       "count": 1
     }
   },
-  "src/kickoff.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
+  "src/providers/types.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/reporting/task-usage.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/repository/artifacts.ts": {
+    "complexity": {
       "count": 1
     },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 8
-    },
-    "complexity": {
+    "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/repository/installed-dependency.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
       "count": 2
     },
-    "max-lines-per-function": {
-      "count": 1
-    },
-    "preserve-caught-error": {
-      "count": 1
-    }
-  },
-  "src/mcp-probe.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 3
-    },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 6
-    }
-  },
-  "src/multifile-probe.ts": {
-    "complexity": {
       "count": 2
     },
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "src/planner-progress.ts": {
     "complexity": {
       "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 1
-    },
-    "no-control-regex": {
-      "count": 1
     }
   },
-  "src/probe-interruption.ts": {
-    "complexity": {
-      "count": 1
-    },
-    "max-depth": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "src/probe.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
-    "@typescript-eslint/prefer-promise-reject-errors": {
-      "count": 1
-    }
-  },
-  "src/reference-folders.ts": {
+  "src/repository/reference-folders.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 3
     },
@@ -298,17 +316,17 @@
       "count": 1
     }
   },
-  "src/repository-context.ts": {
+  "src/repository/repository-context.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     }
   },
-  "src/repository-evidence.ts": {
+  "src/repository/repository-evidence.ts": {
     "complexity": {
       "count": 1
     }
   },
-  "src/repository-tools.ts": {
+  "src/repository/repository-tools.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 3
     },
@@ -325,46 +343,18 @@
       "count": 1
     }
   },
-  "src/sessions.ts": {
-    "complexity": {
-      "count": 3
-    },
-    "max-lines-per-function": {
+  "src/repository/workspaces.ts": {
+    "@typescript-eslint/prefer-promise-reject-errors": {
       "count": 1
     },
-    "no-unsafe-finally": {
+    "complexity": {
+      "count": 1
+    },
+    "preserve-caught-error": {
       "count": 2
     }
   },
-  "src/store.ts": {
-    "@typescript-eslint/restrict-template-expressions": {
-      "count": 3
-    }
-  },
-  "src/task-lifecycle.ts": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/task-probe.ts": {
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "src/task-title.ts": {
-    "no-control-regex": {
-      "count": 1
-    },
-    "no-useless-escape": {
-      "count": 1
-    }
-  },
-  "src/task-usage.ts": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/ui-server.ts": {
+  "src/server/ui-server.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 2
     },
@@ -384,7 +374,7 @@
       "count": 2
     }
   },
-  "src/ui-worker.ts": {
+  "src/server/ui-worker.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 19
     },
@@ -406,15 +396,25 @@
       "count": 1
     }
   },
-  "src/workspaces.ts": {
-    "@typescript-eslint/prefer-promise-reject-errors": {
-      "count": 1
-    },
+  "src/verification/check-evidence.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 3
+    }
+  },
+  "src/verification/check-output.ts": {
     "complexity": {
       "count": 1
     },
-    "preserve-caught-error": {
+    "no-control-regex": {
       "count": 2
+    }
+  },
+  "src/verification/checks.ts": {
+    "complexity": {
+      "count": 2
+    },
+    "max-lines-per-function": {
+      "count": 1
     }
   },
   "test/browser-binding.probe.js": {

@@ -3,13 +3,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GuidedTasks } from '../src/guided-tasks.js';
-import { guidedTaskView } from '../src/guided-status.js';
-import { Workflow } from '../src/workflow.js';
-import { runCheckProcess } from '../src/check-process.js';
-import type { ImplementationRun } from '../src/implementations.js';
-import { Kickoffs } from '../src/kickoff.js';
-import { repositoryTools } from '../src/repository-tools.js';
+import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { guidedTaskView } from '../src/orchestration/guided-status.js';
+import { Workflow } from '../src/domain/workflow.js';
+import { runCheckProcess } from '../src/process/check-process.js';
+import type { ImplementationRun } from '../src/execution/implementations.js';
+import { Kickoffs } from '../src/orchestration/kickoff.js';
+import { repositoryTools } from '../src/repository/repository-tools.js';
 import { windows, message, review, git, services, fixture } from './helpers/guided-tasks.js';
 
 test(
@@ -154,7 +154,7 @@ test(
     assert.equal(next.status, 'awaiting_scope', next.note);
     assert.equal(next.sliceIndex, 1);
     assert.notEqual(next.executionId, first.executionId);
-    const firstDelivery = f.store.deliveries<import('../src/deliveries.js').Delivery>(first.executionId!)[0]!;
+    const firstDelivery = f.store.deliveries<import('../src/execution/deliveries.js').Delivery>(first.executionId!)[0]!;
     const workspace = guidedTaskView(f.store, id).workspace!;
     const libraryBlob = git(workspace.path!, 'rev-parse', 'HEAD:greeting.js');
     await tasks.authorize(id);

@@ -3,10 +3,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GuidedTasks, guidedDecisionKey } from '../src/guided-tasks.js';
-import { guidedTaskView } from '../src/guided-status.js';
-import { Workflow } from '../src/workflow.js';
-import type { Reply } from '../src/agents/types.js';
+import { GuidedTasks, guidedDecisionKey } from '../src/orchestration/guided-tasks.js';
+import { guidedTaskView } from '../src/orchestration/guided-status.js';
+import { Workflow } from '../src/domain/workflow.js';
+import type { Reply } from '../src/providers/types.js';
 import { windows, message, review, services, fixture } from './helpers/guided-tasks.js';
 
 test('blocking review stops delivery and explicit retry uses fresh sessions with preserved files', windows, async t => {
@@ -48,15 +48,15 @@ test('blocking review stops delivery and explicit retry uses fresh sessions with
   assert.equal(failed.status, 'blocked', failed.note);
   assert.equal(reviews, 1);
   assert.equal(f.store.deliveries(failed.executionId!).length, 0);
-  const previous = f.store.execution<import('../src/execution-state.js').Execution>(failed.executionId!);
+  const previous = f.store.execution<import('../src/execution/execution-state.js').Execution>(failed.executionId!);
   const next = await tasks.retry(id);
   assert.equal(next.status, 'awaiting_scope', next.note);
   assert.notEqual(next.executionId, failed.executionId);
   assert.notEqual(
-    f.store.execution<import('../src/execution-state.js').Execution>(next.executionId!).sessionId,
+    f.store.execution<import('../src/execution/execution-state.js').Execution>(next.executionId!).sessionId,
     previous.sessionId,
   );
-  const workspace = f.store.workspace<import('../src/workspaces.js').Workspace>(next.workspaceId!);
+  const workspace = f.store.workspace<import('../src/repository/workspaces.js').Workspace>(next.workspaceId!);
   assert.equal(readFileSync(join(workspace.path!, 'greeting.js'), 'utf8'), "console.log('hello world');\n");
   assert.match(next.feedback, /Concrete offline finding/);
   const repaired = await tasks.authorize(id);

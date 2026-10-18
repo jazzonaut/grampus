@@ -4,12 +4,12 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { Store } from '../../src/store.js';
-import { Workflow, type Brief } from '../../src/workflow.js';
-import { Workspaces } from '../../src/workspaces.js';
-import { Executions } from '../../src/executions.js';
-import { Checks } from '../../src/checks.js';
-import { Deliveries } from '../../src/deliveries.js';
+import { Store } from '../../src/persistence/store.js';
+import { Workflow, type Brief } from '../../src/domain/workflow.js';
+import { Workspaces } from '../../src/repository/workspaces.js';
+import { Executions } from '../../src/execution/executions.js';
+import { Checks } from '../../src/verification/checks.js';
+import { Deliveries } from '../../src/execution/deliveries.js';
 
 export const windows = { skip: process.platform !== 'win32' };
 

@@ -3,10 +3,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GuidedTasks, guidedDecisionKey } from '../src/guided-tasks.js';
-import { guidedTaskView } from '../src/guided-status.js';
-import { Workflow } from '../src/workflow.js';
-import { renderReport } from '../src/report.js';
+import { GuidedTasks, guidedDecisionKey } from '../src/orchestration/guided-tasks.js';
+import { guidedTaskView } from '../src/orchestration/guided-status.js';
+import { Workflow } from '../src/domain/workflow.js';
+import { renderReport } from '../src/reporting/report.js';
 import { windows, git, services, fixture } from './helpers/guided-tasks.js';
 
 test(
@@ -30,10 +30,13 @@ test(
     assert.equal(readFileSync(join(f.plan.workspace.path, 'greeting.js'), 'utf8'), before);
     assert.equal(new Workflow(f.store).get(id).evidence.length, 0);
     assert.equal(
-      f.store.execution<import('../src/execution-state.js').Execution>(submitted.executionId!).phase,
+      f.store.execution<import('../src/execution/execution-state.js').Execution>(submitted.executionId!).phase,
       'closed',
     );
-    assert.equal(f.store.workspace<import('../src/workspaces.js').Workspace>(revised.workspaceId!).version, 2);
+    assert.equal(
+      f.store.workspace<import('../src/repository/workspaces.js').Workspace>(revised.workspaceId!).version,
+      2,
+    );
     assert.throws(
       () => new GuidedTasks(f.store, { expectedState: oldKey }).approve(id, 2, revised.digest),
       /changed since/,

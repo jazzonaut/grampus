@@ -2,23 +2,23 @@ import { parseArgs } from 'node:util';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { Store, defaultDatabasePath } from './store.js';
-import { Workflow, type Brief } from './workflow.js';
-import { doctor } from './doctor.js';
-import { runDemo } from './demo.js';
-import { renderReport } from './report.js';
-import { Sessions, runSession } from './sessions.js';
-import type { Provider } from './agents/types.js';
-import { Workspaces } from './workspaces.js';
-import { Executions } from './executions.js';
-import type { Execution } from './execution-state.js';
-import { Checks, type CheckSpec } from './checks.js';
-import { Deliveries } from './deliveries.js';
-import { Implementations } from './implementations.js';
-import { GuidedTasks } from './guided-tasks.js';
-import { guidedTaskView, renderGuidedTask } from './guided-status.js';
-import type { SimplificationAssessment } from './checks.js';
-import { defaultDashboardPort, updateInstallation, versionInformation, versionLabel } from './runtime.js';
+import { Store, defaultDatabasePath } from './persistence/store.js';
+import { Workflow, type Brief } from './domain/workflow.js';
+import { doctor } from './health/doctor.js';
+import { runDemo } from './probes/demo.js';
+import { renderReport } from './reporting/report.js';
+import { Sessions, runSession } from './execution/sessions.js';
+import type { Provider } from './providers/types.js';
+import { Workspaces } from './repository/workspaces.js';
+import { Executions } from './execution/executions.js';
+import type { Execution } from './execution/execution-state.js';
+import { Checks, type CheckSpec } from './verification/checks.js';
+import { Deliveries } from './execution/deliveries.js';
+import { Implementations } from './execution/implementations.js';
+import { GuidedTasks } from './orchestration/guided-tasks.js';
+import { guidedTaskView, renderGuidedTask } from './orchestration/guided-status.js';
+import type { SimplificationAssessment } from './verification/checks.js';
+import { defaultDashboardPort, updateInstallation, versionInformation, versionLabel } from './config/runtime.js';
 
 const help = `Grampus — local agent controller
   task-revise <id> <version> <file.json>  Revise a settled recipe; retain files and require fresh approval
@@ -141,7 +141,7 @@ async function main(): Promise<void> {
   if (action === 'ui') {
     const port = Number(values.port ?? defaultDashboardPort);
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Port must be 0–65535');
-    const { startUi } = await import('./ui-server.js');
+    const { startUi } = await import('./server/ui-server.js');
     const ui = await startUi({ db: values.db ?? defaultDatabasePath(), port });
     console.log(
       `${versionLabel()}\nGrampus dashboard: ${ui.url}\nJournal: ${ui.store.path}\nKeep this terminal open. Ctrl+C closes the dashboard after active actions settle.`,

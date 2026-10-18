@@ -1,7 +1,7 @@
 // Guided task tests: automatic acceptance repair and opting legacy plans into automatic continuation.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GuidedTasks } from '../src/guided-tasks.js';
+import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
 import { windows, review, services, fixture } from './helpers/guided-tasks.js';
 
 test(
@@ -76,7 +76,7 @@ test(
       task = tasks.create(f.plan);
     // A saved plan predating workflow policy must keep its exact approval digest.
     delete task.guided!.plan.workflowPolicy;
-    task.guided!.digest = (await import('../src/guided-plan.js')).guidedPlanDigest(task.guided!.plan);
+    task.guided!.digest = (await import('../src/domain/guided-plan.js')).guidedPlanDigest(task.guided!.plan);
     f.store.save(task.id, task);
     tasks.approve(task.id, 1, task.guided!.digest);
     const scope = await tasks.run(task.id);

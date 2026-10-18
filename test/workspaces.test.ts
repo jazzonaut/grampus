@@ -6,11 +6,11 @@ import { tmpdir, hostname } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { Store } from '../src/store.js';
-import { Workflow } from '../src/workflow.js';
-import { Workspaces, type Workspace } from '../src/workspaces.js';
-import { currentProcessStartedAt } from '../src/process-identity.js';
-import { snapshotRepository } from '../src/artifacts.js';
+import { Store } from '../src/persistence/store.js';
+import { Workflow } from '../src/domain/workflow.js';
+import { Workspaces, type Workspace } from '../src/repository/workspaces.js';
+import { currentProcessStartedAt } from '../src/process/process-identity.js';
+import { snapshotRepository } from '../src/repository/artifacts.js';
 
 const brief = {
   title: 'Greeting',
@@ -254,8 +254,8 @@ test('recovery adopts a verified completed checkout after a lost controller resp
 
 test('a real controller crash before the ready transaction commits can be reconciled after restart', async t => {
   const { repo, db, store, task, workspaces, destination } = fixture(t);
-  const storeUrl = new URL('../src/store.js', import.meta.url).href;
-  const workspacesUrl = new URL('../src/workspaces.js', import.meta.url).href;
+  const storeUrl = new URL('../src/persistence/store.js', import.meta.url).href;
+  const workspacesUrl = new URL('../src/repository/workspaces.js', import.meta.url).href;
   const script = `
     const { Store } = await import(process.argv[1]);
     const { Workspaces } = await import(process.argv[2]);

@@ -1,15 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RpcProcess } from '../src/process.js';
-import { CodexSession } from '../src/agents/codex.js';
-import type { AgentEvent } from '../src/agents/types.js';
+import { RpcProcess } from '../src/process/process.js';
+import { CodexSession } from '../src/providers/codex.js';
+import type { AgentEvent } from '../src/providers/types.js';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import type { EditingContext } from '../src/edit-policy.js';
-import type { RepositoryAccess } from '../src/repository-tools.js';
+import type { EditingContext } from '../src/execution/edit-policy.js';
+import type { RepositoryAccess } from '../src/repository/repository-tools.js';
 
 const reply = { kind: 'message', text: 'fixture', questions: [], findings: [] };
 function fixture(

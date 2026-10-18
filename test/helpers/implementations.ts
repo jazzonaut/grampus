@@ -3,15 +3,15 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { Store } from '../../src/store.js';
-import { Workflow } from '../../src/workflow.js';
-import { Workspaces } from '../../src/workspaces.js';
-import { Executions } from '../../src/executions.js';
-import { Checks } from '../../src/checks.js';
-import { Implementations } from '../../src/implementations.js';
-import { type EditPolicy } from '../../src/edit-policy.js';
-import { type CheckProcessOptions } from '../../src/check-process.js';
-import type { Reply } from '../../src/agents/types.js';
+import { Store } from '../../src/persistence/store.js';
+import { Workflow } from '../../src/domain/workflow.js';
+import { Workspaces } from '../../src/repository/workspaces.js';
+import { Executions } from '../../src/execution/executions.js';
+import { Checks } from '../../src/verification/checks.js';
+import { Implementations } from '../../src/execution/implementations.js';
+import { type EditPolicy } from '../../src/execution/edit-policy.js';
+import { type CheckProcessOptions } from '../../src/process/check-process.js';
+import type { Reply } from '../../src/providers/types.js';
 
 export const windows = { skip: process.platform !== 'win32' };
 

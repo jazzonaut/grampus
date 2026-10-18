@@ -3,10 +3,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Workspaces } from '../src/workspaces.js';
-import { Executions } from '../src/executions.js';
-import { deliverRepository } from '../src/delivery-operation.js';
-import type { DeliveryRequest } from '../src/delivery-git.js';
+import { Workspaces } from '../src/repository/workspaces.js';
+import { Executions } from '../src/execution/executions.js';
+import { deliverRepository } from '../src/execution/delivery-operation.js';
+import type { DeliveryRequest } from '../src/repository/delivery-git.js';
 import { brief, git, windows, deliveryFixture, supervisedOrcaWriter } from './helpers/orca.js';
 
 test(

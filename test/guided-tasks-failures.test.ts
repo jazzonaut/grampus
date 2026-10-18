@@ -3,10 +3,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { GuidedTasks } from '../src/guided-tasks.js';
-import { guidedTaskView } from '../src/guided-status.js';
-import { runCheckProcess } from '../src/check-process.js';
-import type { ImplementationRun } from '../src/implementations.js';
+import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { guidedTaskView } from '../src/orchestration/guided-status.js';
+import { runCheckProcess } from '../src/process/check-process.js';
+import type { ImplementationRun } from '../src/execution/implementations.js';
 import { windows, cli, message, git, services, fixture, crashProgram } from './helpers/guided-tasks.js';
 
 test('one guided task owns execution and a cross-process stop request settles its actual tool', windows, async t => {

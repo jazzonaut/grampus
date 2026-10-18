@@ -6,9 +6,9 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { Store } from '../src/store.js';
-import { Workflow } from '../src/workflow.js';
-import { type Delivery } from '../src/deliveries.js';
+import { Store } from '../src/persistence/store.js';
+import { Workflow } from '../src/domain/workflow.js';
+import { type Delivery } from '../src/execution/deliveries.js';
 import { windows, git, fixture, noChangeFixture } from './helpers/deliveries.js';
 
 test(

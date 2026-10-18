@@ -4,13 +4,13 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Store } from '../src/store.js';
-import { GuidedTasks } from '../src/guided-tasks.js';
-import { guidedTaskView, renderGuidedTask } from '../src/guided-status.js';
-import { Workflow } from '../src/workflow.js';
-import { runCheckProcess } from '../src/check-process.js';
-import type { ImplementationRun } from '../src/implementations.js';
-import { renderReport } from '../src/report.js';
+import { Store } from '../src/persistence/store.js';
+import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { guidedTaskView, renderGuidedTask } from '../src/orchestration/guided-status.js';
+import { Workflow } from '../src/domain/workflow.js';
+import { runCheckProcess } from '../src/process/check-process.js';
+import type { ImplementationRun } from '../src/execution/implementations.js';
+import { renderReport } from '../src/reporting/report.js';
 import { windows, cli, message, review, git, services, fixture } from './helpers/guided-tasks.js';
 
 test('legacy guided agent deadlines no longer stop implementation or review', windows, async t => {

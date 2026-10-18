@@ -4,15 +4,15 @@ import assert from 'node:assert/strict';
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { Store } from '../src/store.js';
-import { Workspaces, type Workspace } from '../src/workspaces.js';
-import { OrcaCli } from '../src/orca.js';
-import { Executions } from '../src/executions.js';
-import { runSession } from '../src/sessions.js';
-import type { Connector } from '../src/agents/types.js';
-import { Sessions } from '../src/sessions.js';
-import { type CheckProcessOptions } from '../src/check-process.js';
-import type { ExecutionLease } from '../src/execution-state.js';
+import { Store } from '../src/persistence/store.js';
+import { Workspaces, type Workspace } from '../src/repository/workspaces.js';
+import { OrcaCli } from '../src/repository/orca.js';
+import { Executions } from '../src/execution/executions.js';
+import { runSession } from '../src/execution/sessions.js';
+import type { Connector } from '../src/providers/types.js';
+import { Sessions } from '../src/execution/sessions.js';
+import { type CheckProcessOptions } from '../src/process/check-process.js';
+import type { ExecutionLease } from '../src/execution/execution-state.js';
 import { git, fixture, windows, implementationFixture } from './helpers/orca.js';
 
 function editedResult(options: CheckProcessOptions) {

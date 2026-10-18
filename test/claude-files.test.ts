@@ -4,9 +4,9 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { claudeDeleteTool } from '../src/agents/claude-files.js';
-import type { EditingContext } from '../src/edit-policy.js';
-import type { AgentEvent } from '../src/agents/types.js';
+import { claudeDeleteTool } from '../src/providers/claude-files.js';
+import type { EditingContext } from '../src/execution/edit-policy.js';
+import type { AgentEvent } from '../src/providers/types.js';
 
 function fixture(t: { after(fn: () => void): void }) {
   const cwd = mkdtempSync(join(tmpdir(), 'grampus-claude-delete-'));

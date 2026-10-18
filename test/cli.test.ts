@@ -5,10 +5,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { runDemo } from '../src/demo.js';
-import { Store } from '../src/store.js';
-import { Workflow } from '../src/workflow.js';
-import { renderReport } from '../src/report.js';
+import { runDemo } from '../src/probes/demo.js';
+import { Store } from '../src/persistence/store.js';
+import { Workflow } from '../src/domain/workflow.js';
+import { renderReport } from '../src/reporting/report.js';
 
 test('CLI create, approve and show persist state across separate invocations', t => {
   const root = mkdtempSync(join(tmpdir(), 'grampus-cli-test-'));

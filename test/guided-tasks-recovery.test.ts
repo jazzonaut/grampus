@@ -1,9 +1,9 @@
 // Guided task tests: adopting lost implementation, delivery and assessment results after a controller exit.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { guidedTaskView } from '../src/guided-status.js';
-import { Workflow } from '../src/workflow.js';
-import type { ImplementationRun } from '../src/implementations.js';
+import { guidedTaskView } from '../src/orchestration/guided-status.js';
+import { Workflow } from '../src/domain/workflow.js';
+import type { ImplementationRun } from '../src/execution/implementations.js';
 import { windows, git, fixture, crashProgram } from './helpers/guided-tasks.js';
 
 test(

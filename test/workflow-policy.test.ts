@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkFeedback, checkIssue, plainOutput, readCheckLog } from '../src/check-output.js';
-import type { RepositoryCheck } from '../src/checks.js';
-import { normalizeWorkflowPolicy } from '../src/workflow-policy.js';
-import { Store } from '../src/store.js';
-import { Sessions } from '../src/sessions.js';
-import { sessionContinuation } from '../src/session-context.js';
-import { repositoryTools } from '../src/repository-tools.js';
-import type { RepositorySnapshot } from '../src/artifacts.js';
-import { agentToolsetVersion } from '../src/agents/types.js';
+import { checkFeedback, checkIssue, plainOutput, readCheckLog } from '../src/verification/check-output.js';
+import type { RepositoryCheck } from '../src/verification/checks.js';
+import { normalizeWorkflowPolicy } from '../src/domain/workflow-policy.js';
+import { Store } from '../src/persistence/store.js';
+import { Sessions } from '../src/execution/sessions.js';
+import { sessionContinuation } from '../src/execution/session-context.js';
+import { repositoryTools } from '../src/repository/repository-tools.js';
+import type { RepositorySnapshot } from '../src/repository/artifacts.js';
+import { agentToolsetVersion } from '../src/providers/types.js';
 
 test('check evidence retains the assertion after noisy output and pages durable Unicode logs beyond the preview', t => {
   const root = mkdtempSync(join(tmpdir(), 'grampus-log-pages-'));

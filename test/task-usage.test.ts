@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Store } from '../src/store.js';
-import { Sessions } from '../src/sessions.js';
-import { Workflow } from '../src/workflow.js';
-import { taskUsage, usageLines } from '../src/task-usage.js';
-import type { Usage, Provider } from '../src/agents/types.js';
+import { Store } from '../src/persistence/store.js';
+import { Sessions } from '../src/execution/sessions.js';
+import { Workflow } from '../src/domain/workflow.js';
+import { taskUsage, usageLines } from '../src/reporting/task-usage.js';
+import type { Usage, Provider } from '../src/providers/types.js';
 
 test('task usage counts cumulative sessions once, includes planning and marks incomplete observations', t => {
   const store = new Store(':memory:');

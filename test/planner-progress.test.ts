@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Store } from '../src/store.js';
-import { Sessions } from '../src/sessions.js';
-import { agentProgress, plannerProgress } from '../src/planner-progress.js';
+import { Store } from '../src/persistence/store.js';
+import { Sessions } from '../src/execution/sessions.js';
+import { agentProgress, plannerProgress } from '../src/orchestration/planner-progress.js';
 
 test('planner progress follows owned events, stays compact and never returns raw replies or tool results', t => {
   const store = new Store(':memory:');

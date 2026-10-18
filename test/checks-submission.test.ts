@@ -5,10 +5,10 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Store } from '../src/store.js';
-import { Sessions } from '../src/sessions.js';
-import { Executions } from '../src/executions.js';
-import { Checks, type CheckSpec, type RepositoryCheck } from '../src/checks.js';
+import { Store } from '../src/persistence/store.js';
+import { Sessions } from '../src/execution/sessions.js';
+import { Executions } from '../src/execution/executions.js';
+import { Checks, type CheckSpec, type RepositoryCheck } from '../src/verification/checks.js';
 import { windows, git, fixture } from './helpers/checks.js';
 
 test('real check records content and output, then explicit submission passes only validation', windows, async t => {

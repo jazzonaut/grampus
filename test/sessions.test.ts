@@ -5,17 +5,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { execFileSync } from 'node:child_process';
-import { Store } from '../src/store.js';
-import { currentProcessStartedAt } from '../src/process-identity.js';
-import { Sessions, runSession } from '../src/sessions.js';
+import { Store } from '../src/persistence/store.js';
+import { currentProcessStartedAt } from '../src/process/process-identity.js';
+import { Sessions, runSession } from '../src/execution/sessions.js';
 import {
   parseReply,
   subscriptionEnvironment,
   type Connector,
   type Reply,
   type TurnResult,
-} from '../src/agents/types.js';
-import { hasClaudeSubscription } from '../src/agents/claude.js';
+} from '../src/providers/types.js';
+import { hasClaudeSubscription } from '../src/providers/claude.js';
 
 const message: Reply = { kind: 'message', text: 'hello', questions: [], findings: [] };
 const question: Reply = {
@@ -194,8 +194,8 @@ test('unknown provider liveness cannot be cleared by a recovery guess', t => {
 test('a crashed controller is recoverable after both recorded processes have exited', t => {
   const { directory, store, session, sessions } = fixture(t);
   const script = `
-    import { Store } from ${JSON.stringify(new URL('../src/store.js', import.meta.url).href)};
-    import { Sessions } from ${JSON.stringify(new URL('../src/sessions.js', import.meta.url).href)};
+    import { Store } from ${JSON.stringify(new URL('../src/persistence/store.js', import.meta.url).href)};
+    import { Sessions } from ${JSON.stringify(new URL('../src/execution/sessions.js', import.meta.url).href)};
     import { spawn } from 'node:child_process';
     const store = new Store(process.argv[1]);
     const sessions = new Sessions(store);

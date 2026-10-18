@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { Store } from '../src/store.js';
-import { Workflow, type Agent, type Evidence } from '../src/workflow.js';
-import { renderReport } from '../src/report.js';
+import { Store } from '../src/persistence/store.js';
+import { Workflow, type Agent, type Evidence } from '../src/domain/workflow.js';
+import { renderReport } from '../src/reporting/report.js';
 
 const brief = {
   title: 'Greeting',
@@ -213,8 +213,8 @@ test('pending provisional decisions survive revisions and block completion', t =
 test('journal and state survive an actual child controller exit without closing the database', t => {
   const { path, store, workflow } = fixture(t);
   const script = `
-    import { Store } from ${JSON.stringify(new URL('../src/store.js', import.meta.url).href)};
-    import { Workflow } from ${JSON.stringify(new URL('../src/workflow.js', import.meta.url).href)};
+    import { Store } from ${JSON.stringify(new URL('../src/persistence/store.js', import.meta.url).href)};
+    import { Workflow } from ${JSON.stringify(new URL('../src/domain/workflow.js', import.meta.url).href)};
     const store = new Store(process.argv[1]);
     const workflow = new Workflow(store);
     const task = workflow.create(${JSON.stringify(brief)});

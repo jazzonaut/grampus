@@ -4,13 +4,13 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { Store } from '../../src/store.js';
-import { Workflow } from '../../src/workflow.js';
-import { Workspaces } from '../../src/workspaces.js';
-import { Executions } from '../../src/executions.js';
-import { Checks } from '../../src/checks.js';
-import { Deliveries } from '../../src/deliveries.js';
-import type { ExecutionLease } from '../../src/execution-state.js';
+import { Store } from '../../src/persistence/store.js';
+import { Workflow } from '../../src/domain/workflow.js';
+import { Workspaces } from '../../src/repository/workspaces.js';
+import { Executions } from '../../src/execution/executions.js';
+import { Checks } from '../../src/verification/checks.js';
+import { Deliveries } from '../../src/execution/deliveries.js';
+import type { ExecutionLease } from '../../src/execution/execution-state.js';
 
 export const windows = { skip: process.platform !== 'win32' };
 
@@ -128,7 +128,7 @@ export function deadController(f: Awaited<ReturnType<typeof fixture>>): void {
 
 export function crash(f: Awaited<ReturnType<typeof fixture>>, beforeDispatch: boolean): void {
   const url = (name: string) => JSON.stringify(new URL(`../../src/${name}.js`, import.meta.url).href);
-  const code = `import {Store} from ${url('store')}; import {Deliveries} from ${url('deliveries')}; import {Workspaces} from ${url('workspaces')}; import {runCheckProcess} from ${url('check-process')};
+  const code = `import {Store} from ${url('persistence/store')}; import {Deliveries} from ${url('execution/deliveries')}; import {Workspaces} from ${url('repository/workspaces')}; import {runCheckProcess} from ${url('process/check-process')};
     const store = new Store(${JSON.stringify(f.db)}); const workspaces = new Workspaces(store);
     ${beforeDispatch ? 'workspaces.inspect = async () => process.exit(0);' : ''}
     await new Deliveries(store, workspaces).run(${JSON.stringify(f.execution.id)}, ${JSON.stringify(f.spec)}, undefined,

@@ -39,19 +39,19 @@ flowchart TD
     Workflow --> Store
 ```
 
-The guided controller (`guided-tasks.ts`) is a sequential state machine over leaf operations. Each
+The guided controller (`orchestration/guided-tasks.ts`) is a sequential state machine over leaf operations. Each
 leaf is independently durable and recoverable, and the low-level CLI commands call them directly.
 
 ## From request to plan
 
-A **kickoff** (`kickoff.ts`) is a planning conversation stored as a session with `kickoff.*` events.
+A **kickoff** (`orchestration/kickoff.ts`) is a planning conversation stored as a session with `kickoff.*` events.
 The planner receives the pinned base commit, approved reference folders and the repository-read
 tools; it cannot edit files or run commands. It asks structured questions for consequential
 ambiguity and finally returns a JSON guided plan. Planning answers bind to the displayed turn and
 questions. Changing hints or references invalidates an earlier proposal. A separate best-effort turn
-names the task for the sidebar (`task-title.ts`).
+names the task for the sidebar (`orchestration/task-title.ts`).
 
-Converting a proposal creates an unapproved guided task. `guided-plan.ts` normalizes the plan once
+Converting a proposal creates an unapproved guided task. `domain/guided-plan.ts` normalizes the plan once
 and hashes it into an approval digest covering the brief, slices, file scopes, preparation,
 validation and acceptance commands, expected output, providers, models, workflow and review
 policies, selected context, references and delivery messages. Approval must name both the exact
@@ -64,7 +64,7 @@ cannot be recreated later. Review must use the other provider from implementatio
 
 ## Workflow model
 
-`workflow.ts` holds the task record. A **brief** has a title, outcome, distinct criteria, plan and
+`domain/workflow.ts` holds the task record. A **brief** has a title, outcome, distinct criteria, plan and
 optional 1 to 64 ordered **slices**, each naming the exact task criteria it delivers. Slices must
 cover every criterion; the final slice is verified against all of them.
 
@@ -122,7 +122,7 @@ leaf.
 
 ## Persistence
 
-`store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a five-second
+`persistence/store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a five-second
 busy timeout. Schema version 10 has twelve tables; journals from versions 1 to 9 migrate in place
 and unknown versions are refused. Older executables cannot open a migrated journal.
 
@@ -138,19 +138,19 @@ and unknown versions are refused. Older executables cannot open a migrated journ
 | `deliveries` | Checked snapshot, commit request, dispatch boundary and accepted commit |
 
 State is loaded from snapshots rather than rebuilt from events. History is append-only through the
-application interface. Deletion writes a tombstone (`task-lifecycle.ts`); it never removes
+application interface. Deletion writes a tombstone (`orchestration/task-lifecycle.ts`); it never removes
 workspaces or history. Full check output and supervisor receipts live beside the journal in
 `<journal>.checks/`.
 
 ## Workspaces
 
-`workspaces.ts` reserves a task workspace in the journal before asking Git or Orca to create
+`repository/workspaces.ts` reserves a task workspace in the journal before asking Git or Orca to create
 anything, pins the base ref to a commit and never replays creation.
 
 - **Git:** `git worktree add` on branch `grampus/<task-id>`, locked with the workspace id, at a
   destination outside existing worktrees. Inherited `GIT_*` variables are stripped and automatic
   CRLF conversion is disabled for the checkout command only.
-- **Orca** (`orca.ts`): one `worktree create` call with `--no-parent --setup skip`, without
+- **Orca** (`repository/orca.ts`): one `worktree create` call with `--no-parent --setup skip`, without
   launching an agent. Grampus records Orca's worktree id and stable instance identity, and every
   later operation re-verifies that identity. Orca owns the worktree lifecycle; Grampus never edits
   Orca metadata or applies raw Git lifecycle writes to Orca worktrees. Remote Orca hosts are
@@ -162,18 +162,18 @@ is not automated.
 
 ## Executions, sessions and leases
 
-An **execution** (`executions.ts`) binds one attempt to a workspace and a fresh Grampus session in a
-given role. Every turn or operation claims the workspace lease (`execution-state.ts`) under a run id
+An **execution** (`execution/executions.ts`) binds one attempt to a workspace and a fresh Grampus session in a
+given role. Every turn or operation claims the workspace lease (`execution/execution-state.ts`) under a run id
 and lease kind (`conversation`, `snapshot`, `check`, `submission`, `simplification`, `verification`,
 `completion`, `implementation` or `delivery`). The lease is held until process exit is confirmed.
 Session state, task outcome, journal events and lease release settle in one transaction, fenced on
 the exact run id. There is no expiry or heartbeat takeover. Leases coordinate Grampus processes
 sharing one journal; they do not lock out editors or other tools.
 
-A session (`sessions.ts`) records its provider, provider conversation id, model, phase and the
+A session (`execution/sessions.ts`) records its provider, provider conversation id, model, phase and the
 active run's controller and provider process identities. Each turn starts an owned provider process,
 runs one turn and waits for exit. Within a slice, retries create new execution and evidence records
-but may resume the same provider conversation; `session-context.ts` starts a fresh one at the
+but may resume the same provider conversation; `execution/session-context.ts` starts a fresh one at the
 configured turn or context-size threshold, or when the Codex toolset changed. Implementation and
 review never share a conversation, and arbitration always starts fresh.
 
@@ -183,56 +183,56 @@ Both adapters return the same validated reply: `kind` is `message`, `question` o
 question ids, findings (`blocking` or `suggestion`, with evidence) and, for reviews, a
 simplification verdict. Malformed replies fail the turn.
 
-- **Codex** (`agents/codex.ts`) runs the installed `codex app-server` over stdio JSON-RPC
-  (`process.ts`), forcing ChatGPT login and refusing other authentication. Threads start or resume
+- **Codex** (`providers/codex.ts`) runs the installed `codex app-server` over stdio JSON-RPC
+  (`process/process.ts`), forcing ChatGPT login and refusing other authentication. Threads start or resume
   with `approvalPolicy: untrusted` and a read-only sandbox, and the controller verifies both before
   inference. Repository tools are app-server dynamic tools. File edits arrive as
   `item/fileChange/requestApproval`; the controller checks each patch against the active turn and
   the exact edit policy, journals the decision and grants single-use approval. Command execution
   requests are declined. Codex is not version-pinned.
-- **Claude** (`agents/claude.ts`) uses the pinned `@anthropic-ai/claude-agent-sdk` and its bundled
+- **Claude** (`providers/claude.ts`) uses the pinned `@anthropic-ai/claude-agent-sdk` and its bundled
   executable, unless `GRAMPUS_CLAUDE_COMMAND` overrides it. It requires a first-party subscription
   and no API key source. Editing turns get native `Read`, `Edit` and `Write`, which a `PreToolUse`
   hook and permission callback restrict to authorized paths, plus the repository MCP server
-  (`claude-repository.ts`) and, when deletions are approved, an in-process delete tool
-  (`claude-files.ts`). `ToolSearch` and external MCP tools are allowed only during an active turn.
+  (`providers/claude-repository.ts`) and, when deletions are approved, an in-process delete tool
+  (`providers/claude-files.ts`). `ToolSearch` and external MCP tools are allowed only during an active turn.
   Tool decisions are journaled before permission is granted.
 
-Neither provider gets a shell. Configured MCP integrations stay available (`integrations.ts` carries
+Neither provider gets a shell. Configured MCP integrations stay available (`providers/integrations.ts` carries
 source-project connections into worktrees); external actions need explicit task authorization.
 
 ## Repository access
 
-`repository-tools.ts` implements one controller-owned toolset for both providers:
+`repository/repository-tools.ts` implements one controller-owned toolset for both providers:
 `grampus_list_files`, `grampus_read_file`, `grampus_search`, `grampus_read_changes`,
 `grampus_read_check`, `grampus_read_dependency` and `grampus_suggest_reference_folder`. Planning
 reads immutable Git blobs at the pinned commit; execution reads the captured workspace inventory and
 allows current bytes only for authorized paths; review reads the submitted snapshot. Handlers
-recheck turn ownership and journal bounded results. Reference folders (`reference-folders.ts`, up to
+recheck turn ownership and journal bounded results. Reference folders (`repository/reference-folders.ts`, up to
 16) are read-only roots, pinned Git subtrees or hashed plain-folder inventories. Read access never
 implies write scope. Budgets are in [REPOSITORY-CONTEXT.md](REPOSITORY-CONTEXT.md).
 
 ## Artifacts, checks and the Windows supervisor
 
-A repository snapshot (`artifacts.ts`, `repository-evidence.ts`) hashes HEAD, index entries, the raw
+A repository snapshot (`repository/artifacts.ts`, `repository/repository-evidence.ts`) hashes HEAD, index entries, the raw
 bytes of tracked and non-ignored untracked files and discovered `AGENTS.md`/`CLAUDE.md` instructions
 into a SHA-256 artifact digest. A stable capture takes two matching reads. Git plumbing reads raw
 blobs without filters or diff drivers. Ignored dependencies, environment and external services are
 outside the digest. Symlinks and submodules are refused.
 
-Checks (`checks.ts`) run an approved executable with literal arguments at the workspace root, with
+Checks (`verification/checks.ts`) run an approved executable with literal arguments at the workspace root, with
 no shell. The request and before-snapshot are durable before dispatch. On Windows, a hidden detached
-Node host (`check-host.ts`) runs PowerShell, which compiles `native/check.cs` and starts the tool
+Node host (`process/check-host.ts`) runs PowerShell, which compiles `process/native/check.cs` and starts the tool
 directly inside a Job Object (kill-on-close, no breakaway). After the root exits the supervisor
 waits up to 100 ms for the job to drain, terminates any remaining descendants and confirms zero
 active processes before writing a flushed receipt. A check passes only with exit code zero, a
 settled job and unchanged repository inputs. Timeouts are 100 to 600000 ms; output above 2 MiB
 combined stops the job; the journal keeps a 64 KiB preview per stream and full logs stay on disk
-(`check-output.ts`). Acceptance (`acceptance.ts`) also compares approved stdout, JSON, stderr and
+(`verification/check-output.ts`). Acceptance (`domain/acceptance.ts`) also compares approved stdout, JSON, stderr and
 file observations against retained output and the after-snapshot. Preparation reuses the same runner
 with its own purpose and cannot supply validation or acceptance evidence.
 
-Native editing (`implementations.ts`, `implementation-worker.ts`, `edit-policy.ts`) runs the
+Native editing (`execution/implementations.ts`, `execution/implementation-worker.ts`, `execution/edit-policy.ts`) runs the
 provider in the same supervised process tree. After confirmed exit, only the authorized file
 contents and named creations and deletions may have changed; HEAD, index, other files, modes and
 instructions must be unchanged. Scope covers regular UTF-8 files up to 1 MiB each and 4 MiB per
@@ -240,7 +240,7 @@ slice, at most 64 paths.
 
 ## Delivery
 
-Delivery (`deliveries.ts`, `delivery-worker.ts`, `delivery-operation.ts`, `delivery-git.ts`)
+Delivery (`execution/deliveries.ts`, `execution/delivery-worker.ts`, `execution/delivery-operation.ts`, `repository/delivery-git.ts`)
 requires every gate on the current artifact. The supervised worker stages the checked worktree,
 compares staged paths, modes and raw blob hashes with the checked snapshot, then commits with the
 repository's own identity, hooks and signing, adding a unique `Grampus-Delivery` marker. The
@@ -256,11 +256,11 @@ Recovery is explicit (`task-recover` and the per-operation `*-recover` commands)
 same rules everywhere:
 
 - The previous controller must be absent on the same host. Windows process creation times
-  (`process-identity.ts`) distinguish a recycled PID from the original owner; unknown or live owners
+  (`process/process-identity.ts`) distinguish a recycled PID from the original owner; unknown or live owners
   block recovery.
 - A recorded pre-dispatch boundary proves nothing was launched and can be released without a
   receipt.
-- After dispatch, a supervised operation needs a matching terminal receipt (`check-recovery.ts`).
+- After dispatch, a supervised operation needs a matching terminal receipt (`verification/check-recovery.ts`).
   PID absence alone never proves settlement.
 - Settled results are adopted only if their origin and request match. Lost successes are recorded as
   interrupted, never accepted.
@@ -269,7 +269,7 @@ same rules everywhere:
 
 ## Dashboard server
 
-`ui-server.ts` serves the dashboard and a JSON API over the same journal; it is not a second
+`server/ui-server.ts` serves the dashboard and a JSON API over the same journal; it is not a second
 workflow engine.
 
 - Listens on `127.0.0.1` only, port 4317 installed or 4318 development.
@@ -281,13 +281,13 @@ workflow engine.
 - Every task decision carries a **decision key** built from version, digest, status, stage,
   artifact, instructions digest, execution ids and, for answers, the exact turn and questions. The
   controller rechecks it, so a stale tab cannot approve a changed plan or authorize different bytes.
-- Actions run in separate Node worker processes (`ui-worker.ts`) using the same controller, so
+- Actions run in separate Node worker processes (`server/ui-worker.ts`) using the same controller, so
   restarting the server is never evidence that work stopped. Polling responses are cached by journal
   revision and exclude large snapshots.
 
 ## Usage accounting
 
-Providers report cumulative usage per provider session. `task-usage.ts` keeps the latest snapshot
+Providers report cumulative usage per provider session. `reporting/task-usage.ts` keeps the latest snapshot
 for each distinct session linked to a task (planning, naming, implementation, review) and sums
 sessions once, separately per provider. Claude usage is sampled every 15 seconds during a turn and
 replaced by the final result; interim snapshots are marked incomplete. Missing values stay unknown
@@ -303,32 +303,40 @@ and mark totals partial. Claude's estimated USD never becomes billed cost, which
 
 ## Module map
 
-Paths are under `src/`.
+Paths are under `src/`. Folders group modules by responsibility; they are not strict layers.
 
-| File | Responsibility |
-| --- | --- |
-| `cli.ts` | Command parsing and entry points; Ctrl+C handling |
-| `runtime.ts` | Version, installed or development channel, data directory, update |
-| `store.ts` | SQLite schema, migrations, transactions and journal access |
-| `workflow.ts`, `workflow-policy.ts` | Briefs, versions, attempts, evidence, gates, slices and completion; workflow policy validation |
-| `guided-plan.ts` | Plan normalization, slice file simulation and approval digest |
-| `guided-tasks.ts`, `guided-status.ts` | Guided state machine (repairs, arbitration, retry, revision, recovery); task views and next actions |
-| `kickoff.ts`, `planner-progress.ts`, `task-title.ts` | Planning conversations, live planner progress and task naming |
-| `task-lifecycle.ts`, `task-usage.ts` | Reset and delete with tombstones; per-task usage aggregation |
-| `sessions.ts`, `session-context.ts` | Conversation turns, recovery and resume-or-fresh decisions |
-| `executions.ts`, `execution-state.ts` | Execution bindings, leases and settlement |
-| `workspaces.ts`, `orca.ts` | Git and Orca worktree lifecycle and identity |
-| `artifacts.ts`, `repository-evidence.ts` | Snapshots, artifact digests, instructions and review context |
-| `repository-context.ts`, `repository-tools.ts` | Pinned inventories, cache and the shared agent read tools |
-| `reference-folders.ts`, `installed-dependency.ts`, `integrations.ts` | Reference roots, dependency source reads, MCP carry-over |
-| `checks.ts`, `check-*.ts`, `acceptance.ts` | Checks and submission, supervisor control and host, receipts, log paging, check feedback, acceptance observations |
-| `edit-policy.ts`, `implementations.ts`, `implementation-worker.ts` | Edit scope, patch authorization and supervised editing |
-| `deliveries.ts`, `delivery-worker.ts`, `delivery-operation.ts`, `delivery-git.ts` | Local commit delivery and verification |
-| `process.ts`, `process-identity.ts`, `agent-timeout.ts` | Shell-free subprocesses, JSON-RPC, process creation times, opt-in deadlines |
-| `agents/types.ts`, `agents/index.ts` | Provider contract, reply validation, usage, connector |
-| `agents/codex.ts` | Codex app-server threads, turns, approvals and dynamic tools |
-| `agents/claude.ts`, `agents/claude-repository.ts`, `agents/claude-files.ts` | Claude SDK sessions, repository MCP server, scoped delete tool |
-| `ui-server.ts`, `ui-worker.ts`, `ui/` | Loopback dashboard server, action workers and browser client |
-| `doctor.ts`, `report.ts`, `demo.ts` | Readiness checks, Markdown report, synthetic demo |
-| `native/check.cs`, `native/check.ps1`, `native/process.ps1` | Job Object helper and process identity queries |
-| `*-probe.ts`, `multifile-fixture.ts`, `probe-interruption.ts` | Opt-in live and scale probes and their fixtures |
+| Folder | Files | Responsibility |
+| --- | --- | --- |
+| `/` | `cli.ts` | Command parsing and entry point (`dist/src/cli.js`, also the installed launcher target); Ctrl+C handling |
+| `config/` | `runtime.ts` | Application root, version, installed or development channel, data directory, update |
+| `persistence/` | `store.ts` | SQLite schema, migrations, transactions and journal access |
+| `domain/` | `workflow.ts`, `workflow-policy.ts` | Briefs, versions, attempts, evidence, gates, slices and completion; workflow policy validation |
+| | `guided-plan.ts` | Plan normalization, slice file simulation and approval digest |
+| | `acceptance.ts` | Acceptance expectations and observations against retained output |
+| `orchestration/` | `guided-tasks.ts`, `guided-status.ts` | Guided state machine (repairs, arbitration, retry, revision, recovery); task views and next actions |
+| | `kickoff.ts`, `planner-progress.ts`, `task-title.ts` | Planning conversations, live planner progress and task naming |
+| | `task-lifecycle.ts` | Reset and delete with tombstones |
+| `execution/` | `sessions.ts`, `session-context.ts` | Conversation turns, recovery and resume-or-fresh decisions |
+| | `executions.ts`, `execution-state.ts` | Execution bindings, leases and settlement |
+| | `edit-policy.ts`, `implementations.ts`, `implementation-worker.ts` | Edit scope, patch authorization and supervised editing |
+| | `deliveries.ts`, `delivery-worker.ts`, `delivery-operation.ts` | Local commit delivery and verification |
+| | `agent-timeout.ts` | Opt-in provider deadlines |
+| `providers/` | `types.ts`, `index.ts` | Provider contract, reply validation, usage, connector |
+| | `codex.ts` | Codex app-server threads, turns, approvals and dynamic tools |
+| | `claude.ts`, `claude-repository.ts`, `claude-files.ts` | Claude SDK sessions, repository MCP server, scoped delete tool |
+| | `integrations.ts` | MCP carry-over into worktrees |
+| `repository/` | `workspaces.ts`, `orca.ts` | Git and Orca worktree lifecycle and identity |
+| | `artifacts.ts`, `repository-evidence.ts` | Snapshots, artifact digests, instructions and review context |
+| | `repository-context.ts`, `repository-tools.ts` | Pinned inventories, cache and the shared agent read tools |
+| | `reference-folders.ts`, `installed-dependency.ts` | Reference roots and dependency source reads |
+| | `delivery-git.ts` | Raw Git plumbing for delivery and reconciliation |
+| `process/` | `process.ts`, `process-identity.ts` | Shell-free subprocesses, JSON-RPC, process creation times |
+| | `check-process.ts`, `check-host.ts` | Supervisor control and its detached host |
+| | `native/check.cs`, `native/check.ps1`, `native/process.ps1` | Job Object helper and process identity queries |
+| `verification/` | `checks.ts`, `check-evidence.ts`, `check-output.ts`, `check-recovery.ts` | Checks and submission, check feedback, log paging, receipts |
+| `reporting/` | `report.ts`, `task-usage.ts` | Markdown report; per-task usage aggregation |
+| `health/` | `doctor.ts` | Readiness checks |
+| `server/` | `ui-server.ts`, `ui-worker.ts` | Loopback dashboard server and action workers |
+| `ui/` | `index.html`, `app.js`, `app.css`, `markdown.js`, `favicon.svg` | Browser client, served as static files |
+| `probes/` | `*-probe.ts`, `multifile-fixture.ts`, `probe-interruption.ts` | Opt-in live and scale probes and their fixtures |
+| | `demo.ts` | Synthetic demo |

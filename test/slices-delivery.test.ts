@@ -5,12 +5,12 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
-import { Store } from '../src/store.js';
-import { Workflow, activeCriteria, activeSlice, type Brief } from '../src/workflow.js';
-import type { Execution } from '../src/execution-state.js';
-import { Sessions, runSession } from '../src/sessions.js';
-import { type Delivery } from '../src/deliveries.js';
-import { renderReport } from '../src/report.js';
+import { Store } from '../src/persistence/store.js';
+import { Workflow, activeCriteria, activeSlice, type Brief } from '../src/domain/workflow.js';
+import type { Execution } from '../src/execution/execution-state.js';
+import { Sessions, runSession } from '../src/execution/sessions.js';
+import { type Delivery } from '../src/execution/deliveries.js';
+import { renderReport } from '../src/reporting/report.js';
 import { windows, brief, git, invoke, fixture, type Fixture } from './helpers/slices.js';
 
 const { slices: _slices, ...singleBrief } = brief;

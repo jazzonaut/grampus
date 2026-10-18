@@ -17,9 +17,9 @@ import {
   obsoleteContent,
   deletionOracle,
   deletionStdout,
-} from '../src/multifile-fixture.js';
-import { Store } from '../src/store.js';
-import { Workflow } from '../src/workflow.js';
+} from '../src/probes/multifile-fixture.js';
+import { Store } from '../src/persistence/store.js';
+import { Workflow } from '../src/domain/workflow.js';
 import { library, command } from './helpers/multifile-probe.js';
 
 test('multi-file oracle rejects the baseline and accepts the complete library/command behavior', t => {
@@ -103,7 +103,7 @@ test('deletion acceptance requires removal, rejects an empty replacement and pre
 });
 
 test('multi-file pilot requires explicit live opt-in and complete continuation arguments', () => {
-  const cli = fileURLToPath(new URL('../src/multifile-probe.js', import.meta.url));
+  const cli = fileURLToPath(new URL('../src/probes/multifile-probe.js', import.meta.url));
   for (const args of [
     [],
     ['--provider', 'codex'],
@@ -129,7 +129,7 @@ test(
   t => {
     const root = mkdtempSync(join(tmpdir(), 'grampus-sliced-pilot-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
-    const cli = fileURLToPath(new URL('../src/multifile-probe.js', import.meta.url));
+    const cli = fileURLToPath(new URL('../src/probes/multifile-probe.js', import.meta.url));
     for (const args of [
       ['--live', '--slices', '--create-library'],
       ['--live', '--slices', '--delete-obsolete'],

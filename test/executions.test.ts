@@ -6,13 +6,13 @@ import { join } from 'node:path';
 import { hostname, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { Store } from '../src/store.js';
-import { Workflow } from '../src/workflow.js';
-import { Workspaces } from '../src/workspaces.js';
-import { Sessions, runSession } from '../src/sessions.js';
-import { Executions } from '../src/executions.js';
-import type { Execution, ExecutionLease } from '../src/execution-state.js';
-import type { AgentSession, Connector, Reply, TurnResult } from '../src/agents/types.js';
+import { Store } from '../src/persistence/store.js';
+import { Workflow } from '../src/domain/workflow.js';
+import { Workspaces } from '../src/repository/workspaces.js';
+import { Sessions, runSession } from '../src/execution/sessions.js';
+import { Executions } from '../src/execution/executions.js';
+import type { Execution, ExecutionLease } from '../src/execution/execution-state.js';
+import type { AgentSession, Connector, Reply, TurnResult } from '../src/providers/types.js';
 
 const brief = { title: 'Greeting', outcome: 'Say hello', criteria: ['Print hello'], plan: 'Implement and verify' };
 const message: Reply = { kind: 'message', text: 'Conversation complete', questions: [], findings: [] };
@@ -231,8 +231,8 @@ test('a real controller crash retains the lease until both recorded processes ha
       '--input-type=module',
       '-e',
       script,
-      new URL('../src/store.js', import.meta.url).href,
-      new URL('../src/sessions.js', import.meta.url).href,
+      new URL('../src/persistence/store.js', import.meta.url).href,
+      new URL('../src/execution/sessions.js', import.meta.url).href,
       db,
       execution.sessionId,
     ],

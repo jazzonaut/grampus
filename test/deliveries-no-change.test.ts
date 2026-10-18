@@ -5,8 +5,8 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type Delivery } from '../src/deliveries.js';
-import { renderReport } from '../src/report.js';
+import { type Delivery } from '../src/execution/deliveries.js';
+import { renderReport } from '../src/reporting/report.js';
 import { windows, git, noChangeFixture } from './helpers/deliveries.js';
 
 test(

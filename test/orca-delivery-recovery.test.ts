@@ -2,8 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { type CheckProcessResult } from '../src/check-process.js';
-import type { ExecutionLease } from '../src/execution-state.js';
+import { type CheckProcessResult } from '../src/process/check-process.js';
+import type { ExecutionLease } from '../src/execution/execution-state.js';
 import { git, windows, deliveryFixture, supervisedOrcaWriter } from './helpers/orca.js';
 
 test('Orca lost-reply delivery recovery needs a receipt and the original workspace identity', windows, async t => {

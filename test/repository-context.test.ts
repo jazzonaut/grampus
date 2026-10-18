@@ -4,15 +4,15 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pinnedRepository, pinnedContext, searchPinnedFiles } from '../src/repository-context.js';
-import { repositoryContext } from '../src/repository-evidence.js';
-import { snapshotRepository } from '../src/artifacts.js';
-import { Store } from '../src/store.js';
-import { Kickoffs } from '../src/kickoff.js';
-import { normalizeGuidedPlan, guidedPlanDigest } from '../src/guided-plan.js';
-import type { Connector } from '../src/agents/types.js';
-import { startUi } from '../src/ui-server.js';
-import { repositoryTools } from '../src/repository-tools.js';
+import { pinnedRepository, pinnedContext, searchPinnedFiles } from '../src/repository/repository-context.js';
+import { repositoryContext } from '../src/repository/repository-evidence.js';
+import { snapshotRepository } from '../src/repository/artifacts.js';
+import { Store } from '../src/persistence/store.js';
+import { Kickoffs } from '../src/orchestration/kickoff.js';
+import { normalizeGuidedPlan, guidedPlanDigest } from '../src/domain/guided-plan.js';
+import type { Connector } from '../src/providers/types.js';
+import { startUi } from '../src/server/ui-server.js';
+import { repositoryTools } from '../src/repository/repository-tools.js';
 
 function fixture(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-context-')),

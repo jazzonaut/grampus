@@ -5,11 +5,11 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runSession } from '../src/sessions.js';
-import { Checks } from '../src/checks.js';
-import { runCheckProcess, retainedOutput } from '../src/check-process.js';
-import type { ExecutionLease } from '../src/execution-state.js';
-import type { Connector, Reply } from '../src/agents/types.js';
+import { runSession } from '../src/execution/sessions.js';
+import { Checks } from '../src/verification/checks.js';
+import { runCheckProcess, retainedOutput } from '../src/process/check-process.js';
+import type { ExecutionLease } from '../src/execution/execution-state.js';
+import type { Connector, Reply } from '../src/providers/types.js';
 import { windows, fixture, deadController, crashDuringInspection } from './helpers/checks.js';
 
 const reviewReply: Reply = {

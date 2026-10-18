@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setImmediate } from 'node:timers/promises';
 import type { query, SDKMessage, ModelUsage } from '@anthropic-ai/claude-agent-sdk';
-import { ClaudeSession } from '../src/agents/claude.js';
-import type { AgentEvent, Usage } from '../src/agents/types.js';
+import { ClaudeSession } from '../src/providers/claude.js';
+import type { AgentEvent, Usage } from '../src/providers/types.js';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

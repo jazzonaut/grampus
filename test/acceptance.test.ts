@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { assertAcceptance, validateExpectations } from '../src/acceptance.js';
-import type { RepositorySnapshot } from '../src/artifacts.js';
+import { assertAcceptance, validateExpectations } from '../src/domain/acceptance.js';
+import type { RepositorySnapshot } from '../src/repository/artifacts.js';
 
 test('acceptance checks semantic JSON and captured file bytes, including binary hashes and deletions', () => {
   const content = 'checked\n',

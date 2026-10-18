@@ -5,14 +5,14 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request } from 'node:http';
-import { startUi } from '../src/ui-server.js';
-import { Kickoffs } from '../src/kickoff.js';
-import { Store } from '../src/store.js';
-import { GuidedTasks } from '../src/guided-tasks.js';
-import { Sessions } from '../src/sessions.js';
-import type { Execution } from '../src/execution-state.js';
-import type { Connector, Reply } from '../src/agents/types.js';
-import type { RepositoryCheck } from '../src/checks.js';
+import { startUi } from '../src/server/ui-server.js';
+import { Kickoffs } from '../src/orchestration/kickoff.js';
+import { Store } from '../src/persistence/store.js';
+import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { Sessions } from '../src/execution/sessions.js';
+import type { Execution } from '../src/execution/execution-state.js';
+import type { Connector, Reply } from '../src/providers/types.js';
+import type { RepositoryCheck } from '../src/verification/checks.js';
 
 function fixture(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-ui-')),

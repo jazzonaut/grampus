@@ -100,6 +100,6 @@ scripts or assets are loaded. Treat the full link as access to your local contro
 
 The dashboard and CLI share the same journal. Use `--db <path>`, `--port <number>` and
 `--no-open` to change the journal, port or browser behaviour. A development checkout
-needs its `src/ui` and `src/native` folders alongside `dist`. One guided task runs at a
+needs its `src/ui` and `src/process/native` folders alongside `dist`. One guided task runs at a
 time per journal. Advanced users can import an authored JSON plan from the new-task
 screen ([guided CLI](GUIDED-WORKFLOW.md)).
