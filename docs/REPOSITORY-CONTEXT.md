@@ -1,172 +1,123 @@
 # Repository context and scale
 
-Repository size and agent context size are separate. New guided tasks no longer
-require the whole repository to fit in 256 KiB or 1024 files. Unchanged binary
-assets can remain outside agent context while their bytes stay covered by artifact
-verification. Symlinks and submodules remain unsupported.
+Repository size and agent context size are separate. Agents explore the repository
+on demand through controller-owned read tools, while artifact verification still
+covers every tracked and non-ignored untracked file. Unchanged binary assets can
+stay outside agent context; their bytes remain hashed. Symlinks, submodules,
+filesystem aliases and non-UTF-8 text are refused.
 
-## Autonomous exploration
+## Exploration
 
-In **New task**, enter the repository and describe the change, then choose
-**Start planning**. No file selection is required. The planner lists files, searches
-literal text and follows code, callers, dependencies, configuration and tests itself.
-**Optional file hints** can supply useful starting files; suggestions remain filename
-heuristics rather than dependency analysis. **Update file hints** invalidates a
-previous proposal without starting inference. Removing a hint does not erase content
-already present in a resumed provider transcript.
+No file selection is required. The planner lists files, searches literal text and
+follows code, callers, dependencies, configuration and tests itself. **Optional file
+hints** supply starting files; suggestions are filename heuristics, not dependency
+analysis. Removing a hint does not remove content already in a resumed conversation.
 
-Both Codex and Claude use the same controller-owned read tools. Planning reads Git
-blobs from the pinned commit, even if checkout files are dirty. Implementation reads
-its captured workspace inventory, verifies supporting-file hashes, and permits
-current bytes for explicitly authorized edit/create/delete paths. Review reads the
-submitted snapshot, verifies each retrieved file and rechecks the complete artifact
-before accepting a verdict. New files created by the implementation are available
-through the approved creation paths. Planning includes tracked files from the pinned
-commit. Workspace inventories include tracked files and nonignored untracked files;
-untracked gitignored dependencies, caches and build output are excluded. Tracked files
-remain included even if a later ignore rule matches them. There is no extra ignore list
-for common output names:
-tracked lockfiles, generated sources and deliberately versioned assets may be required
-for a correct change. Symlinks, filesystem aliases and non-UTF-8 text are refused.
+Codex and Claude use the same tools (`grampus_list_files`, `grampus_read_file`,
+`grampus_search`, `grampus_read_changes`, `grampus_read_check`,
+`grampus_read_dependency`, `grampus_suggest_reference_folder`). Codex receives them as
+app-server dynamic tools (an experimental app-server API); Claude receives them from
+an in-process SDK MCP server. Neither gets a shell.
 
-Editing permits regular UTF-8 files up to 1 MiB each and 4 MiB of existing text per
-slice, with exact file authorization. Individual edit/patch text remains capped at
-256 KiB. Planning checks pinned file sizes before approval; runtime checks identify
-the exact unsupported path and reason. These limits apply to all filenames equally.
-Codex receives bounded initial editable text; large files and excess inline content
-are explicitly deferred, with size/hash metadata and instructions to read current
-contents using paginated repository tools. Deferred null content means unread, rather
-than absent. The dashboard's authorization view shows complete approved file contents
-using the editing bounds, independently of the smaller initial model-context budget.
+| Role | Reads from |
+| --- | --- |
+| Planning | Git blobs at the pinned commit, even if the checkout is dirty |
+| Implementation | The captured workspace inventory with verified hashes; current bytes only for authorized edit, create and delete paths |
+| Review | The submitted snapshot, with every retrieved file verified and the whole artifact rechecked before a verdict is accepted |
 
-Repository exploration never grants write permission. Approval still freezes the
-pinned base, repository-read capability, exact file actions and check commands.
-Review receives repository instructions, bounded starting text and a change inventory,
-then can page through all recorded before/after evidence and surrounding code. Unread files remain covered by
-artifact verification, but hashing does not establish semantic review coverage.
-Requests and the exact bounded tool results, including source identities, file hashes,
-pagination and omissions, are retained in the session journal. The dashboard shows
-completed exploration calls and recently read files during planning and execution.
+Inventories include tracked files and non-ignored untracked files. Untracked ignored
+dependencies, caches and build output are excluded; tracked files stay included even
+if an ignore rule matches them. There is no extra ignore list, because tracked
+lockfiles, generated sources and versioned assets can matter to a correct change.
 
-New authored plans enable exploration by default, with repository instructions as
-the only automatically supplied files. Optional initial context is explicit:
+`grampus_read_dependency` reads source of a package installed in the task workspace,
+with bounded snippets and literal search, so inspecting a library option does not
+need a whole bundled file. It is available during execution, not planning. `grampus_read_check` pages settled check evidence
+and approved expectations for the current task and version.
+
+Read access never grants write permission. Approval freezes the pinned base, read
+capability, exact file actions and commands. Tool requests and their bounded results,
+including source identities, hashes, pagination and omissions, are journaled. Hashing
+an unread file proves its bytes, not that anyone reviewed it.
+
+New plans enable exploration, with repository instructions as the only files supplied
+automatically. Optional initial context is explicit:
 
 ```json
 "context": { "files": ["src/greeting.js"], "exploration": true }
 ```
 
-Existing edit/delete paths must exist at the start of their slice, including files
-created by an earlier slice, but need not be in starting hints. Plan validation
-tracks creations and deletions through the entire sequence: it rejects edits or
-repeat deletions after removal, creation collisions and recreation of deleted paths.
-Existing saved plans and kickoff conversations retain their approved
-capabilities and digests; start a new task to enable exploration. Explicit
-`"exploration": false` preserves selected-context behavior for newly authored plans.
-Low-level conversation sessions do not gain repository access implicitly.
+`"exploration": false` keeps strict selected-context behaviour. Plans saved before
+exploration existed keep their approved capabilities; start a new task to use it.
 
-The implementation uses Codex app-server dynamic tools (experimental API, verified
-with installed CLI 0.163.0) and an in-process Claude SDK MCP server. Configured MCP
-integrations remain available, including source-project connections carried into
-isolated workspaces. Provider shell commands remain disabled. Existing
-controller-owned validation and acceptance commands still run through their normal
-supervised lifecycle.
+## Editing limits
 
-## External reference folders and integrations
+Exact file scope allows regular UTF-8 files up to 1 MiB each and 4 MiB of existing
+text per slice, with at most 64 paths. Individual edit or patch text is capped at
+256 KiB. Planning checks pinned file sizes before approval; runtime errors name the
+path and reason. These limits apply equally to every filename. Codex receives bounded
+initial editable text; larger or excess files are deferred with size and hash
+metadata and read through the tools (null content means unread, not absent). The
+authorization view shows complete approved contents regardless of the prompt budget.
 
-Add absolute paths under **Reference folders**, or mention folders in the original
-task description. **Suggest from task description** previews detected folders.
-The agent can propose another folder with a reason; the suggestion itself grants
-no access. Add it and choose **Update reference folders**, then send the next
-planning turn. Changing references invalidates the previous proposal.
+## Reference folders and integrations
 
-List/search/read tools accept `root: "task"` (default) or `root: "reference-1"`,
-`"reference-2"`, and so on. All task roles receive the same approved reference
-roots. References are read-only background material and confer no write scope.
-At most 16 folders may be selected. Git references read the pinned committed
-subtree, excluding untracked, ignored and dirty checkout bytes. Plain folders
-capture a hashed inventory; content changes require refreshing their selection.
-Symlinks, hardlinks and oversized files are refused. Journals identify the root
-and folder for each result; reports distinguish reference reads from task reads.
+Add absolute paths under **Reference folders**, or mention them in the task
+description and use **Suggest from task description**. An agent can propose a folder
+with a reason; that grants nothing until you add it and choose **Update reference
+folders**. Changing references invalidates the previous proposal.
 
-Configured MCP connections load from each provider's settings. Referenced tickets
-can be retrieved directly; Grampus no longer disables all integrations. The
-**MCP connections** card shows reported connection/authentication status and tool
-counts without configuration secrets. External writes or messages require explicit
-task authorization. Connections available to Codex can differ from Claude's.
-Reset old tasks to start a fresh planning conversation with the new capabilities.
+Tools accept `root: "task"` (default) or `"reference-1"`, `"reference-2"` and so on. Every
+role receives the same approved roots, read-only. At most 16 folders. Git references
+read the pinned committed subtree; plain folders capture a hashed inventory and need
+re-selecting after their contents change. Links and oversized files are refused.
+Reports distinguish reference reads from task reads.
 
-Run `npm run probe:mcp -- --live` for a real Linear read through Codex and a
-source-project MCP fixture through Claude. `npm run probe:references -- --live`
-checks both providers' actual external-folder list/search/read calls. These use
-existing subscriptions and retain fixtures and journals under `.grampus/`.
+Configured MCP connections load from each provider's settings, and source-project
+connections carry into isolated worktrees without enabling servers you disabled.
+Referenced tickets, such as Linear issues, can be read directly. The **MCP
+connections** card shows reported status and tool counts without secrets. External
+writes or messages need explicit task authorization. Codex and Claude may have
+different connections.
 
-## Budgets and performance
+## Budgets
 
-- Exploration lists return 100 paths per page. Reads return up to 400 lines and
-  approximately 24 KiB of text, with an explicit next-line cursor; files are bounded
-  to 32 MiB and lines above 24 KiB are refused. Search is case-insensitive literal
-  text with an optional path substring filter, scans up to 128 files / approximately
-  4 MiB per page, and returns up to 50 bounded match lines. Read mode `characters`
-  pages up to 12,000 string positions with JSON text capped near 24 KiB, including
-  unchanged single-line files. Offsets and cursors count string positions in that
-  mode. Follow `nextOffset` even
-  on an empty page. Binary/oversized files and additional matches are recorded;
-  narrow the search or read the relevant file directly. Pinned search blobs are
-  fetched in batches. Exploration is incremental and has no 512 KiB aggregate
-  initial-context restriction. Existing turn deadlines and interruption apply.
+- **Listing:** 100 paths per page.
+- **Reading:** up to 400 lines and about 24 KiB per page with a next-line cursor;
+  files up to 32 MiB; lines over 24 KiB are refused. Mode `characters` pages up to
+  12,000 string positions, including single-line files. Follow `nextOffset` even on an
+  empty page.
+- **Search:** case-insensitive literal text with an optional path filter, scanning up
+  to 128 files or about 4 MiB per page and returning up to 50 match lines.
+- **Initial supplied text:** at most 256 files, 256 KiB per file and 512 KiB in total.
+  Excess changed-file text and diff content is deferred to `grampus_read_changes`, which
+  lists 100 changed paths per page or pages recorded `before`/`after` content in
+  12,000-character pages.
+- **Review envelope:** 2 MiB inline. Retained change evidence is limited to 4 MiB.
+  Repository instructions must fit inline.
+- **Snapshots:** processed file by file with a 32 MiB per-file limit and no aggregate
+  cap.
+- **Caching:** pinned-tree metadata is held in an LRU of four trees, about 64 MiB.
+  Mutable worktree bytes are never cached for verification. Selected blobs and
+  delivery checks are read in batches.
+- **Dashboard polling:** cached by journal revision; no inventories, delivery
+  snapshots or inference. Reports load on request.
+- **Git:** worktree creation has a five-minute timeout; routine inspection 30 seconds.
 
-- Initial supplied text context: at most 256 files, 256 KiB per file and 512 KiB in total.
-  Exploration-enabled tasks defer excess changed-file text and diff content to
-  `grampus_read_changes`, keeping the full evidence in the bound snapshot. Without
-  a path, the tool lists 100 changed paths per page; with a path and `side: "before"`
-  or `"after"`, it pages recorded content by string offset, including deleted files
-  and long lines. Follow `nextOffset` until null. Each content page contains at most
-  12,000 characters and approximately 24 KiB of JSON text. Tool results remain
-  ownership-checked and journaled. Legacy selected-context tasks retain strict limits.
-- Inline review envelopes remain bounded to 2 MiB. Splitting work no longer
-  accumulates all earlier file contents into this envelope. Retained repository
-  change evidence remains limited to 4 MiB; repository instructions must fit inline.
-- Raw snapshots process files individually, with a 32 MiB per-file limit and no
-  aggregate repository byte cap. Git metadata subprocess output remains bounded.
-- An LRU cache holds immutable pinned-tree metadata, bounded to four trees and
-  an estimated 64 MiB. Mutable worktree bytes are never cached for verification.
-- Selected Git blobs are read in a batch. Delivery verifies raw commit/index blobs
-  in size-bounded batches rather than launching Git for every file. Scope checking
-  uses maps rather than repeated full-inventory searches.
-- Dashboard polling caches compact responses by database revision. It sends no
-  full snapshot inventory or delivery snapshot and loads reports only on request.
-  Polling performs no repository scan or inference. Worktree creation has a
-  five-minute Git timeout; routine workspace Git inspection retains 30 seconds.
-  Standalone checkout disables automatic CRLF conversion for that command only,
-  without editing Git configuration. Explicit attributes and filters still apply.
-  Changed-file originals are fetched together, and oversized change evidence is
-  refused during collection rather than after building a repository-wide diff.
+Full verification still reads every tracked and non-ignored untracked file, twice per
+stable capture, at several gates. Large repositories pay that disk and hashing cost.
 
-Full artifact verification still reads tracked and nonignored untracked bytes.
-A stable capture performs two matching snapshots. Several
-workflow gates require captures, so large tasks still pay disk and hashing costs;
-fast context lookup does not make full verification constant-time. Git worktree
-creation also needs to materialize the checkout.
-
-Run the offline scale probe after building:
+## Probes
 
 ```sh
+npm run build
 npm run probe:context -- --files 100000 --checkout
 npm run probe:context -- --files 10000 --file-bytes 16384 --checkout
 ```
 
-It retains synthetic fixtures and JSON timings under ignored
-`.grampus/context-probes/`. It uses no providers. The first exercises file count;
-the second also exceeds the former 128 MiB aggregate snapshot bound. These probes
-do not establish ordinary-project delivery or semantic review coverage.
-
-Agents now discover context autonomously within their repository-read capability.
-Changing approved write scope or requirements still requires a revised task.
-Approved recipes can now be revised at settled checkpoints with workspace preservation
-and fresh approval; see [guided workflow](GUIDED-WORKFLOW.md). Ordinary-project release
-trials remain work.
-
-Run `npm run build` followed by `npm run probe:exploration -- --live` to exercise
-both subscription providers against hidden dependency content, pinned/dirty checkout
-differences, resumed sessions and workspace snapshots. It retains fixture repositories
-and journals under ignored `.grampus/exploration-probes/` and makes no external changes.
+The offline scale probe retains synthetic fixtures and timings under
+`.grampus/context-probes/` and uses no providers. The live probes
+`npm run probe:exploration -- --live`, `npm run probe:mcp -- --live` and
+`npm run probe:references -- --live` exercise both subscriptions against fixture
+repositories, MCP servers and reference folders, retaining their journals under
+`.grampus/`. None of them is evidence about ordinary projects.

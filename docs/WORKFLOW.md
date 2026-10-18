@@ -40,12 +40,13 @@ The policy is visible in plan approval and editable in **Revise this task's plan
 }
 ```
 
-`mode: "supervised"` retains file-authorization and manual-simplification checkpoints.
+`mode: "supervised"` adds file-authorization and manual-simplification checkpoints
+(see [the guided CLI](GUIDED-WORKFLOW.md#supervised-mode)).
 Check repair rounds accept 0–5; the limit is shared by validation and acceptance for
 the current slice and survives manual retry/restarts. A new slice or revised plan
 gets a new allowance. Repeated failed content stops early.
 
-`reviewPolicy` still controls review repairs (0–2) and optional fresh arbitration.
+`reviewPolicy` controls review repairs (0–2) and optional fresh arbitration.
 Without that override, automatic review repairs use the workflow allowance, up to two. Review
 repair counts are separate from check repair counts. Unresolved arbitration stops.
 
@@ -65,7 +66,7 @@ Implementation and review never share a conversation, and arbitration always sta
 fresh. Each delivered slice starts with fresh conversations and authoritative task,
 slice and delivery context.
 
-Grampus still exits each provider process after its turn. That preserves the existing
+Grampus exits each provider process after its turn. That preserves the existing
 supervisor receipts, exclusive workspace ownership and restart recovery. Restarting
 a process with its saved provider conversation ID restores history. Keeping an idle
 process alive is primarily a latency optimization; it does not itself reduce the

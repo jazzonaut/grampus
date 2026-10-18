@@ -27,6 +27,15 @@ high-value problems, adds measurement, and then lets real use decide what follow
 
 ## Steps
 
+Order changed on 18 October 2026: structure and typing come before feature work, so new
+work lands in the new structure. Order: 1, split tests, structure and strictness, then 2-6.
+
+- **Structure and strictness.** Modules grouped by responsibility, stricter compiler flags,
+  typescript-eslint `strictTypeChecked`, zod validation at every external boundary
+  (provider events, journal payloads, API bodies, plan files), discriminated unions instead
+  of `any` and casts, TSDoc on exported surfaces. Recovery, artifact binding and no-replay
+  semantics stay unchanged; the existing tests are the safety net.
+
 1. **Hygiene baseline.** Fix nested-repository reference bug, Prettier, typescript-eslint
    with a shrink-only baseline, `npm run check`, fast and full test scripts, `AGENTS.md`,
    current-state docs with history archived under `docs/history/`.

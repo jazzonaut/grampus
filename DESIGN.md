@@ -1,5 +1,8 @@
 # Grampus design and decision record
 
+> This is the product intent record, not a description of what is built.
+> Current behaviour is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/WORKFLOW.md](docs/WORKFLOW.md).
+
 Grampus coordinates coding tasks with a clear approved outcome, sequential implementation slices, independent reviews, configurable quality checks, and a durable evidence trail. It should save human attention without becoming a source of unnecessary model usage or maintenance work.
 
 This record captures discovery decisions as of 17 October 2026. Agreed product behavior is distinguished from proposed technical choices. Recording these requirements does not constitute approval of an implementation plan.

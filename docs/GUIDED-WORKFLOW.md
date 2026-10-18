@@ -1,157 +1,130 @@
-# Guided Windows task workflow
+# Guided tasks from the CLI
 
-New plans use the [automatic local workflow](WORKFLOW.md): approval authorizes the
-listed files and commands, routine validation/acceptance failures get bounded repairs,
-and independent review includes an explicit simplification assessment. Set
-`workflowPolicy.mode` to `supervised` for the manual walkthrough below. Older saved
-plans retain supervised behavior; `task-automate <id>` explicitly enables automatic
-continuation within an existing approved plan.
+Most people should use the [dashboard](DASHBOARD.md), which writes the plan for you
+through a planning conversation. This guide covers authoring a plan as JSON and
+driving it with the `task-*` commands. Both use the same controller and journal.
 
-Exact file scope supports regular UTF-8 files up to 1 MiB each and 4 MiB of existing
-text per slice. Individual edit/patch text remains bounded to 256 KiB. Large editable
-files are read through repository exploration; they are not excluded by filename.
-Gitignored untracked output stays outside the inventory, while tracked lockfiles
-and generated sources remain covered. Unsupported pinned file sizes fail during
-planning, before approval and workspace creation. Runtime scope errors identify the
-path and reason; revise an unsupported scope before retrying.
+New plans run in **automatic** mode by default: approval authorizes the listed files
+and commands, and Grampus runs implementation, validation, independent review,
+bounded repairs, acceptance and local delivery without further input unless
+something needs attention. **Supervised** mode is opt-in and adds two manual
+checkpoints per attempt. See [WORKFLOW.md](WORKFLOW.md) for the automatic behaviour.
 
-The guided CLI connects the existing task controller into a repeatable workflow.
-It prepares workspaces and sessions, runs native implementation and validation,
-pauses for explicit simplification, then runs independent review, acceptance and
-verified local delivery. It prints the next command at each checkpoint.
+## Write a plan
 
-For plain-language kickoff and on-screen controls, use the
-[local dashboard](DASHBOARD.md). This document describes the authored-plan CLI.
-This is an early Windows interface with bounded text context inside larger repositories.
-See [repository context and scale](REPOSITORY-CONTEXT.md) for selection and limits.
-Approved review policies can prepare bounded repairs and a fresh arbitration.
-Author and resolve ambiguities in the brief before approving it. Checks and expected
-output must demonstrate the intended behavior; Grampus cannot establish their
-semantic sufficiency merely from their exit code.
+Start from [examples/guided-task.json](../examples/guided-task.json) and adapt it to a
+small existing repository with a committed baseline. The example sets
+`workflowPolicy.mode` to `supervised` so you can step through every checkpoint; remove
+that field to use the automatic default.
 
-## Prepare a task
+A plan contains:
 
-Build with `npm run build`. Copy [examples/guided-task.json](../examples/guided-task.json)
-and adapt it to a small existing repository with a committed baseline. The example
-expects an existing `greeting.js`. Repository and destination paths are relative to
-the plan file. The destination must be absent and its parent must already exist.
+- `brief`: title, outcome, criteria, plan and optional ordered `slices`.
+- `workspace`: `repo`, `base`, and either `path` for a standalone Git worktree or
+  `adapter: "orca"`. Paths are relative to the plan file. A standalone destination
+  must not exist; its parent must.
+- `implementation` and optional `review`: provider and model. The default implementer
+  is Codex, and review always uses the other provider.
+- `slices`: one execution configuration per brief slice (one for an unsliced brief),
+  each with a file `scope` (`files`, `create`, `delete`), `validation`, `acceptance`,
+  a delivery `message`, and optional `preparation` and `mode`.
+- Optional `workflowPolicy`, `reviewPolicy`, top-level `preparation`, `context` and
+  `references`.
 
-The plan contains a `brief`, `workspace`, optional agent selections and one execution
-configuration per slice. Commands use separate executable/argument fields, without
-shell expansion. `file: "node"` resolves to the current Node executable when the
-plan is stored; other executables need absolute paths. Relative script arguments
-are interpreted inside the task worktree. Timeouts default to 120000 ms.
+Commands use `name`, `file`, `args` and `timeoutMs` (default 120000, at most 600000).
+There is no shell. `file: "node"` resolves to the current Node executable; other
+executables need absolute paths. Commands run at the task worktree root.
 
-```sh
-npm start -- task-new my-task.json
-```
+Repository exploration is enabled by default, so file hints are optional. Exact file
+scope supports regular UTF-8 files up to 1 MiB each and 4 MiB of existing text per
+slice. Unsupported sizes fail at planning, before approval. See
+[repository context](REPOSITORY-CONTEXT.md).
 
-This stores a draft without creating a worktree or calling either provider. It
-resolves the repository and pins the base ref to a commit. The displayed approval
-digest covers the brief, all file scopes, commands, expected output, providers,
-models, selected context and delivery messages. Inspect that complete plan, then copy its displayed
-command, which has this form:
+## Approve and run
 
 ```sh
-npm start -- task-approve <task-id> 1 <displayed-plan-digest>
-npm start -- task-run <task-id>
+grampus task-new my-plan.json
+grampus task-approve <task-id> 1 <displayed-plan-digest>
+grampus task-run <task-id>
 ```
 
-Ordinary `approve` alone does not approve a guided execution recipe. Changes to
-the underlying brief/version invalidate guided continuation. Use the guided revision
-command below to update the recipe and workspace version together.
+`task-new` stores a draft and pins the base to a commit; it creates no worktree and
+calls no provider. It prints the approval digest, which covers the whole plan. Copy
+the displayed approval command after inspecting it. Plain `approve` does not
+authorize a guided plan. `task-show <task-id> [--details|--json]` shows progress, the
+next action, questions, findings and retained results.
 
-The default implementer is Codex and the reviewer is Claude. Select Claude
-implementation to default to Codex review. The guided path requires different
-providers; it never chooses a same-provider fallback implicitly. Existing first-party
-subscription authentication remains required. Transport failures never retry inference
-automatically, and no branch is pushed.
+`task-run` advances until the task completes or something needs input. Ctrl+C or
+`task-stop <task-id>` from another terminal requests a stop; the runner waits for its
+owned processes to settle. From a checkout, use `npm start --` in place of `grampus`.
 
-## Prepare repository prerequisites
+## What stops a run
 
-The planner infers setup from the pinned repository's manifests, lockfiles, workspace
-configuration and documentation. Fresh Git and Orca worktrees have no ignored
-dependencies or caches. An optional top-level `preparation` command uses the same
-`name`, `file`, `args` and `timeoutMs` fields as validation. It runs before file
-authorization in every attempt and again after implementation, before validation.
-Use a repeatable restore that leaves Git-visible inputs unchanged. For example,
-a pnpm repository can use its workspace's frozen-lockfile installation. Other
-toolchains use their own repository-specific restore commands; the controller
-does not detect or install a particular package manager itself.
+- **Questions.** Answer every question id with `task-answer <task-id> answers.json`,
+  where the file is a JSON object mapping ids to text.
+- **Failures beyond the allowance.** Validation and acceptance failures are repaired
+  automatically up to `workflowPolicy.repairRounds`; a repair that leaves the failing
+  content unchanged stops early.
+- **Blocking review findings beyond the allowance**, or an unresolved arbitration.
+- **Operational problems:** preparation failures, scope errors, uncertain process exits
+  and anything that needs recovery.
 
-A slice may supply its own `preparation` command to replace the second run. This
-step can update only the slice's authorized paths, such as a lockfile when the
-implementer changes a manifest. Include each generated path in the slice scope;
-the implementer cannot run commands and should leave generation to this command.
-Git state and repository instructions must remain unchanged. No-change slices
-allow no Git-visible writes. Untracked ignored dependencies and caches remain
-outside repository snapshots, as they do for other supervised operations.
+Inspect the retained files, findings and check output, then use `task-retry`. Valid
+tests and acceptance criteria must not be weakened to make them pass.
 
-Preparation commands run at the task worktree root. Supply project directories
-through their arguments, and allow enough time for a fresh restore (up to 600000 ms).
-Commands, timeouts and file permissions are part of the plan approval. Validation
-and acceptance still require unchanged repository inputs; setup does not count as
-passing validation or acceptance evidence. Plans without preparation keep their
-existing behavior. Existing tasks need an explicit plan revision and approval to
-add these commands; they are never injected into an already approved recipe.
+## Supervised mode
 
-The dashboard shows preparation progress, commands and retained output. A failed
-or interrupted preparation stops before validation. **Retry preparation** (CLI:
-`task-retry`) reruns just that step in the same attempt, preserving implementation.
-Only changes permitted by its original preparation scope can be carried forward.
-After controller loss, recover first: an already-settled preparation is adopted
-without replay, while an uncertain command retains ownership until its process
-settlement is proved. Recovery itself never launches another command.
+With `"workflowPolicy": { "mode": "supervised" }`, and for plans saved before automatic
+mode existed:
 
-## Revise a settled plan
+1. Before each editing turn the task stops at `awaiting_scope`. Inspect the files with
+   `task-show <task-id> --details`, then run `task-authorize <task-id>`. Authorization
+   binds to that exact snapshot.
+2. After validation and submission it stops at `awaiting_assessment`. Inspect the code
+   and record a simplification outcome:
 
-```sh
-npm start -- task-revise <task-id> <current-version> revised-plan.json
-```
+   ```sh
+   grampus task-assess <task-id> --outcome passed --summary "One direct statement; no duplication or extra abstractions."
+   ```
 
-Supply the complete revised recipe, retaining its pinned base and workspace identity
-once a workspace exists. The dashboard offers **Revise this task’s plan**, with outcome,
-approach and repair-policy fields plus an advanced editor for scope, checks, criteria
-and slices. Revision increments the task version, closes idle old executions and clears
-approval and current evidence. Files, commits, history and pending decisions survive.
-Delivered slice definitions and recipes must stay identical; revise remaining slices
-or append a follow-up. Every revised plan must have remaining work.
+   `failed` or `skipped` is retained and stops before review.
 
-The approval digest binds the retained workspace artifact, HEAD and instructions.
-Changed bytes before the first revised execution block continuation until another
-revision is approved. After approval, a fresh execution and exact file authorization
-are required, followed by validation, explicit simplification, independent review and
-acceptance. Existing partial edits remain available. Live or uncertain owners must
-settle or recover before revision; this operation performs no Git writes.
+Review, acceptance and delivery then follow as in automatic mode. Review repairs
+still need fresh authorization and assessment. To switch a saved plan to automatic
+work within its existing scope and commands, run `task-automate <task-id>` (dashboard:
+**Continue automatically within this plan**). It records an event and does not change
+the approved plan.
 
-## Bounded review repair and arbitration
+## Repository preparation
 
-An optional approved recipe field enables the review loop:
+Fresh worktrees have no ignored dependencies. An approved top-level `preparation`
+command runs before scope in every attempt and again after implementation, before
+validation. A slice's own `preparation` replaces the second run and may update only
+that slice's authorized paths, such as a lockfile after a manifest change. Include
+generated paths in the slice scope; the implementer cannot run commands. The planner
+infers these commands from the repository; Grampus does not detect package managers.
+Preparation is not validation or acceptance evidence.
+
+A failed preparation stops before validation. `task-retry` reruns only that step in
+the same attempt.
+
+## Review policy and arbitration
 
 ```json
-"reviewPolicy": {
-  "repairRounds": 2,
-  "arbitrator": { "provider": "codex" }
-}
+"reviewPolicy": { "repairRounds": 2, "arbitrator": { "provider": "codex" } }
 ```
 
-Omitting the policy keeps manual retry. Approve 0–2 repair rounds; the arbitrator
-is optional. Only a settled independent review with concrete blocking findings can
-consume a repair round. Grampus preserves findings and files, creates a fresh attempt,
-and stops for file authorization. Each repaired artifact still needs its own explicit
-simplification assessment before fresh review. Failures and questions never silently
-spend another inference attempt. The allowance persists through restart and manual
-retry, and resets for a new slice or newly approved revision.
-
-After the repair allowance, the configured arbitrator receives a fresh artifact-bound
-review session and prior verdicts with their artifact identities. A same-provider
-arbitrator is an explicitly approved, recorded fallback. An unresolved arbitration
-blocks delivery. Recovery reconciles recorded results without rerunning inference.
+`repairRounds` is 0 to 2. Only a settled review with concrete blocking findings spends
+a round; Grampus keeps the findings and files and starts a fresh attempt. Without a
+`reviewPolicy`, automatic plans use the workflow allowance (at most two) and supervised
+plans retry manually. After the allowance, an optional arbitrator receives a fresh
+artifact-bound review with all earlier verdicts. A same-provider arbitrator is an
+explicitly approved fallback. More than eight verdicts or 128 KiB of history stops
+before inference rather than dropping findings.
 
 ## Acceptance observations
 
-Legacy `acceptance.expectedStdout` remains supported. Alternatively, or additionally,
-an acceptance command can approve these observations:
+`acceptance.expectedStdout` checks exact stdout. Alternatively or additionally:
 
 ```json
 "expectations": {
@@ -165,132 +138,49 @@ an acceptance command can approve these observations:
 }
 ```
 
-JSON comparison ignores object-key order and whitespace while preserving value types
-and array order. A file with only a path asserts presence. Content and binary hashes
-are compared to the verified snapshot, not an extra filesystem read. Absence requires
-a recorded snapshot tombstone; paths outside the captured inventory, including ignored
-outputs, cannot establish an assertion. Commands still need exit 0, confirmed descendant
-settlement, complete retained output and unchanged repository inputs. Use a command to
-observe UI behavior or external services and emit an approved JSON result; these are
-command observations, not built-in browser verification. Every active criterion must
-still be mapped and independently reviewed for semantic sufficiency.
+JSON comparison ignores key order and whitespace. File assertions use the verified
+after-snapshot, so ignored outputs cannot satisfy them. Commands still need exit zero,
+settled descendants, complete output and unchanged inputs. Grampus checks the
+observations, not whether the checks are sufficient: make them demonstrate the
+intended behaviour.
 
-## Inspect and authorize files
+## Slices and no-change delivery
 
-The first run creates the isolated workspace and a fresh implementation session,
-captures repository instructions and files, checks the editing policy and verifies
-that the repository fits the existing review limits. It stops before inference:
+For ordered slices, supply `brief.slices` and an equally long execution `slices`
+array. Each slice is delivered as its own verified commit before the next begins.
+Final review covers integration and final acceptance maps to every task criterion.
+Use `mode: "no_change"` with `scope: { "files": [] }` to confirm an outcome that
+already exists, without editing or an empty commit; every gate still runs.
 
-```sh
-npm start -- task-show <task-id> --details
-npm start -- task-authorize <task-id>
-```
-
-Inspect the named files in the displayed workspace. `--details` includes retained
-instructions and changes. Authorization binds to that exact snapshot; changed
-files or instructions cannot be silently substituted before editing. The runner
-fills in content digests and session/check ids rather than requiring hand-written
-per-command JSON files.
-
-The provider edits only the declared scope. Validation runs next and successful
-implementation is submitted. Failures stop the workflow with retained results.
-For a question, supply a JSON map of all question ids to answers using
-`task-answer <task-id> answers.json`. Implementation answers prepare a fresh scope
-checkpoint before another editing turn; review answers resume the recorded review
-session after artifact revalidation.
-
-## Assess, review and deliver
-
-At `awaiting_assessment`, inspect the code and retained check output. Choose an
-explicit simplification outcome and explain it:
+## Revise a plan
 
 ```sh
-npm start -- task-show <task-id> --details
-npm start -- task-assess <task-id> --outcome passed --summary "One direct statement follows the repository convention; no duplication or extra abstractions."
+grampus task-revise <task-id> <current-version> revised-plan.json
 ```
 
-Use `failed` or `skipped` when appropriate; those outcomes are retained and stop
-before review. A passing assessment continues with a fresh independent review,
-exact-output acceptance and supervised local delivery. Blocking findings and
-unanswered questions stop progression. Completion and the report use the existing
-controller gates; a model reply alone cannot complete a task.
+Supply the complete revised plan at a settled checkpoint, keeping the pinned base and
+workspace. Revision increments the version, closes idle executions and clears approval
+and current evidence. Files, commits, history and delivered slices are kept;
+delivered slice definitions must not change. The new digest binds the retained
+workspace content, so changes made before the first revised execution block it.
+Fresh approval is required.
+
+## Recover after a crash
 
 ```sh
-npm start -- report <task-id>
+grampus task-show <task-id>
+grampus task-recover <task-id>
 ```
 
-For ordered slices, include the existing approved `brief.slices` and an equally
-long execution `slices` array. Each slice has its own scope, validation, acceptance
-and delivery message. Delivery prepares the next slice's scope checkpoint. Final
-review covers integration and final acceptance maps to every task criterion.
+Recovery first proves the previous controller exited, then applies the matching
+receipt-based recovery for the interrupted step. It adopts an exact settled result or
+leaves the task blocked. It never sends a provider turn, stages, commits or starts the
+next step; continue with the displayed command.
 
-Use `mode: "no_change"` with `scope: { "files": [] }` to confirm an already satisfied
-outcome without implementation inference or an empty commit. Validation, explicit
-simplification, independent review and acceptance still run.
+If standalone worktree creation failed before producing a checkout,
+`task-release-workspace <task-id>` releases the reservation metadata after confirming
+Git exited and nothing was created. Branches, files and history are never deleted.
 
-## Stop, retry and recover
-
-Guided agent turns have no automatic runtime deadline, including planning, implementation,
-review and arbitration. Old saved agent timeout fields remain in their approved digests
-for compatibility but no longer terminate turns. **Stop** and controller-loss supervision
-remain active; validation and acceptance commands retain their approved timeouts.
-
-Ctrl+C requests interruption. Another terminal can use `task-stop <task-id>`;
-the runner observes that request and waits for its owned processes to settle.
-A stop request is distinct from confirmed shutdown.
-
-Use `task-retry <task-id>` after a settled failure or at a scope/simplification
-checkpoint when changes are needed. Inspect retained files, findings and any
-delivery changes first. At a failed preparation step, it retries preparation in
-the same attempt without repeating implementation. At other checkpoints it
-creates a fresh attempt/session,
-preserves partial files, carries review feedback and prepares a fresh authorization
-checkpoint. It does not reset Git or automatically alter the approved scope.
-For a deletion-only slice whose files are already absent, authorizing the fresh
-checkpoint proceeds directly to validation. It still requires fresh simplification,
-independent review, acceptance and delivery; the original commit delivery mode is
-preserved, and no empty editing policy or redundant implementation turn is created.
-
-After a controller exits unexpectedly:
-
-```sh
-npm start -- task-show <task-id>
-npm start -- task-recover <task-id>
-```
-
-Recovery first proves the previous controller exited, then invokes the applicable
-existing receipt-based recovery. It can adopt an exact already-settled result or
-leave the task blocked when proof is unavailable. It never sends a provider turn,
-stages files, commits or automatically runs the next step. Continue explicitly
-with the displayed command. The underlying recovery command is also displayed.
-
-One guided controller at a time owns the runner in a journal. Ownership survives
-uncertain shutdown, preventing another guided task from starting. Low-level CLI
-commands, other journals, editors and independently launched Orca agents remain
-outside that global guided limit. Avoid mixing controllers for the same task.
-Task and workspace leases still enforce their existing ownership rules.
-
-`task-show --json` exposes the saved plan, state, questions, findings and leaf
-operation results for tooling. `--db <journal.sqlite>` works with every command.
-Keep the journal and plan outside task worktrees. No background recovery or
-automatic retention cleanup is enabled.
-
-If standalone creation failed before producing a checkout, use
-`task-release-workspace <task-id>` (or **Release unused reservation** in the dashboard).
-It requires confirmed Git exit, absent checkout files and no Git worktree registration,
-executions or active lease. It releases metadata only; branches, files and history are
-never deleted. A later explicit Continue creates a new worktree with a fresh branch.
-The low-level equivalent is `workspace-release <workspace-id>`. Existing checkouts,
-unknown Git exit and uncertain Orca creation remain blocked for inspection/recovery.
-
-New ordinary conversations and workspace operations record exact Windows process
-creation times, so a recycled PID does not impersonate the original owner. A durable
-pre-connection boundary can prove that a crashed conversation never requested provider
-startup. Once connection was requested, a missing provider identity still cannot prove
-shutdown. Legacy records remain conservative; native editing always requires its
-supervisor receipt rather than conversation recovery.
-
-Task views and reports aggregate the latest cumulative usage per provider session,
-including linked planning and naming sessions. They count resumed sessions once,
-include failed attempts and earlier versions, separate providers and mark partial or
-unknown measurements. Estimated USD never becomes billed cost; billed cost stays unknown.
+One guided controller runs per journal at a time, and its ownership survives an
+uncertain shutdown. Keep the journal and plan files outside task worktrees. Every
+command accepts `--db <journal.sqlite>`.
