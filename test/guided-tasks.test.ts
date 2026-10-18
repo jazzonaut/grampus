@@ -13,6 +13,7 @@ import { runCheckProcess } from '../src/check-process.js';
 import type { Reply } from '../src/agents/types.js';
 import type { ImplementationRun } from '../src/implementations.js';
 import { renderReport } from '../src/report.js';
+import { Kickoffs } from '../src/kickoff.js';
 
 const windows = { skip: process.platform !== 'win32' };
 const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
@@ -340,7 +341,7 @@ test('implementation questions require explicit answers and a fresh scope author
   assert.equal(done.status, 'complete', done.note);
 });
 
-test('ordered guided slices require separate assessments and final whole-task acceptance', windows, async t => {
+test('planned ordered slices require separate assessments and final whole-task acceptance', windows, async t => {
   const f = fixture(t);
   writeFileSync(join(f.repo, 'cli.js'), "console.log('pending');\n"); git(f.repo, 'add', '.'); git(f.repo, 'commit', '-m', 'CLI fixture baseline');
   const criteria = ['Library exposes hello world', 'CLI prints hello world with a newline'];
@@ -360,7 +361,15 @@ test('ordered guided slices require separate assessments and final whole-task ac
     return runCheckProcess({ ...options, args: ['-e', `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(file)},${JSON.stringify(source)});
       fs.writeFileSync(${JSON.stringify(join(options.receipt!.directory, 'result.json'))},JSON.stringify({id:${JSON.stringify(options.receipt!.checkId)},result:{status:'completed',reply:${JSON.stringify(message)},usage:null,error:null}}));`] });
   } });
-  const task = tasks.create(plan), id = task.id; tasks.approve(id, 1, task.guided!.digest);
+  const kickoffs = new Kickoffs(f.store, async () => ({
+    turn: async () => ({ status: 'completed', reply: { ...message, text: JSON.stringify(plan) }, usage: null, error: null }),
+    interrupt: async () => {}, close: async () => {},
+  }));
+  const kickoffId = kickoffs.create({ repo: f.repo, request: 'Deliver the full greeting library and CLI task in sequential slices' });
+  const proposal = await kickoffs.send(kickoffId); assert.equal(proposal.error, null);
+  const id = kickoffs.prepare(kickoffId, proposal.candidateDigest!), draft = tasks.get(id);
+  assert.equal(draft.status, 'draft'); assert.equal(draft.plan.slices.length, 2);
+  tasks.approve(id, draft.version, draft.digest);
   await tasks.run(id); const first = await tasks.authorize(id); assert.equal(first.status, 'awaiting_assessment', first.note);
   const next = await tasks.assess(id, 'passed', 'One exported string; the CLI remains for the next slice');
   assert.equal(next.status, 'awaiting_scope', next.note); assert.equal(next.sliceIndex, 1); assert.notEqual(next.executionId, first.executionId);

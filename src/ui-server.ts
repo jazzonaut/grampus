@@ -59,7 +59,7 @@ export async function startUi(options: UiOptions) {
       response.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
       if (request.headers.host !== new URL(origin).host || (request.headers.origin && request.headers.origin !== origin)) { json(response, 403, { error: 'Local origin required' }); return; }
       const path = new URL(request.url ?? '/', origin).pathname;
-      const assets: Record<string, [string, string]> = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/app.css': ['app.css', 'text/css'] };
+      const assets: Record<string, [string, string]> = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/app.css': ['app.css', 'text/css'], '/favicon.svg': ['favicon.svg', 'image/svg+xml'] };
       if (request.method === 'GET' && assets[path]) {
         const [file, mime] = assets[path]!;
         response.writeHead(200, { 'Content-Type': `${mime}; charset=utf-8` });

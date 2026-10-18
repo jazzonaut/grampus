@@ -178,6 +178,54 @@ test('kickoff clarifies consequential ambiguity, validates generated commands an
   await assert.rejects(kickoffs.send(id, 'Change it after conversion'), /already/);
 });
 
+test('kickoff plans the full ticket across ordered slices on initial and resumed turns', async t => {
+  const f = fixture(t), store = new Store(join(f.root, 'journal.sqlite')); t.after(() => { store.close(); f.cleanup(); });
+  const criteria = ['Greeting has valid JavaScript syntax', ...f.plan.brief.criteria];
+  const plan = { ...f.plan, brief: { ...f.plan.brief, criteria, slices: [
+    { title: 'Syntax', plan: 'Verify the existing script parses', criteria: [criteria[0]!] },
+    { title: 'Output and integration', plan: 'Verify the output and all task criteria', criteria: [criteria[1]!] },
+  ] }, slices: [
+    { ...f.plan.slices[0]!, acceptance: { file: 'node', args: ['--check', 'greeting.js'], expectedStdout: '' } },
+    f.plan.slices[0]!,
+  ] };
+  const incomplete = structuredClone(plan); incomplete.brief.slices[1]!.criteria = [criteria[0]!];
+  const replies: Reply[] = [
+    { kind: 'question', text: 'Confirm the intended output', questions: [{ id: 'output', prompt: 'Preserve hello with a newline?', choices: ['yes'] }], findings: [] },
+    { kind: 'message', text: JSON.stringify(incomplete), questions: [], findings: [] },
+    { kind: 'message', text: JSON.stringify(plan), questions: [], findings: [] },
+  ];
+  const prompts: string[] = [];
+  const connector: Connector = async (_, options) => ({ turn: async prompt => {
+    prompts.push(prompt);
+    options.emit({ type: 'session.connected', data: { providerSessionId: 'offline-multislice-planner', model: 'fixture' } });
+    return { status: 'completed', reply: replies.shift()!, usage: null, error: null };
+  }, close: async () => {}, interrupt: async () => {} });
+  const kickoffs = new Kickoffs(store, connector), id = kickoffs.create({ repo: f.repo, request: 'Plan this XL ticket in full: verify greeting syntax and output' });
+  const question = await kickoffs.send(id);
+  assert.equal(question.session.phase, 'awaiting_answer');
+  assert.doesNotMatch(prompts[0]!, /Use one slice\./);
+  const incompleteView = await kickoffs.send(id, undefined, { output: 'yes' });
+  assert.match(incompleteView.error!, /Slices must cover every task criterion/);
+  assert.equal(incompleteView.candidate, null);
+  assert.throws(() => kickoffs.prepare(id), /errors/);
+  const proposed = await kickoffs.send(id, 'Cover every requirement in the complete plan');
+  assert.equal(proposed.error, null);
+  assert.equal(prompts.length, 3);
+  for (const prompt of prompts) {
+    assert.match(prompt, /1–64 ordered slices/);
+    assert.match(prompt, /brief\.slices/);
+    assert.match(prompt, /final slice.*every task criterion/);
+  }
+  assert.deepEqual(proposed.candidate!.brief.slices, plan.brief.slices);
+  const taskId = kickoffs.prepare(id, proposed.candidateDigest!), tasks = new GuidedTasks(store), draft = tasks.get(taskId);
+  assert.equal(draft.status, 'draft'); assert.equal(store.get<any>(taskId).approvedVersion, null);
+  assert.equal(draft.plan.slices.length, 2); assert.deepEqual(draft.plan.brief.criteria, criteria);
+  assert.equal(store.workspaces().length, 0);
+  tasks.approve(taskId, draft.version, draft.digest);
+  assert.equal(tasks.get(taskId).status, 'ready');
+  assert.deepEqual(tasks.get(taskId).plan.brief.slices, plan.brief.slices);
+});
+
 test('kickoff omits binary assets and rejects their explicit selection before inference', t => {
   const f = fixture(t), store = new Store(join(f.root, 'journal.sqlite')); t.after(() => { store.close(); f.cleanup(); });
   writeFileSync(join(f.repo, 'binary.bin'), Buffer.from([0, 1, 2])); f.git('add', '.'); f.git('commit', '-m', 'Binary fixture');

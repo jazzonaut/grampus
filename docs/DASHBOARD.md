@@ -26,6 +26,12 @@ also have read access, separately from the exact approved file changes. See
 Consequential questions appear in the discussion. Answer them, or ask
 for revisions, until the proposed plan describes the right outcome and examples.
 Planning consumes subscription usage only when you explicitly start/send a turn.
+The planner covers the full requested task and can propose 1–64 ordered slices.
+Larger tickets are split into independently verifiable deliveries, each with its
+own file scope, checks and commit message. The final slice verifies every task
+criterion, including earlier slices and integration. Review the complete sequence
+before approval; a ticket's size alone should not prompt you to narrow its scope.
+
 Choose a two-, five- or ten-minute time limit per agent turn at kickoff; five
 minutes is the default. It applies to planning, implementation and independent
 review and is frozen into the proposed task recipe.

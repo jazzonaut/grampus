@@ -45,6 +45,16 @@ test('questions and answers survive reopening; reconnect receives the exact prov
   assert.ok(store.sessionEvents(session.id).some(e => e.type === 'questions.answered'));
 });
 
+test('answer turns retain controller instructions alongside validated user answers', t => {
+  const { store, sessions, session } = fixture(t);
+  const first = sessions.claim(session.id, 'Ask for the label');
+  sessions.settle(session.id, first.runId, result(question), true);
+  assert.throws(() => sessions.claim(session.id, 'Current controller instructions', { wrong: 'reef' }), /Answer every/);
+  const answered = sessions.claim(session.id, 'Current controller instructions', { label: 'reef' });
+  assert.equal(answered.prompt, 'Current controller instructions\n\nUser answers to the pending questions:\n{"label":"reef"}');
+  assert.equal((store.sessionEvents(session.id).findLast(event => event.type === 'turn.requested')!.data as { prompt: string }).prompt, answered.prompt);
+});
+
 test('one controller owns a session and stale results cannot settle a later turn', t => {
   const { sessions, session } = fixture(t);
   const claim = sessions.claim(session.id, 'First');

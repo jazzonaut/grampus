@@ -61,7 +61,7 @@ export class Sessions {
         if (!answers || Object.keys(answers).length !== questions.length || questions.some(q => typeof answers[q.id] !== 'string' || !answers[q.id]!.trim())) {
           throw new Error('Answer every pending question by its id');
         }
-        prompt = `User answers to the pending questions:\n${JSON.stringify(answers)}`;
+        prompt = `${prompt.trim() ? `${prompt}\n\n` : ''}User answers to the pending questions:\n${JSON.stringify(answers)}`;
         this.store.appendSession(id, 'questions.answered', { answers });
       } else if (answers) throw new Error('Session has no pending questions');
       if (!prompt.trim()) throw new Error('Prompt must not be empty');

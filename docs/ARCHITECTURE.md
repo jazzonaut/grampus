@@ -30,6 +30,14 @@ inline checks receive syntax validation, without execution. Proposal conversion
 binds its digest and creates only an unapproved guided task; selected repository,
 base, workspace adapter, providers and time limits remain controller-authoritative.
 
+Planning instructions cover the full requested outcome in 1–64 ordered slices.
+The brief records each slice's title, plan and exact task criteria; matching
+execution configurations provide scope, checks and delivery messages. Their
+criteria must cover the task, with final acceptance checking every task criterion.
+This contract is supplied on each explicit planning turn, including continuations
+of saved conversations with older instructions. Answer turns retain the supplied
+controller prompt alongside the validated user answers.
+
 The browser presents selected files and instructions, approved requirements and
 per-slice criteria, decoded command arguments, output expectations, retained diffs,
 check output, findings and a journal-derived report. Simplification remains an
