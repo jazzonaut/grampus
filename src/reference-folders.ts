@@ -33,9 +33,11 @@ export function inspectReference(path: string, base?: string | null): ReferenceF
   try { repo = realpathSync.native(gitText(absolute, 'rev-parse', '--show-toplevel')); } catch { /* Plain folders are supported too. */ }
   if (repo) {
     const prefix = relative(repo, absolute).replaceAll('\\', '/');
-    const commit = gitText(repo, 'rev-parse', '--verify', '--end-of-options', `${base ?? 'HEAD'}^{commit}`);
-    const entries = pinnedRepository(repo, commit, prefix).entries;
-    return { path: absolute, repo, base: commit, prefix, digest: createHash('sha256').update(JSON.stringify(entries)).digest('hex'), totalFiles: entries.length };
+    // An enclosing repository without commits, or one that does not track this folder, is not its source.
+    let commit: string | null = null;
+    try { commit = gitText(repo, 'rev-parse', '--verify', '--end-of-options', `${base ?? 'HEAD'}^{commit}`); } catch (error) { if (base) throw error; }
+    const entries = commit ? pinnedRepository(repo, commit, prefix).entries : [];
+    if (commit && (entries.length || base)) return { path: absolute, repo, base: commit, prefix, digest: createHash('sha256').update(JSON.stringify(entries)).digest('hex'), totalFiles: entries.length };
   }
   if (base) throw new Error('A pinned reference commit requires a Git repository');
   const snapshot = looseSnapshot(absolute);

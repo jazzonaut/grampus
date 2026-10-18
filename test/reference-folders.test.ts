@@ -43,6 +43,19 @@ test('plain reference folders bind content hashes and reject changes between tur
   assert.throws(() => normalizeReferences([ref]), /changed/);
 });
 
+test('folders untracked by an enclosing repository or one without commits are plain references', t => {
+  const f = fixture(t), untracked = join(f.reference, 'untracked'), empty = join(f.root, 'empty-repo'), nested = join(empty, 'notes');
+  mkdirSync(untracked); writeFileSync(join(untracked, 'spec.md'), 'Untracked contract');
+  mkdirSync(nested, { recursive: true }); f.git(empty, 'init'); writeFileSync(join(nested, 'spec.md'), 'Uncommitted contract');
+  for (const folder of [untracked, nested]) {
+    const ref = inspectReference(folder);
+    assert.equal(ref.repo, null); assert.equal(ref.totalFiles, 1);
+    const invoke = repositoryTools({ repo: f.repo, base: f.base, references: [ref] }, () => {}, () => true);
+    assert.match(JSON.stringify(invoke('grampus_read_file', { root: 'reference-1', path: 'spec.md' })), /contract/);
+  }
+  assert.throws(() => inspectReference(nested, 'HEAD'));
+});
+
 test('folder suggestions identify mentioned paths and agent suggestions never grant access', t => {
   const f = fixture(t), path = join(f.reference, 'subfolder');
   assert.equal(suggestReferenceFolders(`Use this for reference: ${path}\nImprove the PDF flow.`)[0]!.path, realpathSync.native(path));
