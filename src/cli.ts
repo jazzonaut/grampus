@@ -47,7 +47,6 @@ const help = `Grampus — local agent controller
                                   Record explicit simplification and continue
   task-answer <id> <answers.json> Answer pending questions and continue
   task-retry <id>                 Retry preparation, or start a fresh implementation attempt
-  task-automate <id>              Continue automatically within the approved file scope
   task-stop <id>                  Request a running guided controller to stop
   task-recover <id>               Reconcile saved results; never replay provider/Git work
   workspace-new <task-id> <version>  Create a worktree (--repo, --path, optional --base)
@@ -173,7 +172,7 @@ async function main(): Promise<void> {
   }
   if (action === 'demo') {
     if (values.db) throw new Error('demo uses an isolated database; omit --db');
-    const path = join(mkdtempSync(join(tmpdir(), 'grampus-demo-')), 'journal.sqlite');
+    const path = join(mkdtempSync(join(tmpdir(), 'grampus-demo-')), 'grampus.sqlite');
     const taskId = runDemo(path);
     const store = new Store(path);
     try {
@@ -196,7 +195,6 @@ async function main(): Promise<void> {
       'task-assess',
       'task-answer',
       'task-retry',
-      'task-automate',
       'task-stop',
       'task-recover',
     ];
@@ -230,7 +228,6 @@ async function main(): Promise<void> {
         if (!version) throw new Error('task-answer requires an answers JSON file');
         await tasks.answer(id, JSON.parse(readFileSync(version, 'utf8')), abort.signal);
       } else if (action === 'task-retry') await tasks.retry(id, abort.signal);
-      else if (action === 'task-automate') await tasks.automate(id, abort.signal);
       else if (action === 'task-release-workspace') await tasks.releaseWorkspace(id);
       else if (action === 'task-stop') tasks.stop(id);
       else if (action === 'task-recover') await tasks.recover(id);

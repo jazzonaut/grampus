@@ -49,7 +49,7 @@ test(
     assert.equal(first.status, 'awaiting_assessment', first.note);
     const repair = await tasks.assess(id, 'passed', 'Inspected initial implementation');
     assert.equal(repair.status, 'awaiting_scope', repair.note);
-    assert.equal(repair.reviewCycle!.repairs, 1);
+    assert.equal(repair.reviewCycle.repairs, 1);
     assert.notEqual(repair.executionId, first.executionId);
     assert.match(repair.feedback, /Fix the concrete/);
     const repairView = guidedTaskView(f.store, id);
@@ -100,8 +100,8 @@ for (const passes of [true, false])
       const result = await tasks.assess(id, 'passed', 'Inspected the submitted implementation');
       assert.equal(result.status, passes ? 'complete' : 'blocked', result.note);
       assert.equal(turns, 2);
-      assert.equal(result.reviewCycle!.arbitrationUsed, true);
-      assert.equal(result.reviewCycle!.history.length, passes ? 1 : 2);
+      assert.equal(result.reviewCycle.arbitrationUsed, true);
+      assert.equal(result.reviewCycle.history.length, passes ? 1 : 2);
       const history = renderReport(f.store, id);
       assert.match(history, /guided.arbitration_requested/);
       if (passes) assert.match(history, /review.same_provider_fallback/);

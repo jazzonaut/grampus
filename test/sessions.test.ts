@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { execFileSync } from 'node:child_process';
 import { Store } from '../src/persistence/store.js';
 import { currentProcessStartedAt } from '../src/process/process-identity.js';
@@ -30,7 +29,7 @@ function result(reply: Reply = message): TurnResult {
 
 function fixture(t: { after(fn: () => void): void }) {
   const directory = mkdtempSync(join(tmpdir(), 'grampus-session-test-'));
-  const store = new Store(join(directory, 'journal.sqlite'));
+  const store = new Store(join(directory, 'grampus.sqlite'));
   const sessions = new Sessions(store);
   const session = sessions.create('codex', directory);
   t.after(() => {
@@ -61,7 +60,7 @@ test('questions and answers survive reopening; reconnect receives the exact prov
   };
   await runSession(store, session.id, 'Ask me', {}, connect);
   assert.equal(sessions.get(session.id).phase, 'awaiting_answer');
-  const reopened = new Store(join(directory, 'journal.sqlite'));
+  const reopened = new Store(join(directory, 'grampus.sqlite'));
   try {
     await assert.rejects(runSession(reopened, session.id, 'Skip question', {}, connect), /Answer every/);
     await runSession(reopened, session.id, '', { answers: { label: 'reef' } }, connect);
@@ -208,7 +207,7 @@ test('a crashed controller is recoverable after both recorded processes have exi
   assert.throws(() =>
     execFileSync(
       process.execPath,
-      ['--input-type=module', '-e', script, join(directory, 'journal.sqlite'), session.id],
+      ['--input-type=module', '-e', script, join(directory, 'grampus.sqlite'), session.id],
       { stdio: 'pipe' },
     ),
   );
@@ -363,25 +362,4 @@ test('Claude Team metadata without tokenSource is accepted; API and gateway acco
   );
   assert.equal(hasClaudeSubscription({ apiProvider: 'gateway', subscriptionType: 'Claude Team' }), false);
   assert.equal(hasClaudeSubscription({ apiProvider: 'firstParty' }), false);
-});
-
-test('schema 1 journals migrate without losing existing task history', t => {
-  const directory = mkdtempSync(join(tmpdir(), 'grampus-migration-test-'));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
-  const path = join(directory, 'old.sqlite');
-  const old = new DatabaseSync(path);
-  old.exec(`CREATE TABLE tasks (id TEXT PRIMARY KEY, state TEXT NOT NULL);
-    CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL REFERENCES tasks(id), version INTEGER NOT NULL, at TEXT NOT NULL, type TEXT NOT NULL, data TEXT NOT NULL);
-    INSERT INTO tasks VALUES ('old', '{"title":"preserved"}');
-    INSERT INTO events(task_id,version,at,type,data) VALUES ('old',1,'then','task.created','{}');
-    PRAGMA user_version = 1;`);
-  old.close();
-  const store = new Store(path);
-  try {
-    assert.deepEqual(store.get('old'), { title: 'preserved' });
-    assert.equal(store.events('old').length, 1);
-    assert.equal(new Sessions(store).create('claude', directory).phase, 'idle');
-  } finally {
-    store.close();
-  }
 });

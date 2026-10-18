@@ -85,7 +85,7 @@ checkout. Every task command accepts `--db <path>`. `grampus --help` prints the 
 | `task-approve <id> <version> <digest>`, `task-run <id>` | Approve the exact plan; advance until input is needed |
 | `task-authorize <id>`, `task-assess <id> --outcome <o> --summary <s>` | Supervised mode only: authorize file scope; record simplification |
 | `task-answer <id> <answers.json>` | Answer pending agent questions |
-| `task-retry <id>`, `task-automate <id>` | Retry after a stop; opt a saved plan into automatic mode |
+| `task-retry <id>` | Retry after a stop |
 | `task-revise <id> <version> <plan.json>` | Revise a settled plan, keeping files and delivered slices |
 | `task-stop <id>`, `task-recover <id>`, `task-release-workspace <id>` | Stop, reconcile after a crash, release an unused failed reservation |
 | `create`, `approve`, `list`, `show`, `report` | Low-level task records and the Markdown report |
@@ -104,7 +104,9 @@ executable path rather than a shell command.
 
 Task data lives outside the checkout. On Windows that is
 `%LOCALAPPDATA%\Grampus\installed\` for an installed copy and
-`%LOCALAPPDATA%\Grampus\development\<checkout-id>\` for a checkout. Check output and
+`%LOCALAPPDATA%\Grampus\development\<checkout-id>\` for a checkout, in the journal
+`grampus.sqlite`. A journal from another Grampus version is refused, never migrated or
+modified. Check output and
 supervisor receipts sit beside the journal in `<journal>.checks/`. Set `GRAMPUS_HOME` or
 pass `--db` to choose another location. Journals and reports contain task content,
 local paths and process identities: keep them out of commits and inspect reports

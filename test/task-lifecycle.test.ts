@@ -24,7 +24,7 @@ function fixture(t: { after(fn: () => void): void }) {
   writeFileSync(join(repo, 'entry.js'), "console.log('hello');\n");
   git('add', '.');
   git('commit', '-m', 'Baseline');
-  const db = join(root, 'journal.sqlite'),
+  const db = join(root, 'grampus.sqlite'),
     store = new Store(db),
     tasks = new GuidedTasks(store),
     planners = new Kickoffs(store),
@@ -56,7 +56,14 @@ test('deleting a settled planning conversation removes it durably and rejects st
   const initial = f.planners.view(id);
   assert.throws(() => f.lifecycle.delete('kickoffs', id, 'stale'), /changed/);
   const session = f.store.session<Session>(id);
-  session.run = { id: 'fixture-run', controllerPid: process.pid, providerPid: null, host: 'fixture' };
+  session.run = {
+    id: 'fixture-run',
+    controllerPid: process.pid,
+    controllerStartedAt: null,
+    providerPid: null,
+    providerStartedAt: null,
+    host: 'fixture',
+  };
   session.phase = 'recovery_required';
   f.store.saveSession(id, session);
   assert.throws(() => f.lifecycle.delete('kickoffs', id, f.planners.view(id).turnKey), /settlement/);
@@ -77,9 +84,9 @@ test('deleting a settled planning conversation removes it durably and rejects st
   assert.ok(initial.config.request);
 });
 
-test('resetting planning retains the request and starts a fresh conversation without an agent deadline', t => {
+test('resetting planning retains the request and starts a fresh conversation', t => {
   const f = fixture(t),
-    id = f.planners.create({ repo: f.repo, request: 'Exact original request', provider: 'claude', timeoutMs: 600000 });
+    id = f.planners.create({ repo: f.repo, request: 'Exact original request', provider: 'claude' });
   const previousPath = f.planners.view(id).config.path;
   writeFileSync(join(f.repo, 'entry.js'), "console.log('new baseline');\n");
   f.git('add', '.');
@@ -89,22 +96,12 @@ test('resetting planning retains the request and starts a fresh conversation wit
   assert.notEqual(result.id, id);
   assert.equal(fresh.config.request, 'Exact original request');
   assert.equal(fresh.config.provider, 'claude');
-  assert.equal(fresh.config.timeoutMs, 0);
   assert.equal(fresh.session.providerSessionId, null);
   assert.deepEqual(fresh.messages, []);
   assert.notEqual(fresh.config.path, previousPath);
   assert.equal(fresh.config.base, f.git('rev-parse', 'HEAD'));
   assert.equal(f.planners.list().length, 1);
   assert.equal(f.store.workspaces().length, 0);
-  // Earlier saved kickoffs did not carry a turn limit.
-  const legacy = f.planners.create({ repo: f.repo, request: 'Saved request without timeout' });
-  const config = {
-    ...(f.store.sessionEvents(legacy).find(event => event.type === 'kickoff.created')!.data as Record<string, unknown>),
-  };
-  delete config.timeoutMs;
-  f.store.appendSession(legacy, 'kickoff.created', config);
-  const resetLegacy = f.lifecycle.reset('kickoffs', legacy, f.planners.view(legacy).turnKey);
-  assert.equal(f.planners.view(resetLegacy.id).config.timeoutMs, 0);
 });
 
 test('delete/reset at a file checkpoint preserve the worktree and journal, revoke old execution and require new approval', async t => {

@@ -18,7 +18,7 @@ function fixture(t: { after(fn: () => void): void }) {
   writeFileSync(join(repo, 'hello.js'), "console.log('hello');\n");
   git('add', '.');
   git('commit', '-m', 'Baseline');
-  const db = join(repo, 'journal.sqlite'),
+  const db = join(repo, 'grampus.sqlite'),
     store = new Store(db);
   t.after(() => {
     store.close();
@@ -179,7 +179,7 @@ test('naming failure preserves planning questions and is not retried after resta
   }
 });
 
-test('invalid naming output falls back to the plan title and older candidates need no naming call', async t => {
+test('invalid naming output falls back to the plan title', async t => {
   const f = fixture(t),
     finishPlanner = deferred(),
     nameClosed = deferred();
@@ -211,16 +211,6 @@ test('invalid naming output falls back to the plan title and older candidates ne
   const planned = await sending;
   assert.equal(planned.title, f.plan.brief.title);
   assert.equal(planned.error, null);
-  // Simulate a saved candidate from before automatic names existed.
-  const old = planners.create({ repo: f.repo, request: 'An older conversation' });
-  f.store.appendSession(old, 'kickoff.candidate', { plan: planned.candidate });
-  let calls = 0;
-  await generateTaskTitle(f.store, old, planners.view(old).config, new AbortController().signal, async () => {
-    calls++;
-    throw new Error('Unexpected naming call');
-  });
-  assert.equal(calls, 0);
-  assert.equal(planners.view(old).title, f.plan.brief.title);
 });
 
 test('stopping planning cancels its independent naming session without publishing a late title', async t => {
@@ -265,7 +255,7 @@ test('naming has no automatic deadline and concurrent requests generate at most 
     started = deferred(),
     stopped = deferred();
   const planners = new Kickoffs(f.store),
-    id = planners.create({ repo: f.repo, request: 'Check the greeting', timeoutMs: 100 });
+    id = planners.create({ repo: f.repo, request: 'Check the greeting' });
   const before = planners.view(id);
   let calls = 0;
   t.mock.timers.enable({ apis: ['setTimeout'] });

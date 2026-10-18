@@ -1,12 +1,10 @@
-// Implementation tests: unknown shutdown, controller death recovery and migration.
+// Implementation tests: unknown shutdown and controller death recovery.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { DatabaseSync } from 'node:sqlite';
-import { Store } from '../src/persistence/store.js';
 import { Executions } from '../src/execution/executions.js';
 import { Sessions } from '../src/execution/sessions.js';
 import { type ImplementationRun } from '../src/execution/implementations.js';
@@ -109,18 +107,4 @@ test('native recovery before dispatch invokes no tools and marks the attempt sto
   const recovered = await f.implementations.recover(pending.id);
   assert.equal(recovered.phase, 'interrupted');
   assert.equal(f.workflow.get(f.task.id).phase, 'stopped');
-});
-
-test('schema 8 migration preserves sessions and adds implementation storage', windows, async t => {
-  const f = await fixture(t);
-  const db = new DatabaseSync(f.db);
-  db.exec('DROP TABLE implementations; PRAGMA user_version = 8');
-  db.close();
-  const migrated = new Store(f.db);
-  try {
-    assert.deepEqual(migrated.implementations(f.execution.id), []);
-    assert.equal(new Sessions(migrated).get(f.execution.sessionId).provider, 'claude');
-  } finally {
-    migrated.close();
-  }
 });

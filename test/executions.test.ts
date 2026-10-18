@@ -5,7 +5,6 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { hostname, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { DatabaseSync } from 'node:sqlite';
 import { Store } from '../src/persistence/store.js';
 import { Workflow } from '../src/domain/workflow.js';
 import { Workspaces } from '../src/repository/workspaces.js';
@@ -36,7 +35,7 @@ async function fixture(t: { after(fn: () => void): void }) {
   writeFileSync(join(repo, 'greeting.txt'), 'hello\n');
   git(repo, 'add', '.');
   git(repo, 'commit', '-m', 'Fixture baseline');
-  const db = join(root, 'journal.sqlite');
+  const db = join(root, 'grampus.sqlite');
   const store = new Store(db);
   t.after(() => {
     store.close();
@@ -358,35 +357,23 @@ test('execution CLI persists linked state and closes it across separate invocati
   assert.equal(JSON.parse(run('execution-list')).length, 1);
 });
 
-test('a legacy unlinked active session blocks a new workspace owner after migration', async t => {
+test('an unlinked active session inside the workspace blocks a new workspace owner', async t => {
   const { store, workspace, executions, sessions } = await fixture(t);
-  const legacy = sessions.create('codex', workspace.path);
-  legacy.phase = 'running';
-  legacy.run = { id: 'legacy-run', controllerPid: process.pid, providerPid: null, host: hostname() };
-  store.saveSession(legacy.id, legacy);
+  const unlinked = sessions.create('codex', workspace.path);
+  unlinked.phase = 'running';
+  unlinked.run = {
+    id: 'unlinked-run',
+    controllerPid: process.pid,
+    controllerStartedAt: null,
+    providerPid: null,
+    providerStartedAt: null,
+    host: hostname(),
+  };
+  store.saveSession(unlinked.id, unlinked);
   const execution = await executions.create(workspace.id, 1, 'claude');
   assert.throws(() => sessions.claim(execution.sessionId, 'Do not overlap'), /another active or uncertain session/);
   assert.equal(store.lease(workspace.id), null);
   assert.equal(sessions.get(execution.sessionId).phase, 'idle');
-});
-
-test('schema 4 migration retains workspaces and sessions and adds execution ownership', async t => {
-  const { db, store, workflow, task, workspace, sessions } = await fixture(t);
-  const session = sessions.create('codex', workspace.repository);
-  const legacy = new DatabaseSync(db);
-  legacy.exec(
-    'DROP TABLE execution_leases; DROP TABLE execution_events; DROP TABLE executions; PRAGMA user_version = 4;',
-  );
-  legacy.close();
-  const reopened = new Store(db);
-  try {
-    assert.deepEqual(new Workflow(reopened).get(task.id), workflow.get(task.id));
-    assert.deepEqual(reopened.session(session.id), store.session(session.id));
-    assert.deepEqual(reopened.workspace(workspace.id), workspace);
-    assert.ok((await new Executions(reopened).create(workspace.id, 1, 'codex')).id);
-  } finally {
-    reopened.close();
-  }
 });
 
 test('different task workspaces can own concurrent turns in the same journal', async t => {

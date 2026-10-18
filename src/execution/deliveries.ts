@@ -43,7 +43,8 @@ export interface Delivery {
   result: CheckProcessResult | null;
   commit: string | null;
   error: string | null;
-  outcome?: 'committed' | 'no_change' | null; // Older journals omit this until settlement.
+  /** Set at settlement; null until then and for undelivered results. */
+  outcome: 'committed' | 'no_change' | null;
 }
 
 export class Deliveries {

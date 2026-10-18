@@ -5,9 +5,6 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DatabaseSync } from 'node:sqlite';
-import { Store } from '../src/persistence/store.js';
-import { Workflow } from '../src/domain/workflow.js';
 import { type Delivery } from '../src/execution/deliveries.js';
 import { windows, git, fixture, noChangeFixture } from './helpers/deliveries.js';
 
@@ -88,20 +85,6 @@ test('hook changes cannot turn a different commit into accepted delivery', windo
   assert.equal(f.workflow.get(f.task.id).phase, 'awaiting_verification');
   assert.equal(result.commit, null);
   assert.equal(f.store.lease(f.workspace.id), null);
-});
-
-test('schema 7 migration retains evidence and adds empty delivery storage', windows, async t => {
-  const f = await fixture(t);
-  const db = new DatabaseSync(f.db);
-  db.exec('DROP TABLE deliveries; PRAGMA user_version = 7;');
-  db.close();
-  const migrated = new Store(f.db);
-  try {
-    assert.deepEqual(migrated.deliveries(f.execution.id), []);
-    assert.equal(new Workflow(migrated).get(f.task.id).evidence.length, 4);
-  } finally {
-    migrated.close();
-  }
 });
 
 test('delivery timeout confirms tool exit and leaves task incomplete without automatic rollback', windows, async t => {

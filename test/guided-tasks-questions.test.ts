@@ -41,7 +41,9 @@ test('blocking review stops delivery and explicit retry uses fresh sessions with
     close: async () => {},
   });
   const tasks = new GuidedTasks(f.store, config),
-    id = f.create();
+    task = tasks.create({ ...f.plan, reviewPolicy: { repairRounds: 0 } }),
+    id = task.id;
+  tasks.approve(id, 1, task.guided!.digest);
   await tasks.run(id);
   await tasks.authorize(id);
   const failed = await tasks.assess(id, 'passed', 'One direct statement with no duplication');
@@ -65,6 +67,37 @@ test('blocking review stops delivery and explicit retry uses fresh sessions with
   assert.equal(done.status, 'complete', done.note);
   assert.equal(reviews, 2);
   assert.equal(new Workflow(f.store).get(id).approvedVersion, 1);
+});
+
+test('supervised review repairs use the workflow allowance and stop again for authorization', windows, async t => {
+  const f = fixture(t);
+  let reviews = 0;
+  const config = services();
+  config.connector = async () => ({
+    turn: async () => ({
+      status: 'completed',
+      reply:
+        ++reviews === 1
+          ? {
+              ...review,
+              findings: [{ severity: 'blocking', description: 'Repair this', evidence: 'Concrete offline finding' }],
+            }
+          : review,
+      usage: null,
+      error: null,
+    }),
+    interrupt: async () => {},
+    close: async () => {},
+  });
+  const tasks = new GuidedTasks(f.store, config),
+    id = f.create();
+  await tasks.run(id);
+  await tasks.authorize(id);
+  const repair = await tasks.assess(id, 'passed', 'One direct statement with no duplication');
+  assert.equal(repair.status, 'awaiting_scope', repair.note);
+  assert.equal(repair.reviewCycle.repairs, 1);
+  assert.match(repair.feedback, /Concrete offline finding/);
+  assert.ok(f.store.events(id).some(event => event.type === 'guided.review_repair_requested'));
 });
 
 test('review questions persist and an explicit answer resumes the same independent session', windows, async t => {

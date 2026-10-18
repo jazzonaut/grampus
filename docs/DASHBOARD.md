@@ -65,8 +65,7 @@ repair allowances and operational failures stop for attention with the reason sh
   billed cost.
 
 In supervised mode the task also stops for file authorization and a simplification
-assessment, with forms for both. Older saved plans offer **Continue automatically
-within this plan** to opt in.
+assessment, with forms for both.
 
 ## Controls
 

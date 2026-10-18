@@ -11,7 +11,7 @@ const provider = process.argv[2] ?? '';
 if (provider !== 'codex' && provider !== 'claude')
   throw new Error('Usage: npm run probe -- codex|claude (uses your subscription)');
 const directory = mkdtempSync(join(tmpdir(), `grampus-${provider}-probe-`));
-const database = join(directory, 'journal.sqlite');
+const database = join(directory, 'grampus.sqlite');
 const cli = fileURLToPath(new URL('../cli.js', import.meta.url));
 
 async function run(...args: string[]): Promise<any> {

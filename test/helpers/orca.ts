@@ -40,7 +40,7 @@ export function fixture(t: { after(fn: () => void): void }, taskBrief: Brief = b
   writeFileSync(join(repo, 'greeting.txt'), 'hello\n');
   git(repo, 'add', '.');
   git(repo, 'commit', '-m', 'Fixture');
-  const db = join(root, 'journal.sqlite');
+  const db = join(root, 'grampus.sqlite');
   const store = new Store(db);
   const workflow = new Workflow(store);
   const task = workflow.create(taskBrief);

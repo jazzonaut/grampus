@@ -49,7 +49,7 @@ for (const mode of ['existing', 'new', 'delete'] as const)
       if (deleteObsolete) writeFileSync(join(repo, obsoleteFile), obsoleteContent);
       git('add', '.');
       git('commit', '-m', 'Baseline');
-      const store = new Store(join(root, 'journal.sqlite'));
+      const store = new Store(join(root, 'grampus.sqlite'));
       t.after(() => {
         store.close();
         rmSync(root, { recursive: true, force: true });

@@ -300,7 +300,7 @@ These are **logical boundaries first**. Do not split every file into packages or
 - Avoid overabstracting common code: extract duplication only when the domain concept is truly shared.
 - Preserve transactional state/event updates and content-bound evidence through every refactor.
 - Establish module dependency rules, linting/formatting, test seams and architecture decision records for consequential changes.
-- Test migrations and compatibility with retained journals, old approval digests and partially completed tasks.
+- Test recovery of partially completed tasks, and that journals from other versions are refused unchanged. There is no backwards compatibility: one journal schema, one plan format and no migrations.
 - Keep architecture documentation **current-state only**, with historical implementation notes archived separately; old 'not yet built' statements should not appear as current truth.
 
 ### Refactor validation
@@ -476,7 +476,7 @@ Measure at task level and compare against the same real tasks performed directly
 6. **Provider boundaries are adapters.** External changes should be localized behind typed, testable contracts.
 7. **Frontend is a view, not a second orchestrator.** Same policies and decision identities apply through UI and CLI.
 8. **Observability is truthful and private.** Explain what and why; distinguish measured, inferred, agent-reported, unknown and omitted evidence.
-9. **Refactor incrementally.** Preserve crash recovery, database compatibility and the known working paths while improving structure.
+9. **Refactor incrementally.** Preserve crash recovery and the known working paths while improving structure.
 10. **Measure the user outcome.** Successful orchestration is necessary, but value means better accepted code with less human work and proportionate resources.
 
 ## Closing direction

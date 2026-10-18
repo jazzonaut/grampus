@@ -94,7 +94,6 @@ export class TaskLifecycle {
         request,
         provider: source?.config.provider ?? plan!.implementation.provider,
         adapter: source?.config.adapter ?? plan!.workspace.adapter,
-        timeoutMs: source?.config.timeoutMs ?? plan?.implementation.timeoutMs ?? 300000,
         references: references.map(reference => reference.path),
       });
       this.hide(kind, id, fresh);

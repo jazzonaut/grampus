@@ -65,7 +65,7 @@ function expected(view: any) {
 
 test('dashboard polls show the actual failure without raw logs and page logs only on request', async t => {
   const f = fixture(t),
-    ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+    ui = await startUi({ db: join(f.root, 'grampus.sqlite'), port: 0 });
   t.after(async () => {
     await ui.close();
     f.cleanup();
@@ -121,7 +121,7 @@ test('dashboard polls show the actual failure without raw logs and page logs onl
 
 test('approving an automatic plan starts work without a second continue or file authorization click', async t => {
   const f = fixture(t),
-    ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+    ui = await startUi({ db: join(f.root, 'grampus.sqlite'), port: 0 });
   t.after(async () => {
     await ui.close();
     f.cleanup();
@@ -257,7 +257,7 @@ for (const location of ['initial', 'slice'] as const)
 
 test('task polling refreshes live usage written by another worker without changing approval decisions', async t => {
   const f = fixture(t),
-    database = join(f.root, 'journal.sqlite'),
+    database = join(f.root, 'grampus.sqlite'),
     ui = await startUi({ db: database, port: 0 });
   const writer = new Store(database);
   t.after(async () => {
@@ -305,7 +305,7 @@ test('task polling refreshes live usage written by another worker without changi
 
 test('task polls expose current execution activity and load complete sanitized history separately', async t => {
   const f = fixture(t),
-    ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+    ui = await startUi({ db: join(f.root, 'grampus.sqlite'), port: 0 });
   t.after(async () => {
     await ui.close();
     f.cleanup();
@@ -363,7 +363,7 @@ test('task polls expose current execution activity and load complete sanitized h
 
 test('dashboard revisions run in an isolated worker and stale approval cannot approve the new version', async t => {
   const f = fixture(t),
-    ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+    ui = await startUi({ db: join(f.root, 'grampus.sqlite'), port: 0 });
   t.after(async () => {
     await ui.close();
     f.cleanup();
@@ -409,7 +409,7 @@ test('dashboard revisions run in an isolated worker and stale approval cannot ap
 
 test('file authorization shows exact edit contents even when the task has no initial file hints', async t => {
   const f = fixture(t),
-    ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+    ui = await startUi({ db: join(f.root, 'grampus.sqlite'), port: 0 });
   t.after(async () => {
     await ui.close();
     f.cleanup();
@@ -440,7 +440,7 @@ test('large tracked text reaches file authorization and the dashboard exposes it
   writeFileSync(join(f.repo, 'dependency-data.yaml'), text);
   f.git('add', '.');
   f.git('commit', '-m', 'Add large tracked text');
-  const ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+  const ui = await startUi({ db: join(f.root, 'grampus.sqlite'), port: 0 });
   t.after(async () => {
     await ui.close();
     f.cleanup();
@@ -467,7 +467,7 @@ test('large tracked text reaches file authorization and the dashboard exposes it
 
 test('dashboard reference selection and task reset/delete enforce displayed state', async t => {
   const f = fixture(t),
-    ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+    ui = await startUi({ db: join(f.root, 'grampus.sqlite'), port: 0 });
   t.after(async () => {
     await ui.close();
     f.cleanup();
@@ -511,7 +511,7 @@ test('dashboard reference selection and task reset/delete enforce displayed stat
 });
 test('dashboard requires its local token and origin, rejects stale decisions, and preserves drafts over restart', async t => {
   const f = fixture(t),
-    db = join(f.root, 'journal.sqlite');
+    db = join(f.root, 'grampus.sqlite');
   let ui = await startUi({ db, port: 0 });
   t.after(async () => {
     await ui.close();
@@ -610,7 +610,7 @@ test(
   { skip: process.platform !== 'win32' },
   async t => {
     const f = fixture(t),
-      ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+      ui = await startUi({ db: join(f.root, 'grampus.sqlite'), port: 0 });
     t.after(async () => {
       await ui.close();
       f.cleanup();
@@ -664,7 +664,7 @@ test(
 
 test('dashboard exposes live planner activity across polls without changing the displayed decision', async t => {
   const f = fixture(t),
-    ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+    ui = await startUi({ db: join(f.root, 'grampus.sqlite'), port: 0 });
   let markStarted!: () => void, finish!: () => void;
   const started = new Promise<void>(resolve => {
     markStarted = resolve;
@@ -737,7 +737,7 @@ test('dashboard exposes live planner activity across polls without changing the 
 
 test('kickoff clarifies consequential ambiguity, validates generated commands and creates only an unapproved draft', async t => {
   const f = fixture(t),
-    store = new Store(join(f.root, 'journal.sqlite'));
+    store = new Store(join(f.root, 'grampus.sqlite'));
   t.after(() => {
     store.close();
     f.cleanup();
@@ -788,7 +788,7 @@ test('kickoff clarifies consequential ambiguity, validates generated commands an
   assert.equal(answered.candidate!.implementation.provider, 'claude');
   assert.equal(answered.candidate!.review.provider, 'codex');
   assert.equal(answered.candidate!.workspace.base, f.git('rev-parse', 'HEAD'));
-  assert.equal(answered.candidate!.implementation.timeoutMs, 0);
+  assert.deepEqual(answered.candidate!.implementation, { provider: 'claude', model: null });
   assert.throws(() => kickoffs.prepare(id, 'outdated-proposal'), /changed/);
   assert.match(seen, /User answers/);
   const invalid = await kickoffs.send(id, 'Revise the checks');
@@ -808,7 +808,7 @@ test('kickoff clarifies consequential ambiguity, validates generated commands an
 
 test('kickoff plans the full ticket across ordered slices on initial and resumed turns', async t => {
   const f = fixture(t),
-    store = new Store(join(f.root, 'journal.sqlite'));
+    store = new Store(join(f.root, 'grampus.sqlite'));
   t.after(() => {
     store.close();
     f.cleanup();
@@ -890,7 +890,7 @@ test('kickoff plans the full ticket across ordered slices on initial and resumed
 
 test('kickoff omits binary assets and rejects their explicit selection before inference', t => {
   const f = fixture(t),
-    store = new Store(join(f.root, 'journal.sqlite'));
+    store = new Store(join(f.root, 'grampus.sqlite'));
   t.after(() => {
     store.close();
     f.cleanup();
@@ -906,12 +906,12 @@ test('kickoff omits binary assets and rejects their explicit selection before in
   assert.equal(store.sessions().length, 0);
   const id = kickoffs.create({ repo: f.repo, request: 'Change greeting' });
   assert.deepEqual(kickoffs.view(id).config.files, []);
-  assert.equal(kickoffs.view(id).config.context!.omittedFiles, 2);
+  assert.equal(kickoffs.view(id).config.context.omittedFiles, 2);
 });
 
 test('generated inline checks with broken newline escaping are rejected before a task or command can run', async t => {
   const f = fixture(t),
-    store = new Store(join(f.root, 'journal.sqlite'));
+    store = new Store(join(f.root, 'grampus.sqlite'));
   t.after(() => {
     store.close();
     f.cleanup();
@@ -939,7 +939,7 @@ test('generated inline checks with broken newline escaping are rejected before a
 
 test('a revision request invalidates an older proposal even if its worker exits before turn claim', async t => {
   const f = fixture(t),
-    store = new Store(join(f.root, 'journal.sqlite'));
+    store = new Store(join(f.root, 'grampus.sqlite'));
   t.after(() => {
     store.close();
     f.cleanup();
@@ -955,11 +955,9 @@ test('a revision request invalidates an older proposal even if its worker exits 
     interrupt: async () => {},
   });
   const kickoffs = new Kickoffs(store, connector),
-    id = kickoffs.create({ repo: f.repo, request: 'Verify greeting', timeoutMs: 600000 });
+    id = kickoffs.create({ repo: f.repo, request: 'Verify greeting' });
   const ready = await kickoffs.send(id);
   assert.ok(ready.candidate);
-  assert.equal(ready.candidate.implementation.timeoutMs, 0);
-  assert.equal(ready.candidate.review.timeoutMs, 0);
   // Durable boundary reached by send() before runSession can claim a provider turn.
   store.appendSession(id, 'kickoff.message', { role: 'user', text: 'Change the acceptance examples' });
   store.appendSession(id, 'kickoff.error', { error: null });
@@ -970,7 +968,7 @@ test('a revision request invalidates an older proposal even if its worker exits 
 
 test('an explicit continuation after first-turn connection failure resupplies pinned files and the planning protocol', async t => {
   const f = fixture(t),
-    store = new Store(join(f.root, 'journal.sqlite'));
+    store = new Store(join(f.root, 'grampus.sqlite'));
   t.after(() => {
     store.close();
     f.cleanup();
@@ -1015,7 +1013,7 @@ test(
   { skip: process.platform !== 'win32' },
   async t => {
     const f = fixture(t),
-      db = join(f.root, 'journal.sqlite');
+      db = join(f.root, 'grampus.sqlite');
     f.plan.slices[0]!.validation.args = ['-e', 'setInterval(() => {}, 1000)'];
     let ui = await startUi({ db, port: 0 });
     t.after(async () => {
@@ -1081,7 +1079,7 @@ test(
 
 test('planner answers bind the displayed turn even when later questions reuse the same id', async t => {
   const f = fixture(t),
-    store = new Store(join(f.root, 'journal.sqlite'));
+    store = new Store(join(f.root, 'grampus.sqlite'));
   t.after(() => {
     store.close();
     f.cleanup();

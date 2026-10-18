@@ -13,7 +13,7 @@ import { renderReport } from '../src/reporting/report.js';
 test('CLI create, approve and show persist state across separate invocations', t => {
   const root = mkdtempSync(join(tmpdir(), 'grampus-cli-test-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const db = join(root, 'state with spaces', 'journal.sqlite');
+  const db = join(root, 'state with spaces', 'grampus.sqlite');
   const brief = join(root, 'brief.json');
   writeFileSync(brief, JSON.stringify({ title: 'CLI case', outcome: 'Persist', criteria: ['Saved'], plan: 'Store' }));
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
@@ -29,7 +29,7 @@ test('CLI create, approve and show persist state across separate invocations', t
 test('demo reaches completion with explicitly synthetic evidence and retained recovery history', t => {
   const root = mkdtempSync(join(tmpdir(), 'grampus-demo-test-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const db = join(root, 'journal.sqlite');
+  const db = join(root, 'grampus.sqlite');
   const id = runDemo(db);
   const store = new Store(db);
   try {

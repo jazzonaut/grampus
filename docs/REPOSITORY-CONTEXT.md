@@ -47,8 +47,8 @@ automatically. Optional initial context is explicit:
 "context": { "files": ["src/greeting.js"], "exploration": true }
 ```
 
-`"exploration": false` keeps strict selected-context behaviour. Plans saved before
-exploration existed keep their approved capabilities; start a new task to use it.
+`"exploration": false` keeps strict selected-context behaviour: agents see only the
+selected files and repository instructions.
 
 ## Editing limits
 

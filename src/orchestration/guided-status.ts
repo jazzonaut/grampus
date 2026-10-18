@@ -7,7 +7,7 @@ import type { Workspace } from '../repository/workspaces.js';
 import type { RepositoryCheck } from '../verification/checks.js';
 import type { Delivery } from '../execution/deliveries.js';
 import type { ImplementationRun } from '../execution/implementations.js';
-import { guidedPlanDigest } from '../domain/guided-plan.js';
+import { guidedPlanDigest, reviewRepairRounds } from '../domain/guided-plan.js';
 import { explorationSummary } from '../repository/repository-tools.js';
 import { integrationSummary } from '../providers/integrations.js';
 import { taskUsage, usageLines } from '../reporting/task-usage.js';
@@ -84,7 +84,7 @@ export function guidedTaskView(store: Store, id: string) {
         ? agentProgress(store.sessionEvents(session.id), session, state.stage)
         : null;
     const currentVerdict = review ? new Sessions(store).get(review.sessionId).lastReply : null;
-    const previousReview = state.reviewCycle?.history.at(-1);
+    const previousReview = state.reviewCycle.history.at(-1);
     const carriedVerdict =
       !currentVerdict && previousReview
         ? new Sessions(store).get(store.execution<Execution>(previousReview.executionId).sessionId).lastReply
@@ -134,8 +134,8 @@ export function renderGuidedTask(store: Store, id: string, details = false): str
       `Repository: ${state.plan.workspace.repo}`,
       `Pinned base: ${state.plan.workspace.base}`,
       `Workspace: ${state.plan.workspace.path ?? 'Orca chooses the path'}`,
-      `Implementation: ${state.plan.implementation.provider}, model ${state.plan.implementation.model ?? 'provider default'}, timeout ${state.plan.implementation.timeoutMs} ms`,
-      `Review: ${state.plan.review.provider}, model ${state.plan.review.model ?? 'provider default'}, timeout ${state.plan.review.timeoutMs} ms`,
+      `Implementation: ${state.plan.implementation.provider}, model ${state.plan.implementation.model ?? 'provider default'}, no time limit`,
+      `Review: ${state.plan.review.provider}, model ${state.plan.review.model ?? 'provider default'}, no time limit`,
       'Automatic inference retries: 0. Delivery stays local.',
     );
     if (state.plan.preparation)
@@ -156,19 +156,18 @@ export function renderGuidedTask(store: Store, id: string, details = false): str
       ),
     );
     lines.push('', `Approval digest: ${state.digest}`);
-    if (state.plan.reviewPolicy)
-      lines.push(
-        `Automatic repair allowance: ${state.plan.reviewPolicy.repairRounds}; arbitrator: ${JSON.stringify(state.plan.reviewPolicy.arbitrator ?? null)}. Fresh authorization and simplification are required for each repair.`,
-      );
+    const policy = state.plan.workflowPolicy;
+    lines.push(
+      `Workflow: ${policy.mode}; check repairs per slice: ${policy.repairRounds}; review repairs: ${reviewRepairRounds(state.plan)}; arbitrator: ${JSON.stringify(state.plan.reviewPolicy?.arbitrator ?? null)}.${policy.mode === 'supervised' ? ' Fresh authorization and simplification are required for each repair.' : ''}`,
+    );
     if (state.plan.revision) lines.push(`Retained revision checkpoint: ${JSON.stringify(state.plan.revision)}`);
   }
   if (view.workspace) lines.push(`Workspace: ${view.workspace.path ?? '(creation not settled)'}`);
-  if (state.plan.context)
-    lines.push(
-      `Repository context: ${state.plan.context.files.length}/${state.plan.context.totalFiles} initial pinned files supplied; ${state.plan.context.exploration ? 'agents can search and read repository files as needed' : 'other files are omitted from prompts, not from artifact verification'}.`,
-      `Context files: ${state.plan.context.files.join(', ')}`,
-      `Inventory digest: ${state.plan.context.inventoryDigest}`,
-    );
+  lines.push(
+    `Repository context: ${state.plan.context.files.length}/${state.plan.context.totalFiles} initial pinned files supplied; ${state.plan.context.exploration ? 'agents can search and read repository files as needed' : 'other files are omitted from prompts, not from artifact verification'}.`,
+    `Context files: ${state.plan.context.files.join(', ')}`,
+    `Inventory digest: ${state.plan.context.inventoryDigest}`,
+  );
   if (state.policy)
     lines.push(
       `Authorized file actions: ${JSON.stringify({ files: state.policy.files, create: state.policy.create, delete: state.policy.delete })}`,

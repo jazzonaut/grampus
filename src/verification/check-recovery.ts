@@ -25,7 +25,7 @@ export function processAlive(pid: number, startedAt?: string | null): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code !== 'ESRCH';
   }
-  if (startedAt == null) return true; // Legacy records still require PID absence.
+  if (startedAt == null) return true; // An unobserved creation time still requires PID absence.
   const observed = inspectProcess(pid);
   return observed.state === 'unknown' || (observed.state === 'present' && observed.startedAt === startedAt);
 }

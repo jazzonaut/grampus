@@ -27,6 +27,8 @@ is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 - Keep the guardrails: controller owns truth, evidence is bound to the exact artifact and
   version, unknown is never success, never replay an uncertain provider dispatch or Git write.
 - State changes and their journal events are written in the same transaction (`Store.transaction`).
+- No backwards compatibility: one journal schema, one plan format, no migrations. Never add legacy
+  fields or fallbacks for records written by older versions; the store refuses other schema versions.
 - Bug fixes start with a failing test. Tests use real temporary Git repositories and SQLite
   files; fake providers live in the tests, not in `src/`.
 - New lint violations are not allowed. `eslint-suppressions.json` only shrinks.

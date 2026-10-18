@@ -33,7 +33,7 @@ async function main() {
   const base = git('rev-parse', 'HEAD');
   // Planning must read the pinned tree, even though the checkout has different bytes.
   writeFileSync(join(repo, 'src', 'contract.cjs'), `module.exports = { contract: '${second}' };\n`);
-  const store = new Store(join(root, 'journal.sqlite'));
+  const store = new Store(join(root, 'grampus.sqlite'));
   console.log(JSON.stringify({ root, note: 'Live subscription exploration; no external actions or task delivery' }));
   const results: unknown[] = [];
   try {

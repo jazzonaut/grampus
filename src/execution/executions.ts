@@ -30,7 +30,7 @@ export class Executions {
       if (
         lease?.executionId !== id ||
         !lease.readOnlyRecovery ||
-        !['snapshot', 'submission', 'simplification', 'completion'].includes(lease.kind ?? '')
+        !['snapshot', 'submission', 'simplification', 'completion'].includes(lease.kind)
       ) {
         throw new Error(
           'No recoverable read-only operation; command and conversation leases require their own recovery',
@@ -147,7 +147,7 @@ export class Executions {
           previous.version !== version ||
           previous.workspaceId !== workspaceId ||
           previous.role !== role ||
-          (previous.sliceIndex ?? 0) !== (task.slice?.index ?? 0) ||
+          previous.sliceIndex !== (task.slice?.index ?? 0) ||
           previous.phase !== 'closed' ||
           prior.provider !== provider ||
           prior.run ||

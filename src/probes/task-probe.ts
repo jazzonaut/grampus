@@ -40,7 +40,7 @@ function git(cwd: string, ...args: string[]): string {
     stdio: ['pipe', 'pipe', 'pipe'],
   }).trim();
 }
-const store = new Store(join(root, 'journal.sqlite'));
+const store = new Store(join(root, 'grampus.sqlite'));
 async function main(): Promise<void> {
   const name = git(process.cwd(), 'config', 'user.name');
   const email = git(process.cwd(), 'config', 'user.email');

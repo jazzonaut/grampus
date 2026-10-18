@@ -8,7 +8,7 @@ import { Store } from '../persistence/store.js';
 import { currentProcessStartedAt } from '../process/process-identity.js';
 
 export interface Execution {
-  sliceIndex?: number;
+  sliceIndex: number;
   id: string;
   taskId: string;
   version: number;
@@ -27,9 +27,10 @@ export interface ExecutionLease {
   sessionId: string;
   runId: string;
   controllerPid: number;
-  controllerStartedAt?: string | null;
+  /** Null when the creation time could not be observed; recovery then stays conservative. */
+  controllerStartedAt: string | null;
   host: string;
-  kind?:
+  kind:
     | 'conversation'
     | 'snapshot'
     | 'check'
@@ -64,7 +65,7 @@ export function claimExecution(
   store: Store,
   session: Session,
   runId: string,
-  kind: NonNullable<ExecutionLease['kind']> = 'conversation',
+  kind: ExecutionLease['kind'] = 'conversation',
 ): void {
   const execution = store.executionForSession<Execution>(session.id);
   if (!execution) {

@@ -67,7 +67,7 @@ if (process.argv.includes('--fixture-server')) {
     git('add', '.');
     git('commit', '-m', 'MCP project fixture');
     const base = git('rev-parse', 'HEAD'),
-      store = new Store(join(root, 'journal.sqlite'));
+      store = new Store(join(root, 'grampus.sqlite'));
     const results: unknown[] = [];
     console.log(JSON.stringify({ root }));
     try {

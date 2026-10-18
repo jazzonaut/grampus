@@ -33,7 +33,7 @@ function fixture(t: { after(fn: () => void): void }) {
   git('add', '.');
   git('commit', '-m', 'Baseline');
   const base = git('rev-parse', 'HEAD');
-  const store = new Store(join(root, 'journal.sqlite'));
+  const store = new Store(join(root, 'grampus.sqlite'));
   t.after(() => {
     store.close();
     rmSync(root, { recursive: true, force: true });
@@ -211,7 +211,7 @@ test('snapshot batches original blobs while retaining exact text and binary befo
 test('approval binds selected supporting files and cannot authorize an uninspected action file', t => {
   const f = fixture(t),
     plan = normalizeGuidedPlan(f.plan);
-  assert.ok(plan.context!.totalBytes > 256 * 1024);
+  assert.ok(plan.context.totalBytes > 256 * 1024);
   const other = normalizeGuidedPlan({ ...f.plan, context: { files: ['main.js'] } });
   assert.notEqual(guidedPlanDigest(plan), guidedPlanDigest(other));
   assert.throws(
@@ -219,7 +219,7 @@ test('approval binds selected supporting files and cannot authorize an uninspect
     /Select main.js/,
   );
   const exploring = normalizeGuidedPlan({ ...f.plan, context: { files: ['helper.js'] } });
-  assert.equal(exploring.context!.exploration, true);
+  assert.equal(exploring.context.exploration, true);
   assert.equal(exploring.slices[0]!.scope.files[0], 'main.js');
   assert.throws(
     () => normalizeGuidedPlan({ ...f.plan, context: { ...plan.context, inventoryDigest: 'stale' } }),
@@ -241,7 +241,7 @@ test('approval binds selected supporting files and cannot authorize an uninspect
   });
   assert.equal(twoSlices.slices[1]!.scope.files[0], 'created.js');
   assert.ok(
-    !twoSlices.context!.files.includes('created.js'),
+    !twoSlices.context.files.includes('created.js'),
     'future contents are supplied from the later snapshot, not invented during approval',
   );
 });
@@ -318,7 +318,7 @@ test('context expansion invalidates a proposal and explicitly resupplies pinned 
   assert.ok(replanned.candidate);
   assert.match(lastPrompt, /export const value = 42/);
   assert.match(lastPrompt, /omitted/);
-  assert.ok(replanned.candidate.context!.files.includes('helper.js'));
+  assert.ok(replanned.candidate.context.files.includes('helper.js'));
   kickoffs.prepare(id, replanned.candidateDigest!);
   assert.throws(() => kickoffs.changeContext(id, ['main.js'], replanned.turnKey), /settled/);
 

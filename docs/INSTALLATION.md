@@ -45,8 +45,8 @@ helpers. It uses Node.js from PATH, so Node.js 24+ must remain installed.
 
 | Launch | Task data by default on Windows | Dashboard port |
 | --- | --- | --- |
-| `grampus` | `%LOCALAPPDATA%\Grampus\installed\journal.sqlite` | 4317 |
-| `npm run ui` or `Grampus-Dev.cmd` in the checkout | `%LOCALAPPDATA%\Grampus\development\<checkout-id>\journal.sqlite` | 4318 |
+| `grampus` | `%LOCALAPPDATA%\Grampus\installed\grampus.sqlite` | 4317 |
+| `npm run ui` or `Grampus-Dev.cmd` in the checkout | `%LOCALAPPDATA%\Grampus\development\<checkout-id>\grampus.sqlite` | 4318 |
 
 Each development checkout has its own data directory. Editing, building or testing
 the checkout does not replace installed code. The explicitly named development
@@ -61,9 +61,12 @@ subscription credentials are still shared through the providers' existing logins
 Isolation does not prevent two tasks from targeting the same externally managed
 repository or workspace; use separate task workspaces.
 
-Earlier checkout versions used `%LOCALAPPDATA%\Grampus\journal.sqlite`. That journal
-and its evidence are left in place. Inspect it explicitly with `--db` if needed;
-the installer does not migrate, move or delete task history.
+Journals are not migrated. Grampus opens only a journal with its own schema and
+refuses any other one with an error naming the file, without modifying it. Earlier
+versions wrote `journal.sqlite`; the current file name is `grampus.sqlite`, so a new
+version starts with a fresh journal beside the old one. The old journal, its evidence
+and any earlier installed snapshot that uses it are left untouched; the installer
+never moves or deletes task history.
 
 ## Update explicitly
 
@@ -85,11 +88,11 @@ small selection file after the snapshot checks pass. Each version keeps its fina
 directory name throughout copying, building and activation. This avoids the
 parent-directory rename that a Windows file reader could block. Running processes retain their
 original version and asset/worker paths; restart Grampus to use the new one. Stop
-active work and close the old dashboard before starting the new version, especially
-across future journal schema changes. Installed task data is preserved.
+active work and close the old dashboard before starting the new version. Installed
+task data is preserved. Grampus refuses a journal with a different schema rather
+than changing it.
 
-Older version directories are retained; no automatic cleanup or journal rollback
-is provided. Reverting code does not undo a journal migration. An interrupted
+Older version directories are retained; no automatic cleanup is provided. An interrupted
 installer may leave `install.lock`; inspect its recorded PID and remove the lock
 only after that installer has exited, then rerun. This does not alter task recovery.
 If Windows prevents cleanup after a failed build, the installer prints the retained

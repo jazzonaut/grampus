@@ -13,19 +13,14 @@ export function parseTaskTitle(value: string): string | null {
 export async function generateTaskTitle(
   store: Store,
   id: string,
-  config: { provider: Provider; repo: string; request: string; timeoutMs?: number },
+  config: { provider: Provider; repo: string; request: string },
   signal: AbortSignal,
   connector?: Connector,
 ): Promise<void> {
   try {
     signal.throwIfAborted();
     const session = store.transaction(() => {
-      if (
-        store
-          .sessionEvents(id)
-          .some(event => event.type === 'kickoff.title_started' || event.type === 'kickoff.candidate')
-      )
-        return null;
+      if (store.sessionEvents(id).some(event => event.type === 'kickoff.title_started')) return null;
       const created = new Sessions(store).create(config.provider, config.repo);
       store.appendSession(id, 'kickoff.title_started', { sessionId: created.id });
       return created;

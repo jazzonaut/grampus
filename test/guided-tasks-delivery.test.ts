@@ -149,8 +149,8 @@ test('stale scopes stop before dispatch while repository size is independent of 
     context: { files: ['greeting.js'] },
     workspace: { ...f.plan.workspace, path: join(f.root, 'another-workspace') },
   });
-  assert.ok(larger.guided!.plan.context!.totalBytes > 256 * 1024);
-  assert.deepEqual(larger.guided!.plan.context!.files, ['AGENTS.md', 'greeting.js']);
+  assert.ok(larger.guided!.plan.context.totalBytes > 256 * 1024);
+  assert.deepEqual(larger.guided!.plan.context.files, ['AGENTS.md', 'greeting.js']);
 });
 
 test('no-change workflow runs every gate without implementation inference or a commit', windows, async t => {

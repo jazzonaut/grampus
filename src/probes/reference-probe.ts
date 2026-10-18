@@ -30,7 +30,7 @@ async function main() {
   const marker = randomUUID();
   writeFileSync(join(reference, 'contract.txt'), `reference contract: ${marker}\n`);
   const references = [inspectReference(reference)],
-    store = new Store(join(root, 'journal.sqlite')),
+    store = new Store(join(root, 'grampus.sqlite')),
     results: unknown[] = [];
   console.log(JSON.stringify({ root }));
   try {

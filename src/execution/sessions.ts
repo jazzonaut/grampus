@@ -45,8 +45,10 @@ export interface Session {
     controllerPid: number;
     host: string;
     providerPid: number | null;
-    controllerStartedAt?: string | null;
-    providerStartedAt?: string | null;
+    /** Null when the creation time could not be observed; recovery then stays conservative. */
+    controllerStartedAt: string | null;
+    providerStartedAt: string | null;
+    /** Tracked only for runs whose provider connection is a separate durable step. */
     providerDispatch?: 'not_requested' | 'requested';
   } | null;
 }
@@ -127,6 +129,7 @@ export class Sessions {
         controllerStartedAt: currentProcessStartedAt(),
         host: hostname(),
         providerPid: null,
+        providerStartedAt: null,
         ...(trackDispatch ? { providerDispatch: 'not_requested' as const } : {}),
       };
       claimExecution(this.store, session, session.run.id, editing ? 'implementation' : 'conversation');
@@ -377,7 +380,7 @@ export async function runSession(
         const plan = new Workflow(store).get(execution.taskId).guided?.plan;
         const checks = taskCheckEvidence(store, execution);
         claim.prompt += `\nRetained check evidence (use grampus_read_check for complete output):\n${checkEvidenceSummary(checks)}`;
-        if (plan?.context?.exploration)
+        if (plan?.context.exploration)
           repository = { repo: claim.session.cwd, snapshot, references: plan.references ?? [], checks };
         emit({ type: 'review.context', data: { artifact: review.artifact, prompt: claim.prompt } });
       }

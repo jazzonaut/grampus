@@ -1,10 +1,9 @@
-// Slice tests: approval, sequential delivery and migration.
+// Slice tests: approval and sequential delivery.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { DatabaseSync } from 'node:sqlite';
 import { Store } from '../src/persistence/store.js';
 import { Workflow, activeCriteria, activeSlice, type Brief } from '../src/domain/workflow.js';
 import type { Execution } from '../src/execution/execution-state.js';
@@ -97,7 +96,7 @@ function deliverCLI(f: Fixture, execution: Execution, spec: unknown): Delivery {
 
 test('ordered slices are version-approved, bounded and cover distinct known criteria', t => {
   const root = mkdtempSync(join(tmpdir(), 'grampus-slice-plan-'));
-  const store = new Store(join(root, 'journal.sqlite'));
+  const store = new Store(join(root, 'grampus.sqlite'));
   t.after(() => {
     store.close();
     rmSync(root, { recursive: true, force: true });
@@ -173,32 +172,3 @@ test(
     assert.equal(f.workspace.baseCommit, git(f.workspace.path, 'rev-parse', 'HEAD~2'));
   },
 );
-
-test('schema 9 migration preserves single-slice state and history and fences older executables', t => {
-  const root = mkdtempSync(join(tmpdir(), 'grampus-slice-migrate-'));
-  const path = join(root, 'journal.sqlite');
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const store = new Store(path);
-  const workflow = new Workflow(store);
-  const task = workflow.create(singleBrief);
-  workflow.approve(task.id, 1);
-  const before = workflow.get(task.id);
-  const events = store.events(task.id);
-  store.close();
-  const legacy = new DatabaseSync(path);
-  legacy.exec('PRAGMA user_version = 9');
-  legacy.close();
-  const migrated = new Store(path);
-  try {
-    assert.deepEqual(new Workflow(migrated).get(task.id), before);
-    assert.deepEqual(migrated.events(task.id), events);
-  } finally {
-    migrated.close();
-  }
-  const db = new DatabaseSync(path);
-  try {
-    assert.equal(db.prepare('PRAGMA user_version').get()!.user_version, 10);
-  } finally {
-    db.close();
-  }
-});

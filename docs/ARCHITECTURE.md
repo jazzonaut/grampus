@@ -113,8 +113,8 @@ implementation with their evidence within `workflowPolicy.repairRounds`; blockin
 use the review repair allowance and then an optional fresh arbitrator. A repair that leaves the
 failing artifact unchanged stops early. In **supervised** mode the controller stops at
 `awaiting_scope` for file authorization and at `awaiting_assessment` after submission for a human
-simplification assessment, then reviews. `task-automate` records an explicit opt-in for saved plans.
-Details are in [WORKFLOW.md](WORKFLOW.md).
+simplification assessment, then reviews; failed checks stop for a manual retry. The mode is part of
+the approved plan and changes only through a revision. Details are in [WORKFLOW.md](WORKFLOW.md).
 
 One guided controller runs per journal at a time. Its ownership has no expiry and is kept across an
 uncertain shutdown. Stop requests are persisted and forwarded as an `AbortSignal` to the running
@@ -123,8 +123,10 @@ leaf.
 ## Persistence
 
 `persistence/store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a five-second
-busy timeout. Schema version 10 has twelve tables; journals from versions 1 to 9 migrate in place
-and unknown versions are refused. Older executables cannot open a migrated journal.
+busy timeout. There is one schema, version 1, with twelve tables and no migrations. A new or empty
+file gets the schema; any other version, or a version 1 file missing a table, is refused with a
+clear error after a read-only inspection, so the file is never modified. The default journal is
+`grampus.sqlite` in the data directory.
 
 | Table | Contents |
 | --- | --- |
@@ -309,7 +311,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | --- | --- | --- |
 | `/` | `cli.ts` | Command parsing and entry point (`dist/src/cli.js`, also the installed launcher target); Ctrl+C handling |
 | `config/` | `runtime.ts` | Application root, version, installed or development channel, data directory, update |
-| `persistence/` | `store.ts` | SQLite schema, migrations, transactions and journal access |
+| `persistence/` | `store.ts` | SQLite schema, version check, transactions and journal access |
 | `domain/` | `workflow.ts`, `workflow-policy.ts` | Briefs, versions, attempts, evidence, gates, slices and completion; workflow policy validation |
 | | `guided-plan.ts` | Plan normalization, slice file simulation and approval digest |
 | | `acceptance.ts` | Acceptance expectations and observations against retained output |
@@ -320,7 +322,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `executions.ts`, `execution-state.ts` | Execution bindings, leases and settlement |
 | | `edit-policy.ts`, `implementations.ts`, `implementation-worker.ts` | Edit scope, patch authorization and supervised editing |
 | | `deliveries.ts`, `delivery-worker.ts`, `delivery-operation.ts` | Local commit delivery and verification |
-| | `agent-timeout.ts` | Opt-in provider deadlines |
+| | `agent-timeout.ts` | Opt-in provider deadlines for low-level session and implementation commands; guided turns have none |
 | `providers/` | `types.ts`, `index.ts` | Provider contract, reply validation, usage, connector |
 | | `codex.ts` | Codex app-server threads, turns, approvals and dynamic tools |
 | | `claude.ts`, `claude-repository.ts`, `claude-files.ts` | Claude SDK sessions, repository MCP server, scoped delete tool |

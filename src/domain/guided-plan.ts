@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { agentTimeout } from '../execution/agent-timeout.js';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { validateBrief, type Brief } from './workflow.js';
@@ -25,10 +24,15 @@ export interface GuidedSlice {
   message: string;
   mode: 'commit' | 'no_change';
 }
+/** Guided agent turns have no deadline; a stalled turn is stopped explicitly. */
+export interface GuidedAgent {
+  provider: Provider;
+  model: string | null;
+}
 export interface GuidedPlan {
-  workflowPolicy?: WorkflowPolicy;
+  workflowPolicy: WorkflowPolicy;
   preparation?: GuidedCommand;
-  reviewPolicy?: { repairRounds: number; arbitrator?: GuidedPlan['review'] };
+  reviewPolicy?: { repairRounds: number; arbitrator?: GuidedAgent };
   revision?: {
     previousVersion: number;
     artifact: string;
@@ -37,11 +41,11 @@ export interface GuidedPlan {
     sliceIndex: number;
   };
   references?: ReferenceFolder[];
-  context?: { files: string[]; inventoryDigest: string; totalFiles: number; totalBytes: number; exploration?: boolean };
+  context: { files: string[]; inventoryDigest: string; totalFiles: number; totalBytes: number; exploration: boolean };
   brief: Brief;
   workspace: { repo: string; base: string; adapter: 'git' | 'orca'; path?: string };
-  implementation: { provider: Provider; model: string | null; timeoutMs: number };
-  review: { provider: Provider; model: string | null; timeoutMs: number };
+  implementation: GuidedAgent;
+  review: GuidedAgent;
   slices: GuidedSlice[];
 }
 
@@ -102,15 +106,11 @@ function command(
       : {}),
   };
 }
-function agent(value: unknown, defaultProvider: Provider): GuidedPlan['implementation'] {
-  const item = object(value ?? {}, ['provider', 'model', 'timeoutMs'], 'agent');
+function agent(value: unknown, defaultProvider: Provider): GuidedAgent {
+  const item = object(value ?? {}, ['provider', 'model'], 'agent');
   const provider = item.provider ?? defaultProvider;
   if (provider !== 'codex' && provider !== 'claude') throw new Error('Provider must be codex or claude');
-  return {
-    provider,
-    model: item.model == null ? null : text(item.model, 'Model', 200),
-    timeoutMs: agentTimeout(item.timeoutMs),
-  };
+  return { provider, model: item.model == null ? null : text(item.model, 'Model', 200) };
 }
 
 /** Normalize once; approval covers this exact plan, including checks, paths and pinned base. */
@@ -280,6 +280,11 @@ export function normalizeGuidedPlan(
     ...(reviewPolicy ? { reviewPolicy } : {}),
     ...(references.length ? { references } : {}),
   };
+}
+
+/** Without an explicit review policy, review repairs share the check allowance, up to two. */
+export function reviewRepairRounds(plan: GuidedPlan): number {
+  return plan.reviewPolicy?.repairRounds ?? Math.min(2, plan.workflowPolicy.repairRounds);
 }
 
 export function guidedPlanDigest(plan: GuidedPlan): string {

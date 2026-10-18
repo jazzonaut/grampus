@@ -13,13 +13,8 @@ import type { ImplementationRun } from '../src/execution/implementations.js';
 import { renderReport } from '../src/reporting/report.js';
 import { windows, cli, message, review, git, services, fixture } from './helpers/guided-tasks.js';
 
-test('legacy guided agent deadlines no longer stop implementation or review', windows, async t => {
+test('guided agent turns have no deadline and plans cannot set one', windows, async t => {
   const f = fixture(t);
-  const plan = {
-    ...f.plan,
-    implementation: { provider: 'codex', timeoutMs: 100 },
-    review: { provider: 'claude', timeoutMs: 100 },
-  };
   const fake = services();
   const tasks = new GuidedTasks(f.store, {
     ...fake,
@@ -36,7 +31,11 @@ test('legacy guided agent deadlines no longer stop implementation or review', wi
       close: async () => {},
     }),
   });
-  const task = tasks.create(plan),
+  assert.throws(
+    () => tasks.create({ ...f.plan, implementation: { provider: 'codex', timeoutMs: 100 } }),
+    /allowed fields: provider, model/,
+  );
+  const task = tasks.create(f.plan),
     digest = task.guided!.digest;
   tasks.approve(task.id, 1, digest);
   await tasks.run(task.id);

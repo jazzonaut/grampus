@@ -45,8 +45,8 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   default), naming (lens), refactor (edit). The selected passes are part of the approved plan
   digest. Implementation, validation, independent review, acceptance and delivery stay
   mandatory and ordered.
-- **No backwards compatibility.** Legacy plan formats, digests, fields, migrations and
-  `task-automate` are removed from code and docs. The schema restarts at version 1; an older
+- **No backwards compatibility.** Done 18 October 2026. Legacy plan formats, digests, fields,
+  migrations and `task-automate` are removed from code and docs. The schema restarts at version 1; an older
   journal is refused with a clear message and never modified. The new version uses a fresh
   journal file, so older installed snapshots can still finish their own tasks.
 

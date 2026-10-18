@@ -27,9 +27,10 @@ artifact. Grampus verifies that assessment's reviewer, attempt, version and arti
 before recording it as **agent evidence**, rather than inferring it from a passing check.
 Runtime validation and acceptance remain controller evidence.
 
-## Configuration and existing tasks
+## Configuration
 
-The policy is visible in plan approval and editable in **Revise this task's plan**:
+The policy is part of the approved plan, visible at approval and editable in
+**Revise this task's plan**:
 
 ```json
 "workflowPolicy": {
@@ -40,22 +41,19 @@ The policy is visible in plan approval and editable in **Revise this task's plan
 }
 ```
 
-`mode: "supervised"` adds file-authorization and manual-simplification checkpoints
-(see [the guided CLI](GUIDED-WORKFLOW.md#supervised-mode)).
+`mode` defaults to `automatic`. `mode: "supervised"` adds file-authorization and
+manual-simplification checkpoints and leaves failed checks for a manual retry (see
+[the guided CLI](GUIDED-WORKFLOW.md#supervised-mode)).
 Check repair rounds accept 0–5; the limit is shared by validation and acceptance for
 the current slice and survives manual retry/restarts. A new slice or revised plan
 gets a new allowance. Repeated failed content stops early.
 
 `reviewPolicy` controls review repairs (0–2) and optional fresh arbitration.
-Without that override, automatic review repairs use the workflow allowance, up to two. Review
+Without that override, review repairs use the workflow allowance, up to two. Review
 repair counts are separate from check repair counts. Unresolved arbitration stops.
 
-Previously saved plans keep their original digests and supervised semantics. At an
-idle checkpoint, **Continue automatically within this plan** (CLI: `task-automate <id>`)
-explicitly authorizes automatic work within that plan's existing scope and commands.
-This records an event without rewriting the approved brief, resetting files or
-reapproving the outcome. Operational failures still need inspection. Changing scope,
-commands or policy values uses a plan revision and fresh approval.
+Changing the mode, scope, commands or policy values uses a plan revision and fresh
+approval; the approval digest always covers the complete current plan.
 
 ## Reuse context at settled boundaries
 
@@ -130,6 +128,6 @@ test output, not a Unicode conversion failure; it stays out of the compact issue
 
 Offline integration tests exercise failed-check repair through verified local delivery,
 no-progress stopping, acceptance repair with renewed evidence, reviewer resumption and
-explicit legacy-task adoption. Boundary tests exercise context thresholds, tool access,
+explicit retry over staged files. Boundary tests exercise context thresholds, tool access,
 large Unicode logs beyond the journal preview, compact polling and paginated UI output.
 Provider process and recovery tests retain the existing no-replay contracts.

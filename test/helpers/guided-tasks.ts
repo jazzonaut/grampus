@@ -67,7 +67,7 @@ export function fixture(t: { after(fn: () => void): void }) {
   writeFileSync(join(repo, 'AGENTS.md'), 'Use one direct output statement.\n');
   git(repo, 'add', '.');
   git(repo, 'commit', '-m', 'Fixture baseline');
-  const store = new Store(join(root, 'journal.sqlite'));
+  const store = new Store(join(root, 'grampus.sqlite'));
   t.after(() => {
     store.close();
     rmSync(root, { recursive: true, force: true });

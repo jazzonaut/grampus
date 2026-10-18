@@ -32,7 +32,7 @@ export async function fixture(t: { after(fn: () => void): void }, prepare?: (pat
   git(repo, 'add', '.');
   git(repo, 'update-index', '--chmod=+x', 'greeting.js');
   git(repo, 'commit', '-m', 'Baseline');
-  const db = join(root, 'journal.sqlite');
+  const db = join(root, 'grampus.sqlite');
   const store = new Store(db);
   t.after(() => {
     store.close();

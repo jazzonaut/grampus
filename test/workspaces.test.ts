@@ -5,7 +5,6 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync
 import { tmpdir, hostname } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DatabaseSync } from 'node:sqlite';
 import { Store } from '../src/persistence/store.js';
 import { Workflow } from '../src/domain/workflow.js';
 import { Workspaces, type Workspace } from '../src/repository/workspaces.js';
@@ -39,7 +38,7 @@ function fixture(t: { after(fn: () => void): void }) {
   writeFileSync(join(repo, 'greeting.txt'), 'hello\n');
   git(repo, 'add', '.');
   git(repo, 'commit', '-m', 'Fixture baseline');
-  const db = join(root, 'journal.sqlite');
+  const db = join(root, 'grampus.sqlite');
   const store = new Store(db);
   const workflow = new Workflow(store);
   const task = workflow.create(brief);
@@ -209,6 +208,7 @@ test(
       controllerPid: process.pid,
       controllerStartedAt: currentProcessStartedAt(),
       gitPid: null,
+      gitStartedAt: null,
       exitConfirmed: true,
     };
     f.store.saveWorkspace(created.id, f.task.id, f.destination.toLowerCase(), created);
@@ -243,7 +243,13 @@ test('recovery adopts a verified completed checkout after a lost controller resp
   const created = await workspaces.create(task.id, 1, repo, destination);
   // Simulate the persisted state immediately after Git exited, before ready was committed.
   created.phase = 'recovery_required';
-  created.owner = { controllerPid: process.pid, gitPid: null, exitConfirmed: true };
+  created.owner = {
+    controllerPid: process.pid,
+    controllerStartedAt: null,
+    gitPid: null,
+    gitStartedAt: null,
+    exitConfirmed: true,
+  };
   save(store, created);
   const recovered = await workspaces.recover(created.id);
   assert.equal(recovered.phase, 'ready');
@@ -286,7 +292,13 @@ test('recovery blocks unknown or live Git, another host, and a live controller',
   const { repo, store, task, workspaces, destination } = fixture(t);
   const created = await workspaces.create(task.id, 1, repo, destination);
   created.phase = 'recovery_required';
-  created.owner = { controllerPid: process.pid, gitPid: null, exitConfirmed: false };
+  created.owner = {
+    controllerPid: process.pid,
+    controllerStartedAt: null,
+    gitPid: null,
+    gitStartedAt: null,
+    exitConfirmed: false,
+  };
   save(store, created);
   await assert.rejects(workspaces.recover(created.id), /Git exit is unconfirmed/);
   created.owner.gitPid = process.pid;
@@ -296,7 +308,13 @@ test('recovery blocks unknown or live Git, another host, and a live controller',
   save(store, created);
   await assert.rejects(workspaces.recover(created.id), /execution host/);
   created.host = hostname();
-  created.owner = { controllerPid: process.ppid, gitPid: null, exitConfirmed: true };
+  created.owner = {
+    controllerPid: process.ppid,
+    controllerStartedAt: null,
+    gitPid: null,
+    gitStartedAt: null,
+    exitConfirmed: true,
+  };
   save(store, created);
   await assert.rejects(workspaces.recover(created.id), /controller is alive/);
 });
@@ -307,7 +325,13 @@ test('recovery cannot bless dirty contents and inspection detects replaced Git o
   writeFileSync(join(destination, 'extra.txt'), 'untracked change');
   assert.equal((await workspaces.inspect(created.id)).dirty, true);
   created.phase = 'recovery_required';
-  created.owner = { controllerPid: process.pid, gitPid: null, exitConfirmed: true };
+  created.owner = {
+    controllerPid: process.pid,
+    controllerStartedAt: null,
+    gitPid: null,
+    gitStartedAt: null,
+    exitConfirmed: true,
+  };
   save(store, created);
   await assert.rejects(workspaces.recover(created.id), /clean base commit/);
   assert.equal(readFileSync(join(destination, 'extra.txt'), 'utf8'), 'untracked change');
@@ -341,28 +365,4 @@ test('workspace CLI persists state across processes and refuses Orca path overri
   assert.equal(JSON.parse(run('workspace-inspect', workspace.id)).dirty, false);
   assert.equal(JSON.parse(run('workspace-show', workspace.id)).workspace.phase, 'ready');
   assert.equal(JSON.parse(run('workspace-list')).length, 1);
-});
-
-test('schema 2 journals gain workspace tables without changing tasks or conversation history', t => {
-  const root = mkdtempSync(join(tmpdir(), 'grampus-schema-test-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const path = join(root, 'journal.sqlite');
-  const first = new Store(path);
-  const task = new Workflow(first).create(brief);
-  first.saveSession('existing', { id: 'existing', phase: 'idle' });
-  first.appendSession('existing', 'fixture.event', { retained: true });
-  first.close();
-  const legacy = new DatabaseSync(path);
-  legacy.exec('DROP TABLE workspace_events; DROP TABLE workspaces; PRAGMA user_version = 2;');
-  legacy.close();
-  const reopened = new Store(path);
-  try {
-    assert.deepEqual(new Workflow(reopened).get(task.id), task);
-    assert.equal(reopened.events(task.id).length, 1);
-    assert.deepEqual(reopened.session('existing'), { id: 'existing', phase: 'idle' });
-    assert.deepEqual(reopened.sessionEvents('existing')[0]?.data, { retained: true });
-    assert.deepEqual(reopened.workspaces(), []);
-  } finally {
-    reopened.close();
-  }
 });

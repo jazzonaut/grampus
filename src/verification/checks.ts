@@ -49,8 +49,9 @@ export interface RepositoryCheck {
   toolPid: number | null;
   result: CheckProcessResult | null;
   error: string | null;
-  purpose?: 'validation' | 'verification' | 'preparation';
-  dispatch?: 'not_requested' | 'requested';
+  purpose: 'validation' | 'verification' | 'preparation';
+  dispatch: 'not_requested' | 'requested';
+  /** Allocated just before dispatch; absent when the check stopped first. */
   receipt?: CheckReceipt;
 }
 
@@ -136,7 +137,7 @@ export class Checks {
     return this.store.check<RepositoryCheck>(id);
   }
 
-  private claim(executionId: string, runId: string, kind: NonNullable<ExecutionLease['kind']>): Execution {
+  private claim(executionId: string, runId: string, kind: ExecutionLease['kind']): Execution {
     const execution = this.store.execution<Execution>(executionId);
     const session = new Sessions(this.store).get(execution.sessionId);
     if (session.run || ['running', 'stop_requested', 'recovery_required'].includes(session.phase))
@@ -468,19 +469,16 @@ export class Checks {
       const execution = this.store.execution<Execution>(check.executionId);
       this.fenced(execution, id);
       const lease = this.store.lease<ExecutionLease>(execution.workspaceId)!;
-      if (
-        !['check', 'verification'].includes(lease.kind ?? '') ||
-        !['running', 'recovery_required'].includes(check.phase)
-      )
+      if (!['check', 'verification'].includes(lease.kind) || !['running', 'recovery_required'].includes(check.phase))
         throw new Error('Check does not need recovery');
       requireDeadController(lease);
-      if (check.dispatch === 'requested' && check.receipt) {
+      if (check.dispatch === 'requested') {
+        if (!check.receipt) throw new Error('Dispatched check has no settlement receipt identity; ownership retained');
         check.result = {
           ...readReceipt(check.receipt, check.supervisorPid, check.toolPid),
           ...retainedOutput(check.receipt.directory),
         };
-      } else if (check.dispatch !== 'not_requested')
-        throw new Error('No durable dispatch boundary or matching completion receipt; ownership retained');
+      }
       check.phase = 'interrupted';
       check.error = 'Recovered without replay or success acceptance; run an explicit fresh check';
       this.release(execution, id);

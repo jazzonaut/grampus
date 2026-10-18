@@ -27,7 +27,7 @@
     fixture.state.pending = null;
     fixture.state.plan.reviewPolicy = {
       repairRounds: 1,
-      arbitrator: { provider: 'codex', model: null, timeoutMs: 120000 },
+      arbitrator: { provider: 'codex', model: null },
     };
     delete fixture.state.plan.slices[0].acceptance.expectedStdout;
     fixture.state.plan.slices[0].acceptance.expectations = {

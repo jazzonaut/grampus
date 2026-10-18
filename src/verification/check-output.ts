@@ -173,7 +173,7 @@ export function checkFeedback(check: RepositoryCheck) {
   return {
     checkId: check.id,
     name: check.spec.name,
-    purpose: check.purpose ?? 'validation',
+    purpose: check.purpose,
     phase: check.phase,
     command: { file: check.spec.file, args: check.spec.args },
     reason: check.result?.reason ?? null,

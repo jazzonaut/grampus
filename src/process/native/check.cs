@@ -83,7 +83,7 @@ public static class GrampusCheck {
         try {
             using (var owner = Process.GetProcessById(supervisorPid))
                 supervisorStartedAt = owner.StartTime.ToFileTimeUtc().ToString(System.Globalization.CultureInfo.InvariantCulture);
-        } catch { } // Unknown identity retains the legacy PID-only recovery guard.
+        } catch { } // An unknown identity keeps the conservative PID-only recovery guard.
         // A broken Windows pipe can throw rather than return EOF. Never let the
         // reader thread terminate the helper before the job is settled and receipted.
         var reader = new Thread(() => { try { Console.ReadLine(); } catch { } finally { stop = true; } });

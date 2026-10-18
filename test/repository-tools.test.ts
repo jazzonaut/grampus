@@ -344,7 +344,7 @@ test('Claude exposes snapshot change pagination and fences its results by owners
 
 test('kickoff starts without file selection, discovers its own edit scope and records exploration', async t => {
   const f = fixture(t),
-    store = new Store(join(f.root, 'journal.sqlite'));
+    store = new Store(join(f.root, 'grampus.sqlite'));
   f.cleanup.push(() => store.close());
   const connector: Connector = async (_provider, options) => ({
     turn: async prompt => {
@@ -388,8 +388,8 @@ test('kickoff starts without file selection, discovers its own edit scope and re
   assert.deepEqual(kickoffs.view(id).config.files, []);
   const result = await kickoffs.send(id);
   assert.equal(result.error, null);
-  assert.equal(result.candidate!.context!.exploration, true);
-  assert.deepEqual(result.candidate!.context!.files, []);
+  assert.equal(result.candidate!.context.exploration, true);
+  assert.deepEqual(result.candidate!.context.files, []);
   assert.deepEqual(result.candidate!.slices[0]!.scope.files, ['src/dependency.js']);
   assert.ok(store.sessionEvents(id).some(event => event.type === 'repository.tool_result'));
 });

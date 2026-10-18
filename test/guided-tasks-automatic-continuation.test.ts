@@ -1,4 +1,4 @@
-// Guided task tests: automatic acceptance repair and opting legacy plans into automatic continuation.
+// Guided task tests: automatic acceptance repair with renewed evidence.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
@@ -50,40 +50,5 @@ test(
     assert.ok(
       f.store.get<any>(task.id).evidence.every((e: any) => e.attemptId === f.store.get<any>(task.id).attempt.id),
     );
-  },
-);
-
-test(
-  'legacy plans can explicitly enable automatic continuation without changing their approved digest',
-  windows,
-  async t => {
-    const f = fixture(t),
-      config = services();
-    config.connector = async () => ({
-      turn: async () => ({
-        status: 'completed',
-        reply: {
-          ...review,
-          simplification: { outcome: 'passed', summary: 'The direct output statement needs no further abstraction.' },
-        },
-        usage: null,
-        error: null,
-      }),
-      close: async () => {},
-      interrupt: async () => {},
-    });
-    const tasks = new GuidedTasks(f.store, config),
-      task = tasks.create(f.plan);
-    // A saved plan predating workflow policy must keep its exact approval digest.
-    delete task.guided!.plan.workflowPolicy;
-    task.guided!.digest = (await import('../src/domain/guided-plan.js')).guidedPlanDigest(task.guided!.plan);
-    f.store.save(task.id, task);
-    tasks.approve(task.id, 1, task.guided!.digest);
-    const scope = await tasks.run(task.id);
-    assert.equal(scope.status, 'awaiting_scope');
-    const done = await tasks.automate(task.id);
-    assert.equal(done.status, 'complete', done.note);
-    assert.equal(done.digest, scope.digest);
-    assert.equal(done.automationEnabled, true);
   },
 );

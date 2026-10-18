@@ -201,7 +201,7 @@ export async function startUi(options: UiOptions) {
             execution =>
               execution.taskId === view.task.id &&
               execution.version === view.state.version &&
-              (execution.sliceIndex ?? 0) === view.state.sliceIndex,
+              execution.sliceIndex === view.state.sliceIndex,
           )
           .flatMap(execution => store.checks<RepositoryCheck>(execution.id));
         const failed = historyChecks.findLast(check => check.phase === 'failed');
@@ -349,24 +349,14 @@ export async function startUi(options: UiOptions) {
             payload.version,
             payload.digest,
           );
-          if (approved.plan.workflowPolicy?.mode === 'automatic') {
+          if (approved.plan.workflowPolicy.mode === 'automatic') {
             launch(id!, 'run', { expected: guidedDecisionKey(approved) });
             json(response, 202, { ok: true });
           } else json(response, 200, { ok: true });
           return;
         }
         if (
-          ![
-            'run',
-            'authorize',
-            'assess',
-            'answer',
-            'retry',
-            'automate',
-            'revise',
-            'recover',
-            'release-workspace',
-          ].includes(action)
+          !['run', 'authorize', 'assess', 'answer', 'retry', 'revise', 'recover', 'release-workspace'].includes(action)
         )
           throw new Error('Unknown task action');
         launch(id!, action, payload);

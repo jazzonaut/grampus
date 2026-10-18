@@ -151,7 +151,7 @@ test(
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /Usage: probe:multifile/);
     }
-    const db = join(root, 'journal.sqlite');
+    const db = join(root, 'grampus.sqlite');
     const store = new Store(db);
     try {
       const workflow = new Workflow(store);

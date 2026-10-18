@@ -3,6 +3,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
 
+// Current-format plan and state fields that dashboard fixtures share.
+const workflowPolicy = { mode: 'automatic', repairRounds: 2, maxSessionTurns: 6, maxContextTokens: 120000 };
+const planContext = { files: [], exploration: true, inventoryDigest: 'fixture', totalFiles: 1, totalBytes: 1 };
+const cycles = {
+  repairCycle: { used: 0, failures: [] },
+  reviewCycle: { repairs: 0, history: [], arbitrating: false, arbitrationUsed: false },
+};
+
 function dashboard() {
   const listeners = new Map<string, (event: unknown) => Promise<void>>();
   const app = {
@@ -90,8 +98,10 @@ test('MCP connections are the last sidebar panel on both planning and task pages
   context.plan = {
     brief: { title: 'A task', outcome: 'An outcome', plan: 'An approach', criteria: ['A criterion'] },
     workspace: { repo: 'C:/repo', base: 'abc', path: 'C:/work' },
-    implementation: { provider: 'codex', timeoutMs: 1000 },
-    review: { provider: 'claude', timeoutMs: 1000 },
+    workflowPolicy,
+    context: planContext,
+    implementation: { provider: 'codex', model: null },
+    review: { provider: 'claude', model: null },
     slices: [
       {
         scope: { files: [] },
@@ -106,7 +116,7 @@ test('MCP connections are the last sidebar panel on both planning and task pages
     `
     selected = 'planning';
     state.kickoffs = [{id:selected,config:{request:'A request',repo:'C:/repo',base:'abc',provider:'codex',adapter:'git',files:[],exploration:true},session:{phase:'idle'},messages:[],integrations:servers}];
-    detail = {task:{id:'task',brief:plan.brief},state:{status:'complete',stage:'complete',sliceIndex:0,version:1,plan},
+    detail = {task:{id:'task',brief:plan.brief},state:{status:'complete',stage:'complete',sliceIndex:0,version:1,plan,repairCycle:{used:0,failures:[]},reviewCycle:{repairs:0,history:[],arbitrating:false,arbitrationUsed:false}},
       integrations:servers,findings:[],checks:[],deliveries:[],events:[]};
   `,
     context,
@@ -139,11 +149,11 @@ test('the planning sidebar uses saved task names and escapes them, retaining the
       config: { request: 'Please could you look into a very long description' },
       session: { phase: 'running' },
     },
-    { id: 'legacy', config: { request: 'Older description' }, session: { phase: 'idle' } },
+    { id: 'unnamed', config: { request: 'Unnamed description' }, session: { phase: 'idle' } },
   ];
   const html = runInContext('state.kickoffs = items; nav()', context) as string;
   assert.match(html, /Fix &lt;login&gt; &amp; logout/);
-  assert.match(html, /Older description/);
+  assert.match(html, /Unnamed description/);
   assert.doesNotMatch(html, /Please could you|<login>/);
 });
 
@@ -154,7 +164,8 @@ test('plan revisions, repair budgets and structured acceptance remain reviewable
       status: 'blocked',
       plan: {
         brief: { title: '</textarea><script>bad</script>', outcome: 'New output', plan: 'Small change' },
-        reviewPolicy: { repairRounds: 2, arbitrator: { provider: 'codex', model: 'fixture', timeoutMs: 120000 } },
+        workflowPolicy,
+        reviewPolicy: { repairRounds: 2, arbitrator: { provider: 'codex', model: 'fixture' } },
       },
     },
   };
@@ -281,8 +292,10 @@ test('proposed plans render narrative Markdown while command arguments stay lite
       plan: '## Approach\n\n- Reuse the scale\n- Embed fonts',
     },
     workspace: { repo: 'C:/repo', base: 'abc', path: 'C:/work' },
-    implementation: { provider: 'claude', timeoutMs: 300000 },
-    review: { provider: 'codex', timeoutMs: 300000 },
+    workflowPolicy,
+    context: planContext,
+    implementation: { provider: 'claude', model: null },
+    review: { provider: 'codex', model: null },
     slices: [
       {
         scope: { files: ['src/export.ts'] },
@@ -311,8 +324,10 @@ test('preparation commands are visible for approval and failures offer a prepara
       plan: 'Restore then verify',
     },
     workspace: { repo: 'C:/repo', base: 'abc' },
-    implementation: { provider: 'codex' },
-    review: { provider: 'claude' },
+    workflowPolicy,
+    context: planContext,
+    implementation: { provider: 'codex', model: null },
+    review: { provider: 'claude', model: null },
     preparation: { name: 'Restore', file: 'node', args: ['<restore>'], timeoutMs: 600000 },
     slices: [
       {
@@ -409,7 +424,7 @@ test('planner progress renders real activity safely and elapsed time without per
 test('task work shows stage, current activity and elapsed time through quiet periods and stops', () => {
   const { context } = dashboard();
   context.view = {
-    state: { status: 'running', stage: 'implementation', owner: { token: 'owned' } },
+    state: { status: 'running', stage: 'implementation', owner: { token: 'owned' }, ...cycles },
     events: [],
     progress: {
       activity: 'Reading src/<change>.ts',

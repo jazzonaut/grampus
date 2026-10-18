@@ -1,10 +1,12 @@
-import { mkdirSync } from 'node:fs';
+// Owns the SQLite journal: the single current schema, transactions and record access.
+import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { defaultDataDirectory } from '../config/runtime.js';
 
+/** The default journal for this installed or development copy. */
 export function defaultDatabasePath(): string {
-  return join(defaultDataDirectory(), 'journal.sqlite');
+  return join(defaultDataDirectory(), 'grampus.sqlite');
 }
 
 export interface JournalEvent {
@@ -16,7 +18,102 @@ export interface JournalEvent {
   data: unknown;
 }
 
-/** All state changes and their evidence are committed in the same transaction. */
+const schemaVersion = 1;
+const schema = `
+  CREATE TABLE tasks (id TEXT PRIMARY KEY, state TEXT NOT NULL);
+  CREATE TABLE events (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT NOT NULL REFERENCES tasks(id),
+    version INTEGER NOT NULL,
+    at TEXT NOT NULL,
+    type TEXT NOT NULL,
+    data TEXT NOT NULL
+  );
+  CREATE INDEX events_task ON events(task_id, sequence);
+  CREATE TABLE sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL);
+  CREATE TABLE session_events (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id),
+    at TEXT NOT NULL,
+    type TEXT NOT NULL,
+    data TEXT NOT NULL
+  );
+  CREATE INDEX session_events_session ON session_events(session_id, sequence);
+  CREATE TABLE workspaces (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id),
+    path_key TEXT NOT NULL UNIQUE,
+    state TEXT NOT NULL
+  );
+  CREATE TABLE workspace_events (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    at TEXT NOT NULL,
+    type TEXT NOT NULL,
+    data TEXT NOT NULL
+  );
+  CREATE INDEX workspace_events_workspace ON workspace_events(workspace_id, sequence);
+  CREATE TABLE executions (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id),
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id),
+    state TEXT NOT NULL
+  );
+  CREATE TABLE execution_events (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_id TEXT NOT NULL REFERENCES executions(id),
+    at TEXT NOT NULL, type TEXT NOT NULL, data TEXT NOT NULL
+  );
+  CREATE INDEX execution_events_execution ON execution_events(execution_id, sequence);
+  CREATE TABLE execution_leases (
+    workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id),
+    execution_id TEXT NOT NULL UNIQUE REFERENCES executions(id),
+    run_id TEXT NOT NULL UNIQUE,
+    state TEXT NOT NULL
+  );
+  CREATE TABLE checks (
+    id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL REFERENCES executions(id),
+    state TEXT NOT NULL
+  );
+  CREATE TABLE deliveries (
+    id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL REFERENCES executions(id),
+    state TEXT NOT NULL
+  );
+  CREATE TABLE implementations (
+    id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL REFERENCES executions(id),
+    state TEXT NOT NULL
+  );
+`;
+const expectedTables = [...schema.matchAll(/CREATE TABLE (\w+)/g)].map(match => match[1]!);
+
+type SchemaState = 'empty' | 'current' | 'foreign';
+function schemaState(db: DatabaseSync): SchemaState {
+  const version = Number(db.prepare('PRAGMA user_version').get()?.user_version);
+  const tables = new Set(
+    db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+      .all()
+      .map(row => String(row.name)),
+  );
+  if (version === 0 && tables.size === 0) return 'empty';
+  return version === schemaVersion && expectedTables.every(table => tables.has(table)) ? 'current' : 'foreign';
+}
+function refuse(path: string): Error {
+  return new Error(
+    `This journal was created by an older Grampus version and cannot be opened. Start with a fresh journal (the old file is left untouched): ${path}`,
+  );
+}
+
+/**
+ * All state changes and their evidence are committed in the same transaction.
+ *
+ * There is one schema version and no migration. A journal from any other version is
+ * refused before this connection writes anything to it, so its bytes stay unchanged.
+ */
 export class Store {
   private readonly db: DatabaseSync;
   readonly path: string;
@@ -24,87 +121,36 @@ export class Store {
 
   constructor(path: string) {
     this.path = path === ':memory:' ? path : resolve(path);
+    if (path !== ':memory:' && existsSync(path) && statSync(path).size > 0) {
+      // Inspect read-only first: setting WAL mode or creating tables would rewrite an older journal.
+      const existing = new DatabaseSync(path, { readOnly: true });
+      try {
+        existing.exec('PRAGMA busy_timeout = 5000;');
+        if (schemaState(existing) === 'foreign') throw refuse(this.path);
+      } finally {
+        existing.close();
+      }
+    }
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
-    this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
-    this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
-    const version = this.db.prepare('PRAGMA user_version').get()?.user_version;
-    if (![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].includes(Number(version))) {
+    try {
+      this.db.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        // Recheck under the write lock: another process may have created the schema meanwhile.
+        const state = schemaState(this.db);
+        if (state === 'foreign') throw refuse(this.path);
+        if (state === 'empty') this.db.exec(`${schema} PRAGMA user_version = ${schemaVersion};`);
+        this.db.exec('COMMIT');
+      } catch (error) {
+        this.db.exec('ROLLBACK');
+        throw error;
+      }
+      this.db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
+    } catch (error) {
       this.db.close();
-      throw new Error(`Unsupported journal schema version: ${version}`);
+      throw error;
     }
-    this.db.exec(`
-      BEGIN IMMEDIATE;
-      CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, state TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS events (
-        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_id TEXT NOT NULL REFERENCES tasks(id),
-        version INTEGER NOT NULL,
-        at TEXT NOT NULL,
-        type TEXT NOT NULL,
-        data TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS events_task ON events(task_id, sequence);
-      CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS session_events (
-        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT NOT NULL REFERENCES sessions(id),
-        at TEXT NOT NULL,
-        type TEXT NOT NULL,
-        data TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS session_events_session ON session_events(session_id, sequence);
-      CREATE TABLE IF NOT EXISTS workspaces (
-        id TEXT PRIMARY KEY,
-        task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id),
-        path_key TEXT NOT NULL UNIQUE,
-        state TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS workspace_events (
-        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-        workspace_id TEXT NOT NULL REFERENCES workspaces(id),
-        at TEXT NOT NULL,
-        type TEXT NOT NULL,
-        data TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS workspace_events_workspace ON workspace_events(workspace_id, sequence);
-      CREATE TABLE IF NOT EXISTS executions (
-        id TEXT PRIMARY KEY,
-        task_id TEXT NOT NULL REFERENCES tasks(id),
-        workspace_id TEXT NOT NULL REFERENCES workspaces(id),
-        session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id),
-        state TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS execution_events (
-        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-        execution_id TEXT NOT NULL REFERENCES executions(id),
-        at TEXT NOT NULL, type TEXT NOT NULL, data TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS execution_events_execution ON execution_events(execution_id, sequence);
-      CREATE TABLE IF NOT EXISTS execution_leases (
-        workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id),
-        execution_id TEXT NOT NULL UNIQUE REFERENCES executions(id),
-        run_id TEXT NOT NULL UNIQUE,
-        state TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS checks (
-        id TEXT PRIMARY KEY,
-        execution_id TEXT NOT NULL REFERENCES executions(id),
-        state TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS deliveries (
-        id TEXT PRIMARY KEY,
-        execution_id TEXT NOT NULL REFERENCES executions(id),
-        state TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS implementations (
-        id TEXT PRIMARY KEY,
-        execution_id TEXT NOT NULL REFERENCES executions(id),
-        state TEXT NOT NULL
-      );
-      PRAGMA user_version = 10;
-      COMMIT;
-    `);
   }
 
   transaction<T>(action: () => T): T {

@@ -201,7 +201,7 @@ export function prepareEditing(context: EditingContext): void {
   }
 }
 
-/** Keep editable text inline for legacy sessions; exploration can retrieve deferred current bytes. */
+/** Inline editable text; with exploration, large files are deferred to paginated reads of current bytes. */
 export function editingFileContext(context: EditingContext, exploration = false): string {
   let size = 2;
   const content = JSON.stringify(

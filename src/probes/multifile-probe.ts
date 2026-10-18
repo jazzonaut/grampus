@@ -81,7 +81,7 @@ if (process.platform !== 'win32') throw new Error('This probe requires Windows c
 if (resuming && !existsSync(resolve(values.db!))) throw new Error('Continuation journal does not exist');
 const root = resuming ? null : resolve('.grampus', 'task-probes', randomUUID());
 if (root) mkdirSync(root, { recursive: true });
-const db = root ? join(root, 'journal.sqlite') : resolve(values.db!);
+const db = root ? join(root, 'grampus.sqlite') : resolve(values.db!);
 const store = new Store(db);
 const workflow = new Workflow(store);
 const checks = new Checks(store);

@@ -1,4 +1,4 @@
-// Check tests: tool supervision, crashes, receipts and journal migrations.
+// Check tests: tool supervision, crashes and receipts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, execFileSync } from 'node:child_process';
@@ -7,9 +7,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import { DatabaseSync } from 'node:sqlite';
-import { Store } from '../src/persistence/store.js';
-import { Checks, type RepositoryCheck } from '../src/verification/checks.js';
+import type { RepositoryCheck } from '../src/verification/checks.js';
 import { runCheckProcess } from '../src/process/check-process.js';
 import { processAlive } from '../src/verification/check-recovery.js';
 import { windows, fixture, alive, deadController, crashDuringInspection } from './helpers/checks.js';
@@ -191,20 +189,6 @@ test(
   },
 );
 
-test('schema 5 journals migrate without losing linked records', async t => {
-  const f = await fixture(t);
-  const db = new DatabaseSync(f.db);
-  db.exec('DROP TABLE checks; PRAGMA user_version = 5;');
-  db.close();
-  const migrated = new Store(f.db);
-  try {
-    assert.deepEqual(migrated.execution(f.execution.id), f.execution);
-    assert.deepEqual(migrated.checks(f.execution.id), []);
-  } finally {
-    migrated.close();
-  }
-});
-
 test('supervisor death kills its job but does not invent exit confirmation', windows, async () => {
   let supervisorPid = 0;
   let toolPid = 0;
@@ -311,26 +295,4 @@ test('read-only snapshot recovery is fenced and cannot release a command lease',
   assert.equal(check.phase, 'recovery_required');
   deadController(f);
   assert.throws(() => f.executions.recoverReadOnly(f.execution.id), /command and conversation/);
-});
-
-test('schema 6 migration preserves legacy uncertainty without inventing recovery evidence', async t => {
-  const f = await fixture(t);
-  const check = await f.checks.run(f.execution.id, await f.spec(), undefined, async () => {
-    throw new Error('Unknown tool');
-  });
-  delete check.dispatch;
-  delete check.receipt;
-  delete check.purpose;
-  f.store.saveCheck(check.id, f.execution.id, check);
-  deadController(f);
-  const db = new DatabaseSync(f.db);
-  db.exec('PRAGMA user_version = 6');
-  db.close();
-  const migrated = new Store(f.db);
-  try {
-    assert.deepEqual(new Checks(migrated).get(check.id), check);
-    assert.throws(() => new Checks(migrated).recover(check.id), /No durable dispatch/);
-  } finally {
-    migrated.close();
-  }
 });

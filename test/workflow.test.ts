@@ -20,7 +20,7 @@ const reviewer: Agent = { provider: 'claude', model: 'test-review-model', sessio
 
 function fixture(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-test-'));
-  const path = join(root, 'journal.sqlite');
+  const path = join(root, 'grampus.sqlite');
   const store = new Store(path);
   const workflow = new Workflow(store);
   t.after(() => {

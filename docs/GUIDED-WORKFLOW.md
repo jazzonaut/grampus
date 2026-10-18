@@ -74,8 +74,7 @@ tests and acceptance criteria must not be weakened to make them pass.
 
 ## Supervised mode
 
-With `"workflowPolicy": { "mode": "supervised" }`, and for plans saved before automatic
-mode existed:
+With `"workflowPolicy": { "mode": "supervised" }`:
 
 1. Before each editing turn the task stops at `awaiting_scope`. Inspect the files with
    `task-show <task-id> --details`, then run `task-authorize <task-id>`. Authorization
@@ -89,11 +88,10 @@ mode existed:
 
    `failed` or `skipped` is retained and stops before review.
 
-Review, acceptance and delivery then follow as in automatic mode. Review repairs
-still need fresh authorization and assessment. To switch a saved plan to automatic
-work within its existing scope and commands, run `task-automate <task-id>` (dashboard:
-**Continue automatically within this plan**). It records an event and does not change
-the approved plan.
+Review, acceptance and delivery then follow as in automatic mode. Failed checks stop
+for `task-retry` instead of being repaired automatically. Blocking review findings
+start a repair attempt within the review allowance, and that attempt again stops for
+authorization and assessment. To change the mode, revise the plan and approve it again.
 
 ## Repository preparation
 
@@ -116,8 +114,8 @@ the same attempt.
 
 `repairRounds` is 0 to 2. Only a settled review with concrete blocking findings spends
 a round; Grampus keeps the findings and files and starts a fresh attempt. Without a
-`reviewPolicy`, automatic plans use the workflow allowance (at most two) and supervised
-plans retry manually. After the allowance, an optional arbitrator receives a fresh
+`reviewPolicy`, review repairs use the workflow allowance, up to two; `repairRounds: 0`
+stops for a manual retry. After the allowance, an optional arbitrator receives a fresh
 artifact-bound review with all earlier verdicts. A same-provider arbitrator is an
 explicitly approved fallback. More than eight verdicts or 128 KiB of history stops
 before inference rather than dropping findings.
@@ -183,4 +181,5 @@ Git exited and nothing was created. Branches, files and history are never delete
 
 One guided controller runs per journal at a time, and its ownership survives an
 uncertain shutdown. Keep the journal and plan files outside task worktrees. Every
-command accepts `--db <journal.sqlite>`.
+command accepts `--db <path>`; the default journal is `grampus.sqlite` in the data
+directory ([INSTALLATION.md](INSTALLATION.md#develop-alongside-the-installed-app)).

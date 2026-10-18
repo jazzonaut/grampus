@@ -51,7 +51,7 @@ export async function fixture(t: { after(fn: () => void): void }) {
   writeFileSync(join(repo, 'cli.cjs'), "console.log('pending');\n");
   git(repo, 'add', '.');
   git(repo, 'commit', '-m', 'Baseline');
-  const db = join(root, 'journal.sqlite');
+  const db = join(root, 'grampus.sqlite');
   const store = new Store(db);
   t.after(() => {
     store.close();

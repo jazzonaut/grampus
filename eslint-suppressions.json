@@ -155,11 +155,6 @@
       "count": 1
     }
   },
-  "src/orchestration/task-lifecycle.ts": {
-    "complexity": {
-      "count": 1
-    }
-  },
   "src/orchestration/task-title.ts": {
     "no-control-regex": {
       "count": 1
@@ -170,7 +165,7 @@
   },
   "src/persistence/store.ts": {
     "@typescript-eslint/restrict-template-expressions": {
-      "count": 3
+      "count": 2
     }
   },
   "src/probes/mcp-probe.ts": {
@@ -376,7 +371,7 @@
   },
   "src/server/ui-worker.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 19
+      "count": 18
     },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 2

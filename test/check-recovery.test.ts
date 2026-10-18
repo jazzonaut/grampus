@@ -23,14 +23,15 @@ function startTime(): string {
     { encoding: 'utf8', windowsHide: true },
   ).trim();
 }
-function lease(controllerStartedAt?: string): ExecutionLease {
+function lease(controllerStartedAt: string | null = null): ExecutionLease {
   return {
     executionId: 'execution',
     sessionId: 'session',
     runId: 'run',
     controllerPid: process.pid,
+    controllerStartedAt,
     host: hostname(),
-    ...(controllerStartedAt === undefined ? {} : { controllerStartedAt }),
+    kind: 'check',
   };
 }
 
@@ -49,7 +50,7 @@ test('controller recovery distinguishes a replacement process from its recorded 
   assert.doesNotThrow(() => requireDeadController(lease((BigInt(current) - 1n).toString())));
 });
 
-test('legacy controller recovery and malformed process identities remain conservative', windows, () => {
+test('unknown and malformed controller identities keep recovery conservative', windows, () => {
   assert.throws(() => requireDeadController(lease()), /controller is still alive/);
   for (const identity of ['', 'unknown', '0', '-1']) {
     assert.throws(() => requireDeadController(lease(identity)), /controller is still alive/);

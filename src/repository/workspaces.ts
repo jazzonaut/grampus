@@ -25,8 +25,9 @@ export interface Workspace {
     controllerPid: number;
     gitPid: number | null;
     exitConfirmed: boolean;
-    controllerStartedAt?: string | null;
-    gitStartedAt?: string | null;
+    /** Null when a creation time could not be observed; recovery then stays conservative. */
+    controllerStartedAt: string | null;
+    gitStartedAt: string | null;
   } | null;
   orca?: {
     repoId: string;
@@ -228,6 +229,7 @@ export class Workspaces {
         controllerPid: process.pid,
         controllerStartedAt: currentProcessStartedAt(),
         gitPid: null,
+        gitStartedAt: null,
         exitConfirmed: false,
       },
     };
@@ -318,6 +320,7 @@ export class Workspaces {
         controllerPid: process.pid,
         controllerStartedAt: currentProcessStartedAt(),
         gitPid: null,
+        gitStartedAt: null,
         exitConfirmed: true,
       };
     });
@@ -375,6 +378,7 @@ export class Workspaces {
         controllerPid: process.pid,
         controllerStartedAt: currentProcessStartedAt(),
         gitPid: null,
+        gitStartedAt: null,
         exitConfirmed: false,
       },
       orca: {
@@ -537,6 +541,7 @@ export class Workspaces {
         controllerPid: process.pid,
         controllerStartedAt: currentProcessStartedAt(),
         gitPid: null,
+        gitStartedAt: null,
         exitConfirmed: current.adapter === 'git',
       };
     });

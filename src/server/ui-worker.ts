@@ -44,9 +44,6 @@ async function main() {
       case 'retry':
         await tasks.retry(id, abort.signal);
         break;
-      case 'automate':
-        await tasks.automate(id, abort.signal);
-        break;
       case 'revise':
         await tasks.revise(id, payload.plan);
         break;

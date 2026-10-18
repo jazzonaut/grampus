@@ -3,9 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { Store } from '../src/persistence/store.js';
-import { Workspaces, type Workspace } from '../src/repository/workspaces.js';
+import { Workspaces } from '../src/repository/workspaces.js';
 import { OrcaCli } from '../src/repository/orca.js';
 import { Executions } from '../src/execution/executions.js';
 import { runSession } from '../src/execution/sessions.js';
@@ -159,27 +158,6 @@ test('Orca protocol rejects remote identity, incomplete listing and malformed re
     ).show('.', 'identity'),
     /Only local/,
   );
-});
-
-test('schema 3 standalone workspaces survive the Orca-aware schema upgrade', async t => {
-  const { root, repo, task, workspaces, workflow } = fixture(t);
-  const created = await workspaces.create(task.id, 1, repo, join(root, 'standalone'));
-  const legacyPath = join(root, 'legacy.sqlite');
-  const first = new Store(legacyPath);
-  first.save(task.id, workflow.get(task.id));
-  first.saveWorkspace(created.id, task.id, created.path, created);
-  first.appendWorkspace(created.id, 'workspace.ready', {});
-  first.close();
-  const legacy = new DatabaseSync(legacyPath);
-  legacy.exec('PRAGMA user_version = 3;');
-  legacy.close();
-  const upgraded = new Store(legacyPath);
-  try {
-    assert.deepEqual(upgraded.workspace<Workspace>(created.id), created);
-    assert.equal(upgraded.workspaceEvents(created.id).length, 1);
-  } finally {
-    upgraded.close();
-  }
 });
 
 test('Orca execution holds a lease during identity inspection and refuses a replaced instance before dispatch', async t => {
