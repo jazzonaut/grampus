@@ -70,7 +70,9 @@ export function renderGuidedTask(store: Store, id: string, details = false): str
       `Implementation: ${state.plan.implementation.provider}, model ${state.plan.implementation.model ?? 'provider default'}, timeout ${state.plan.implementation.timeoutMs} ms`,
       `Review: ${state.plan.review.provider}, model ${state.plan.review.model ?? 'provider default'}, timeout ${state.plan.review.timeoutMs} ms`,
       'Automatic inference retries: 0. Delivery stays local.');
+    if (state.plan.preparation) lines.push(`Preparation before implementation and checks (repository inputs unchanged): ${JSON.stringify(state.plan.preparation)}`);
     state.plan.slices.forEach((slice, index) => lines.push('', `Slice ${index + 1}: ${task.brief.slices?.[index]?.title ?? task.brief.title}`,
+      ...(slice.preparation ? [`Preparation after implementation (within authorized scope): ${JSON.stringify(slice.preparation)}`] : []),
       `Scope: ${JSON.stringify(slice.scope)}`, `Validation: ${JSON.stringify(slice.validation)}`,
       `Acceptance: ${JSON.stringify(slice.acceptance)}`, `Delivery: ${slice.mode}; ${slice.message}`));
     lines.push('', `Approval digest: ${state.digest}`);
@@ -84,7 +86,7 @@ export function renderGuidedTask(store: Store, id: string, details = false): str
   if (state.status === 'awaiting_scope') lines.push('Inspect the repository instructions and files before authorizing. Use --details for retained instructions and changes.');
   for (const question of view.questions) lines.push(`Question [${question.id}]: ${question.prompt}`, ...(question.choices.length ? [`Choices: ${question.choices.join(' | ')}`] : []));
   for (const finding of view.findings) lines.push(`Review ${finding.severity}: ${finding.description}`, `Evidence: ${finding.evidence}`);
-  for (const check of view.checks) lines.push(`Check: ${check.spec.name} — ${check.phase}`);
+  for (const check of view.checks) lines.push(`${check.purpose === 'preparation' ? 'Preparation' : 'Check'}: ${check.spec.name} — ${check.phase}`);
   if (details) {
     for (const instruction of state.snapshot?.instructions ?? []) lines.push('', `Instructions: ${instruction.path}`, instruction.content);
     for (const diff of state.snapshot?.diff ?? []) lines.push('', `Change: ${diff.path}`, `Before (${diff.previousEncoding}):`, diff.previousContent ?? '(absent)', `After (${diff.encoding}):`, diff.content ?? '(absent)');

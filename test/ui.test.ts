@@ -29,6 +29,55 @@ function expected(view: any) {
     instructionsDigest: s.snapshot?.instructionsDigest ?? null, executionId: s.executionId, reviewId: s.reviewId, questionKey: view.questionKey ?? null });
 }
 
+test('planning infers generic preparation on initial and resumed turns and retains commands for approval', async t => {
+  const f = fixture(t), store = new Store(join(f.root, 'preparation.sqlite')); t.after(() => { store.close(); f.cleanup(); });
+  const before = { name: 'Restore toolchain', file: 'node', args: ['-e', "console.log('restore')"], timeoutMs: 600000 };
+  const after = { name: 'Refresh generated inputs', file: 'node', args: ['-e', "console.log('refresh')"], timeoutMs: 300000 };
+  const plan = { ...f.plan, preparation: before, slices: [{ ...f.plan.slices[0], preparation: after }] };
+  const prompts: string[] = [];
+  const kickoffs = new Kickoffs(store, async (_, options) => {
+    if (options.purpose === 'title') throw new Error('No title inference in fixture');
+    return { turn: async prompt => {
+      prompts.push(prompt);
+      return { status: 'completed', usage: null, error: null, reply: prompts.length === 1
+        ? { kind: 'question', text: 'Confirm behavior', questions: [{ id: 'confirm', prompt: 'Preserve the greeting?', choices: ['yes'] }], findings: [] }
+        : { kind: 'message', text: JSON.stringify(plan), questions: [], findings: [] } };
+    }, close: async () => {}, interrupt: async () => {} };
+  });
+  const id = kickoffs.create({ repo: f.repo, request: 'Verify existing behavior' });
+  await kickoffs.send(id);
+  const proposed = await kickoffs.send(id, undefined, { confirm: 'yes' });
+  assert.equal(proposed.error, null);
+  for (const prompt of prompts) {
+    assert.match(prompt, /Infer preparation from the repository/);
+    assert.match(prompt, /fresh worktree without ignored dependencies/);
+    assert.match(prompt, /slices\[i\]\.preparation/);
+    assert.match(prompt, /implementer cannot run commands/);
+  }
+  assert.deepEqual(proposed.candidate!.preparation!.args, before.args);
+  assert.deepEqual(proposed.candidate!.slices[0]!.preparation!.args, after.args);
+  const tasks = new GuidedTasks(store), taskId = kickoffs.prepare(id, proposed.candidateDigest!);
+  const draft = tasks.get(taskId);
+  assert.equal(draft.status, 'draft'); assert.equal(store.workspaces().length, 0);
+  const changed = tasks.create({ ...plan, preparation: { ...before, args: ['-e', "console.log('different restore')"] } });
+  assert.notEqual(changed.guided!.digest, draft.digest);
+  assert.throws(() => tasks.approve(taskId, 1, changed.guided!.digest), /current draft version and guided plan digest/);
+});
+
+for (const location of ['initial', 'slice'] as const) test(`planning rejects invalid generated ${location} preparation before approval`, async t => {
+  const f = fixture(t), store = new Store(join(f.root, 'invalid-preparation.sqlite')); t.after(() => { store.close(); f.cleanup(); });
+  const invalid = { name: 'Invalid restore', file: 'node', args: ['-e', 'const broken = ;'] };
+  const plan = { ...f.plan, ...(location === 'initial' ? { preparation: invalid } : {}),
+    slices: [{ ...f.plan.slices[0], ...(location === 'slice' ? { preparation: invalid } : {}) }] };
+  const kickoffs = new Kickoffs(store, async (_, options) => {
+    if (options.purpose === 'title') throw new Error('No title inference in fixture');
+    return { turn: async () => ({ status: 'completed', usage: null, error: null, reply: { kind: 'message', text: JSON.stringify(plan), questions: [], findings: [] } }), close: async () => {}, interrupt: async () => {} };
+  });
+  const view = await kickoffs.send(kickoffs.create({ repo: f.repo, request: 'Verify greeting' }));
+  assert.match(view.error!, /Invalid restore.*invalid JavaScript/);
+  assert.equal(view.candidate, null); assert.equal(store.list().length, 0); assert.equal(store.workspaces().length, 0);
+});
+
 test('task polling refreshes live usage written by another worker without changing approval decisions', async t => {
   const f = fixture(t), database = join(f.root, 'journal.sqlite'), ui = await startUi({ db: database, port: 0 });
   const writer = new Store(database);

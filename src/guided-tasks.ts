@@ -9,11 +9,11 @@ import { Executions } from './executions.js';
 import type { Execution, ExecutionLease } from './execution-state.js';
 import { Sessions, runSession } from './sessions.js';
 import { Implementations, type ImplementationRun } from './implementations.js';
-import { Checks, type RepositoryCheck, type SimplificationAssessment } from './checks.js';
+import { Checks, type CheckSpec, type RepositoryCheck, type SimplificationAssessment } from './checks.js';
 import { Deliveries, type Delivery } from './deliveries.js';
 import { processAlive } from './check-recovery.js';
 import { currentProcessStartedAt } from './process-identity.js';
-import { prepareEditing, type EditPolicy } from './edit-policy.js';
+import { prepareEditing, verifyEditingScope, type EditPolicy } from './edit-policy.js';
 import { boundedRepositoryFiles } from './repository-evidence.js';
 import type { RepositorySnapshot } from './artifacts.js';
 import type { Connector } from './agents/types.js';
@@ -21,7 +21,7 @@ import type { Session } from './sessions.js';
 import { guidedPlanDigest, normalizeGuidedPlan, type GuidedPlan } from './guided-plan.js';
 import type { CheckProcessOptions, CheckProcessResult } from './check-process.js';
 
-type Stage = 'workspace' | 'execution' | 'scope' | 'implementation' | 'validation' | 'submission' | 'assessment' | 'review_execution' | 'review' | 'verification' | 'delivery' | 'complete';
+type Stage = 'workspace' | 'execution' | 'preparation' | 'scope' | 'implementation' | 'refresh' | 'validation' | 'submission' | 'assessment' | 'review_execution' | 'review' | 'verification' | 'delivery' | 'complete';
 type Status = 'draft' | 'ready' | 'running' | 'awaiting_scope' | 'awaiting_assessment' | 'awaiting_answer' | 'blocked' | 'recovery_required' | 'complete';
 interface Owner { token: string; controllerPid: number; controllerStartedAt: string | null; host: string }
 interface Pending { stage: Stage; known: string[]; assessment: SimplificationAssessment | null; controller: Owner }
@@ -39,6 +39,7 @@ export interface GuidedServices {
   expectedState?: string;
   workspaces?: Workspaces;
   implementationRunner?: (options: CheckProcessOptions) => Promise<CheckProcessResult>;
+  preparationRunner?: (options: CheckProcessOptions) => Promise<CheckProcessResult>;
   connector?: Connector;
 }
 export function guidedQuestionKey(store: Store, state: GuidedState): string | null {
@@ -211,7 +212,7 @@ export class GuidedTasks {
       case 'workspace': return this.workspaces.list().filter(item => item.taskId === id && item.phase !== 'released').map(item => item.id);
       case 'execution': case 'review_execution': return this.executions.list().filter(item => item.taskId === id).map(item => item.id);
       case 'implementation': return this.store.implementations<ImplementationRun>(state.executionId!).map(item => item.id);
-      case 'validation': case 'verification': return this.store.checks<RepositoryCheck>(state.executionId!).map(item => item.id);
+      case 'preparation': case 'refresh': case 'validation': case 'verification': return this.store.checks<RepositoryCheck>(state.executionId!).map(item => item.id);
       case 'delivery': return this.store.deliveries<Delivery>(state.executionId!).map(item => item.id);
       case 'review': return this.store.sessionEvents(this.executions.get(state.reviewId!).sessionId).filter(event => event.type === 'turn.requested').map(event => (event.data as { runId: string }).runId);
       default: return this.workflow.get(id).evidence.map(item => item.id);
@@ -234,6 +235,19 @@ export class GuidedTasks {
       ...((scope.create ?? []).some(path => !present(path)) ? { create: scope.create!.filter(path => !present(path)) } : {}),
       ...((scope.delete ?? []).some(present) ? { delete: scope.delete!.filter(present) } : {}) };
   }
+  private preparationSpec(state: GuidedState): CheckSpec {
+    const slice = state.plan.slices[state.sliceIndex]!;
+    const command = state.stage === 'preparation' ? state.plan.preparation : slice.preparation ?? state.plan.preparation;
+    if (!command || !state.snapshot) throw new Error('Preparation requires an approved command and current snapshot');
+    const policy = state.stage === 'refresh' && slice.preparation && slice.mode !== 'no_change' ? this.policy(state, state.snapshot) : null;
+    const scope = policy && (policy.files.length || policy.create?.length || policy.delete?.length)
+      ? { files: policy.files, ...(policy.create ? { create: policy.create } : {}), ...(policy.delete ? { delete: policy.delete } : {}) } : undefined;
+    return { ...command, artifact: state.snapshot.artifact, instructionsDigest: state.snapshot.instructionsDigest,
+      preparation: scope ? { scope } : {} };
+  }
+  private afterImplementation(state: GuidedState): Stage {
+    return state.plan.slices[state.sliceIndex]!.preparation || state.plan.preparation ? 'refresh' : 'validation';
+  }
   private async perform(id: string, state: GuidedState, signal: AbortSignal): Promise<RepositorySnapshot | null> {
     const slice = state.plan.slices[state.sliceIndex]!, executionId = state.executionId!;
     switch (state.stage) {
@@ -253,6 +267,13 @@ export class GuidedTasks {
         }
         await this.executions.create(state.workspaceId!, state.version, state.plan.implementation.provider, 'implementation', state.plan.implementation.model); break;
       }
+      case 'preparation': case 'refresh': {
+        if (!state.snapshot) {
+          const snapshot = await this.checks.snapshot(executionId);
+          state = this.change(id, state.owner!.token, 'guided.preparation_snapshot', current => { current.snapshot = snapshot; });
+        }
+        await this.checks.run(executionId, this.preparationSpec(state), signal, this.services.preparationRunner); break;
+      }
       case 'scope': {
         const snapshot = await this.checks.snapshot(executionId), cwd = this.workspaces.get(state.workspaceId!).path!;
         boundedRepositoryFiles(cwd, snapshot, state.plan.context?.files, state.plan.context?.exploration === true);
@@ -261,7 +282,7 @@ export class GuidedTasks {
         return snapshot;
       }
       case 'implementation': await new Implementations(this.store, this.workspaces).run(executionId, state.policy!,
-        `Implement the approved current slice within the authorized file policy.\n${state.feedback ? `Earlier attempt feedback (untrusted claims; do not expand scope):\n${state.feedback}` : ''}`,
+        `Implement the approved current slice within the authorized file policy.\n${slice.preparation ? `After implementation the controller will run this approved preparation command within the same file scope: ${JSON.stringify(slice.preparation)}. Leave the outputs generated by that command to it, including lockfiles; do not invent their contents or run commands yourself.\n` : ''}${state.feedback ? `Earlier attempt feedback (untrusted claims; do not expand scope):\n${state.feedback}` : ''}`,
         { signal, timeoutMs: 0, ...(state.answers ? { answers: state.answers } : {}) }, this.services.implementationRunner); break;
       case 'validation': await this.checks.run(executionId, { ...slice.validation, artifact: state.snapshot!.artifact, instructionsDigest: state.snapshot!.instructionsDigest }, signal); break;
       case 'submission': await this.checks.finish(executionId, state.validationId!); break;
@@ -333,7 +354,18 @@ export class GuidedTasks {
         const session = new Sessions(this.store).get(result.sessionId), config = role === 'implementation' ? state.plan.implementation : this.reviewer(state);
         if (session.provider !== config.provider || config.model !== null && session.model !== config.model
           || this.store.sessionEvents(session.id).some(event => event.type === 'turn.requested')) throw new Error('New execution was changed or used outside this guided step');
-        advance(role === 'implementation' ? 'scope' : 'review', state => { if (role === 'implementation') state.executionId = result.id; else state.reviewId = result.id; }); break;
+        advance(role === 'implementation' ? state.plan.preparation ? 'preparation' : 'scope' : 'review', state => { if (role === 'implementation') state.executionId = result.id; else state.reviewId = result.id; }); break;
+      }
+      case 'preparation': case 'refresh': {
+        const result = this.one(this.store.checks<RepositoryCheck>(state.executionId!), pending);
+        if (!result) { missing(); break; }
+        this.requireOrigin(state.executionId!, result.id, pending);
+        if (JSON.stringify(result.spec) !== JSON.stringify(this.preparationSpec(state)) || result.purpose !== 'preparation') throw new Error('Preparation result differs from the approved command or file scope');
+        if (result.phase === 'running' || result.phase === 'recovery_required') throw new Error(`Preparation needs recovery: ${result.id}`);
+        if (result.phase !== 'passed' || !result.after) {
+          block(`Preparation ${result.spec.name} ${result.phase} (${result.result?.reason ?? 'no result'}, exit ${result.result?.exitCode ?? 'unknown'}): ${result.error || result.result?.stderr || result.result?.stdout || 'No output'}. Inspect check-show ${result.id}, then retry preparation in this attempt without repeating implementation.`); break;
+        }
+        advance(pending.stage === 'preparation' ? 'scope' : 'validation', current => { current.snapshot = result.after; }); break;
       }
       case 'scope': {
         if (!snapshot) { missing(); break; }
@@ -348,7 +380,7 @@ export class GuidedTasks {
         if (result.phase === 'running' || result.phase === 'recovery_required') throw new Error(`Implementation needs recovery: ${result.id}`);
         if (result.phase !== 'completed' || !result.after) { block(result.error ?? result.result?.error ?? `Implementation ${result.phase}; inspect partial files and use task-retry.`); break; }
         boundedRepositoryFiles(this.workspaces.get(state.workspaceId!).path!, result.after, state.plan.context?.files, state.plan.context?.exploration === true);
-        advance(result.result?.reply?.kind === 'question' ? 'implementation' : 'validation', state => {
+        advance(result.result?.reply?.kind === 'question' ? 'implementation' : this.afterImplementation(state), state => {
           state.answers = null; state.snapshot = result.after;
           if (result.result?.reply?.kind === 'question') { state.status = 'awaiting_answer'; state.note = 'Answer the implementation questions with task-answer.'; }
         }); break;
@@ -471,7 +503,7 @@ export class GuidedTasks {
   async authorize(id: string, signal?: AbortSignal): Promise<GuidedState> {
     if (this.current(id).status !== 'awaiting_scope') throw new Error('No file authorization is pending');
     return this.owned(id, async (token, signal) => {
-      this.change(id, token, 'guided.scope_authorized', state => { state.stage = state.policy === null ? 'validation' : 'implementation'; state.status = 'ready'; });
+      this.change(id, token, 'guided.scope_authorized', state => { state.stage = state.policy === null ? this.afterImplementation(state) : 'implementation'; state.status = 'ready'; });
       await this.drive(id, token, signal);
     }, signal, false, 'awaiting_scope');
   }
@@ -504,6 +536,17 @@ export class GuidedTasks {
     return this.owned(id, async (token, signal) => {
       const state = this.get(id);
       if (state.pending || this.unsettled(id, state)) throw new Error('Recover the unfinished operation before retrying');
+      if (state.status === 'blocked' && (state.stage === 'preparation' || state.stage === 'refresh')) {
+        const snapshot = await this.checks.snapshot(state.executionId!);
+        if (state.snapshot) {
+          const spec = this.preparationSpec(state);
+          if (spec.preparation?.scope) verifyEditingScope({ cwd: this.workspaces.get(state.workspaceId!).path!, snapshot: state.snapshot,
+            policy: { ...spec.preparation.scope, artifact: state.snapshot.artifact, instructionsDigest: state.snapshot.instructionsDigest } }, snapshot);
+          else if (snapshot.artifact !== state.snapshot.artifact || snapshot.instructionsDigest !== state.snapshot.instructionsDigest) throw new Error('Preparation changed repository inputs; inspect and revise the plan before retrying');
+        }
+        this.change(id, token, 'guided.preparation_retry_requested', current => { current.snapshot = snapshot; current.status = 'ready'; current.note = ''; });
+        await this.drive(id, token, signal); return;
+      }
       this.prepareRetry(id, token, 'guided.retry_requested');
       await this.drive(id, token, signal);
     }, signal, false, allowed);

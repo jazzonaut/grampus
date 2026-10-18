@@ -11,6 +11,7 @@ import { runCheckProcess, retainedOutput, type CheckProcessOptions, type CheckPr
 import { allocateReceipt, readReceipt, requireDeadController, type CheckReceipt } from './check-recovery.js';
 import { captureRepository } from './repository-evidence.js';
 import { assertAcceptance, validateExpectations, type AcceptanceExpectations } from './acceptance.js';
+import { prepareEditing, validateEditPolicy, verifyEditingScope, type EditPolicy } from './edit-policy.js';
 
 export interface CheckSpec {
   name: string;
@@ -22,6 +23,7 @@ export interface CheckSpec {
   criteria?: string[];
   expectedStdout?: string;
   expectations?: AcceptanceExpectations;
+  preparation?: { scope?: Pick<EditPolicy, 'files' | 'create' | 'delete'> };
 }
 export interface SimplificationAssessment {
   artifact: string;
@@ -40,14 +42,19 @@ export interface RepositoryCheck {
   toolPid: number | null;
   result: CheckProcessResult | null;
   error: string | null;
-  purpose?: 'validation' | 'verification';
+  purpose?: 'validation' | 'verification' | 'preparation';
   dispatch?: 'not_requested' | 'requested';
   receipt?: CheckReceipt;
 }
 
 function validate(spec: CheckSpec): void {
   if (!spec || typeof spec.name !== 'string' || !spec.name.trim() || spec.name.length > 200) throw new Error('Check name is required (at most 200 characters)');
-  if (Object.keys(spec).some(key => !['name', 'file', 'args', 'timeoutMs', 'artifact', 'instructionsDigest', 'criteria', 'expectedStdout', 'expectations'].includes(key))) throw new Error('Unknown check option');
+  if (Object.keys(spec).some(key => !['name', 'file', 'args', 'timeoutMs', 'artifact', 'instructionsDigest', 'criteria', 'expectedStdout', 'expectations', 'preparation'].includes(key))) throw new Error('Unknown check option');
+  if (spec.preparation !== undefined) {
+    if (!spec.preparation || typeof spec.preparation !== 'object' || Array.isArray(spec.preparation)
+      || Object.keys(spec.preparation).some(key => key !== 'scope') || spec.criteria !== undefined) throw new Error('Invalid preparation options');
+    if (spec.preparation.scope !== undefined) validateEditPolicy({ ...spec.preparation.scope, artifact: spec.artifact, instructionsDigest: spec.instructionsDigest });
+  }
   if (spec.criteria !== undefined && (!Array.isArray(spec.criteria) || spec.criteria.length === 0
     || spec.criteria.some(value => typeof value !== 'string' || !value.trim()) || new Set(spec.criteria).size !== spec.criteria.length)) throw new Error('Verification requires distinct acceptance criteria');
   if (spec.criteria !== undefined) validateExpectations(spec.expectedStdout, spec.expectations);
@@ -144,7 +151,7 @@ export class Checks {
     // Reject unsupported hosts before acquiring ownership, even for an otherwise valid check.
     if (runner === runCheckProcess && process.platform !== 'win32') throw new Error('Repository checks currently require Windows 10 or later');
     const id = randomUUID();
-    const purpose = spec.criteria ? 'verification' : 'validation';
+    const purpose = spec.preparation ? 'preparation' : spec.criteria ? 'verification' : 'validation';
     const execution = this.store.transaction(() => {
       if (purpose === 'verification') {
         const execution = this.store.execution<Execution>(executionId);
@@ -171,6 +178,8 @@ export class Checks {
     try {
       check.before = await this.capture(execution);
       if (check.before.artifact !== spec.artifact || check.before.instructionsDigest !== spec.instructionsDigest) throw new Error('Repository or instructions changed; inspect a fresh snapshot before dispatch');
+      if (spec.preparation?.scope) prepareEditing({ cwd: this.workspaces.get(execution.workspaceId).path!, snapshot: check.before,
+        policy: { ...spec.preparation.scope, artifact: spec.artifact, instructionsDigest: spec.instructionsDigest } });
       if (purpose === 'verification' && check.before.artifact !== this.store.get<Task>(execution.taskId).attempt?.artifact) throw new Error('Repository changed since implementation submission');
       if (signal?.aborted) {
         check.result = { reason: 'interrupted', exitCode: null, exitConfirmed: true, stdout: '', stderr: '', outputTruncated: false };
@@ -196,7 +205,9 @@ export class Checks {
       }
       if (check.result.exitConfirmed) {
         check.after = await this.capture(execution);
-        if (check.before.artifact !== check.after.artifact) check.error = 'Check changed repository inputs; inspect the diff and run a fresh check';
+        if (spec.preparation?.scope) verifyEditingScope({ cwd: this.workspaces.get(execution.workspaceId).path!, snapshot: check.before,
+          policy: { ...spec.preparation.scope, artifact: spec.artifact, instructionsDigest: spec.instructionsDigest } }, check.after);
+        else if (check.before.artifact !== check.after.artifact) check.error = 'Check changed repository inputs; inspect the diff and run a fresh check';
         if (purpose === 'verification') assertAcceptance(check.after, check.result, spec.expectedStdout, spec.expectations);
       }
     } catch (error) { check.error = error instanceof Error ? error.message : String(error); }
@@ -206,7 +217,7 @@ export class Checks {
       check.phase = !confirmed ? 'recovery_required' : signal?.aborted || check.result?.reason === 'interrupted' ? 'interrupted'
         : !check.error && check.result?.reason === 'exited' && check.result.exitCode === 0 ? 'passed' : 'failed';
       if (confirmed) this.release(execution, id);
-      else if (purpose === 'validation') {
+      else if (purpose !== 'verification') {
         const task = this.store.get<Task>(execution.taskId);
         task.phase = 'recovery_required'; task.attempt!.outcome = 'uncertain';
         this.store.save(task.id, task);
@@ -275,7 +286,7 @@ export class Checks {
     const execution = this.store.transaction(() => this.claim(executionId, runId, 'submission'));
     try {
       const check = this.get(checkId);
-      if (execution.role !== 'implementation' || check.executionId !== executionId || check.phase !== 'passed' || !check.after) throw new Error('Finish requires a passing check from this implementation');
+      if (execution.role !== 'implementation' || check.executionId !== executionId || check.phase !== 'passed' || !check.after || check.purpose === 'preparation') throw new Error('Finish requires a passing check from this implementation; preparation is not validation');
       const latest = this.store.checks<RepositoryCheck>(executionId).at(-1);
       if (latest?.id !== checkId) throw new Error('Use the latest check; newer failed or interrupted checks cannot be bypassed');
       const snapshot = await this.capture(execution);

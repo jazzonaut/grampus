@@ -84,7 +84,11 @@ file authorization. After implementation and validation, inspect the changes and
 check output, choose an explicit simplification outcome and explain it. A pass
 continues through independent review, acceptance and verified local delivery.
 Questions, blocking findings and failed checks stop with an actionable checkpoint.
-Retry starts a fresh attempt and preserves files. No command-line arguments or
+Retry starts a fresh attempt and preserves files. At a preparation failure,
+**Retry preparation** resumes just that step in the same attempt. The planner
+infers repository prerequisites and includes their commands in plan approval;
+the dashboard retains preparation output separately from validation evidence.
+No command-line arguments or
 assessment JSON files are needed for these steps.
 
 Progress, findings, outputs, retained changes, local commits and a task timeline

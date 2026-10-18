@@ -467,6 +467,20 @@ This is cooperative ownership within one journal, not a filesystem lock against
 editors, external Orca agents or other journals. There is no global worker limit.
 The repository check runner shares these leases and supplies validation evidence.
 
+Guided plans can approve a generic top-level `preparation` command. It runs on the
+implementation execution before file authorization and again before validation;
+an optional per-slice `preparation` replaces the latter command. The planner infers
+commands from repository evidence rather than controller package-manager rules.
+Preparation reuses the native check runner, durable dispatch/receipts and check
+leases, with a distinct `preparation` purpose. Initial preparation requires unchanged
+repository inputs. Per-slice preparation can update only that slice's authorized
+file scope, verified with the same Git/instruction/content checks used for editing.
+Its final snapshot becomes the validation input. It cannot supply validation or
+acceptance evidence. Failed preparation retries the same stage and execution after
+checking retained changes against the original scope. Recovery reconciles the
+original command and scope without replay; plans omitting preparation retain their
+existing stages and approval digests.
+
 ## Repository checks and content evidence
 
 `Checks` reuses the exact task/version/attempt/session/workspace binding. Snapshot,

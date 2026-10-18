@@ -46,7 +46,7 @@ const help = `Grampus — local agent controller
   task-assess <id> --outcome passed|failed|skipped --summary <text>
                                   Record explicit simplification and continue
   task-answer <id> <answers.json> Answer pending questions and continue
-  task-retry <id>                 Start a fresh attempt after a settled failure
+  task-retry <id>                 Retry preparation, or start a fresh implementation attempt
   task-stop <id>                  Request a running guided controller to stop
   task-recover <id>               Reconcile saved results; never replay provider/Git work
   workspace-new <task-id> <version>  Create a worktree (--repo, --path, optional --base)

@@ -13,12 +13,14 @@ import { validateExpectations, type AcceptanceExpectations } from './acceptance.
 export interface GuidedCommand { name: string; file: string; args: string[]; timeoutMs: number }
 export interface GuidedSlice {
   scope: Pick<EditPolicy, 'files' | 'create' | 'delete'>;
+  preparation?: GuidedCommand;
   validation: GuidedCommand;
   acceptance: GuidedCommand & { expectedStdout?: string; expectations?: AcceptanceExpectations };
   message: string;
   mode: 'commit' | 'no_change';
 }
 export interface GuidedPlan {
+  preparation?: GuidedCommand;
   reviewPolicy?: { repairRounds: number; arbitrator?: GuidedPlan['review'] };
   revision?: { previousVersion: number; artifact: string; head: string; instructionsDigest: string; sliceIndex: number };
   references?: ReferenceFolder[];
@@ -45,13 +47,13 @@ function timeout(value: unknown): number {
   if (!Number.isSafeInteger(result) || Number(result) < 100 || Number(result) > 600000) throw new Error('Timeout must be 100–600000 ms');
   return Number(result);
 }
-function command(value: unknown, acceptance: boolean): GuidedSlice['acceptance'] {
-  const item = object(value, ['name', 'file', 'args', 'timeoutMs', ...(acceptance ? ['expectedStdout', 'expectations'] : [])], acceptance ? 'acceptance command' : 'validation command');
+function command(value: unknown, acceptance: boolean, defaultName = acceptance ? 'Acceptance' : 'Validation'): GuidedSlice['acceptance'] {
+  const item = object(value, ['name', 'file', 'args', 'timeoutMs', ...(acceptance ? ['expectedStdout', 'expectations'] : [])], `${defaultName.toLowerCase()} command`);
   const file = item.file === 'node' ? process.execPath : text(item.file, 'Command executable');
   if (!isAbsolute(file) || !statSync(file).isFile() || (process.platform === 'win32' && !file.toLowerCase().endsWith('.exe'))) throw new Error('Command file must be "node" or an absolute executable path');
   if (!Array.isArray(item.args) || item.args.some(arg => typeof arg !== 'string' || arg.includes('\0')) || JSON.stringify(item.args).length > 24000) throw new Error('Command args must be an array of strings (at most 24000 encoded characters)');
   if (acceptance) validateExpectations(item.expectedStdout, item.expectations);
-  return { name: text(item.name ?? (acceptance ? 'Acceptance' : 'Validation'), 'Command name', 200), file, args: item.args as string[], timeoutMs: timeout(item.timeoutMs),
+  return { name: text(item.name ?? defaultName, 'Command name', 200), file, args: item.args as string[], timeoutMs: timeout(item.timeoutMs),
     ...(acceptance && item.expectedStdout !== undefined ? { expectedStdout: item.expectedStdout as string } : {}),
     ...(acceptance && item.expectations !== undefined ? { expectations: structuredClone(item.expectations) as AcceptanceExpectations } : {}) };
 }
@@ -65,7 +67,8 @@ function agent(value: unknown, defaultProvider: Provider): GuidedPlan['implement
 /** Normalize once; approval covers this exact plan, including checks, paths and pinned base. */
 export function normalizeGuidedPlan(input: unknown, directory = process.cwd(), existingWorkspace?: GuidedPlan['workspace']): GuidedPlan {
   if (Buffer.byteLength(JSON.stringify(input) ?? '') > 1024 * 1024) throw new Error('Guided plan exceeds 1 MiB');
-  const value = object(input, ['brief', 'workspace', 'implementation', 'review', 'reviewPolicy', 'slices', 'context', 'references'], 'guided plan');
+  const value = object(input, ['brief', 'workspace', 'implementation', 'review', 'reviewPolicy', 'slices', 'context', 'references', 'preparation'], 'guided plan');
+  const preparation = value.preparation === undefined ? undefined : command(value.preparation, false, 'Preparation');
   const references = normalizeReferences(value.references);
   const brief = structuredClone(object(value.brief, ['title', 'outcome', 'criteria', 'plan', 'slices'], 'brief')) as unknown as Brief;
   validateBrief(brief);
@@ -106,7 +109,7 @@ export function normalizeGuidedPlan(input: unknown, directory = process.cwd(), e
   const present = new Map(tree.entries.map(entry => [pathKey(entry.path), entry.path]));
   const deleted = new Set<string>();
   const slices = value.slices.map((raw): GuidedSlice => {
-    const item = object(raw, ['scope', 'validation', 'acceptance', 'message', 'mode'], 'slice configuration');
+    const item = object(raw, ['scope', 'validation', 'acceptance', 'message', 'mode', 'preparation'], 'slice configuration');
     const mode = item.mode ?? 'commit';
     if (mode !== 'commit' && mode !== 'no_change') throw new Error('Delivery mode must be commit or no_change');
     const scope = structuredClone(object(item.scope, ['files', 'create', 'delete'], 'file scope')) as unknown as GuidedSlice['scope'];
@@ -131,9 +134,11 @@ export function normalizeGuidedPlan(input: unknown, directory = process.cwd(), e
     }
     const message = text(item.message, 'Commit message', 8192);
     if (/Grampus-Delivery:/i.test(message)) throw new Error('Commit message cannot contain the reserved Grampus-Delivery marker');
-    return { scope, mode, validation: command(item.validation, false), acceptance: command(item.acceptance, true) as GuidedSlice['acceptance'], message };
+    return { scope, mode, ...(item.preparation === undefined ? {} : { preparation: command(item.preparation, false, 'Preparation after implementation') }),
+      validation: command(item.validation, false), acceptance: command(item.acceptance, true) as GuidedSlice['acceptance'], message };
   });
   return { brief, workspace: { repo, base, adapter, ...(path ? { path } : {}) }, implementation, review, slices, context,
+    ...(preparation ? { preparation } : {}),
     ...(reviewPolicy ? { reviewPolicy } : {}), ...(references.length ? { references } : {}) };
 }
 

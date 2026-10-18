@@ -164,6 +164,23 @@ test('proposed plans render narrative Markdown while command arguments stay lite
   assert.match(html, /<pre>\*\*literal\*\* &lt;tag&gt;<\/pre>/);
 });
 
+test('preparation commands are visible for approval and failures offer a preparation retry', () => {
+  const { context } = dashboard();
+  context.plan = {
+    brief: { title: 'Restore prerequisites', outcome: 'Run checks', criteria: ['Checks run'], plan: 'Restore then verify' },
+    workspace: { repo: 'C:/repo', base: 'abc' }, implementation: { provider: 'codex' }, review: { provider: 'claude' },
+    preparation: { name: 'Restore', file: 'node', args: ['<restore>'], timeoutMs: 600000 },
+    slices: [{ scope: { files: ['deps.lock'] }, preparation: { name: 'Generate lockfile', file: 'node', args: ['<refresh>'], timeoutMs: 300000 },
+      validation: { name: 'Check', file: 'node', args: [], timeoutMs: 1000 }, acceptance: { name: 'Accept', file: 'node', args: [], timeoutMs: 1000 }, mode: 'commit', message: 'Verify' }],
+  };
+  const html = runInContext('planCard(plan)', context) as string;
+  assert.match(html, /Preparation before implementation and checks/); assert.match(html, /&lt;restore&gt;/);
+  assert.match(html, /Preparation after implementation/); assert.match(html, /&lt;refresh&gt;/);
+  context.view = { state: { status: 'blocked', stage: 'refresh' } };
+  const action = runInContext('taskAction(view)', context) as string;
+  assert.match(action, /Retry preparation/); assert.match(action, /implementation attempt and retained files are preserved/);
+});
+
 test('start planning shows progress before its request resolves and prevents duplicate submissions', async () => {
   const { app, context, listeners } = dashboard();
   let rejectRequest!: (error: Error) => void;

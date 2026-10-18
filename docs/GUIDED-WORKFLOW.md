@@ -60,6 +60,42 @@ providers; it never chooses a same-provider fallback implicitly. Existing first-
 subscription authentication remains required. Transport failures never retry inference
 automatically, and no branch is pushed.
 
+## Prepare repository prerequisites
+
+The planner infers setup from the pinned repository's manifests, lockfiles, workspace
+configuration and documentation. Fresh Git and Orca worktrees have no ignored
+dependencies or caches. An optional top-level `preparation` command uses the same
+`name`, `file`, `args` and `timeoutMs` fields as validation. It runs before file
+authorization in every attempt and again after implementation, before validation.
+Use a repeatable restore that leaves Git-visible inputs unchanged. For example,
+a pnpm repository can use its workspace's frozen-lockfile installation. Other
+toolchains use their own repository-specific restore commands; the controller
+does not detect or install a particular package manager itself.
+
+A slice may supply its own `preparation` command to replace the second run. This
+step can update only the slice's authorized paths, such as a lockfile when the
+implementer changes a manifest. Include each generated path in the slice scope;
+the implementer cannot run commands and should leave generation to this command.
+Git state and repository instructions must remain unchanged. No-change slices
+allow no Git-visible writes. Untracked ignored dependencies and caches remain
+outside repository snapshots, as they do for other supervised operations.
+
+Preparation commands run at the task worktree root. Supply project directories
+through their arguments, and allow enough time for a fresh restore (up to 600000 ms).
+Commands, timeouts and file permissions are part of the plan approval. Validation
+and acceptance still require unchanged repository inputs; setup does not count as
+passing validation or acceptance evidence. Plans without preparation keep their
+existing behavior. Existing tasks need an explicit plan revision and approval to
+add these commands; they are never injected into an already approved recipe.
+
+The dashboard shows preparation progress, commands and retained output. A failed
+or interrupted preparation stops before validation. **Retry preparation** (CLI:
+`task-retry`) reruns just that step in the same attempt, preserving implementation.
+Only changes permitted by its original preparation scope can be carried forward.
+After controller loss, recover first: an already-settled preparation is adopted
+without replay, while an uncertain command retains ownership until its process
+settlement is proved. Recovery itself never launches another command.
+
 ## Revise a settled plan
 
 ```sh
@@ -198,7 +234,9 @@ A stop request is distinct from confirmed shutdown.
 
 Use `task-retry <task-id>` after a settled failure or at a scope/simplification
 checkpoint when changes are needed. Inspect retained files, findings and any
-delivery changes first. It creates a fresh attempt/session,
+delivery changes first. At a failed preparation step, it retries preparation in
+the same attempt without repeating implementation. At other checkpoints it
+creates a fresh attempt/session,
 preserves partial files, carries review feedback and prepares a fresh authorization
 checkpoint. It does not reset Git or automatically alter the approved scope.
 For a deletion-only slice whose files are already absent, authorizing the fresh

@@ -15,11 +15,183 @@ import type { ImplementationRun } from '../src/implementations.js';
 import { renderReport } from '../src/report.js';
 import { Kickoffs } from '../src/kickoff.js';
 import { repositoryTools } from '../src/repository-tools.js';
+import { Checks, type RepositoryCheck } from '../src/checks.js';
 
 const windows = { skip: process.platform !== 'win32' };
 const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
 const message: Reply = { kind: 'message', text: 'Offline fixture implementation', questions: [], findings: [] };
 const review: Reply = { kind: 'review', text: 'Offline fixture review', questions: [], findings: [] };
+
+function preparation(code: string) { return { name: 'Restore repository prerequisites', file: 'node', args: ['-e', code], timeoutMs: 15000 }; }
+
+test('fresh worktrees prepare before implementation and refresh prerequisites before checks', windows, async t => {
+  const f = fixture(t);
+  writeFileSync(join(f.repo, '.gitignore'), 'prepared/\n'); git(f.repo, 'add', '.'); git(f.repo, 'commit', '-m', 'Ignore fixture prerequisites');
+  const configured = services(); let implementations = 0;
+  const tasks = new GuidedTasks(f.store, { ...configured, implementationRunner: async options => {
+    implementations++; assert.equal(readFileSync(join(options.cwd, 'prepared/count'), 'utf8'), '1');
+    return configured.implementationRunner!(options);
+  } });
+  const task = tasks.create({ ...f.plan, preparation: preparation(`const fs=require('node:fs');fs.mkdirSync('prepared',{recursive:true});const p='prepared/count';fs.writeFileSync(p,String(fs.existsSync(p)?Number(fs.readFileSync(p,'utf8'))+1:1));console.log('prerequisites ready');`) });
+  tasks.approve(task.id, 1, task.guided!.digest);
+  const scope = await tasks.run(task.id);
+  assert.equal(scope.status, 'awaiting_scope', scope.note); assert.equal(implementations, 0);
+  const checkpoint = await tasks.authorize(task.id);
+  assert.equal(checkpoint.status, 'awaiting_assessment', checkpoint.note); assert.equal(implementations, 1);
+  const view = guidedTaskView(f.store, task.id), preparations = view.checks.filter(check => check.purpose === 'preparation');
+  assert.equal(preparations.length, 2); assert.ok(preparations.every(check => check.phase === 'passed' && check.result?.stdout === 'prerequisites ready\n'));
+  assert.equal(readFileSync(join(view.workspace!.path!, 'prepared/count'), 'utf8'), '2');
+  assert.equal(checkpoint.snapshot!.diff.some(file => file.path.startsWith('prepared/')), false);
+  const done = await tasks.assess(task.id, 'passed', 'Inspected the implementation with restored prerequisites');
+  assert.equal(done.status, 'complete', done.note);
+});
+
+test('slice preparation generates an authorized lockfile and validates the resulting artifact', windows, async t => {
+  const f = fixture(t);
+  for (const file of ['requirements.txt', 'deps.lock']) writeFileSync(join(f.repo, file), 'old');
+  writeFileSync(join(f.repo, '.gitignore'), 'prepared/\n'); git(f.repo, 'add', '.'); git(f.repo, 'commit', '-m', 'Dependency fixture');
+  const configured = services();
+  const tasks = new GuidedTasks(f.store, { ...configured, implementationRunner: async options => {
+    const result = await configured.implementationRunner!(options);
+    writeFileSync(join(options.cwd, 'requirements.txt'), 'new'); return result;
+  } });
+  const task = tasks.create({ ...f.plan,
+    preparation: preparation("const fs=require('node:fs');require('node:assert/strict').equal(fs.readFileSync('requirements.txt','utf8'),fs.readFileSync('deps.lock','utf8'));fs.mkdirSync('prepared',{recursive:true});"),
+    slices: [{ ...f.plan.slices[0], scope: { files: ['greeting.js', 'requirements.txt', 'deps.lock'] },
+      preparation: preparation("const fs=require('node:fs');fs.copyFileSync('requirements.txt','deps.lock');fs.copyFileSync('deps.lock','prepared/installed');"),
+      validation: preparation("const fs=require('node:fs'),a=require('node:assert/strict');a.equal(fs.readFileSync('deps.lock','utf8'),'new');a.equal(fs.readFileSync('prepared/installed','utf8'),'new');") }] });
+  tasks.approve(task.id, 1, task.guided!.digest); await tasks.run(task.id);
+  const checkpoint = await tasks.authorize(task.id);
+  assert.equal(checkpoint.status, 'awaiting_assessment', checkpoint.note);
+  const view = guidedTaskView(f.store, task.id), refresh = view.checks.find(check => !!check.spec.preparation?.scope)!;
+  assert.equal(refresh.phase, 'passed'); assert.notEqual(refresh.before!.artifact, refresh.after!.artifact);
+  assert.equal(checkpoint.snapshot!.artifact, refresh.after!.artifact);
+  assert.equal(view.checks.at(-1)!.before!.artifact, refresh.after!.artifact);
+  assert.ok(checkpoint.snapshot!.diff.some(file => file.path === 'deps.lock'));
+  const done = await tasks.assess(task.id, 'passed', 'The manifest and generated lockfile agree');
+  assert.equal(done.status, 'complete', done.note);
+  assert.equal(git(view.workspace!.path!, 'show', 'HEAD:deps.lock'), 'new');
+});
+
+test('failed initial preparation retains output and retries in the same attempt before implementation', windows, async t => {
+  const f = fixture(t), ready = join(f.root, 'restore-available');
+  const task = f.tasks.create({ ...f.plan, preparation: preparation(`if(!require('node:fs').existsSync(${JSON.stringify(ready)})){console.error('restore unavailable');process.exit(17)}`) });
+  f.tasks.approve(task.id, 1, task.guided!.digest);
+  const failed = await f.tasks.run(task.id), executionId = failed.executionId!;
+  assert.equal(failed.status, 'blocked', failed.note); assert.equal(failed.stage, 'preparation'); assert.equal(failed.owner, null);
+  assert.equal(f.store.implementations(executionId).length, 0); assert.match(failed.note, /restore unavailable/);
+  await assert.rejects(f.tasks.run(task.id), /blocked/);
+  writeFileSync(ready, 'available');
+  const retried = await f.tasks.retry(task.id);
+  assert.equal(retried.status, 'awaiting_scope', retried.note); assert.equal(retried.executionId, executionId);
+  assert.equal(f.store.implementations(executionId).length, 0);
+  const checks = f.store.checks<RepositoryCheck>(executionId);
+  assert.equal(checks[0]!.result!.exitCode, 17); assert.equal(checks[1]!.phase, 'passed');
+});
+
+test('failed slice preparation preserves allowed changes and retries without repeating implementation', windows, async t => {
+  const f = fixture(t), restored = join(f.root, 'refresh-retried');
+  writeFileSync(join(f.repo, 'deps.lock'), 'old'); git(f.repo, 'add', '.'); git(f.repo, 'commit', '-m', 'Lockfile fixture');
+  const task = f.tasks.create({ ...f.plan, slices: [{ ...f.plan.slices[0], scope: { files: ['greeting.js', 'deps.lock'] },
+    preparation: preparation(`const fs=require('node:fs');fs.writeFileSync('deps.lock','new');if(!fs.existsSync(${JSON.stringify(restored)})){fs.writeFileSync(${JSON.stringify(restored)},'ready');console.error('temporary refresh failure');process.exit(9)}`) }] });
+  f.tasks.approve(task.id, 1, task.guided!.digest); await f.tasks.run(task.id);
+  const failed = await f.tasks.authorize(task.id), executionId = failed.executionId!;
+  assert.equal(failed.status, 'blocked', failed.note); assert.equal(failed.stage, 'refresh');
+  const retried = await f.tasks.retry(task.id);
+  assert.equal(retried.status, 'awaiting_assessment', retried.note); assert.equal(retried.executionId, executionId);
+  assert.equal(f.store.implementations(executionId).length, 1);
+  assert.ok(retried.snapshot!.diff.some(file => file.path === 'deps.lock'));
+});
+
+for (const stage of ['initial', 'slice'] as const) test(`${stage} preparation cannot change unauthorized inputs or be used as validation`, windows, async t => {
+  const f = fixture(t), command = preparation("require('node:fs').writeFileSync('AGENTS.md','unauthorized');");
+  const task = f.tasks.create({ ...f.plan, ...(stage === 'initial' ? { preparation: command } : {}),
+    slices: [{ ...f.plan.slices[0], ...(stage === 'slice' ? { preparation: command } : {}) }] });
+  f.tasks.approve(task.id, 1, task.guided!.digest);
+  let result = await f.tasks.run(task.id);
+  if (stage === 'slice') result = await f.tasks.authorize(task.id);
+  assert.equal(result.status, 'blocked', result.note); assert.match(result.note, /changed repository inputs|Git state or repository instructions/);
+  const checks = f.store.checks<RepositoryCheck>(result.executionId!);
+  assert.equal(checks.length, 1); assert.equal(checks[0]!.purpose, 'preparation');
+  await assert.rejects(f.tasks.retry(task.id), /changed repository inputs|Git state or repository instructions/);
+  assert.equal(f.store.checks(result.executionId!).length, 1);
+  assert.equal(f.store.deliveries(result.executionId!).length, 0);
+});
+
+test('a passing preparation cannot replace validation evidence', windows, async t => {
+  const f = fixture(t), task = f.tasks.create({ ...f.plan, preparation: preparation("console.log('ready')") });
+  f.tasks.approve(task.id, 1, task.guided!.digest); const scope = await f.tasks.run(task.id);
+  const check = f.store.checks<RepositoryCheck>(scope.executionId!)[0]!;
+  await assert.rejects(new Checks(f.store).finish(scope.executionId!, check.id), /preparation is not validation/);
+  assert.equal(new Workflow(f.store).get(task.id).evidence.some(evidence => evidence.kind === 'validation' && evidence.outcome === 'passed'), false);
+});
+
+test('recovery adopts a completed preparation without replaying it or starting implementation', windows, async t => {
+  const f = fixture(t), marker = join(f.root, 'restore-count');
+  const task = f.tasks.create({ ...f.plan, preparation: preparation(`const fs=require('node:fs'),p=${JSON.stringify(marker)};fs.writeFileSync(p,String(fs.existsSync(p)?Number(fs.readFileSync(p,'utf8'))+1:1));`) });
+  f.tasks.approve(task.id, 1, task.guided!.digest);
+  const file = join(f.root, 'crash-preparation.mjs');
+  writeFileSync(file, `import {Store} from ${JSON.stringify(new URL('../src/store.js', import.meta.url).href)};
+    import {GuidedTasks} from ${JSON.stringify(new URL('../src/guided-tasks.js', import.meta.url).href)};
+    const store=new Store(${JSON.stringify(f.store.path)}),append=store.append.bind(store);
+    store.append=(id,version,type,data)=>{if(type==='guided.step_finished'&&data.stage==='scope')process.exit(29);append(id,version,type,data)};
+    await new GuidedTasks(store).run(${JSON.stringify(task.id)});throw new Error('Expected controller exit');`);
+  assert.throws(() => execFileSync(process.execPath, [file], { windowsHide: true, stdio: 'pipe' }), (error: unknown) => (error as { status: number }).status === 29);
+  assert.equal(f.tasks.get(task.id).pending!.stage, 'preparation');
+  const recovered = await f.tasks.recover(task.id);
+  assert.equal(recovered.status, 'ready', recovered.note); assert.equal(recovered.stage, 'scope');
+  assert.equal(readFileSync(marker, 'utf8'), '1');
+  const scope = await f.tasks.run(task.id);
+  assert.equal(scope.status, 'awaiting_scope', scope.note); assert.equal(readFileSync(marker, 'utf8'), '1');
+  assert.equal(f.store.implementations(scope.executionId!).length, 0);
+});
+
+test('interrupted preparation remains retryable without starting a new attempt', windows, async t => {
+  const f = fixture(t); let first = true;
+  const tasks = new GuidedTasks(f.store, { ...services(), preparationRunner: async options => {
+    if (first) { first = false; return { reason: 'interrupted', exitCode: null, exitConfirmed: true, stdout: '', stderr: 'Stopped during restore', outputTruncated: false }; }
+    return runCheckProcess(options);
+  } });
+  const task = tasks.create({ ...f.plan, preparation: preparation("console.log('restored')") });
+  tasks.approve(task.id, 1, task.guided!.digest);
+  const interrupted = await tasks.run(task.id);
+  assert.equal(interrupted.status, 'blocked', interrupted.note); assert.equal(interrupted.owner, null);
+  assert.equal(f.store.checks<RepositoryCheck>(interrupted.executionId!)[0]!.phase, 'interrupted');
+  const retried = await tasks.retry(task.id);
+  assert.equal(retried.status, 'awaiting_scope', retried.note); assert.equal(retried.executionId, interrupted.executionId);
+});
+
+test('unconfirmed preparation shutdown retains ownership and cannot retry or start implementation', windows, async t => {
+  const f = fixture(t); let dispatches = 0;
+  const tasks = new GuidedTasks(f.store, { ...services(), preparationRunner: async () => {
+    dispatches++; return { reason: 'supervisor_failed', exitCode: null, exitConfirmed: false, stdout: '', stderr: 'Shutdown unconfirmed', outputTruncated: false };
+  } });
+  const task = tasks.create({ ...f.plan, preparation: preparation("console.log('restore')") });
+  tasks.approve(task.id, 1, task.guided!.digest);
+  const uncertain = await tasks.run(task.id);
+  assert.equal(uncertain.status, 'recovery_required', uncertain.note); assert.ok(uncertain.owner); assert.ok(uncertain.pending);
+  assert.ok(f.store.lease(uncertain.workspaceId!)); assert.equal(f.store.implementations(uncertain.executionId!).length, 0);
+  await assert.rejects(tasks.retry(task.id), /recover uncertain/);
+  await assert.rejects(tasks.run(task.id), /recovery_required/);
+  await assert.rejects(tasks.recover(task.id), /still alive|unverifiable/);
+  assert.equal(dispatches, 1);
+});
+
+test('no-change slices can prepare prerequisites while preserving every gate and the original commit', windows, async t => {
+  const f = fixture(t), base = git(f.repo, 'rev-parse', 'HEAD');
+  const task = f.tasks.create({ ...f.plan,
+    brief: { title: 'Verify existing greeting', outcome: 'Confirm hello with a newline', criteria: ['Print hello with a newline'], plan: 'Prepare and independently verify without editing' },
+    preparation: preparation("console.log('prerequisites ready')"),
+    slices: [{ scope: { files: [] }, mode: 'no_change', validation: preparation("require('node:assert/strict').equal(require('node:fs').readFileSync('greeting.js','utf8'),\"console.log('hello');\\n\")"),
+      acceptance: { file: 'node', args: ['greeting.js'], expectedStdout: 'hello\n' }, message: 'Verify existing greeting' }] });
+  f.tasks.approve(task.id, 1, task.guided!.digest); await f.tasks.run(task.id);
+  const checkpoint = await f.tasks.authorize(task.id);
+  assert.equal(checkpoint.status, 'awaiting_assessment', checkpoint.note); assert.equal(f.store.implementations(checkpoint.executionId!).length, 0);
+  const done = await f.tasks.assess(task.id, 'passed', 'The existing direct output needs no edits');
+  assert.equal(done.status, 'complete', done.note);
+  assert.equal(guidedTaskView(f.store, task.id).deliveries[0]!.outcome, 'no_change');
+  assert.equal(git(guidedTaskView(f.store, task.id).workspace!.path!, 'rev-parse', 'HEAD'), base);
+});
 function git(cwd: string, ...args: string[]): string { return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', windowsHide: true, stdio: 'pipe' }).trim(); }
 function services(source = "console.log('hello world');\n", reply: Reply = message): GuidedServices {
   return {
