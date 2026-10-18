@@ -1,5 +1,13 @@
 # Guided Windows task workflow
 
+Exact file scope supports regular UTF-8 files up to 1 MiB each and 4 MiB of existing
+text per slice. Individual edit/patch text remains bounded to 256 KiB. Large editable
+files are read through repository exploration; they are not excluded by filename.
+Gitignored untracked output stays outside the inventory, while tracked lockfiles
+and generated sources remain covered. Unsupported pinned file sizes fail during
+planning, before approval and workspace creation. Runtime scope errors identify the
+path and reason; revise an unsupported scope before retrying.
+
 The guided CLI connects the existing task controller into a repeatable workflow.
 It prepares workspaces and sessions, runs native implementation and validation,
 pauses for explicit simplification, then runs independent review, acceptance and

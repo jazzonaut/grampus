@@ -7,6 +7,10 @@ import { parseReply, type AgentEvent } from './agents/types.js';
 
 export interface EditPolicy { artifact: string; instructionsDigest: string; files: string[]; create?: string[]; delete?: string[] }
 export interface EditingContext { cwd: string; policy: EditPolicy; snapshot: RepositorySnapshot }
+export const editLimits = { fileBytes: 1024 * 1024, scopeBytes: 4 * 1024 * 1024, inlineBytes: 768 * 1024, inlineFileBytes: 256 * 1024 };
+export function checkEditableSize(path: string, bytes: number): void {
+  if (bytes > editLimits.fileBytes) throw new Error(`Editable text file "${path}" is ${bytes} bytes; the limit is 1 MiB (${editLimits.fileBytes} bytes). Revise the task scope or split the file before retrying.`);
+}
 export const deleteFileTool = 'mcp__grampus_files__delete_file';
 const key = (path: string) => process.platform === 'win32' ? path.toLowerCase() : path;
 const protectedPath = (path: string) => path.split(/[\\/]/).some(part => /^(\.git|\.claude|\.codex|\.grampus|AGENTS\.md|CLAUDE\.md)$/i.test(part));
@@ -40,14 +44,19 @@ function checkedFile(context: EditingContext, inputPath: string, allowMissing = 
     try { stat = lstatSync(current); }
     catch (error) {
       if (current === absolute && (creation || deletion) && allowMissing && (error as NodeJS.ErrnoException).code === 'ENOENT') { present = false; continue; }
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`File scope "${inputPath}" requires ${current === absolute ? 'an existing file' : `existing parent directories (missing "${relative(root, current)}")`}. Revise the task scope before retrying.`);
       throw error;
     }
-    if (stat.isSymbolicLink() || (current === absolute ? !stat.isFile() || stat.nlink !== 1 || stat.size > 256 * 1024 : !stat.isDirectory())) throw new Error('Tools require bounded regular text files without links and existing parent directories');
-    if (key(realpathSync.native(current)) !== key(current)) throw new Error('Tool path resolves through an alias');
+    if (stat.isSymbolicLink() || current === absolute && stat.isFile() && stat.nlink !== 1) throw new Error(`Tools require files without links: "${inputPath}" resolves through a link at "${relative(root, current)}". Revise the task scope before retrying.`);
+    if (current === absolute && !stat.isFile()) throw new Error(`Tools require regular text files: "${inputPath}" is not a regular file. Revise the task scope before retrying.`);
+    if (current !== absolute && !stat.isDirectory()) throw new Error(`Tools require existing parent directories: "${inputPath}" has a non-directory parent "${relative(root, current)}". Revise the task scope before retrying.`);
+    if (current === absolute) checkEditableSize(inputPath, stat.size);
+    if (key(realpathSync.native(current)) !== key(current)) throw new Error(`Tool path "${inputPath}" resolves through an alias at "${relative(root, current)}"`);
   }
   if (!present) return { path: file?.path ?? creation!, bytes: null };
   const bytes = readFileSync(absolute);
-  if (bytes.length > 256 * 1024 || bytes.includes(0) || !Buffer.from(bytes.toString('utf8')).equals(bytes)) throw new Error('Tools require UTF-8 text files of at most 256 KiB');
+  checkEditableSize(inputPath, bytes.length);
+  if (bytes.includes(0) || !Buffer.from(bytes.toString('utf8')).equals(bytes)) throw new Error(`Tools require UTF-8 text files: "${inputPath}" contains binary or invalid UTF-8 content. Revise the task scope before retrying.`);
   return { path: file?.path ?? creation!, bytes };
 }
 
@@ -68,22 +77,45 @@ function requireVisibleCreation(context: EditingContext, path: string): void {
 export function prepareEditing(context: EditingContext): void {
   validateEditPolicy(context.policy);
   if (context.snapshot.artifact !== context.policy.artifact || context.snapshot.instructionsDigest !== context.policy.instructionsDigest) throw new Error('Edit policy no longer matches repository content or instructions');
-  for (const path of context.policy.files) checkedFile(context, path);
-  for (const path of context.policy.delete ?? []) requireDeletion(context, checkedFile(context, path));
+  let bytes = 0;
+  for (const path of [...context.policy.files, ...(context.policy.delete ?? [])]) {
+    const file = checkedFile(context, path); bytes += file.bytes!.length;
+    if (context.policy.delete?.includes(path)) requireDeletion(context, file);
+  }
+  if (bytes > editLimits.scopeBytes) throw new Error('Editable text exceeds the 4 MiB scope limit. Revise the task into smaller slices before retrying.');
   for (const path of context.policy.create ?? []) {
     if (context.snapshot.files.some(file => key(file.path) === key(path)) || checkedFile(context, path, true).bytes !== null) throw new Error('Creation path must be absent from the snapshot and filesystem');
     requireVisibleCreation(context, path);
   }
 }
 
-/** Codex has no shell/read tool in editing mode; supply bounded approved text. */
-export function editingFileContext(context: EditingContext): string {
+/** Keep editable text inline for legacy sessions; exploration can retrieve deferred current bytes. */
+export function editingFileContext(context: EditingContext, exploration = false): string {
+  let size = 2;
   const content = JSON.stringify([...context.policy.files, ...(context.policy.create ?? []), ...(context.policy.delete ?? [])].map(path => {
     const file = checkedFile(context, path, true);
-    return { path: file.path, content: file.bytes?.toString('utf8') ?? null };
+    const item = { path: file.path, content: file.bytes?.toString('utf8') ?? null };
+    const bytes = Buffer.byteLength(JSON.stringify(item)) + 1;
+    if (exploration && file.bytes && (file.bytes.length > editLimits.inlineFileBytes || size + bytes > editLimits.inlineBytes - 64 * 1024)) {
+      const deferred = { path: file.path, content: null, deferred: true, bytes: file.bytes.length,
+        sha256: createHash('sha256').update(file.bytes).digest('hex'), readWith: 'grampus_read_file with mode=characters; follow nextOffset to read current contents before editing' };
+      size += Buffer.byteLength(JSON.stringify(deferred)) + 1;
+      return deferred;
+    }
+    size += bytes; return item;
   }));
-  if (Buffer.byteLength(content) > 768 * 1024) throw new Error('Editable file context exceeds 768 KiB');
+  if (Buffer.byteLength(content) > editLimits.inlineBytes) throw new Error('Editable file context exceeds 768 KiB; enable repository exploration or revise the task into smaller slices');
   return content;
+}
+
+/** Authorization shows complete approved text, independently of the smaller model prompt budget. */
+export function editingScopeFiles(context: EditingContext): { path: string; content: string | null }[] {
+  prepareEditing(context);
+  return [...context.policy.files, ...(context.policy.create ?? []), ...(context.policy.delete ?? [])].map(path => {
+    const file = checkedFile(context, path, true);
+    if (file.bytes && createHash('sha256').update(file.bytes).digest('hex') !== context.snapshot.files.find(value => key(value.path) === key(file.path))?.sha256) throw new Error(`Repository changed while preparing file authorization: "${file.path}"`);
+    return { path: file.path, content: file.bytes?.toString('utf8') ?? null };
+  });
 }
 
 /** Authorize the entire proposed native patch, never a subset or future patches. */

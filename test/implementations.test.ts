@@ -125,7 +125,7 @@ test('creation refuses ignored paths and previously deleted tracked paths', asyn
 test('created files must remain bounded unlinked text and visible in the final snapshot', async t => {
   const f = await fixture(t); f.policy.create = ['new.txt']; prepareEditing(f.context);
   const path = join(f.workspace.path!, 'new.txt');
-  for (const content of [Buffer.from([0, 255]), Buffer.from([255]), Buffer.alloc(256 * 1024 + 1, 65)]) {
+  for (const content of [Buffer.from([0, 255]), Buffer.from([255]), Buffer.alloc(1024 * 1024 + 1, 65)]) {
     writeFileSync(path, content);
     assert.throws(() => verifyEditingScope(f.context, { ...f.snapshot, files: [...f.snapshot.files, { path: 'new.txt', sha256: 'fixture', executable: false }] }), /text|bounded/);
   }

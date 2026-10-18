@@ -779,7 +779,11 @@ file-path inspection and execution are not atomic against external editors.
 Codex remains in a read-only sandbox with shell disabled and configured MCP connections enabled. Thread start
 or resume explicitly routes approvals to the client and verifies the returned policy,
 reviewer and sandbox before starting inference. Approved file contents are supplied
-as bounded JSON (768 KiB total). The RPC transport defaults to rejecting server
+as bounded JSON (768 KiB total). Exploration-enabled sessions defer large or excess
+editable content with size/hash metadata and retrieve current bytes through paginated
+repository reads, including character pages for single-line text. The authorization
+view uses the editing bounds and shows full approved contents independently of this
+inline prompt budget. The RPC transport defaults to rejecting server
 requests; its synchronous handler grants only a single `accept` for a current
 `item/fileChange/requestApproval`. It matches thread/turn/item identities to a pending
 fileChange item, incorporates pre-approval patch updates, validates the whole change
@@ -816,7 +820,8 @@ even after a lost successful result; it never retries inference or accepts task 
 Pre-dispatch recovery runs no tools. Missing settlement proof retains ownership.
 
 Current scope is existing and explicitly named new/deleted UTF-8 files, at most
-256 KiB each and 64 combined paths across `files`, `create` and `delete`. Existing
+1 MiB each, with 4 MiB of existing scoped text and 64 combined paths across `files`,
+`create` and `delete`. Individual edit/patch text remains bounded to 256 KiB. Existing
 policies and schema 9 journals remain compatible. Root grants remain disabled.
 Directory creation/removal, other platforms and provider
 shell tools are not enabled. References: Claude [permission evaluation](https://code.claude.com/docs/en/agent-sdk/permissions)

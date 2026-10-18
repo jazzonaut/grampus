@@ -63,6 +63,31 @@ test('repository tools enforce input, output, ownership and durable journaling w
   assert.throws(() => failedJournal('grampus_read_file', { path: 'src/dependency.js' }), /Journal unavailable/);
 });
 
+test('Git ignore rules exclude untracked outputs while tracked files remain discoverable and verified', async t => {
+  const f = fixture(t);
+  writeFileSync(join(f.repo, '.gitignore'), 'node_modules/\ndist/\n*.lock\n');
+  writeFileSync(join(f.repo, 'dependencies.lock'), 'tracked dependency data\n');
+  f.git('add', '.gitignore'); f.git('add', '-f', 'dependencies.lock'); f.git('commit', '-m', 'Ignore outputs, retain tracked lockfile');
+  const base = f.git('rev-parse', 'HEAD');
+  for (const directory of ['node_modules', 'dist']) {
+    mkdirSync(join(f.repo, directory)); writeFileSync(join(f.repo, directory, 'oversized.bin'), Buffer.alloc(1024 * 1024));
+  }
+  writeFileSync(join(f.repo, 'untracked.lock'), 'ignored\n');
+  const snapshot = await snapshotRepository(f.repo, base);
+  assert.ok(snapshot.files.some(file => file.path === 'dependencies.lock'));
+  assert.equal(snapshot.files.some(file => /^(node_modules|dist)\//.test(file.path) || file.path === 'untracked.lock'), false);
+  for (const access of [{ repo: f.repo, base }, { repo: f.repo, snapshot }]) {
+    const invoke = repositoryTools(access, () => {}, () => true);
+    assert.match(JSON.stringify(invoke('grampus_read_file', { path: 'dependencies.lock' })), /tracked dependency data/);
+    assert.throws(() => invoke('grampus_read_file', { path: 'node_modules/oversized.bin' }), /inventory/);
+    assert.throws(() => invoke('grampus_read_file', { path: 'dist/oversized.bin' }), /inventory/);
+  }
+  writeFileSync(join(f.repo, 'dist', 'oversized.bin'), 'different ignored output');
+  assert.equal((await snapshotRepository(f.repo, base)).artifact, snapshot.artifact);
+  writeFileSync(join(f.repo, 'dependencies.lock'), 'changed tracked lockfile');
+  assert.notEqual((await snapshotRepository(f.repo, base)).artifact, snapshot.artifact);
+});
+
 test('execution reads bind supporting files to the snapshot while approved edits remain readable without expanding write scope', async t => {
   const f = fixture(t), snapshot = await snapshotRepository(f.repo, f.base);
   const invoke = repositoryTools({ repo: f.repo, snapshot, editable: ['src/caller.js', 'created.js'] }, () => {}, () => true);
@@ -103,15 +128,38 @@ test('large search files have explicit omissions and remain available through pa
   }
 });
 
+test('character pages read complete large single-line text with bounded output through both provider tools', async t => {
+  const f = fixture(t), text = '"\\😀'.repeat(70000);
+  writeFileSync(join(f.repo, 'src', 'single-line.json'), text); f.git('add', '.'); f.git('commit', '-m', 'Large single line');
+  const base = f.git('rev-parse', 'HEAD'), snapshot = await snapshotRepository(f.repo, base);
+  for (const access of [{ repo: f.repo, base }, { repo: f.repo, snapshot }]) {
+    const invoke = repositoryTools(access, () => {}, () => true);
+    assert.throws(() => invoke('grampus_read_file', { path: 'src/single-line.json' }), /mode=characters/);
+    let offset: number | null = 0, observed = '';
+    while (offset !== null) {
+      const page = invoke('grampus_read_file', { path: 'src/single-line.json', mode: 'characters', offset }) as any;
+      assert.ok(Buffer.byteLength(JSON.stringify(page.content)) <= 24000);
+      assert.equal(page.bytes, Buffer.byteLength(text)); assert.equal(page.mode, 'characters');
+      observed += page.content; offset = page.nextOffset;
+    }
+    assert.equal(observed, text);
+    assert.throws(() => invoke('grampus_read_file', { path: 'src/single-line.json', mode: 'other' }), /mode/);
+    assert.throws(() => invoke('grampus_read_file', { path: 'src/single-line.json', limit: 401 }), /limit/);
+  }
+  const handler = claudeRepositoryTools({ repo: f.repo, snapshot }, () => {}, () => true).find(tool => tool.name === 'grampus_read_file')!;
+  const result = await handler.handler({ path: 'src/single-line.json', mode: 'characters', offset: 0, limit: 12000, root: undefined }, undefined);
+  assert.equal(result.isError, undefined); assert.equal(JSON.parse((result.content[0] as { text: string }).text).mode, 'characters');
+});
+
 test('Claude repository handlers recheck ownership and journaling even without SDK permission hooks', t => {
   const f = fixture(t); let active = true;
   const tools = claudeRepositoryTools({ repo: f.repo, base: f.base }, () => {}, () => active);
   const read = tools.find(tool => tool.name === 'grampus_read_file')!;
   return (async () => {
-    const result = await read.handler({ path: 'src/dependency.js', offset: undefined, limit: undefined, root: undefined }, undefined);
+    const result = await read.handler({ path: 'src/dependency.js', mode: undefined, offset: undefined, limit: undefined, root: undefined }, undefined);
     assert.equal(result.isError, undefined); assert.match(JSON.stringify(result.content), /hidden-contract/);
     active = false;
-    assert.equal((await read.handler({ path: 'src/dependency.js', offset: undefined, limit: undefined, root: undefined }, undefined)).isError, true);
+    assert.equal((await read.handler({ path: 'src/dependency.js', mode: undefined, offset: undefined, limit: undefined, root: undefined }, undefined)).isError, true);
     assert.equal(isRepositoryTool('mcp__grampus_repository__grampus_read_file'), true);
     assert.equal(isRepositoryTool('mcp__foreign__grampus_read_file'), false);
     const failed = claudeRepositoryTools({ repo: f.repo, base: f.base }, () => { throw new Error('Journal unavailable'); }, () => true);

@@ -1358,3 +1358,38 @@ Ordinary-project release trials, live provider/Orca trials of revision and arbit
 broader native accessibility/browser coverage and independent release review remain.
 Unknown provider identity after requested startup, missing native settlement receipts,
 existing workspace files and uncertain Orca creation still refuse release/replay.
+
+## General file-scope handling — 18 October 2026
+
+A paused ordinary-project task reproduced the same scope error twice before any
+implementation dispatch. Read-only journal and workspace inspection identified a
+405,649-byte tracked UTF-8 lockfile exceeding the former 256 KiB edit limit. A
+minimal fixture reproduced the exact generic error twice. Five added regressions
+failed against the old behavior: bounded large-text editing, prompt deferral,
+path-specific size diagnostics, preapproval size checks and dashboard authorization.
+
+Git ignore handling already excluded untracked dependencies/build output correctly.
+The fix adds no filename exception or extra output-name ignore list. Regression
+coverage verifies that tracked files remain discoverable and artifact-bound even
+when ignore rules match them, while ignored untracked output stays outside both
+repository tools and snapshots. Editing and authorization now use explicit larger
+text bounds; model prompts retain their smaller limits and defer content through
+owned paginated reads. Character pagination handles unchanged long-line text too.
+
+On Node 25.8.1 the initial 58-test context/tool/HTTP/provider/renderer run passed.
+After character pagination and additional coverage, all 69 editing, recovery,
+repository-tool, provider, reference-folder and renderer tests passed (188.6 seconds).
+The final eight focused checks passed (99.2 seconds), including plan revision,
+preapproval rejection, full dashboard authorization, prompt/scope bounds and a
+37.3-second native guided delivery fixture. That fixture retained a roughly 430 KiB
+tracked source file, edited it, produced 2 MiB of ignored build output, and passed
+validation, explicit simplification, independent fixture review, acceptance and a
+verified local commit. Provider replies were offline fixtures; filesystem operations,
+process supervision, checks, artifact verification and delivery were real.
+
+Read-only inspection of the user's existing workspace passed the updated original
+scope and complete authorization-content checks, including the full lockfile. No
+implementation was dispatched, provider inference used, installed process restarted,
+installed snapshot updated or user task state changed. This is not an ordinary-project
+delivery trial or a live provider trial. Full supported-runtime suites were not rerun
+for this change; their earlier results above remain separate evidence.

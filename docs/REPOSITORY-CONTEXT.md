@@ -21,8 +21,23 @@ its captured workspace inventory, verifies supporting-file hashes, and permits
 current bytes for explicitly authorized edit/create/delete paths. Review reads the
 submitted snapshot, verifies each retrieved file and rechecks the complete artifact
 before accepting a verdict. New files created by the implementation are available
-through the approved creation paths. Untracked files outside the inventory and ignored
-files are not exposed. Symlinks, filesystem aliases and non-UTF-8 text are refused.
+through the approved creation paths. Planning includes tracked files from the pinned
+commit. Workspace inventories include tracked files and nonignored untracked files;
+untracked gitignored dependencies, caches and build output are excluded. Tracked files
+remain included even if a later ignore rule matches them. There is no extra ignore list
+for common output names:
+tracked lockfiles, generated sources and deliberately versioned assets may be required
+for a correct change. Symlinks, filesystem aliases and non-UTF-8 text are refused.
+
+Editing permits regular UTF-8 files up to 1 MiB each and 4 MiB of existing text per
+slice, with exact file authorization. Individual edit/patch text remains capped at
+256 KiB. Planning checks pinned file sizes before approval; runtime checks identify
+the exact unsupported path and reason. These limits apply to all filenames equally.
+Codex receives bounded initial editable text; large files and excess inline content
+are explicitly deferred, with size/hash metadata and instructions to read current
+contents using paginated repository tools. Deferred null content means unread, rather
+than absent. The dashboard's authorization view shows complete approved file contents
+using the editing bounds, independently of the smaller initial model-context budget.
 
 Repository exploration never grants write permission. Approval still freezes the
 pinned base, repository-read capability, exact file actions and check commands.
@@ -91,7 +106,10 @@ existing subscriptions and retain fixtures and journals under `.grampus/`.
   approximately 24 KiB of text, with an explicit next-line cursor; files are bounded
   to 32 MiB and lines above 24 KiB are refused. Search is case-insensitive literal
   text with an optional path substring filter, scans up to 128 files / approximately
-  4 MiB per page, and returns up to 50 bounded match lines. Follow `nextOffset` even
+  4 MiB per page, and returns up to 50 bounded match lines. Read mode `characters`
+  pages up to 12,000 string positions with JSON text capped near 24 KiB, including
+  unchanged single-line files. Offsets and cursors count string positions in that
+  mode. Follow `nextOffset` even
   on an empty page. Binary/oversized files and additional matches are recorded;
   narrow the search or read the relevant file directly. Pinned search blobs are
   fetched in batches. Exploration is incremental and has no 512 KiB aggregate
@@ -124,8 +142,8 @@ existing subscriptions and retain fixtures and journals under `.grampus/`.
   Changed-file originals are fetched together, and oversized change evidence is
   refused during collection rather than after building a repository-wide diff.
 
-Full artifact verification still reads the repository's nonignored tracked and
-untracked bytes. A stable capture performs two matching snapshots. Several
+Full artifact verification still reads tracked and nonignored untracked bytes.
+A stable capture performs two matching snapshots. Several
 workflow gates require captures, so large tasks still pay disk and hashing costs;
 fast context lookup does not make full verification constant-time. Git worktree
 creation also needs to materialize the checkout.

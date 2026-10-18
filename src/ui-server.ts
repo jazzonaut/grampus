@@ -9,6 +9,7 @@ import { guidedTaskView } from './guided-status.js';
 import { renderReport } from './report.js';
 import { Kickoffs } from './kickoff.js';
 import { boundedRepositoryFiles } from './repository-evidence.js';
+import { editingScopeFiles } from './edit-policy.js';
 import { Sessions } from './sessions.js';
 import { defaultDashboardPort, versionInformation } from './runtime.js';
 import { TaskLifecycle } from './task-lifecycle.js';
@@ -93,7 +94,8 @@ export async function startUi(options: UiOptions) {
             const slice = view.state.plan.slices[view.state.sliceIndex]!;
             const selection = [...new Set([...(view.state.policy?.files ?? slice.scope.files), ...(slice.scope.delete ?? [])])];
             const current = { ...view.state.snapshot, diff: view.state.snapshot.diff.filter(change => selection.includes(change.path)) };
-            scopeFiles = boundedRepositoryFiles(view.workspace.path, current, selection);
+            scopeFiles = view.state.policy ? editingScopeFiles({ cwd: view.workspace.path, snapshot: current, policy: view.state.policy })
+              : boundedRepositoryFiles(view.workspace.path, current, selection);
           }
           catch (error) { scopeError = error instanceof Error ? error.message : String(error); }
         }

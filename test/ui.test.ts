@@ -68,6 +68,23 @@ test('file authorization shows exact edit contents even when the task has no ini
   assert.deepEqual(view.scopeFiles, [{ path: 'greeting.js', content: "console.log('hello');\n" }]);
 });
 
+test('large tracked text reaches file authorization and the dashboard exposes its exact contents', async t => {
+  const f = fixture(t), text = 'entry: value\n'.repeat(32000);
+  writeFileSync(join(f.repo, 'dependency-data.yaml'), text); f.git('add', '.'); f.git('commit', '-m', 'Add large tracked text');
+  const ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+  t.after(async () => { await ui.close(); f.cleanup(); });
+  const tasks = new GuidedTasks(ui.store);
+  const { id } = tasks.create({ ...f.plan, context: { files: [] }, slices: [{ ...f.plan.slices[0], mode: 'commit', scope: { files: ['dependency-data.yaml'] } }] });
+  const draft = tasks.get(id); tasks.approve(id, draft.version, draft.digest);
+  const state = await tasks.run(id);
+  assert.equal(state.status, 'awaiting_scope', state.note);
+  const url = new URL(ui.url);
+  const response = await fetch(`${url.origin}/api/tasks/${id}`, { headers: { Authorization: `Bearer ${url.hash.slice(1)}` } });
+  const view = await response.json() as any;
+  assert.equal(view.scopeError, null); assert.deepEqual(view.scopeFiles, [{ path: 'dependency-data.yaml', content: text }]);
+  assert.equal(ui.store.implementations(state.executionId!).length, 0);
+});
+
 test('dashboard reference selection and task reset/delete enforce displayed state', async t => {
   const f = fixture(t), ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
   t.after(async () => { await ui.close(); f.cleanup(); });

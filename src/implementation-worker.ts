@@ -20,9 +20,9 @@ async function main(): Promise<void> {
     if (store.lease<ExecutionLease>(execution.workspaceId)?.runId !== run.id || session.run?.id !== run.id || session.phase !== 'running') throw new Error('Native implementation ownership changed');
     const workspaces = new Workspaces(store); const snapshot = await captureRepository(workspaces, execution);
     const editing = { cwd: session.cwd, policy: run.policy, snapshot }; prepareEditing(editing);
-    const fileContext = session.provider === 'codex' ? `\nCurrent editable file contents:\n${editingFileContext(editing)}` : '';
     const plan = new Workflow(store).get(execution.taskId).guided?.plan;
     const context = plan?.context;
+    const fileContext = session.provider === 'codex' ? `\nCurrent editable file contents (deferred entries must be read with grampus_read_file before editing; null without deferred means absent):\n${editingFileContext(editing, context?.exploration === true)}` : '';
     const selected = context?.files;
     const supplied = selected ? repositoryContext(session.cwd, snapshot, selected, context?.exploration === true) : null;
     if (supplied) store.appendExecution(execution.id, 'implementation.context_captured', { artifact: snapshot.artifact, ...supplied.coverage });

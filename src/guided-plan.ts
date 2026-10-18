@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { validateBrief, type Brief } from './workflow.js';
-import { validateEditPolicy, type EditPolicy } from './edit-policy.js';
+import { checkEditableSize, editLimits, validateEditPolicy, type EditPolicy } from './edit-policy.js';
 import { gitText } from './delivery-git.js';
 import type { Provider } from './agents/types.js';
 import { pinnedContext, pinnedRepository } from './repository-context.js';
@@ -101,7 +101,8 @@ export function normalizeGuidedPlan(input: unknown, directory = process.cwd(), e
   if (!Array.isArray(value.slices) || value.slices.length !== (brief.slices?.length ?? 1)) throw new Error('Supply one execution configuration for each approved slice (one for an unsliced brief)');
   const earlierCreations = new Set<string>();
   const pathKey = (path: string) => process.platform === 'win32' ? path.toLowerCase() : path;
-  const present = new Map(pinnedRepository(repo, base).entries.map(entry => [pathKey(entry.path), entry.path]));
+  const tree = pinnedRepository(repo, base);
+  const present = new Map(tree.entries.map(entry => [pathKey(entry.path), entry.path]));
   const deleted = new Set<string>();
   const slices = value.slices.map((raw): GuidedSlice => {
     const item = object(raw, ['scope', 'validation', 'acceptance', 'message', 'mode'], 'slice configuration');
@@ -111,10 +112,14 @@ export function normalizeGuidedPlan(input: unknown, directory = process.cwd(), e
     if (mode === 'no_change') {
       if (!Array.isArray(scope.files) || scope.files.length || scope.create !== undefined || scope.delete !== undefined) throw new Error('No-change delivery requires scope: { files: [] }');
     } else validateEditPolicy({ ...scope, artifact: `sha256:${'0'.repeat(64)}`, instructionsDigest: '0'.repeat(64) });
+    let scopeBytes = 0;
     for (const path of [...scope.files, ...(scope.delete ?? [])]) {
       if (present.get(pathKey(path)) !== path) throw new Error(`File action is absent before this slice (use its exact path): ${path}`);
+      const bytes = tree.byPath.get(path)?.bytes ?? 0;
+      checkEditableSize(path, bytes); scopeBytes += bytes;
       if (!exploration && !context.files.includes(path) && !earlierCreations.has(path)) throw new Error(`Select ${path} as repository context before approving its file action`);
     }
+    if (scopeBytes > editLimits.scopeBytes) throw new Error('Editable text exceeds the 4 MiB scope limit. Revise the task into smaller slices before approval.');
     for (const path of scope.create ?? []) {
       if (present.has(pathKey(path))) throw new Error(`Creation path already exists before this slice: ${path}`);
       if (deleted.has(pathKey(path))) throw new Error(`Cannot recreate a path deleted by an earlier slice: ${path}`);

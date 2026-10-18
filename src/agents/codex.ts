@@ -43,7 +43,7 @@ export async function connectCodex(options: ConnectOptions): Promise<AgentSessio
     }
     const params = {
       cwd: options.cwd, modelProvider: 'openai', approvalPolicy: 'untrusted', sandbox: 'read-only',
-      developerInstructions: options.purpose === 'title' ? titleInstructions : options.editing ? implementationInstructions('Use only apply_patch to update approved existing files, add explicitly authorized new files or delete explicitly authorized unchanged files, using their supplied contents (null means absent). Parent directories must already exist. Deletion paths cannot be updated or recreated. Do not move files or delete directories. Each patch requires controller approval.') : instructions, config: overrides,
+        developerInstructions: options.purpose === 'title' ? titleInstructions : options.editing ? implementationInstructions('Use only apply_patch to update approved existing files, add explicitly authorized new files or delete explicitly authorized unchanged files, using their supplied contents. Deferred entries must be read with grampus_read_file before editing; null without deferred means absent. Parent directories must already exist. Deletion paths cannot be updated or recreated. Do not move files or delete directories. Each patch requires controller approval.') : instructions, config: overrides,
       ...(options.editing ? { approvalsReviewer: 'user' } : {}),
       ...(options.repository && !options.providerSessionId ? { dynamicTools: repositoryToolDefinitions.map(tool => ({ type: 'function', ...tool })) } : {}),
       ...(options.model ? { model: options.model } : {}),

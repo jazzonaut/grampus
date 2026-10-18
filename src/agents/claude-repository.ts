@@ -12,7 +12,7 @@ export function claudeRepositoryTools(access: RepositoryAccess, emit: (event: Ag
   const invoke = repositoryTools(access, emit, ownsTurn);
   const schemas = [
     { query: z.string().optional(), offset: z.number().int().nonnegative().optional(), root: z.string().optional() },
-    { path: z.string(), offset: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(400).optional(), root: z.string().optional() },
+    { path: z.string(), mode: z.enum(['lines', 'characters']).optional(), offset: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(12000).optional(), root: z.string().optional() },
     { query: z.string().min(1), path: z.string().optional(), offset: z.number().int().nonnegative().optional(), root: z.string().optional() },
     { path: z.string(), reason: z.string() },
     { path: z.string().optional(), side: z.enum(['before', 'after']).optional(), offset: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(12000).optional() },

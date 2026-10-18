@@ -1,5 +1,27 @@
 # Resume Grampus implementation
 
+## File scope and ignored output — 18 October 2026
+
+A real task stopped twice before implementation because its tracked dependency
+lockfile exceeded the 256 KiB editing limit. The generic error hid the path and
+reason, and the dashboard's separate 256 KiB authorization-content limit would
+also have blocked continuation. Git ignore handling was already correct: exclude
+untracked ignored output, retain tracked files even when ignore rules match them.
+
+Editing now accepts regular UTF-8 files up to 1 MiB, with 4 MiB of existing text
+per slice and unchanged 256 KiB edit/patch payload bounds. Pinned sizes are checked
+before approval. Codex defers large/excess editable contents with explicit metadata;
+both providers support bounded character pagination for long lines. Authorization
+shows full scoped contents and checks their snapshot hashes. Scope failures identify
+the exact path/reason and explain when the plan must change before retrying. No
+filename exception or common-output exclusion list was introduced.
+
+Read-only inspection of the paused user's workspace passed the updated scope and
+authorization-content checks. No implementation was dispatched and no installed
+application or task state was changed. The installed snapshot still needs an explicit
+update/restart before its task can use this fix. Validation details are recorded in
+[integration evidence](INTEGRATION-EVIDENCE.md).
+
 ## Existing workflow gaps — 18 October 2026
 
 Guided task revisions now retain the workspace, partial edits, history and delivered

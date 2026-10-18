@@ -124,6 +124,30 @@ test('revising an approved recipe preserves partial edits, rejects stale decisio
   assert.equal(f.store.workspaces().length, 1); assert.match(renderReport(f.store, id), /guided.revised/);
 });
 
+test('large tracked text reaches verified delivery while ignored output stays outside its artifact', windows, async t => {
+  const f = fixture(t), padding = '// padding for a large ordinary source file\n'.repeat(10000);
+  writeFileSync(join(f.repo, 'greeting.js'), "console.log('hello');\n" + padding);
+  writeFileSync(join(f.repo, '.gitignore'), 'generated/\n'); git(f.repo, 'add', '.'); git(f.repo, 'commit', '-m', 'Large source baseline');
+  const config = services();
+  config.implementationRunner = options => runCheckProcess({ ...options, args: ['-e', `
+    const fs = require('node:fs');
+    fs.writeFileSync('greeting.js', fs.readFileSync('greeting.js', 'utf8').replace("console.log('hello')", "console.log('hello world')"));
+    fs.mkdirSync('generated', {recursive:true}); fs.writeFileSync('generated/build.bin', Buffer.alloc(2*1024*1024));
+    fs.writeFileSync(${JSON.stringify(join(options.receipt!.directory, 'result.json'))}, JSON.stringify({id:${JSON.stringify(options.receipt!.checkId)},
+      result:{status:'completed',reply:${JSON.stringify(message)},usage:null,error:null}}));
+  `] });
+  const tasks = new GuidedTasks(f.store, config), task = tasks.create(f.plan);
+  tasks.approve(task.id, task.version, task.guided!.digest);
+  const scope = await tasks.run(task.id); assert.equal(scope.status, 'awaiting_scope', scope.note);
+  const edited = await tasks.authorize(task.id); assert.equal(edited.status, 'awaiting_assessment', edited.note);
+  const done = await tasks.assess(task.id, 'passed', 'One direct output statement changed; the retained comment text is unchanged.');
+  assert.equal(done.status, 'complete', done.note);
+  const workspace = guidedTaskView(f.store, task.id).workspace!.path!;
+  assert.equal(readFileSync(join(workspace, 'greeting.js'), 'utf8'), "console.log('hello world');\n" + padding);
+  assert.equal(git(workspace, 'show', 'HEAD:greeting.js'), ("console.log('hello world');\n" + padding).trim());
+  assert.equal(git(workspace, 'status', '--porcelain'), '');
+});
+
 test('revisions reject changed workspace identity and approval cannot run against changed retained bytes', windows, async t => {
   const f = fixture(t), id = f.create(); const checkpoint = await f.tasks.run(id);
   const wrong = structuredClone(checkpoint.plan); wrong.workspace.path = join(f.root, 'other');

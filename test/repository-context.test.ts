@@ -50,6 +50,14 @@ test('large repository metadata is cached; search is bounded and selected blobs 
   assert.throws(() => pinnedContext(f.repo, f.base, ['main.js', 'main.js']), /distinct/);
 });
 
+test('guided planning rejects unsupported file sizes before creating workspaces or attempts', t => {
+  const f = fixture(t);
+  writeFileSync(join(f.repo, 'too-large.txt'), 'a'.repeat(1024 * 1024 + 1)); f.git('add', '.'); f.git('commit', '-m', 'Large tracked text');
+  assert.throws(() => normalizeGuidedPlan({ ...f.plan, workspace: { ...f.plan.workspace, base: 'HEAD' },
+    slices: [{ ...f.plan.slices[0], scope: { files: ['too-large.txt'] } }] }), /too-large\.txt.*1048577.*1 MiB/);
+  assert.equal(f.store.workspaces().length, 0); assert.equal(f.store.executions().length, 0);
+});
+
 test('selected review context includes all changed files and verifies omitted-file bytes in the artifact', async t => {
   const f = fixture(t), before = await snapshotRepository(f.repo, f.base);
   writeFileSync(join(f.repo, 'helper.js'), 'export const value = 43;\n');

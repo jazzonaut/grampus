@@ -62,6 +62,13 @@ test('agent Markdown escapes HTML, blocks executable links and avoids image requ
   assert.match(html, /href="https:\/\/example.com\/spec" title="Specification" target="_blank" rel="noopener noreferrer"/);
 });
 
+test('blocked file scopes explain why unchanged retry repeats the failure', () => {
+  const { context } = dashboard();
+  context.view = { state: { status: 'blocked', stage: 'scope' } };
+  const html = runInContext('taskAction(view)', context) as string;
+  assert.match(html, /revise this task’s plan/); assert.match(html, /same approved scope/);
+});
+
 test('question suggestions render inline Markdown and copy the exact editable answer without submitting', async () => {
   const { context, listeners } = dashboard();
   const choice = '**Same as JNow** (`pdfkit-latest` 2.0.15); install allowed';
