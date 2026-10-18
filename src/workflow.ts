@@ -143,6 +143,7 @@ export class Workflow {
     assertTaskExecutionIdle(this.store, task.id);
     const workspace = this.store.workspaces<Workspace>().find(item => item.taskId === task.id);
     if (!workspace) return;
+    if (workspace.phase === 'released' && !requireCurrent) return;
     if (workspace.phase !== 'ready') throw new Error('Settle or reconcile workspace creation first');
     if (requireCurrent && workspace.version !== task.version) throw new Error('Workspace belongs to an earlier task version');
   }

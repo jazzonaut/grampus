@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { Store } from '../src/store.js';
 import { Workflow } from '../src/workflow.js';
 import { Workspaces, type Workspace } from '../src/workspaces.js';
+import { currentProcessStartedAt } from '../src/process-identity.js';
 import { snapshotRepository } from '../src/artifacts.js';
 
 const brief = { title: 'Greeting', outcome: 'Print a greeting', criteria: ['Print hello'], plan: 'Add a command and check its output' };
@@ -129,6 +130,49 @@ test('two controllers cannot reserve the same task and a moving base is pinned t
     assert.equal((await workspaces.inspect(created.id)).head, base);
     assert.equal(readFileSync(join(created.path, 'greeting.txt'), 'utf8'), 'hello\n');
   } finally { secondStore.close(); }
+});
+
+test('a proved-unused failed reservation can be released and explicitly recreated without deleting its old branch', async t => {
+  const f = fixture(t), branch = `grampus/${f.task.id}`, base = git(f.repo, 'rev-parse', 'HEAD');
+  git(f.repo, 'branch', branch);
+  await assert.rejects(f.workspaces.create(f.task.id, 1, f.repo, f.destination), /needs recovery/);
+  const failed = f.workspaces.list()[0]!;
+  const released = await f.workspaces.release(failed.id);
+  assert.equal(released.phase, 'released'); assert.equal(existsSync(f.destination), false);
+  assert.equal(git(f.repo, 'rev-parse', branch), base);
+  const created = await f.workspaces.create(f.task.id, 1, f.repo, f.destination);
+  assert.equal(created.id, failed.id); assert.equal(created.phase, 'ready'); assert.notEqual(created.branch, branch);
+  assert.equal(git(f.repo, 'rev-parse', branch), base);
+  assert.ok(f.store.workspaceEvents(created.id).some(event => event.type === 'workspace.released'));
+  await assert.rejects(f.workspaces.release(created.id), /unused standalone/);
+});
+
+test('reservation release refuses existing files and missing Git exit proof', async t => {
+  const f = fixture(t); git(f.repo, 'branch', `grampus/${f.task.id}`);
+  await assert.rejects(f.workspaces.create(f.task.id, 1, f.repo, f.destination), /needs recovery/);
+  const failed = f.workspaces.list()[0]!;
+  failed.owner!.exitConfirmed = false;
+  f.store.saveWorkspace(failed.id, f.task.id, f.destination.toLowerCase(), failed);
+  await assert.rejects(f.workspaces.release(failed.id), /confirmed Git exit/);
+  failed.owner!.exitConfirmed = true;
+  f.store.saveWorkspace(failed.id, f.task.id, f.destination.toLowerCase(), failed);
+  mkdirSync(f.destination); writeFileSync(join(f.destination, 'keep.txt'), 'preserved');
+  await assert.rejects(f.workspaces.release(failed.id), /files or Git registration exist/);
+  assert.equal(readFileSync(join(f.destination, 'keep.txt'), 'utf8'), 'preserved');
+  assert.equal(f.workspaces.get(failed.id).phase, 'recovery_required');
+});
+
+test('creation recovery distinguishes a restarted controller with the exact same recycled Windows PID', { skip: process.platform !== 'win32' }, async t => {
+  const f = fixture(t), created = await f.workspaces.create(f.task.id, 1, f.repo, f.destination);
+  created.phase = 'creating';
+  created.owner = { controllerPid: process.pid, controllerStartedAt: currentProcessStartedAt(), gitPid: null, exitConfirmed: true };
+  f.store.saveWorkspace(created.id, f.task.id, f.destination.toLowerCase(), created);
+  await assert.rejects(f.workspaces.recover(created.id), /still owned by this controller/);
+  created.owner.controllerStartedAt = (BigInt(currentProcessStartedAt()!) - 1n).toString();
+  f.store.saveWorkspace(created.id, f.task.id, f.destination.toLowerCase(), created);
+  const recovered = await f.workspaces.recover(created.id);
+  assert.equal(recovered.phase, 'ready'); assert.equal(recovered.owner, null);
+  assert.equal(git(f.destination, 'rev-parse', 'HEAD'), created.baseCommit);
 });
 
 test('Git failure retains its reservation and prevents automatic replay or task revision', async t => {

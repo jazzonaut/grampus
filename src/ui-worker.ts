@@ -20,6 +20,8 @@ async function main() {
       case 'assess': await tasks.assess(id, payload.outcome, payload.summary, abort.signal); break;
       case 'answer': await tasks.answer(id, payload.answers, abort.signal); break;
       case 'retry': await tasks.retry(id, abort.signal); break;
+      case 'revise': await tasks.revise(id, payload.plan); break;
+      case 'release-workspace': await tasks.releaseWorkspace(id); break;
       case 'recover': await tasks.recover(id); break;
       case 'plan': await kickoffs.send(id, payload.message, payload.answers, abort.signal, payload.expected); break;
       case 'planner-recover': new Sessions(store).recover(id); break;

@@ -7,6 +7,8 @@ import { connectAgent } from './agents/index.js';
 import { Workspaces } from './workspaces.js';
 import { claimExecution, requireExecutionLease, settleExecution, stopExecution, type Execution } from './execution-state.js';
 import { Workflow, activeSlice, type Task } from './workflow.js';
+import { currentProcessStartedAt, inspectProcess } from './process-identity.js';
+import { processAlive as ownedProcessAlive } from './check-recovery.js';
 import { captureRepository, reviewContext } from './repository-evidence.js';
 import { parseReply, type AgentEvent, type AgentSession, type Connector, type Provider, type Reply, type TurnResult } from './agents/types.js';
 
@@ -20,7 +22,8 @@ export interface Session {
   cwd: string;
   phase: 'idle' | 'running' | 'awaiting_answer' | 'stop_requested' | 'interrupted' | 'failed' | 'recovery_required';
   lastReply: Reply | null;
-  run: { id: string; controllerPid: number; host: string; providerPid: number | null } | null;
+  run: { id: string; controllerPid: number; host: string; providerPid: number | null;
+    controllerStartedAt?: string | null; providerStartedAt?: string | null; providerDispatch?: 'not_requested' | 'requested' } | null;
 }
 
 export class Sessions {
@@ -45,7 +48,7 @@ export class Sessions {
     });
   }
 
-  claim(id: string, prompt: string, answers?: Record<string, string>, editing = false): { session: Session; prompt: string; runId: string } {
+  claim(id: string, prompt: string, answers?: Record<string, string>, editing = false, trackDispatch = false): { session: Session; prompt: string; runId: string } {
     if (answers !== undefined && (!answers || typeof answers !== 'object' || Array.isArray(answers))) throw new Error('Answers must be a JSON object');
     return this.change(id, session => {
       if (session.deletedAt) throw new Error('This planning conversation was deleted');
@@ -65,7 +68,8 @@ export class Sessions {
         this.store.appendSession(id, 'questions.answered', { answers });
       } else if (answers) throw new Error('Session has no pending questions');
       if (!prompt.trim()) throw new Error('Prompt must not be empty');
-      session.run = { id: randomUUID(), controllerPid: process.pid, host: hostname(), providerPid: null };
+      session.run = { id: randomUUID(), controllerPid: process.pid, controllerStartedAt: currentProcessStartedAt(), host: hostname(), providerPid: null,
+        ...(trackDispatch ? { providerDispatch: 'not_requested' as const } : {}) };
       claimExecution(this.store, session, session.run.id, editing ? 'implementation' : 'conversation');
       const execution = this.store.executionForSession<Execution>(id);
       if (execution) {
@@ -105,10 +109,22 @@ export class Sessions {
       }
       if (event.type === 'process.started') {
         const pid = (event.data as { pid?: number }).pid;
-        if (pid && Number.isSafeInteger(pid) && pid > 0) session.run.providerPid = pid;
+        if (pid && Number.isSafeInteger(pid) && pid > 0) {
+          const observed = inspectProcess(pid);
+          session.run.providerPid = pid; session.run.providerStartedAt = observed.state === 'present' ? observed.startedAt : null;
+          session.run.providerDispatch = 'requested';
+        }
       }
       this.store.appendSession(id, event.type, { runId, data: event.data });
       return true;
+    });
+  }
+
+  requestConnection(id: string, runId: string): void {
+    this.change(id, session => {
+      if (session.run?.id !== runId || session.phase !== 'running' || session.run.providerDispatch !== 'not_requested') throw new Error('Provider connection ownership changed');
+      session.run.providerDispatch = 'requested';
+      this.store.appendSession(id, 'connection.requested', { runId });
     });
   }
 
@@ -143,24 +159,22 @@ export class Sessions {
     });
   }
 
-  recover(id: string, alive = processAlive): void {
+  recover(id: string, alive = ownedProcessAlive): void {
     this.change(id, session => {
       if (session.mode === 'editing') throw new Error('Native editing requires implementation-recover with supervisor settlement proof');
       if (!session.run || !['running', 'stop_requested', 'recovery_required'].includes(session.phase)) throw new Error('Session does not need recovery');
       if (session.run.host !== hostname()) throw new Error('Reconcile this session on its execution host');
-      if (alive(session.run.controllerPid)) throw new Error('Previous controller is still alive or unverifiable');
-      if (session.run.providerPid === null || alive(session.run.providerPid)) throw new Error('Provider exit is unconfirmed; do not start a duplicate session');
-      this.store.appendSession(id, 'session.recovered', { runId: session.run.id, evidence: 'Controller and recorded provider PIDs no longer exist', replayed: false });
+      if (alive(session.run.controllerPid, session.run.controllerStartedAt)) throw new Error('Previous controller is still alive or unverifiable');
+      const undispatched = session.run.providerDispatch === 'not_requested' && session.run.providerPid === null;
+      if (!undispatched && (session.run.providerPid === null || alive(session.run.providerPid, session.run.providerStartedAt))) throw new Error('Provider exit is unconfirmed; do not start a duplicate session');
+      this.store.appendSession(id, 'session.recovered', { runId: session.run.id, evidence: undispatched
+        ? 'Controller absent and durable boundary proves provider connection was never requested'
+        : 'Original controller and recorded provider process identities are absent', replayed: false });
       settleExecution(this.store, session, session.run.id, 'interrupted', true);
       session.phase = 'interrupted';
       session.run = null;
     });
   }
-}
-
-function processAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; }
-  catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
 }
 
 export interface RunOptions {
@@ -190,7 +204,7 @@ export async function runSession(store: Store, id: string, prompt: string, optio
         agent: { provider: session.provider, sessionId: session.id, model: session.model ?? 'provider-default' },
         ...(review.fallbackReason ? { fallbackReason: review.fallbackReason } : {}) });
     }
-    return sessions.claim(id, prompt, options.answers);
+    return sessions.claim(id, prompt, options.answers, false, true);
   });
   let agent: AgentSession | null = null;
   let stopped = false;
@@ -245,8 +259,11 @@ export async function runSession(store: Store, id: string, prompt: string, optio
       if (stopped) throw new Error('Interrupted before provider connection');
     }
     connectionPending = true;
-    const connection = Promise.resolve().then(() => connect(claim.session.provider, { cwd: claim.session.cwd, providerSessionId: claim.session.providerSessionId,
-      model: claim.session.model, configurationCwd, signal: connectionAbort.signal, emit, ...(options.purpose ? { purpose: options.purpose } : {}), ...(repository ? { repository } : {}) })).then(value => {
+    const connection = Promise.resolve().then(() => {
+      sessions.requestConnection(id, claim.runId);
+      return connect(claim.session.provider, { cwd: claim.session.cwd, providerSessionId: claim.session.providerSessionId,
+      model: claim.session.model, configurationCwd, signal: connectionAbort.signal, emit, ...(options.purpose ? { purpose: options.purpose } : {}), ...(repository ? { repository } : {}) });
+    }).then(value => {
       connectionPending = false; agent = value; connectionFinished = true; return value;
     }, error => { connectionPending = false; throw error; });
     // If startup outlives the deadline, close it when it eventually returns. Never send a prompt.

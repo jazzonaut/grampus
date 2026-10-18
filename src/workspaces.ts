@@ -6,6 +6,8 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { Store } from './store.js';
 import type { Task } from './workflow.js';
 import { OrcaCli, type OrcaWorkspaceClient, type OrcaWorktree } from './orca.js';
+import { currentProcessStartedAt, inspectProcess } from './process-identity.js';
+import { processAlive } from './check-recovery.js';
 
 export interface Workspace {
   id: string;
@@ -18,14 +20,16 @@ export interface Workspace {
   branch: string | null;
   baseCommit: string;
   host: string;
-  phase: 'creating' | 'ready' | 'recovery_required';
-  owner: { controllerPid: number; gitPid: number | null; exitConfirmed: boolean } | null;
+  phase: 'creating' | 'ready' | 'recovery_required' | 'released';
+  owner: { controllerPid: number; gitPid: number | null; exitConfirmed: boolean;
+    controllerStartedAt?: string | null; gitStartedAt?: string | null } | null;
   orca?: { repoId: string; name: string; marker: string; identityKey: string | null; instanceId: string | null; worktreeId: string | null };
 }
 
 type LocatedWorkspace = Workspace & { path: string; branch: string };
 
 function reservationKey(workspace: Workspace): string {
+  if (workspace.phase === 'released') return `released:${workspace.id}`;
   if (workspace.path) return pathKey(workspace.path);
   if (!workspace.orca) throw new Error('Workspace has no destination or Orca reservation');
   return `orca:${workspace.orca.repoId}:${workspace.orca.name}`;
@@ -80,16 +84,26 @@ async function worktrees(repository: string): Promise<Worktree[]> {
   });
 }
 
-function alive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; }
-  catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
-}
-
 /** Journal intent before asking Git or Orca to create a worktree; never replay creation. */
 export class Workspaces {
   constructor(private readonly store: Store, private readonly orca: OrcaWorkspaceClient = new OrcaCli()) {}
   get(id: string): Workspace { return this.store.workspace<Workspace>(id); }
   list(): Workspace[] { return this.store.workspaces<Workspace>(); }
+
+  /** Metadata only: a reviewed revision keeps the original base, branch and files. */
+  rebind(id: string, previousVersion: number): Workspace {
+    return this.change(id, 'workspace.version_rebound', workspace => {
+      const task = this.store.get<Task>(workspace.taskId);
+      if (workspace.phase !== 'ready' || workspace.owner || this.store.lease(id)
+        || workspace.version !== previousVersion || task.version !== previousVersion + 1
+        || task.phase !== 'draft' || task.approvedVersion !== null
+        || task.guided?.workspaceId !== id || task.guided.plan.revision?.previousVersion !== previousVersion) {
+        throw new Error('Workspace rebinding requires a settled guided revision awaiting approval');
+      }
+      workspace.version = task.version;
+      return { previousVersion, version: task.version, preserved: 'Original base, branch, files and commits' };
+    });
+  }
 
   private change(id: string, type: string, action: (workspace: Workspace) => unknown): Workspace {
     return this.store.transaction(() => {
@@ -124,12 +138,14 @@ export class Workspaces {
       throw new Error('Workspace destination must be outside existing worktrees and Git metadata');
     }
     const baseCommit = (await git(root, ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`])).trim();
-    const workspace: LocatedWorkspace = { id: randomUUID(), taskId, version, adapter: 'git', repository: root,
-      commonDirectory, path, branch: `grampus/${taskId}`, baseCommit, host: hostname(), phase: 'creating',
-      owner: { controllerPid: process.pid, gitPid: null, exitConfirmed: false } };
+    const released = this.list().find(item => item.taskId === taskId && item.phase === 'released');
+    const workspace: LocatedWorkspace = { id: released?.id ?? randomUUID(), taskId, version, adapter: 'git', repository: root,
+      commonDirectory, path, branch: released ? `grampus/${taskId}-${randomUUID()}` : `grampus/${taskId}`, baseCommit, host: hostname(), phase: 'creating',
+      owner: { controllerPid: process.pid, controllerStartedAt: currentProcessStartedAt(), gitPid: null, exitConfirmed: false } };
     this.store.transaction(() => {
       this.approved(taskId, version);
-      if (this.list().some(item => item.taskId === taskId || (item.path && pathKey(item.path) === pathKey(path)))) {
+      if (this.list().some(item => item.phase !== 'released' && (item.taskId === taskId || (item.path && pathKey(item.path) === pathKey(path))))
+        || released && this.get(released.id).phase !== 'released') {
         throw new Error('Task or destination already has a workspace reservation; inspect or recover it');
       }
       this.store.saveWorkspace(workspace.id, taskId, pathKey(path), workspace);
@@ -138,7 +154,11 @@ export class Workspaces {
     try {
       try {
         await git(root, ['worktree', 'add', '--lock', '--reason', `grampus:${workspace.id}`, '-b', workspace.branch, '--', path, baseCommit], pid => {
-          this.change(workspace.id, 'git.started', current => { current.owner!.gitPid = pid; return { pid }; });
+          this.change(workspace.id, 'git.started', current => {
+            const observed = pid === null ? null : inspectProcess(pid);
+            current.owner!.gitPid = pid; current.owner!.gitStartedAt = observed?.state === 'present' ? observed.startedAt : null;
+            return { pid, startedAt: current.owner!.gitStartedAt };
+          });
         });
       } finally {
         this.change(workspace.id, 'git.exited', current => { current.owner!.exitConfirmed = true; });
@@ -154,6 +174,31 @@ export class Workspaces {
     }
   }
 
+  /** Release only a proved-unused standalone reservation. Never remove files, branches or worktrees. */
+  async release(id: string): Promise<Workspace> {
+    const workspace = this.change(id, 'workspace.release_requested', current => {
+      if (current.adapter !== 'git' || current.phase !== 'recovery_required' || !current.owner?.exitConfirmed
+        || current.host !== hostname() || !current.path || this.store.lease(id)
+        || this.store.executions<{ workspaceId: string }>().some(execution => execution.workspaceId === id)) throw new Error('Only an unused standalone reservation with confirmed Git exit can be released');
+      if (current.owner.controllerPid !== process.pid && processAlive(current.owner.controllerPid, current.owner.controllerStartedAt)) throw new Error('Previous workspace controller is alive or unverifiable');
+      const task = this.store.get<Task>(current.taskId);
+      if (task.guided?.owner && (task.guided.owner.controllerPid !== process.pid || task.guided.stage !== 'workspace')) throw new Error('Reconcile the guided controller before releasing its reservation');
+      current.phase = 'creating';
+      current.owner = { controllerPid: process.pid, controllerStartedAt: currentProcessStartedAt(), gitPid: null, exitConfirmed: true };
+    });
+    try {
+      if (exists(workspace.path!) || (await worktrees(workspace.repository)).some(item => pathKey(item.path) === pathKey(workspace.path!))) throw new Error('Workspace files or Git registration exist; inspect or recover them instead of releasing');
+      return this.change(id, 'workspace.released', current => {
+        if (current.phase !== 'creating' || current.owner?.controllerPid !== process.pid || exists(current.path!)) throw new Error('Workspace changed during release');
+        current.phase = 'released'; current.owner = null;
+        return { retained: 'All files, branches and journal history; no Git mutation', creationReplayed: false };
+      });
+    } catch (error) {
+      this.change(id, 'workspace.release_refused', current => { current.phase = 'recovery_required'; return { reason: error instanceof Error ? error.message : String(error) }; });
+      throw error;
+    }
+  }
+
   async createOrca(taskId: string, version: number, repository: string, base: string): Promise<LocatedWorkspace> {
     this.approved(taskId, version);
     if (!base.trim()) throw new Error('Orca creation requires an explicit base ref');
@@ -163,14 +208,16 @@ export class Workspaces {
     const orcaCommon = realpathSync.native((await git(repo.path, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim());
     if (pathKey(commonDirectory) !== pathKey(orcaCommon)) throw new Error('Orca repository does not match the requested Git repository');
     const baseCommit = (await git(root, ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`])).trim();
-    const id = randomUUID();
+    const released = this.list().find(item => item.taskId === taskId && item.phase === 'released');
+    const id = released?.id ?? randomUUID();
     const workspace: Workspace = { id, taskId, version, adapter: 'orca', repository: root, commonDirectory,
       path: null, branch: null, baseCommit, host: hostname(), phase: 'creating',
-      owner: { controllerPid: process.pid, gitPid: null, exitConfirmed: false },
+      owner: { controllerPid: process.pid, controllerStartedAt: currentProcessStartedAt(), gitPid: null, exitConfirmed: false },
       orca: { repoId: repo.id, name: `grampus-${id}`, marker: `grampus-workspace:${id}`, identityKey: null, instanceId: null, worktreeId: null } };
     this.store.transaction(() => {
       this.approved(taskId, version);
-      if (this.list().some(item => item.taskId === taskId)) throw new Error('Task already has a workspace reservation; inspect or recover it');
+      if (this.list().some(item => item.taskId === taskId && item.phase !== 'released')
+        || released && this.get(released.id).phase !== 'released') throw new Error('Task already has a workspace reservation; inspect or recover it');
       this.store.saveWorkspace(id, taskId, reservationKey(workspace), workspace);
       this.store.appendWorkspace(id, 'workspace.requested', workspace);
     });
@@ -209,6 +256,7 @@ export class Workspaces {
 
   async inspect(id: string, includeStatus = true): Promise<{ workspace: Workspace; head: string; dirty: boolean | null; taskCurrent: boolean }> {
     const workspace = this.get(id);
+    if (workspace.phase === 'released') throw new Error('This reservation was released; explicitly create a new workspace');
     if (workspace.host !== hostname()) throw new Error('Inspect this workspace on its execution host');
     if (!workspace.path || !workspace.branch) throw new Error('Workspace destination is unknown; recover its Orca identity first');
     if (workspace.adapter === 'orca') {
@@ -249,13 +297,14 @@ export class Workspaces {
     const workspace = this.change(id, 'recovery.requested', current => {
       if (current.phase === 'ready' || !current.owner) throw new Error('Workspace does not need recovery');
       if (current.host !== hostname()) throw new Error('Recover this workspace on its execution host');
-      if (alive(current.owner.controllerPid) && current.owner.controllerPid !== process.pid) throw new Error('Previous workspace controller is alive or unverifiable');
-      if (current.adapter === 'git' && !current.owner.exitConfirmed && (current.owner.gitPid === null || alive(current.owner.gitPid))) {
+      const controllerAlive = processAlive(current.owner.controllerPid, current.owner.controllerStartedAt);
+      if (controllerAlive && current.owner.controllerPid !== process.pid) throw new Error('Previous workspace controller is alive or unverifiable');
+      if (current.adapter === 'git' && !current.owner.exitConfirmed && (current.owner.gitPid === null || processAlive(current.owner.gitPid, current.owner.gitStartedAt))) {
         throw new Error('Git exit is unconfirmed; do not create a duplicate workspace');
       }
-      if (current.phase === 'creating' && current.owner.controllerPid === process.pid) throw new Error('Workspace creation is still owned by this controller');
+      if (current.phase === 'creating' && current.owner.controllerPid === process.pid && controllerAlive) throw new Error('Workspace creation is still owned by this controller');
       current.phase = 'creating';
-      current.owner = { controllerPid: process.pid, gitPid: null, exitConfirmed: current.adapter === 'git' };
+      current.owner = { controllerPid: process.pid, controllerStartedAt: currentProcessStartedAt(), gitPid: null, exitConfirmed: current.adapter === 'git' };
     });
     try {
       if (workspace.adapter === 'orca' && !workspace.orca?.identityKey) {

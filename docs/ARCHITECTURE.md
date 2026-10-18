@@ -4,6 +4,53 @@ This describes the implemented baseline as of 17 October 2026. [DESIGN.md](../DE
 defines the intended product; [IMPLEMENTATION.md](IMPLEMENTATION.md) tracks delivery
 sequence. Product requirements that appear there are not automatically implemented.
 
+## Workflow extension checkpoint — 18 October 2026
+
+`GuidedTasks.revise` claims the guided controller before asynchronous inspection,
+normalizes the complete revised recipe, verifies the retained workspace twice and
+atomically closes idle executions, revises the brief, preserves the delivered slice
+prefix, clears current approval/evidence and rebinds only workspace version metadata.
+The original base, branch and Orca identity remain unchanged. A controller-generated
+revision anchor binds retained artifact, HEAD, instructions and slice index into the
+plan digest. The first execution of the new version rechecks it. Later retries retain
+the ordinary partial-edit behavior. Active/uncertain sessions and stale UI decisions
+cannot revise. Authoritative outcome changes still need fresh plan approval.
+
+Optional `reviewPolicy` is part of the approved digest. Only a settled blocking verdict
+can atomically spend a 0–2 repair allowance and prepare a fresh attempt. Exact file
+authorization and simplification stay explicit. At exhaustion an optional arbitrator
+uses a new review execution, verified artifact and all earlier verdicts with artifact
+identities. Same-provider arbitration records its approved fallback. More than eight
+verdicts or 128 KiB of history stop before inference rather than omitting findings.
+Unresolved verdicts stop delivery. Budget/history persist across controller restarts;
+recovery never reruns provider calls. There is still no background scheduler.
+
+Acceptance compares approved stdout, JSON values, stderr and file content/hash/absence
+observations against complete retained process output and the stable after-snapshot.
+Files absent from that inventory cannot satisfy a file assertion. Zero exit, descendant
+settlement, unchanged artifact and exact criterion mapping remain required. Existing
+plans retain their previous digests and exact-stdout semantics.
+
+Ordinary session runs now record controller/provider Windows creation times and a
+pre-connection dispatch boundary. Pre-dispatch recovery needs an absent original
+controller; requested startup with an unknown provider remains blocked. Native editing
+still requires supervisor settlement proof. Workspace creation records controller/Git
+times too. Legacy fields remain optional and retain conservative recovery behavior.
+
+`Workspaces.release` only handles unused failed standalone reservations with confirmed
+Git exit, absent checkout/registration and no executions/lease. It acquires inspection
+ownership, rechecks before releasing, retains branches/files/events and frees only the
+path reservation. `released` is a terminal metadata checkpoint; an explicit new create
+reuses the reservation record with a fresh branch and a new journaled request. Guided
+release stops before creation. Existing worktrees and uncertain Orca outcomes cannot
+use this path. Schema 10 is retained; older controllers reject the released checkpoint.
+
+Task usage aggregates the latest cumulative observation for each distinct provider
+session across linked planning/naming/execution history. Unknown latest-turn coverage
+marks known totals partial; null fields stay unknown. Provider totals stay separate,
+and estimated USD never populates billed cost. The following older implementation
+sections retain historical detail; this checkpoint supersedes their narrower limits.
+
 ## Local dashboard and kickoff
 
 The dashboard is a loopback HTTP surface over the existing journal, not a second
@@ -625,8 +672,8 @@ Usage events are cumulative provider-session snapshots, not increments to sum.
 Keep the most recent applicable snapshot. Token counting semantics differ between
 providers; this is not a cross-provider billing ledger. Claude exposes an estimated
 USD amount. Codex cost and actual billed cost remain unknown. Missing measurements
-remain `null`. Task reports still say usage is unknown because aggregation across
-linked sessions is not implemented; provider snapshots remain in session journals.
+remain `null`. Task views and reports aggregate linked cumulative sessions separately
+per provider, including partial/unknown fields; raw snapshots remain in session journals.
 
 ## Verification and current boundaries
 
@@ -696,7 +743,8 @@ underlying recovery commands. Terminal control characters in repository prose
 are escaped. JSON exposes retained snapshots and results for the local dashboard.
 Repository review limits are checked before guided editing inference. The CLI
 accepts authored JSON briefs and the dashboard can prepare them conversationally.
-Automatic repair/arbitration and recipe rebinding are not implemented by this runner.
+Approved bounded repair/arbitration and settled recipe rebinding are described in
+the workflow extension checkpoint above. Transport failures still never retry inference.
 
 ## Native implementation contract
 

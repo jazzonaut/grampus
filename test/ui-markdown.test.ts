@@ -43,6 +43,16 @@ test('the planning sidebar uses saved task names and escapes them, retaining the
   assert.doesNotMatch(html, /Please could you|<login>/);
 });
 
+test('plan revisions, repair budgets and structured acceptance remain reviewable and escaped', () => {
+  const { context } = dashboard();
+  context.view = { state: { status: 'blocked', plan: { brief: { title: '</textarea><script>bad</script>', outcome: 'New output', plan: 'Small change' }, reviewPolicy: { repairRounds: 2, arbitrator: { provider: 'codex', model: 'fixture', timeoutMs: 120000 } } } } };
+  const html = runInContext('revisionCard(view) + reviewPolicyCard(view.state.plan) + usageCard({usageSummary:["codex: 240 (partial)"]})', context) as string;
+  assert.match(html, /revision-form/); assert.match(html, /Repair rounds/); assert.match(html, /Fresh arbitration: codex/);
+  assert.match(html, /240 \(partial\)/); assert.match(html, /&lt;\/textarea&gt;/); assert.doesNotMatch(html, /<script>/);
+  runInContext('view.state.owner = {token:"owned"}', context);
+  assert.equal(runInContext('revisionCard(view)', context), '');
+});
+
 test('agent Markdown escapes HTML, blocks executable links and avoids image requests', () => {
   const { render } = dashboard();
   const html = render('<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[run](javascript:alert%281%29) [encoded](jav&#x61;script:alert%281%29) [file](file:///C:/secret) [app](vscode:open)\n\n![remote image](https://example.com/track.png)\n\n[Spec](https://example.com/spec "Specification")');

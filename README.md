@@ -250,9 +250,12 @@ a five-minute Git timeout; routine inspection retains 30 seconds. This does not
 supervise arbitrary hook/filter process trees.
 
 Inspection reports current HEAD, tracked/untracked changes and whether the recorded
-task version remains approved. A revised task retains its old workspace but cannot
-start a new attempt with that stale version. Rebinding and release/removal are future
-work. Workspace readiness does not imply task completion or
+task version remains approved. A low-level brief revision cannot start a new attempt
+with a stale workspace version. Guided `task-revise` updates recipe/version metadata
+together, preserving files and delivered slices while requiring fresh approval.
+`task-release-workspace` can release a proved-unused failed standalone reservation;
+it never deletes files or branches. General worktree removal remains future work.
+See [guided workflow](docs/GUIDED-WORKFLOW.md). Workspace readiness does not imply task completion or
 permission for an agent to edit files. Local workspace journals contain operational
 paths and process identities; keep them out of commits and shared documentation.
 

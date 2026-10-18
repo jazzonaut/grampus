@@ -1277,3 +1277,84 @@ and `.grampus/exploration-bounds-node{24,25}.log`.
 
 Ordinary-project trials, approved-recipe revisions, other-platform support and
 release-wide independent review remain outstanding.
+
+## Existing workflow extensions — 18 October 2026
+
+Guided recipe revision, bounded blocking-review repair/arbitration, structured/file
+acceptance, task-level usage and safe unused-reservation release are implemented in
+the development checkout. The user's installed application, selected version, settings,
+processes and task database were not opened, updated or restarted for this work.
+Testing uses explicitly isolated journals, fixture repositories and an independent
+temporary browser profile. No provider inference, external messages, pushes or merges
+were used for these extensions.
+
+### Behavioral verification
+
+The focused native workflow run passed all five tests (230.7 seconds): automatic
+repair prepares fresh authorization and still requires explicit simplification;
+fresh arbitration can accept a verified artifact or stop unresolved findings;
+revision preserves a delivered slice commit while approving partial follow-up edits;
+and JSON/file acceptance reaches supervised local delivery. Implementation/review
+replies are offline fixtures, while file edits, checks, process supervision and commits
+are real operations in temporary repositories.
+
+An additional four-test run passed (7.7 seconds), covering guided release followed
+by explicit creation, the durable pre-connection boundary, exact process identities
+and browser-server revision workers with stale-approval rejection. The focused
+acceptance/usage/session/renderer/workspace run passed all 42 then-existing tests.
+Other added regressions cover preserving partial edits through revision, invalidating
+old gates, changed retained bytes before execution, existing-file/unknown-exit release
+refusal, cumulative-session deduplication and partial usage. Complete runtime results
+are recorded below after the full runs.
+
+### Actual browser and accessibility evidence
+
+An isolated headless Chrome 155.0.8059.85 loaded the actual development dashboard,
+backed by a fresh fixture journal on an ephemeral port. All ten observations passed:
+structured acceptance rendering, partial usage rendering, labeled revision controls,
+revision binding to the displayed decision key, preserved repository identity and
+chosen repair/arbitration settings, no implementation dispatch during revision,
+visible retained findings during repair, visible unused-reservation action,
+release binding to the displayed state, and
+accessible textbox/combobox names from Chromium's actual accessibility tree.
+
+`test/browser-workflow-gaps.probe.js` is the reusable DOM probe. Its HTTP mutations
+are mocked; separate HTTP tests exercise real revision workers against isolated data.
+The retained result is `.grampus/workflow-gaps-browser.json`. This establishes these
+DOM and accessible-name behaviors, not screen-reader, native-input or cross-browser
+certification. The temporary browser profile was removed after its owned process exited.
+The initial DOM probe hit an unbound saved `fetch` call in its harness; binding that
+call to `window` corrected the probe before the successful browser runs.
+
+### Complete runtime verification
+
+The complete default-parallel Node 25.8.1 suite passed all 300 tests in 1,050.3 seconds,
+without failures, cancellations or skips. The subsequent complete default-parallel
+Node 24.22.0 suite passed all 300 tests in 1,037.5 seconds, also without failures,
+cancellations or skips. The final event-query filtering and carried-findings presentation
+refinements follow the first full-run build and are covered by the full Node 24 run.
+Runtime suites ran sequentially.
+The final Node 25 focused run passed all 42 acceptance/usage/workflow/renderer/HTTP
+tests (46.7 seconds), followed by the native repair regression (53.6 seconds), including
+retained findings at the fresh authorization checkpoint. Usage now queries only linked
+and usage-relevant event types instead of decoding unrelated journal evidence.
+Final review then found a narrow additional case: a restarted controller could have
+the exact recycled PID of the original workspace creator. An isolated regression
+failed against the previous build with `Workspace creation is still owned by this
+controller`. The self-ownership branch now uses the exact saved process creation time
+too. The live original owner still blocks recovery; a different original identity can
+recover only through the existing clean-workspace checks. After this final guard fix,
+all 27 workspace/process-recovery/task-lifecycle tests passed on Node 25 (45.7 seconds)
+and Node 24 (43.2 seconds), without failures or skips. These focused runs include the
+additional regression; the complete 300-test runs above preceded that last guard fix.
+
+Build/type, production browser JavaScript syntax, probe syntax and whitespace checks pass.
+Logs are retained under `.grampus/workflow-gaps-*`, including the failing old-build
+PID regression and both final recovery runs. No installed-instance state was used.
+
+### Remaining validation
+
+Ordinary-project release trials, live provider/Orca trials of revision and arbitration,
+broader native accessibility/browser coverage and independent release review remain.
+Unknown provider identity after requested startup, missing native settlement receipts,
+existing workspace files and uncertain Orca creation still refuse release/replay.

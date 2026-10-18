@@ -23,7 +23,7 @@ export class TaskLifecycle {
     if (state.owner || state.pending || state.status === 'recovery_required' || ['stop_requested', 'recovery_required'].includes(task.phase)) throw new Error('Stop the task and confirm settlement or recovery first');
     assertTaskExecutionIdle(this.store, id);
     if (this.store.executions<Execution>().some(execution => execution.taskId === id && this.store.session<Session>(execution.sessionId).run)) throw new Error('An agent still owns a session; stop or recover it first');
-    if (this.store.workspaces<Workspace>().some(workspace => workspace.taskId === id && (workspace.owner || workspace.phase !== 'ready'))) throw new Error('Recover workspace creation before managing the task');
+    if (this.store.workspaces<Workspace>().some(workspace => workspace.taskId === id && (workspace.owner || !['ready', 'released'].includes(workspace.phase)))) throw new Error('Recover workspace creation before managing the task');
   }
   private hide(kind: 'tasks' | 'kickoffs', id: string, resetTo?: string) {
     const deletedAt = new Date().toISOString();

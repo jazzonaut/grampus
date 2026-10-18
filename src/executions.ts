@@ -40,7 +40,11 @@ export class Executions {
     if (role === 'implementation' && observedTask.phase === 'ready' && observedTask.slice?.completed.length) {
       const workspace = inspected.workspace;
       continuation = await snapshotRepository(workspace.path!, workspace.baseCommit);
-      verifyNoChange({ id: 'continuation', cwd: workspace.path!, branch: `refs/heads/${workspace.branch}`,
+      const revision = observedTask.guided?.plan.revision;
+      const revisedContinuation = revision && revision.sliceIndex === observedTask.slice.index
+        && revision.artifact === continuation.artifact && revision.head === continuation.head
+        && revision.instructionsDigest === continuation.instructionsDigest;
+      if (!revisedContinuation) verifyNoChange({ id: 'continuation', cwd: workspace.path!, branch: `refs/heads/${workspace.branch}`,
         base: workspace.baseCommit, message: 'Verify slice continuation', snapshot: continuation });
       const again = await snapshotRepository(workspace.path!, workspace.baseCommit);
       if (again.artifact !== continuation.artifact) throw new Error('Repository changed while checking slice continuation');
@@ -60,8 +64,12 @@ export class Executions {
         if (inspected.head !== previous.head) throw new Error('HEAD differs from the last delivered slice');
         if (task.phase === 'ready') {
           const delivery = this.store.delivery<Delivery>(previous.deliveryId);
+          const revised = task.guided?.plan.revision;
+          const approvedRevision = revised && revised.sliceIndex === task.slice?.index && continuation
+            && revised.artifact === continuation.artifact && revised.head === continuation.head
+            && revised.instructionsDigest === continuation.instructionsDigest;
           if (!continuation || continuation.head !== previous.head
-            || continuation.instructionsDigest !== delivery.spec.instructionsDigest) {
+            || !approvedRevision && continuation.instructionsDigest !== delivery.spec.instructionsDigest) {
             throw new Error('Slice continuation requires the last delivered HEAD, clean raw files/index and unchanged instructions');
           }
         }

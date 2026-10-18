@@ -114,7 +114,21 @@ manual. Preserve the checkout's `src/ui` and `src/native` alongside `dist` for t
 developer distribution. One guided task at a time runs per journal; planning
 sessions retain their existing session-level ownership rules.
 
-Remaining release work includes ordinary
-project trials, automatic review repair/arbitration, recipe revisions after
-approval, accessibility/browser coverage beyond the recorded trials, and clean
-distribution validation. No installer, scheduler, automatic push or PR is enabled.
+Settled tasks now offer **Revise this task’s plan**. Update the outcome and approach,
+choose a bounded review-repair allowance and optional fresh arbitrator, or expand the
+advanced editor to change exact files, checks, criteria and remaining slices. Revised
+plans retain files, commits and delivered slices, invalidate earlier evidence and need
+fresh approval. Retained workspace changes appear before approval. Each repair still
+requires file authorization and an explicit simplification assessment.
+Earlier blocking findings stay visible while a repair awaits authorization or review.
+
+**Measured usage** reports per-provider cumulative totals with partial/unknown fields
+identified. Acceptance plans show JSON and file observations as well as legacy stdout
+expectations. **Release unused reservation** can resolve a failed standalone creation
+only after confirming Git exit and the absence of files and worktree registration;
+it deletes nothing and waits for explicit continuation.
+
+Remaining release work includes ordinary-project trials, live trials of these workflow
+extensions, accessibility/browser coverage beyond the recorded tests, independent release
+review and clean distribution validation. A local installer exists; no background
+scheduler, automatic push or PR is enabled. See [guided workflow](GUIDED-WORKFLOW.md).

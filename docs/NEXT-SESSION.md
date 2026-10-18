@@ -1,5 +1,47 @@
 # Resume Grampus implementation
 
+## Existing workflow gaps — 18 October 2026
+
+Guided task revisions now retain the workspace, partial edits, history and delivered
+slice prefix. They increment the version, clear current evidence and approval, bind
+retained artifact/HEAD/instructions into the approval digest, and require fresh exact
+file authorization. Delivered slices cannot be rewritten. CLI: `task-revise <id>
+<current-version> <plan.json>`; the dashboard has outcome/approach/policy fields and
+an advanced scope/check/criteria editor. Revisions are available at settled checkpoints,
+not during active or uncertain ownership.
+
+An optional approved `reviewPolicy` prepares up to two repair attempts and a fresh
+arbitration after concrete blocking reviews. Repairs preserve findings/files and pause
+for file authorization and explicit simplification. Transport failures never retry
+inference. Arbitration records provider fallback and retains failed verdicts; an
+unresolved arbitration blocks delivery. Legacy plans keep manual retry behavior.
+
+Acceptance supports JSON values, stderr, snapshot file content/hashes and deletion
+tombstones alongside legacy exact stdout. Reports/dashboard aggregate linked planning,
+naming, implementation and review usage by distinct provider session, preserving
+partial/unknown metrics and separating estimates from billed cost.
+
+Ordinary conversation and workspace creation now record exact Windows process times.
+A durable pre-connection boundary can recover a controller lost before requesting an
+agent. Unknown identity after startup remains blocked. Failed standalone reservations
+can be released only with confirmed Git exit and no checkout, Git registration,
+executions or lease. Release changes metadata only; subsequent creation is explicit
+and preserves existing branches. Existing worktrees and uncertain Orca outcomes are
+not released. See [guided workflow](GUIDED-WORKFLOW.md) and the latest integration evidence.
+
+Complete default-parallel suites passed all 300 tests on Node 25.8.1 and Node 24.22.0.
+Final usage/presentation refinements passed 42 focused tests plus the native repair
+regression. A last same-PID creator-recovery regression failed against the old build;
+after its identity guard correction, all 27 focused workspace/recovery/lifecycle tests
+passed on both runtimes. Ten actual Chrome DOM/accessibility-name observations passed.
+These are offline provider fixtures, not new live provider or ordinary-project trials.
+
+This work uses the development checkout and isolated test fixtures. The user's
+installed application, processes, settings, database and selected version are untouched.
+Ordinary-project trials, live provider/Orca trials of these extensions, native
+accessibility checks and independent release review remain validation work. Older
+checkpoint limitations below describe the implementation at those earlier checkpoints.
+
 ## MCP, external references and task management
 
 Configured MCPs are enabled for both providers, including source-project connections

@@ -54,7 +54,7 @@ export function claimExecution(store: Store, session: Session, runId: string, ki
   if (!execution) {
     const cwd = canonical(session.cwd);
     for (const workspace of store.workspaces<Workspace>()) {
-      if (!workspace.path || workspace.host !== hostname()) continue;
+      if (workspace.phase === 'released' || !workspace.path || workspace.host !== hostname()) continue;
       const part = relative(canonical(workspace.path, true), cwd);
       if (part === '' || (part !== '..' && !part.startsWith(`..${sep}`) && !isAbsolute(part))) {
         throw new Error('Use an execution-linked session inside a managed workspace');

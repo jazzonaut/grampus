@@ -144,7 +144,9 @@ do not establish ordinary-project delivery or semantic review coverage.
 
 Agents now discover context autonomously within their repository-read capability.
 Changing approved write scope or requirements still requires a revised task.
-Approved-recipe revisions and ordinary-project release trials remain work.
+Approved recipes can now be revised at settled checkpoints with workspace preservation
+and fresh approval; see [guided workflow](GUIDED-WORKFLOW.md). Ordinary-project release
+trials remain work.
 
 Run `npm run build` followed by `npm run probe:exploration -- --live` to exercise
 both subscription providers against hidden dependency content, pinned/dirty checkout

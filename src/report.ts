@@ -2,6 +2,7 @@ import { Store } from './store.js';
 import { Workflow, activeSlice } from './workflow.js';
 import type { Execution } from './execution-state.js';
 import { explorationSummary } from './repository-tools.js';
+import { taskUsage, usageLines } from './task-usage.js';
 
 // Encode all user/provider prose, including newlines, so it cannot inject report structure.
 function prose(value: string): string {
@@ -23,7 +24,7 @@ export function renderReport(store: Store, id: string): string {
     `Task: ${task.id}  `,
     `State: ${task.phase}  `,
     `Requirements version: ${task.version}; approved version: ${task.approvedVersion ?? 'none'}  `,
-    'Usage and billed cost: unknown (not aggregated; inspect linked session journals where available).',
+    ...usageLines(taskUsage(store, id)),
     '',
     prose(task.brief.outcome),
     '',

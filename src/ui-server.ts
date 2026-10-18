@@ -148,7 +148,7 @@ export async function startUi(options: UiOptions) {
         const expected = guidedDecisionKey(view.state, view.questionKey);
         if (payload.expected !== expected) throw new Error('Task changed since you inspected it; refresh before taking this action');
         if (action === 'approve') { new GuidedTasks(store, { expectedState: payload.expected }).approve(id!, payload.version, payload.digest); json(response, 200, { ok: true }); return; }
-        if (!['run', 'authorize', 'assess', 'answer', 'retry', 'recover'].includes(action!)) throw new Error('Unknown task action');
+        if (!['run', 'authorize', 'assess', 'answer', 'retry', 'revise', 'recover', 'release-workspace'].includes(action!)) throw new Error('Unknown task action');
         launch(id!, action!, payload);
       }
       json(response, 202, { ok: true });

@@ -8,8 +8,8 @@ verified local delivery. It prints the next command at each checkpoint.
 For plain-language kickoff and on-screen controls, use the
 [local dashboard](DASHBOARD.md). This document describes the authored-plan CLI.
 This is an early Windows interface with bounded text context inside larger repositories.
-See [repository context and scale](REPOSITORY-CONTEXT.md) for selection and limits. Automated review
-repair/arbitration remains work.
+See [repository context and scale](REPOSITORY-CONTEXT.md) for selection and limits.
+Approved review policies can prepare bounded repairs and a fresh arbitration.
 Author and resolve ambiguities in the brief before approving it. Checks and expected
 output must demonstrate the intended behavior; Grampus cannot establish their
 semantic sufficiency merely from their exit code.
@@ -43,14 +43,86 @@ npm start -- task-run <task-id>
 ```
 
 Ordinary `approve` alone does not approve a guided execution recipe. Changes to
-the underlying brief/version invalidate guided continuation. Editing and rebinding
-guided recipes is not implemented yet; use a new draft for a different plan.
+the underlying brief/version invalidate guided continuation. Use the guided revision
+command below to update the recipe and workspace version together.
 
 The default implementer is Codex and the reviewer is Claude. Select Claude
 implementation to default to Codex review. The guided path requires different
 providers; it never chooses a same-provider fallback implicitly. Existing first-party
-subscription authentication remains required. No automatic inference retries are
-enabled, and no branch is pushed.
+subscription authentication remains required. Transport failures never retry inference
+automatically, and no branch is pushed.
+
+## Revise a settled plan
+
+```sh
+npm start -- task-revise <task-id> <current-version> revised-plan.json
+```
+
+Supply the complete revised recipe, retaining its pinned base and workspace identity
+once a workspace exists. The dashboard offers **Revise this task’s plan**, with outcome,
+approach and repair-policy fields plus an advanced editor for scope, checks, criteria
+and slices. Revision increments the task version, closes idle old executions and clears
+approval and current evidence. Files, commits, history and pending decisions survive.
+Delivered slice definitions and recipes must stay identical; revise remaining slices
+or append a follow-up. Every revised plan must have remaining work.
+
+The approval digest binds the retained workspace artifact, HEAD and instructions.
+Changed bytes before the first revised execution block continuation until another
+revision is approved. After approval, a fresh execution and exact file authorization
+are required, followed by validation, explicit simplification, independent review and
+acceptance. Existing partial edits remain available. Live or uncertain owners must
+settle or recover before revision; this operation performs no Git writes.
+
+## Bounded review repair and arbitration
+
+An optional approved recipe field enables the review loop:
+
+```json
+"reviewPolicy": {
+  "repairRounds": 2,
+  "arbitrator": { "provider": "codex", "timeoutMs": 120000 }
+}
+```
+
+Omitting the policy keeps manual retry. Approve 0–2 repair rounds; the arbitrator
+is optional. Only a settled independent review with concrete blocking findings can
+consume a repair round. Grampus preserves findings and files, creates a fresh attempt,
+and stops for file authorization. Each repaired artifact still needs its own explicit
+simplification assessment before fresh review. Failures and questions never silently
+spend another inference attempt. The allowance persists through restart and manual
+retry, and resets for a new slice or newly approved revision.
+
+After the repair allowance, the configured arbitrator receives a fresh artifact-bound
+review session and prior verdicts with their artifact identities. A same-provider
+arbitrator is an explicitly approved, recorded fallback. An unresolved arbitration
+blocks delivery. Recovery reconciles recorded results without rerunning inference.
+
+## Acceptance observations
+
+Legacy `acceptance.expectedStdout` remains supported. Alternatively, or additionally,
+an acceptance command can approve these observations:
+
+```json
+"expectations": {
+  "stdoutJson": { "ok": true, "count": 2 },
+  "stderr": "",
+  "files": [
+    { "path": "result.json", "content": "{\"ok\":true}\n" },
+    { "path": "asset.bin", "sha256": "<64 lowercase hexadecimal characters>" },
+    { "path": "obsolete.txt", "absent": true }
+  ]
+}
+```
+
+JSON comparison ignores object-key order and whitespace while preserving value types
+and array order. A file with only a path asserts presence. Content and binary hashes
+are compared to the verified snapshot, not an extra filesystem read. Absence requires
+a recorded snapshot tombstone; paths outside the captured inventory, including ignored
+outputs, cannot establish an assertion. Commands still need exit 0, confirmed descendant
+settlement, complete retained output and unchanged repository inputs. Use a command to
+observe UI behavior or external services and emit an approved JSON result; these are
+command observations, not built-in browser verification. Every active criterion must
+still be mapped and independently reviewed for semantic sufficiency.
 
 ## Inspect and authorize files
 
@@ -144,3 +216,23 @@ Task and workspace leases still enforce their existing ownership rules.
 operation results for tooling. `--db <journal.sqlite>` works with every command.
 Keep the journal and plan outside task worktrees. No background recovery or
 automatic retention cleanup is enabled.
+
+If standalone creation failed before producing a checkout, use
+`task-release-workspace <task-id>` (or **Release unused reservation** in the dashboard).
+It requires confirmed Git exit, absent checkout files and no Git worktree registration,
+executions or active lease. It releases metadata only; branches, files and history are
+never deleted. A later explicit Continue creates a new worktree with a fresh branch.
+The low-level equivalent is `workspace-release <workspace-id>`. Existing checkouts,
+unknown Git exit and uncertain Orca creation remain blocked for inspection/recovery.
+
+New ordinary conversations and workspace operations record exact Windows process
+creation times, so a recycled PID does not impersonate the original owner. A durable
+pre-connection boundary can prove that a crashed conversation never requested provider
+startup. Once connection was requested, a missing provider identity still cannot prove
+shutdown. Legacy records remain conservative; native editing always requires its
+supervisor receipt rather than conversation recovery.
+
+Task views and reports aggregate the latest cumulative usage per provider session,
+including linked planning and naming sessions. They count resumed sessions once,
+include failed attempts and earlier versions, separate providers and mark partial or
+unknown measurements. Estimated USD never becomes billed cost; billed cost stays unknown.

@@ -157,9 +157,11 @@ export class Store {
       .run(taskId, version, new Date().toISOString(), type, JSON.stringify(data));
   }
 
-  events(taskId: string): JournalEvent[] {
+  events(taskId: string, types?: readonly string[]): JournalEvent[] {
     this.get(taskId);
-    return this.db.prepare('SELECT * FROM events WHERE task_id = ? ORDER BY sequence').all(taskId)
+    if (types?.length === 0) return [];
+    const filter = types ? ` AND type IN (${types.map(() => '?').join(',')})` : '';
+    return this.db.prepare(`SELECT * FROM events WHERE task_id = ?${filter} ORDER BY sequence`).all(taskId, ...(types ?? []))
       .map(row => ({
         sequence: Number(row.sequence), taskId: String(row.task_id), version: Number(row.version),
         at: String(row.at), type: String(row.type), data: JSON.parse(String(row.data)) as unknown,
@@ -186,9 +188,11 @@ export class Store {
     this.db.prepare('INSERT INTO session_events(session_id, at, type, data) VALUES (?, ?, ?, ?)').run(id, new Date().toISOString(), type, JSON.stringify(data));
   }
 
-  sessionEvents(id: string): { sequence: number; at: string; type: string; data: unknown }[] {
+  sessionEvents(id: string, types?: readonly string[]): { sequence: number; at: string; type: string; data: unknown }[] {
     this.session(id);
-    return this.db.prepare('SELECT * FROM session_events WHERE session_id = ? ORDER BY sequence').all(id).map(row => ({
+    if (types?.length === 0) return [];
+    const filter = types ? ` AND type IN (${types.map(() => '?').join(',')})` : '';
+    return this.db.prepare(`SELECT * FROM session_events WHERE session_id = ?${filter} ORDER BY sequence`).all(id, ...(types ?? [])).map(row => ({
       sequence: Number(row.sequence), at: String(row.at), type: String(row.type), data: JSON.parse(String(row.data)) as unknown,
     }));
   }

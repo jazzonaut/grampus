@@ -10,6 +10,7 @@ import type { ImplementationRun } from './implementations.js';
 import { guidedPlanDigest } from './guided-plan.js';
 import { explorationSummary } from './repository-tools.js';
 import { integrationSummary } from './integrations.js';
+import { taskUsage, usageLines } from './task-usage.js';
 
 export function guidedTaskView(store: Store, id: string) {
   return store.transaction(() => {
@@ -40,10 +41,15 @@ export function guidedTaskView(store: Store, id: string) {
   const recovery = lease ? command(lease.kind === 'implementation' ? 'implementation-recover' : lease.kind === 'delivery' ? 'delivery-recover'
     : lease.kind === 'check' || lease.kind === 'verification' ? 'check-recover' : lease.readOnlyRecovery ? 'execution-recover' : 'session-recover',
   lease.readOnlyRecovery ? lease.executionId : lease.kind === 'conversation' ? lease.sessionId : lease.runId)
-    : workspace && workspace.phase !== 'ready' ? command('workspace-recover', workspace.id) : null;
-  return { task, state, stale, workspace, lease, session, next, recovery, integrations: integrationSummary(session ? store.sessionEvents(session.id) : []), exploration: explorationSummary(explorationEvents), questionKey: guidedQuestionKey(store, state), stop: state.owner ? command('task-stop', id) : null,
+    : workspace && !['ready', 'released'].includes(workspace.phase) ? command('workspace-recover', workspace.id) : null;
+  const usage = taskUsage(store, id);
+  const currentVerdict = review ? new Sessions(store).get(review.sessionId).lastReply : null;
+  const previousReview = state.reviewCycle?.history.at(-1);
+  const carriedVerdict = !currentVerdict && previousReview
+    ? new Sessions(store).get(store.execution<Execution>(previousReview.executionId).sessionId).lastReply : null;
+  return { task, state, stale, workspace, lease, session, next, recovery, usage, usageSummary: usageLines(usage), carriedFindings: !!carriedVerdict, integrations: integrationSummary(session ? store.sessionEvents(session.id) : []), exploration: explorationSummary(explorationEvents), questionKey: guidedQuestionKey(store, state), stop: state.owner ? command('task-stop', id) : null,
     questions: state.status === 'awaiting_answer' ? session?.lastReply?.questions ?? [] : [],
-    findings: review ? new Sessions(store).get(review.sessionId).lastReply?.findings ?? [] : [],
+    findings: (currentVerdict ?? carriedVerdict)?.findings ?? [],
     checks: execution ? store.checks<RepositoryCheck>(execution.id) : [],
     implementations: execution ? store.implementations<ImplementationRun>(execution.id) : [],
     deliveries: execution ? store.deliveries<Delivery>(execution.id) : [] };
@@ -65,6 +71,8 @@ export function renderGuidedTask(store: Store, id: string, details = false): str
       `Scope: ${JSON.stringify(slice.scope)}`, `Validation: ${JSON.stringify(slice.validation)}`,
       `Acceptance: ${JSON.stringify(slice.acceptance)}`, `Delivery: ${slice.mode}; ${slice.message}`));
     lines.push('', `Approval digest: ${state.digest}`);
+    if (state.plan.reviewPolicy) lines.push(`Automatic repair allowance: ${state.plan.reviewPolicy.repairRounds}; arbitrator: ${JSON.stringify(state.plan.reviewPolicy.arbitrator ?? null)}. Fresh authorization and simplification are required for each repair.`);
+    if (state.plan.revision) lines.push(`Retained revision checkpoint: ${JSON.stringify(state.plan.revision)}`);
   }
   if (view.workspace) lines.push(`Workspace: ${view.workspace.path ?? '(creation not settled)'}`);
   if (state.plan.context) lines.push(`Repository context: ${state.plan.context.files.length}/${state.plan.context.totalFiles} initial pinned files supplied; ${state.plan.context.exploration ? 'agents can search and read repository files as needed' : 'other files are omitted from prompts, not from artifact verification'}.`,
@@ -80,6 +88,7 @@ export function renderGuidedTask(store: Store, id: string, details = false): str
     for (const check of view.checks) lines.push('', `${check.spec.name} stdout:`, check.result?.stdout ?? '(unavailable)', 'stderr:', check.result?.stderr ?? '(unavailable)', ...(check.error ? [check.error] : []));
   }
   if (view.recovery) lines.push('', 'Underlying recovery (same evidence requirements apply):', view.recovery);
+  lines.push('', ...view.usageSummary);
   if (view.stop) lines.push('', 'Request stop:', view.stop);
   lines.push('', state.owner && state.status !== 'recovery_required' ? 'Controller ownership is retained; wait for it to exit before recovery.' : 'Next action:', view.next);
   return lines.join('\n').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, value => `\\u${value.charCodeAt(0).toString(16).padStart(4, '0')}`);

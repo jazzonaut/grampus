@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { execFileSync } from 'node:child_process';
 import { Store } from '../src/store.js';
+import { currentProcessStartedAt } from '../src/process-identity.js';
 import { Sessions, runSession } from '../src/sessions.js';
 import { parseReply, subscriptionEnvironment, type Connector, type Reply, type TurnResult } from '../src/agents/types.js';
 import { hasClaudeSubscription } from '../src/agents/claude.js';
@@ -105,6 +106,31 @@ test('unconfirmed child shutdown requires recovery and blocks subsequent work', 
   assert.throws(() => sessions.recover(session.id, () => true), /controller is still alive/);
   assert.throws(() => sessions.recover(session.id, pid => pid === 12345), /Provider exit is unconfirmed/);
   sessions.recover(session.id, () => false);
+  assert.equal(sessions.get(session.id).phase, 'interrupted');
+});
+
+test('a durable pre-connection boundary recovers without inventing provider shutdown', t => {
+  const { store, sessions, session } = fixture(t);
+  const claim = sessions.claim(session.id, 'Not dispatched', undefined, false, true);
+  assert.equal(sessions.get(session.id).run!.providerDispatch, 'not_requested');
+  sessions.recover(session.id, () => false);
+  assert.equal(sessions.get(session.id).phase, 'interrupted');
+  assert.match(JSON.stringify(store.sessionEvents(session.id)), /connection was never requested/);
+  const next = sessions.claim(session.id, 'Dispatch requested', undefined, false, true);
+  sessions.requestConnection(session.id, next.runId);
+  assert.throws(() => sessions.recover(session.id, () => false), /Provider exit is unconfirmed/);
+  assert.throws(() => sessions.requestConnection(session.id, claim.runId), /ownership changed/);
+});
+
+test('conversation recovery compares original Windows process identities rather than recycled PIDs', { skip: process.platform !== 'win32' }, t => {
+  const { store, sessions, session } = fixture(t);
+  const claim = sessions.claim(session.id, 'Fixture process identity');
+  sessions.event(session.id, claim.runId, { type: 'process.started', data: { pid: process.pid } });
+  assert.throws(() => sessions.recover(session.id), /controller is still alive/);
+  const saved = sessions.get(session.id), old = (BigInt(currentProcessStartedAt()!) - 1n).toString();
+  saved.run!.controllerStartedAt = old; saved.run!.providerStartedAt = old;
+  store.saveSession(session.id, saved);
+  sessions.recover(session.id);
   assert.equal(sessions.get(session.id).phase, 'interrupted');
 });
 

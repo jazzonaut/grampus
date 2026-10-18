@@ -10,6 +10,7 @@ import type { RepositorySnapshot } from './artifacts.js';
 import { runCheckProcess, retainedOutput, type CheckProcessOptions, type CheckProcessResult } from './check-process.js';
 import { allocateReceipt, readReceipt, requireDeadController, type CheckReceipt } from './check-recovery.js';
 import { captureRepository } from './repository-evidence.js';
+import { assertAcceptance, validateExpectations, type AcceptanceExpectations } from './acceptance.js';
 
 export interface CheckSpec {
   name: string;
@@ -20,6 +21,7 @@ export interface CheckSpec {
   instructionsDigest: string;
   criteria?: string[];
   expectedStdout?: string;
+  expectations?: AcceptanceExpectations;
 }
 export interface SimplificationAssessment {
   artifact: string;
@@ -45,12 +47,11 @@ export interface RepositoryCheck {
 
 function validate(spec: CheckSpec): void {
   if (!spec || typeof spec.name !== 'string' || !spec.name.trim() || spec.name.length > 200) throw new Error('Check name is required (at most 200 characters)');
-  if (Object.keys(spec).some(key => !['name', 'file', 'args', 'timeoutMs', 'artifact', 'instructionsDigest', 'criteria', 'expectedStdout'].includes(key))) throw new Error('Unknown check option');
+  if (Object.keys(spec).some(key => !['name', 'file', 'args', 'timeoutMs', 'artifact', 'instructionsDigest', 'criteria', 'expectedStdout', 'expectations'].includes(key))) throw new Error('Unknown check option');
   if (spec.criteria !== undefined && (!Array.isArray(spec.criteria) || spec.criteria.length === 0
     || spec.criteria.some(value => typeof value !== 'string' || !value.trim()) || new Set(spec.criteria).size !== spec.criteria.length)) throw new Error('Verification requires distinct acceptance criteria');
-  if (spec.criteria !== undefined ? typeof spec.expectedStdout !== 'string' || Buffer.byteLength(spec.expectedStdout) > 64 * 1024 : spec.expectedStdout !== undefined) {
-    throw new Error('Verification requires expectedStdout (at most 64 KiB); ordinary checks do not accept output assertions');
-  }
+  if (spec.criteria !== undefined) validateExpectations(spec.expectedStdout, spec.expectations);
+  else if (spec.expectedStdout !== undefined || spec.expectations !== undefined) throw new Error('Ordinary checks do not accept output assertions');
   if (typeof spec.file !== 'string' || !isAbsolute(spec.file) || !statSync(spec.file).isFile()
     || (process.platform === 'win32' && !spec.file.toLowerCase().endsWith('.exe'))) throw new Error('Check file must be an absolute executable path; invoke scripts through their interpreter');
   if (!Array.isArray(spec.args) || spec.args.some(value => typeof value !== 'string' || value.includes('\0')) || spec.file.includes('\0')) throw new Error('Check arguments must be strings without NUL');
@@ -196,9 +197,7 @@ export class Checks {
       if (check.result.exitConfirmed) {
         check.after = await this.capture(execution);
         if (check.before.artifact !== check.after.artifact) check.error = 'Check changed repository inputs; inspect the diff and run a fresh check';
-        if (purpose === 'verification' && (check.result.outputTruncated || check.result.outputUnavailable || check.result.stdout !== spec.expectedStdout)) {
-          check.error = 'Acceptance output did not exactly match expectedStdout, or retained output was truncated/unavailable';
-        }
+        if (purpose === 'verification') assertAcceptance(check.after, check.result, spec.expectedStdout, spec.expectations);
       }
     } catch (error) { check.error = error instanceof Error ? error.message : String(error); }
     return this.store.transaction(() => {
@@ -225,7 +224,7 @@ export class Checks {
     const task = this.store.get<Task>(execution.taskId);
     new Workflow(this.store).record(task.id, { id: check.id, attemptId: execution.attemptId, version: execution.version, artifact: task.attempt!.artifact!,
       kind: 'verification', source: 'controller', outcome: check.phase === 'passed' ? 'passed' : check.phase === 'interrupted' ? 'skipped' : 'failed',
-      criteria: check.spec.criteria!, summary: `Acceptance check ${check.spec.name}: ${check.phase}. Exact output expectation and criterion mapping supplied by the caller; command and actual result retained in check ${check.id}.` });
+      criteria: check.spec.criteria!, summary: `Acceptance check ${check.spec.name}: ${check.phase}. Output/file expectations and criterion mapping supplied by the caller; command and actual result retained in check ${check.id}.` });
   }
 
   recover(id: string): RepositoryCheck {

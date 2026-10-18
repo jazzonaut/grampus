@@ -7,16 +7,19 @@ import { gitText } from './delivery-git.js';
 import type { Provider } from './agents/types.js';
 import { pinnedContext, pinnedRepository } from './repository-context.js';
 import { normalizeReferences, type ReferenceFolder } from './reference-folders.js';
+import { validateExpectations, type AcceptanceExpectations } from './acceptance.js';
 
 export interface GuidedCommand { name: string; file: string; args: string[]; timeoutMs: number }
 export interface GuidedSlice {
   scope: Pick<EditPolicy, 'files' | 'create' | 'delete'>;
   validation: GuidedCommand;
-  acceptance: GuidedCommand & { expectedStdout: string };
+  acceptance: GuidedCommand & { expectedStdout?: string; expectations?: AcceptanceExpectations };
   message: string;
   mode: 'commit' | 'no_change';
 }
 export interface GuidedPlan {
+  reviewPolicy?: { repairRounds: number; arbitrator?: GuidedPlan['review'] };
+  revision?: { previousVersion: number; artifact: string; head: string; instructionsDigest: string; sliceIndex: number };
   references?: ReferenceFolder[];
   context?: { files: string[]; inventoryDigest: string; totalFiles: number; totalBytes: number; exploration?: boolean };
   brief: Brief;
@@ -41,14 +44,15 @@ function timeout(value: unknown): number {
   if (!Number.isSafeInteger(result) || Number(result) < 100 || Number(result) > 600000) throw new Error('Timeout must be 100–600000 ms');
   return Number(result);
 }
-function command(value: unknown, acceptance: boolean): GuidedCommand & { expectedStdout?: string } {
-  const item = object(value, ['name', 'file', 'args', 'timeoutMs', ...(acceptance ? ['expectedStdout'] : [])], acceptance ? 'acceptance command' : 'validation command');
+function command(value: unknown, acceptance: boolean): GuidedSlice['acceptance'] {
+  const item = object(value, ['name', 'file', 'args', 'timeoutMs', ...(acceptance ? ['expectedStdout', 'expectations'] : [])], acceptance ? 'acceptance command' : 'validation command');
   const file = item.file === 'node' ? process.execPath : text(item.file, 'Command executable');
   if (!isAbsolute(file) || !statSync(file).isFile() || (process.platform === 'win32' && !file.toLowerCase().endsWith('.exe'))) throw new Error('Command file must be "node" or an absolute executable path');
   if (!Array.isArray(item.args) || item.args.some(arg => typeof arg !== 'string' || arg.includes('\0')) || JSON.stringify(item.args).length > 24000) throw new Error('Command args must be an array of strings (at most 24000 encoded characters)');
-  if (acceptance && (typeof item.expectedStdout !== 'string' || Buffer.byteLength(item.expectedStdout) > 64 * 1024)) throw new Error('Acceptance requires expectedStdout (at most 64 KiB)');
+  if (acceptance) validateExpectations(item.expectedStdout, item.expectations);
   return { name: text(item.name ?? (acceptance ? 'Acceptance' : 'Validation'), 'Command name', 200), file, args: item.args as string[], timeoutMs: timeout(item.timeoutMs),
-    ...(acceptance ? { expectedStdout: item.expectedStdout as string } : {}) };
+    ...(acceptance && item.expectedStdout !== undefined ? { expectedStdout: item.expectedStdout as string } : {}),
+    ...(acceptance && item.expectations !== undefined ? { expectations: structuredClone(item.expectations) as AcceptanceExpectations } : {}) };
 }
 function agent(value: unknown, defaultProvider: Provider): GuidedPlan['implementation'] {
   const item = object(value ?? {}, ['provider', 'model', 'timeoutMs'], 'agent');
@@ -58,9 +62,9 @@ function agent(value: unknown, defaultProvider: Provider): GuidedPlan['implement
 }
 
 /** Normalize once; approval covers this exact plan, including checks, paths and pinned base. */
-export function normalizeGuidedPlan(input: unknown, directory = process.cwd()): GuidedPlan {
+export function normalizeGuidedPlan(input: unknown, directory = process.cwd(), existingWorkspace?: GuidedPlan['workspace']): GuidedPlan {
   if (Buffer.byteLength(JSON.stringify(input) ?? '') > 1024 * 1024) throw new Error('Guided plan exceeds 1 MiB');
-  const value = object(input, ['brief', 'workspace', 'implementation', 'review', 'slices', 'context', 'references'], 'guided plan');
+  const value = object(input, ['brief', 'workspace', 'implementation', 'review', 'reviewPolicy', 'slices', 'context', 'references'], 'guided plan');
   const references = normalizeReferences(value.references);
   const brief = structuredClone(object(value.brief, ['title', 'outcome', 'criteria', 'plan', 'slices'], 'brief')) as unknown as Brief;
   validateBrief(brief);
@@ -83,10 +87,16 @@ export function normalizeGuidedPlan(input: unknown, directory = process.cwd()): 
   if (adapter === 'git') {
     const target = resolve(directory, text(workspace.path, 'Workspace path'));
     path = join(realpathSync.native(dirname(target)), basename(target));
-    if (existsSync(path)) throw new Error('Workspace destination must not exist');
+    if (existsSync(path) && (!existingWorkspace || path !== existingWorkspace.path)) throw new Error('Workspace destination must not exist');
   }
   const implementation = agent(value.implementation, 'codex');
   const review = agent(value.review, implementation.provider === 'codex' ? 'claude' : 'codex');
+  let reviewPolicy: GuidedPlan['reviewPolicy'];
+  if (value.reviewPolicy !== undefined) {
+    const policy = object(value.reviewPolicy, ['repairRounds', 'arbitrator'], 'review policy');
+    if (!Number.isInteger(policy.repairRounds) || Number(policy.repairRounds) < 0 || Number(policy.repairRounds) > 2) throw new Error('Approve 0–2 automatic repair rounds');
+    reviewPolicy = { repairRounds: Number(policy.repairRounds), ...(policy.arbitrator === undefined ? {} : { arbitrator: agent(policy.arbitrator, implementation.provider) }) };
+  }
   if (review.provider === implementation.provider) throw new Error('The guided workflow requires the other provider for independent review');
   if (!Array.isArray(value.slices) || value.slices.length !== (brief.slices?.length ?? 1)) throw new Error('Supply one execution configuration for each approved slice (one for an unsliced brief)');
   const earlierCreations = new Set<string>();
@@ -117,7 +127,8 @@ export function normalizeGuidedPlan(input: unknown, directory = process.cwd()): 
     if (/Grampus-Delivery:/i.test(message)) throw new Error('Commit message cannot contain the reserved Grampus-Delivery marker');
     return { scope, mode, validation: command(item.validation, false), acceptance: command(item.acceptance, true) as GuidedSlice['acceptance'], message };
   });
-  return { brief, workspace: { repo, base, adapter, ...(path ? { path } : {}) }, implementation, review, slices, context, ...(references.length ? { references } : {}) };
+  return { brief, workspace: { repo, base, adapter, ...(path ? { path } : {}) }, implementation, review, slices, context,
+    ...(reviewPolicy ? { reviewPolicy } : {}), ...(references.length ? { references } : {}) };
 }
 
 export function guidedPlanDigest(plan: GuidedPlan): string {

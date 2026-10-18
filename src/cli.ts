@@ -21,6 +21,9 @@ import type { SimplificationAssessment } from './checks.js';
 import { defaultDashboardPort, updateInstallation, versionInformation, versionLabel } from './runtime.js';
 
 const help = `Grampus — local agent controller
+  task-revise <id> <version> <file.json>  Revise a settled recipe; retain files and require fresh approval
+  task-release-workspace <id>     Release a proved-unused failed standalone reservation
+  workspace-release <id>          Release unused reservation metadata without deleting files or branches
 
   grampus                        Open the local dashboard
   --version, -v                  Show version and build
@@ -139,7 +142,7 @@ async function main(): Promise<void> {
     return;
   }
   if (action.startsWith('task-')) {
-    const commands = ['task-new', 'task-show', 'task-approve', 'task-run', 'task-authorize', 'task-assess', 'task-answer', 'task-retry', 'task-stop', 'task-recover'];
+    const commands = ['task-new', 'task-show', 'task-revise', 'task-release-workspace', 'task-approve', 'task-run', 'task-authorize', 'task-assess', 'task-answer', 'task-retry', 'task-stop', 'task-recover'];
     if (!commands.includes(action) || !id) throw new Error('A supported guided task command and argument are required');
     const store = new Store(values.db ?? defaultDatabasePath());
     const abort = new AbortController(), stop = () => abort.abort();
@@ -150,6 +153,11 @@ async function main(): Promise<void> {
       if (action === 'task-new') {
         const file = resolve(id);
         taskId = tasks.create(JSON.parse(readFileSync(file, 'utf8')), dirname(file)).id;
+      } else if (action === 'task-revise') {
+        const expectedVersion = Number(version);
+        if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1 || !positionals[3]) throw new Error('task-revise requires the current version and revised plan JSON file');
+        const file = resolve(positionals[3]);
+        await tasks.revise(id, JSON.parse(readFileSync(file, 'utf8')), dirname(file), expectedVersion);
       } else if (action === 'task-approve') {
         const expectedVersion = Number(version);
         if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1 || !positionals[3]) throw new Error('Approval requires a positive version and the displayed plan digest');
@@ -161,6 +169,7 @@ async function main(): Promise<void> {
         if (!version) throw new Error('task-answer requires an answers JSON file');
         await tasks.answer(id, JSON.parse(readFileSync(version, 'utf8')), abort.signal);
       } else if (action === 'task-retry') await tasks.retry(id, abort.signal);
+      else if (action === 'task-release-workspace') await tasks.releaseWorkspace(id);
       else if (action === 'task-stop') tasks.stop(id);
       else if (action === 'task-recover') await tasks.recover(id);
       console.log(values.json ? JSON.stringify(guidedTaskView(store, taskId), null, 2) : renderGuidedTask(store, taskId, values.details));
@@ -173,7 +182,7 @@ async function main(): Promise<void> {
     return;
   }
   if (action.startsWith('workspace-')) {
-    if (!['workspace-new', 'workspace-list', 'workspace-show', 'workspace-inspect', 'workspace-recover'].includes(action)) throw new Error('Unknown workspace command');
+    if (!['workspace-new', 'workspace-list', 'workspace-show', 'workspace-inspect', 'workspace-recover', 'workspace-release'].includes(action)) throw new Error('Unknown workspace command');
     if (action !== 'workspace-list' && !id) throw new Error(`${action} requires an argument`);
     const store = new Store(values.db ?? defaultDatabasePath());
     try {
@@ -194,6 +203,7 @@ async function main(): Promise<void> {
       if (action === 'workspace-show') console.log(JSON.stringify({ workspace: workspaces.get(id!), events: store.workspaceEvents(id!) }, null, 2));
       if (action === 'workspace-inspect') console.log(JSON.stringify(await workspaces.inspect(id!), null, 2));
       if (action === 'workspace-recover') console.log(JSON.stringify(await workspaces.recover(id!), null, 2));
+      if (action === 'workspace-release') console.log(JSON.stringify(await workspaces.release(id!), null, 2));
     } finally { store.close(); }
     return;
   }

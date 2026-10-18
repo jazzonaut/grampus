@@ -27,6 +27,32 @@ function expected(view: any) {
     instructionsDigest: s.snapshot?.instructionsDigest ?? null, executionId: s.executionId, reviewId: s.reviewId, questionKey: view.questionKey ?? null });
 }
 
+test('dashboard revisions run in an isolated worker and stale approval cannot approve the new version', async t => {
+  const f = fixture(t), ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
+  t.after(async () => { await ui.close(); f.cleanup(); });
+  const tasks = new GuidedTasks(ui.store), task = tasks.create(f.plan), id = task.id;
+  const url = new URL(ui.url), headers = { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' };
+  const view = async () => (await fetch(`${url.origin}/api/tasks/${id}`, { headers })).json() as Promise<any>;
+  const post = (action: string, body: unknown) => fetch(`${url.origin}/api/tasks/${id}/${action}`, { method: 'POST', headers, body: JSON.stringify(body) });
+  const original = await view(), plan = structuredClone(original.state.plan); plan.brief.outcome = 'Revised observable output';
+  plan.reviewPolicy = { repairRounds: 1, arbitrator: { provider: 'codex' } };
+  assert.equal((await post('revise', { expected: 'stale', plan })).status, 400);
+  assert.equal((await post('revise', { expected: expected(original), plan })).status, 202);
+  const deadline = Date.now() + 15000;
+  let state: any;
+  do {
+    state = await (await fetch(url.origin + '/api/state', { headers })).json();
+    if (!state.jobs[id]?.running) break;
+    await new Promise(resolve => setTimeout(resolve, 30));
+  } while (Date.now() < deadline);
+  assert.equal(state.jobs[id]?.running, false); assert.equal(state.jobs[id]?.error, null);
+  const revised = await view(); assert.equal(revised.state.version, 2); assert.equal(revised.state.status, 'draft');
+  assert.equal(revised.state.plan.reviewPolicy.repairRounds, 1);
+  assert.equal(ui.store.workspaces().length, 0); assert.equal(ui.store.sessions().length, 0);
+  assert.equal((await post('approve', { expected: expected(original), version: 1, digest: original.state.digest })).status, 400);
+  assert.equal((await post('approve', { expected: expected(revised), version: 2, digest: revised.state.digest })).status, 200);
+});
+
 test('file authorization shows exact edit contents even when the task has no initial file hints', async t => {
   const f = fixture(t), ui = await startUi({ db: join(f.root, 'journal.sqlite'), port: 0 });
   t.after(async () => { await ui.close(); f.cleanup(); });
