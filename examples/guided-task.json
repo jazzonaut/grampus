@@ -1,0 +1,22 @@
+{
+  "brief": {
+    "title": "Update the greeting",
+    "outcome": "Make greeting.js print hello world followed by one newline.",
+    "criteria": ["Running node greeting.js exits zero and prints exactly hello world followed by one newline."],
+    "plan": "Edit the existing greeting.js, check its syntax, inspect simplification, obtain independent review and verify the output before making a local commit."
+  },
+  "workspace": {
+    "repo": "../../small-project",
+    "path": "../../small-project-grampus",
+    "base": "HEAD"
+  },
+  "implementation": { "provider": "codex" },
+  "slices": [
+    {
+      "scope": { "files": ["greeting.js"] },
+      "validation": { "name": "Greeting syntax", "file": "node", "args": ["--check", "greeting.js"] },
+      "acceptance": { "name": "Greeting output", "file": "node", "args": ["greeting.js"], "expectedStdout": "hello world\n" },
+      "message": "Update the greeting"
+    }
+  ]
+}

@@ -25,7 +25,62 @@ with per-slice simplification, reviews and final whole-task acceptance.
 The user continued implementation in the
 same session and authorized pushing the repository.
 
+## Current Windows alpha checkpoint
+
+The first recovery investigation reproduced rapid Windows PID reuse. Workspace
+leases and supervisor receipts now retain exact OS creation times so recovery can
+distinguish replacement processes from original owners. Live original owners,
+unknown observations, invalid receipts and legacy uncertainty remain blocked.
+Ordinary conversation and workspace-creation recovery still use PID-only rules.
+
+Six new identity tests include a real native receipt. A differential stress probe
+accepted 12 actual recycled controller PIDs in 168 launches; the former guard would
+have refused them. The default-parallel Node 25.8.1 full suite passed all 198 tests.
+The final default-parallel Node 24.22.0 full run also passed all 198 tests without
+failures or skips. The follow-up Node 25 pilot/identity run passed 14 tests after extending recovery through
+a fresh attempt, actual validation/acceptance and a verified local commit. Its
+provider responses and independent review are explicitly offline fixtures.
+Build/type and whitespace checks passed. No live inference or new Orca-host pilot
+was run. See [INTEGRATION-EVIDENCE.md](INTEGRATION-EVIDENCE.md) for the full validation record.
+The next implementation adds a foreground guided workflow using those controller
+gates; see the checkpoint below. Keep the scope small and preserve actionable
+states for questions, failed checks, blocking findings and uncertain shutdown.
+
+## Guided execution checkpoint
+
+`task-new/show/approve/run/authorize/assess/answer/retry/stop/recover` now connect
+the existing controller from a frozen authored JSON brief to local verified
+delivery. Approval covers the complete execution recipe and pinned base, not just
+the brief. Exact scope/instructions and explicit simplification remain separate
+checkpoints. The runner serializes active guided controllers per journal and
+retains ownership across uncertain settlement. It never automatically replays
+provider turns or Git writes. See [GUIDED-WORKFLOW.md](GUIDED-WORKFLOW.md).
+
+The focused tests exercise real supervised file changes/checks/commits with offline
+provider responses: review repair through a fresh attempt, both kinds of questions,
+sequential slices, no-change delivery, cross-process stop requests, unknown shutdown,
+lost completed implementation/delivery, assessment input and journal failure after
+verified delivery. The journal-failure regression failed before its fix. Complete
+runtime verification is recorded in the latest integration-evidence section.
+The complete default-parallel suites now pass all 217 tests on Node 24.22.0 and
+Node 25.8.1 without failures or skips. The initial Node 24 run exposed a native
+job-accounting race after root exit; bounded
+settlement now requires the actual zero process count within the original deadline.
+The new rapid-exit regression and existing hanging-child/timeout checks pass.
+Build/type and whitespace checks pass. The new guided tests use offline provider
+replies; no live inference or new Orca-host trial was run for this change.
+
+The next product work is conversational kickoff/clarification and the basic
+interface around this shared controller. Run a live guided small-project trial
+before treating its fixture evidence as live product validation. No automatic
+repair/arbitration, recipe rebinding, background scheduler or installer was added.
+
 ## Read first
+
+The user has now chosen a small Windows alpha as the next release target. Follow
+[RELEASE.md](RELEASE.md) for its scope and release gates: recovery reliability,
+one guided task workflow, a basic interface, real-project trials and distribution.
+The broader three-platform design remains the product direction.
 
 1. [DESIGN.md](../DESIGN.md): agreed product behavior, autonomy, reviews and delivery.
 2. [README.md](../README.md): commands and current limitations.
@@ -179,6 +234,16 @@ contains the durable summary, and the probe script can reproduce the checks.
 
 ## Next implementation slice: broader tasks and recovery pilots
 
+The immediate priority is now the Windows alpha in [RELEASE.md](RELEASE.md).
+Recovery investigation demonstrated rapid PID reuse. New workspace leases and
+terminal receipts bind Windows controllers/supervisors to exact creation times;
+legacy records, unknown observations and live original owners remain blocked.
+See the latest integration-evidence section for the regression and stress proof.
+The PID-reuse fix and fresh-attempt completion path pass offline verification
+on both Node versions. A foreground guided task workflow now connects the gates;
+finish its live validation, conversational kickoff and basic interface next.
+The follow-ups below remain useful validation work.
+
 Start with the existing source and a small concrete plan. Do not rebuild the
 controller or broaden into the dashboard first.
 
@@ -253,7 +318,10 @@ skipped checks, uncertain liveness and provisional decisions explicitly.
   UTF-8 text and a bounded prompt; provider tools remain disabled.
 - Effort/model presets, retry/escalation allowances and global concurrency values
   are not chosen. Probe models are observed defaults, not product presets.
-- Unknown provider PIDs and reused/live PIDs block recovery. There is no automatic
+- Unknown provider PIDs and live original owners block recovery. New workspace
+  operation leases and receipts can distinguish recycled Windows PIDs by creation
+  time; legacy records, ordinary conversations and workspace creation still use
+  conservative PID-only recovery. There is no automatic
   process adoption, force-stop command or heartbeat mechanism.
 - `check-recover` requires a persisted pre-dispatch boundary or matching completion
   receipt plus absent controller/supervisor on the same host. It never accepts a lost

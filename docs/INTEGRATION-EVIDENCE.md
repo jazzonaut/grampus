@@ -709,6 +709,136 @@ and Claude Code 2.1.300 with first-party subscription authentication. No separat
 billed API access was enabled. Reverse pairing, multi-slice Orca-host execution,
 Node 24, macOS and Linux were not exercised in this slice.
 
+## Windows alpha recovery identity — 18 October 2026
+
+The user selected a small Windows alpha before broader platform support; its scope
+and release gates are recorded in [RELEASE.md](RELEASE.md).
+
+The initial default-parallel baseline passed all 192 tests on Windows, Node 25.8.1.
+That passing run does not invalidate the earlier intermittent liveness failures.
+A short process-churn probe demonstrated actual PID reuse. A subsequent differential
+probe recorded 12 instances in 168 process launches where the current process had a
+previously retired PID and a different OS creation time. The previous PID-only check
+would block all 12; creation-bound controller recovery accepted all 12 without
+terminating any process. Raw observations remain under ignored `.grampus/`.
+
+New workspace leases persist the controller's exact creation FILETIME as a decimal
+string, and the native supervisor includes its creation time in terminal receipts.
+Recovery can now distinguish replacement processes from live original owners.
+Unknown/denied observations, malformed identities, mismatched receipts and live
+owners still block. Old records without creation times retain PID-only recovery.
+Recovery takeover replaces the controller creation time together with its PID.
+No journal schema or receipt protocol version change is required. Ordinary
+conversation and workspace-creation recovery keep their existing PID-only rules.
+
+Two deterministic replacement-owner regressions failed before the fix. The six
+identity tests now cover real OS observation, missing/unknown states, live and
+replacement owners, legacy records, unavailable inspection, receipt binding and an
+actual supervised receipt whose exact creation time matches its live observation.
+The focused check/delivery/interruption-pilot run passed 55 tests, including real
+controller exits and preserved existing/new/deleted files. This establishes the
+PID-reuse failure mechanism, not that every historical liveness refusal had that
+cause.
+
+The default-parallel complete run passed all 198 tests on Node 25.8.1 without
+failures or skips. The expanded pilot/identity follow-up passed all 14 tests,
+including completing a recovered task through a fresh native implementation
+attempt under the original version-1 approval. It refuses the stale execution,
+preserves the interruption history, runs actual library/CLI validation and exact
+acceptance, records explicit simplification and fixture other-provider review,
+and delivers one supervised commit on the original baseline with a clean checkout.
+Provider replies in that continuation are offline fixtures, not live inference or
+independent review of Grampus itself.
+
+The final default-parallel Node 24.22.0 run also passed all 198 tests without
+failures or skips, including the expanded recovery-to-completion fixture. Runtime
+suites were run sequentially. Build/type checking and `git diff --check` passed.
+No provider inference, live Orca-host run or other-platform validation was performed
+for this change. Existing process settlement, receipt matching and content/delivery
+checks were retained. Diagnostic sources and the temporary regression build were
+removed; local result logs remain ignored.
+
+The process identity implementation uses Microsoft's documented
+[Process.StartTime](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.process.starttime)
+and preserves the exact [Windows FILETIME representation](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes).
+
+## Guided foreground task workflow — 18 October 2026
+
+The new task-level CLI connects the existing controller gates from an authored
+JSON brief to verified local delivery. The complete normalized recipe and pinned
+base are approved by digest. Exact file/instruction authorization and explicit
+simplification remain checkpoints; provider replies never supply those approvals.
+Foreground progression stops on questions, failed/skipped checks, blocking findings
+and uncertain shutdown. Ordered slices retain independent gates and final whole-task
+acceptance. No-change recipes run all gates without implementation inference.
+
+A durable guided owner serializes active guided controllers in one journal. Intent
+precedes every leaf call and records the original controller identity and known
+result ids. Recovery checks the exact policy/command/delivery request and originating
+lease before adopting an existing result. It starts no provider turn or Git write.
+Cross-process stop requests reach the actual supervised tool through AbortSignal.
+Explicit retry preserves files and uses a fresh execution/session and fresh gates.
+
+The initial focused runs passed 9 workflow tests, then 4 control/question/sequential
+tests. A newly injected failure in the guided journal after successful delivery
+exposed discarded pending intent; that regression failed before the fix. The fix
+retains intent/ownership when a leaf has returned or recorded results, even if the
+subsequent guided update fails. That regression and a crash after entering an
+assessment both passed in a two-test follow-up. Assessment input is persisted with
+its artifact before execution, while a started assessment with no settled verdict
+requires a new explicit assessment.
+
+The default-parallel complete Node 25.8.1 run passed all 216 tests with no failures
+or skips, including 18 new guided tests. They exercise actual supervised file writes,
+regression/acceptance commands and Git commits; implementation and review replies
+are explicitly offline fixtures. The cases cover CLI draft/approval/setup across
+processes, stale authorization, review repair, implementation/review questions,
+no-change delivery, global ownership, real tool interruption from another CLI,
+unknown shutdown, sequential scopes and complete final acceptance, controller exits,
+journal failure after commit, persisted assessment input, failed validation and
+acceptance, and rejection of a corrupted result policy during recovery.
+
+These are not live independent review of Grampus or a live guided project trial.
+The existing live fixture pilots continue to demonstrate the underlying provider
+and workspace integrations separately. Conversational kickoff, automatic repair/
+arbitration, recipe rebinding, the browser interface and distribution remain work.
+The walkthrough is [GUIDED-WORKFLOW.md](GUIDED-WORKFLOW.md), with a portable example
+in [examples/guided-task.json](../examples/guided-task.json).
+
+### Job settlement race found during Node 24 validation
+
+The first complete Node 24.22.0 run passed 214/216. Two guided fixtures stopped
+before assessment; their original assertions hid that earlier state. Adding
+checkpoint assertions and a minimal real-process loop reproduced the underlying
+supervisor issue: 2/40 zero-exit commands with no application children were reported
+as `descendants_remaining`. Diagnostic observation at a higher frequency raised
+that to 13/40. The root handle was signalled while the accounting count was one;
+most subsequent PID-list snapshots were already empty. This demonstrates that an
+instantaneous root-exit/accounting observation can falsely reject completed work.
+
+The helper now observes job settlement for up to 100 ms after root exit, within
+the original deadline and with cancellation active. Success still requires an
+actual zero active-process count. Children surviving the window fail and are
+terminated; final zero-count confirmation and receipt/ownership guards are retained.
+No process is exempted by image name or PID. The accelerated 40-command loop then
+passed all 40; after restoring the normal observation interval and removing every
+diagnostic hook, the original 40-command loop also passed all 40.
+
+A permanent 24-command regression plus real timeout, hanging-child and the two
+affected guided cases passed all 5 focused tests on Node 24. Microsoft's
+[job accounting contract](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_accounting_information)
+describes the retained-reference counter, and its
+[job process-list structure](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_process_id_list)
+was used only for diagnosis.
+
+The final default-parallel suites passed all 217 tests on both Node 24.22.0 and
+Node 25.8.1 without failures, cancellations or skips after the settlement fix.
+The runtime runs were sequential and took approximately 313 and 308 seconds,
+respectively. They include 18 new guided tests and the new rapid-exit regression.
+Build/type and whitespace checks also passed. Provider replies in these new tests
+are offline fixtures; no live inference or new Orca-host trial was run for this
+change.
+
 ## Primary references consulted
 
 The delivery slice also consulted Git's official [git-add](https://git-scm.com/docs/git-add)

@@ -6,6 +6,9 @@ The design targets Windows, macOS, and Linux, with complete operation both with 
 
 The [design and decision record](DESIGN.md) captures the requirements agreed during discovery, proposed architecture, and remaining implementation questions.
 
+The immediate release target is a [small Windows alpha](docs/RELEASE.md), with
+dependable recovery and one guided task workflow before broader platform support.
+
 Current state: the durable controller, live conversations, Git/Orca workspaces and
 task-linked sessions with exclusive workspace ownership are implemented. Explicit
 repository checks on Windows now produce content-bound validation evidence, with
@@ -18,6 +21,9 @@ Supervised local delivery binds checked content to a commit and supports explici
 recovery without replaying Git writes.
 Approved briefs can include ordered slices. Each slice needs fresh evidence and
 supervised delivery; the final slice verifies every task criterion.
+A guided Windows CLI now connects those gates with whole-plan approval, exact
+file authorization, explicit simplification, questions, stop/retry controls and
+restart reconciliation. It still starts from an authored JSON brief.
 They include a SQLite journal, versioned task approval, completion gates, Codex and
 Claude conversations, structured questions and review findings, interruption,
 reconnection, local integration discovery and journaled worktree creation.
@@ -26,6 +32,11 @@ in standalone and local Orca Windows workspaces. Broader tools, scheduling, the 
 and installers remain to be built.
 
 ## Try the first slice
+
+For the guided Windows workflow, start with
+[the guided task walkthrough](docs/GUIDED-WORKFLOW.md). It connects the existing
+gates with task-level commands, explicit file authorization and simplification
+checkpoints, next-action guidance and restart reconciliation.
 
 Requires Node.js 24 or newer. From this checkout:
 
@@ -416,8 +427,10 @@ Ignored build outputs/dependencies, external services and environment values are
 part of the digest. Symlinks, submodules and unresolved indexes are currently refused.
 
 Each check journals intent and claims the workspace before dispatch. Windows Job
-Objects supervise ordinary descendants. A timeout, interruption, nonzero exit, leftover
-child process, changed repository input or unknown shutdown cannot pass. The journal
+Objects supervise ordinary descendants. After root exit, a cancellable settlement
+window of at most 100 ms waits for the job count to reach zero, within the original
+tool deadline. A timeout, interruption, nonzero exit, child process remaining beyond
+that window, changed repository input or unknown shutdown cannot pass. The journal
 retains up to 64 KiB per output stream and flags truncation; output exceeding a monitored
 2 MiB combined threshold stops the job. These are diagnostics, not an output oracle.
 
@@ -442,9 +455,13 @@ npm start -- check-recover <check-id>
 npm start -- execution-recover <execution-id>
 ```
 
-Recovery requires the previous controller to be absent on the same host. A dispatched
+Recovery requires the previous controller to have exited on the same host. A dispatched
 check additionally requires a matching supervisor receipt proving the tool job settled,
-and an absent supervisor. The receipt is flushed before replying to the controller.
+and an exited supervisor. New Windows leases and receipts record exact process
+creation times, allowing recovery to distinguish a recycled process id from the
+original owner. Live owners and unknown identities still block recovery; older
+records without creation times require the process id to be absent.
+The receipt is flushed before replying to the controller.
 The hidden supervisor host survives a controller crash long enough to stop its job
 and write the receipt. Dead process ids alone cannot release a dispatched check.
 

@@ -11,6 +11,7 @@ import { allocateReceipt, readReceipt, requireDeadController, type CheckReceipt 
 import { runCheckProcess, retainedOutput, type CheckProcessOptions, type CheckProcessResult } from './check-process.js';
 import { parseReply, type TurnResult } from './agents/types.js';
 import type { RepositorySnapshot } from './artifacts.js';
+import { currentProcessStartedAt } from './process-identity.js';
 
 export interface ImplementationRun {
   id: string; executionId: string; policy: EditPolicy;
@@ -112,7 +113,7 @@ export class Implementations {
         run.process = { ...readReceipt(run.receipt, run.supervisorPid, run.toolPid), ...retainedOutput(run.receipt.directory) };
       }
       this.store.releaseLease(execution.workspaceId, execution.id, run.id);
-      this.store.acquireLease(execution.workspaceId, execution.id, run.id, { ...lease, controllerPid: process.pid });
+      this.store.acquireLease(execution.workspaceId, execution.id, run.id, { ...lease, controllerPid: process.pid, controllerStartedAt: currentProcessStartedAt() });
       const session = new Sessions(this.store).get(execution.sessionId);
       if (session.run?.id !== run.id) throw new Error('Implementation session ownership changed');
       session.run.controllerPid = process.pid; session.phase = 'stop_requested'; this.store.saveSession(session.id, session);

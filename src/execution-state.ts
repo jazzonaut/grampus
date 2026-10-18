@@ -5,6 +5,7 @@ import type { Session } from './sessions.js';
 import type { Task } from './workflow.js';
 import type { Workspace } from './workspaces.js';
 import { Store } from './store.js';
+import { currentProcessStartedAt } from './process-identity.js';
 
 export interface Execution {
   id: string;
@@ -25,6 +26,7 @@ export interface ExecutionLease {
   sessionId: string;
   runId: string;
   controllerPid: number;
+  controllerStartedAt?: string | null;
   host: string;
   kind?: 'conversation' | 'snapshot' | 'check' | 'submission' | 'simplification' | 'verification' | 'completion' | 'delivery' | 'implementation';
   readOnlyRecovery?: true;
@@ -86,7 +88,8 @@ export function claimExecution(store: Store, session: Session, runId: string, ki
     const part = relative(directory, canonical(other.cwd, true));
     return part === '' || (part !== '..' && !part.startsWith(`..${sep}`) && !isAbsolute(part));
   })) throw new Error('Workspace has another active or uncertain session; reconcile it first');
-  const lease: ExecutionLease = { executionId: execution.id, sessionId: session.id, runId, controllerPid: process.pid, host: hostname(), kind,
+  const lease: ExecutionLease = { executionId: execution.id, sessionId: session.id, runId, controllerPid: process.pid,
+    controllerStartedAt: currentProcessStartedAt(), host: hostname(), kind,
     ...(['snapshot', 'submission', 'simplification', 'completion'].includes(kind) ? { readOnlyRecovery: true as const } : {}) };
   store.acquireLease(workspace.id, execution.id, runId, lease);
   store.appendExecution(execution.id, 'lease.acquired', lease);

@@ -60,6 +60,7 @@ export interface Task {
   attempt: Attempt | null;
   evidence: Evidence[];
   decisions: { id: string; version: number; rationale: string; accepted: boolean }[];
+  guided?: import('./guided-tasks.js').GuidedState;
   slice?: {
     index: number;
     completed: { index: number; attemptId: string; artifact: string; deliveryId: string;
@@ -85,7 +86,7 @@ function nonempty(value: string, field: string): void {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${field} must not be empty`);
 }
 
-function validateBrief(brief: Brief): void {
+export function validateBrief(brief: Brief): void {
   nonempty(brief.title, 'title');
   nonempty(brief.outcome, 'outcome');
   nonempty(brief.plan, 'plan');

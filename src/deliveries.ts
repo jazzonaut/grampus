@@ -11,6 +11,7 @@ import { captureRepository } from './repository-evidence.js';
 import { allocateReceipt, readReceipt, requireDeadController, type CheckReceipt } from './check-recovery.js';
 import { runCheckProcess, retainedOutput, type CheckProcessOptions, type CheckProcessResult } from './check-process.js';
 import { gitText, verifyCommit, verifyNoChange, type DeliveryRequest } from './delivery-git.js';
+import { currentProcessStartedAt } from './process-identity.js';
 
 export interface DeliverySpec { artifact: string; instructionsDigest: string; message: string; timeoutMs: number; mode?: 'commit' | 'no_change' }
 export interface Delivery {
@@ -139,7 +140,7 @@ export class Deliveries {
         delivery.result = { ...readReceipt(delivery.receipt, delivery.supervisorPid, delivery.toolPid), ...retainedOutput(delivery.receipt.directory) };
       }
       this.store.releaseLease(execution.workspaceId, execution.id, id);
-      this.store.acquireLease(execution.workspaceId, execution.id, id, { ...lease, controllerPid: process.pid });
+      this.store.acquireLease(execution.workspaceId, execution.id, id, { ...lease, controllerPid: process.pid, controllerStartedAt: currentProcessStartedAt() });
       this.save(delivery, 'delivery.recovery_started');
     });
     try {

@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util';
 import { mkdtempSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Store, defaultDatabasePath } from './store.js';
 import { Workflow, type Brief } from './workflow.js';
@@ -15,6 +15,9 @@ import type { Execution } from './execution-state.js';
 import { Checks, type CheckSpec } from './checks.js';
 import { Deliveries } from './deliveries.js';
 import { Implementations } from './implementations.js';
+import { GuidedTasks } from './guided-tasks.js';
+import { guidedTaskView, renderGuidedTask } from './guided-status.js';
+import type { SimplificationAssessment } from './checks.js';
 
 const help = `Grampus — local agent controller
 
@@ -25,6 +28,17 @@ const help = `Grampus — local agent controller
   list                           List stored tasks
   show <task-id>                  Show a task and completion blockers
   report <task-id>                Print a Markdown report from the journal
+  task-new <plan.json>            Prepare a guided task; no workspace creation or inference
+  task-show <task-id>             Show progress and next action (--details or --json)
+  task-approve <id> <version> <digest> Approve the entire guided plan shown above
+  task-run <id>                   Advance until input is needed or work stops
+  task-authorize <id>             Authorize the inspected file scope and continue
+  task-assess <id> --outcome passed|failed|skipped --summary <text>
+                                  Record explicit simplification and continue
+  task-answer <id> <answers.json> Answer pending questions and continue
+  task-retry <id>                 Start a fresh attempt after a settled failure
+  task-stop <id>                  Request a running guided controller to stop
+  task-recover <id>               Reconcile saved results; never replay provider/Git work
   workspace-new <task-id> <version>  Create a worktree (--repo, --path, optional --base)
                                   Orca mode: --orca --repo <path> --base <ref>; omit --path
   workspace-list                 List workspace reservations
@@ -61,7 +75,8 @@ const help = `Grampus — local agent controller
 Use --db <path> for persistent task commands, or GRAMPUS_HOME for the data directory.
 Live sessions use existing subscriptions. Ctrl+C requests interruption and waits for process exit.
 --timeout-ms defaults to 120000; --interrupt-after-ms exercises cancellation after turn start.
-The demo remains synthetic. Provider tools and unattended scheduling remain disabled.`;
+The demo remains synthetic. General provider tools and unattended scheduling remain disabled.
+Native file editing requires explicit authorization.`;
 
 async function main(): Promise<void> {
   const { positionals, values } = parseArgs({
@@ -69,6 +84,7 @@ async function main(): Promise<void> {
     options: { db: { type: 'string' }, orca: { type: 'boolean', default: false }, help: { type: 'boolean', short: 'h' },
       cwd: { type: 'string' }, model: { type: 'string' }, 'prompt-file': { type: 'string' },
       'answers-file': { type: 'string' },
+      json: { type: 'boolean' }, details: { type: 'boolean' }, outcome: { type: 'string' }, summary: { type: 'string' },
       repo: { type: 'string' }, path: { type: 'string' }, base: { type: 'string' },
       role: { type: 'string' }, 'fallback-reason': { type: 'string' },
       'timeout-ms': { type: 'string' }, 'interrupt-after-ms': { type: 'string' } },
@@ -89,6 +105,40 @@ async function main(): Promise<void> {
     try { console.log(renderReport(store, taskId)); }
     finally { store.close(); }
     console.log(`\nRetained demo database: ${path}`);
+    return;
+  }
+  if (action.startsWith('task-')) {
+    const commands = ['task-new', 'task-show', 'task-approve', 'task-run', 'task-authorize', 'task-assess', 'task-answer', 'task-retry', 'task-stop', 'task-recover'];
+    if (!commands.includes(action) || !id) throw new Error('A supported guided task command and argument are required');
+    const store = new Store(values.db ?? defaultDatabasePath());
+    const abort = new AbortController(), stop = () => abort.abort();
+    process.on('SIGINT', stop);
+    try {
+      const tasks = new GuidedTasks(store);
+      let taskId = id;
+      if (action === 'task-new') {
+        const file = resolve(id);
+        taskId = tasks.create(JSON.parse(readFileSync(file, 'utf8')), dirname(file)).id;
+      } else if (action === 'task-approve') {
+        const expectedVersion = Number(version);
+        if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1 || !positionals[3]) throw new Error('Approval requires a positive version and the displayed plan digest');
+        tasks.approve(id, expectedVersion, positionals[3]);
+      } else if (action === 'task-run') await tasks.run(id, abort.signal);
+      else if (action === 'task-authorize') await tasks.authorize(id, abort.signal);
+      else if (action === 'task-assess') await tasks.assess(id, values.outcome as SimplificationAssessment['outcome'], values.summary!, abort.signal);
+      else if (action === 'task-answer') {
+        if (!version) throw new Error('task-answer requires an answers JSON file');
+        await tasks.answer(id, JSON.parse(readFileSync(version, 'utf8')), abort.signal);
+      } else if (action === 'task-retry') await tasks.retry(id, abort.signal);
+      else if (action === 'task-stop') tasks.stop(id);
+      else if (action === 'task-recover') await tasks.recover(id);
+      console.log(values.json ? JSON.stringify(guidedTaskView(store, taskId), null, 2) : renderGuidedTask(store, taskId, values.details));
+      const state = tasks.get(taskId);
+      if (!['task-new', 'task-show', 'task-approve', 'task-stop'].includes(action)) {
+        if (abort.signal.aborted || state.stopRequested) process.exitCode = 130;
+        else if (['blocked', 'recovery_required'].includes(state.status)) process.exitCode = 1;
+      }
+    } finally { process.off('SIGINT', stop); store.close(); }
     return;
   }
   if (action.startsWith('workspace-')) {

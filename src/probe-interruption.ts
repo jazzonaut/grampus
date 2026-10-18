@@ -12,7 +12,7 @@ import { Workspaces, type Workspace } from './workspaces.js';
 import type { Execution, ExecutionLease } from './execution-state.js';
 import type { EditPolicy } from './edit-policy.js';
 import type { ImplementationRun } from './implementations.js';
-import { processAlive, readReceipt } from './check-recovery.js';
+import { readReceipt } from './check-recovery.js';
 import { fixtureFiles } from './multifile-fixture.js';
 
 const cli = fileURLToPath(new URL('./cli.js', import.meta.url));
@@ -67,7 +67,13 @@ export async function interruptAfterEdit(store: Store, execution: Execution, wor
     assert.equal(run.phase, 'running', 'The controller must have crashed before settlement');
     assert.ok(run.receipt && run.supervisorPid, 'Dispatched implementation needs durable supervisor identity');
     const receiptDeadline = Date.now() + 30_000;
-    while (!existsSync(join(run.receipt.directory, 'completion.json')) || processAlive(run.supervisorPid)) {
+    while (true) {
+      if (existsSync(join(run.receipt.directory, 'completion.json'))) {
+        try { readReceipt(run.receipt, run.supervisorPid, run.toolPid); break; }
+        catch (error) {
+          if (!(error instanceof Error) || error.message !== 'Supervisor is still alive or unverifiable') throw error;
+        }
+      }
       assert.ok(Date.now() < receiptDeadline, 'Supervisor did not leave terminal settlement proof; retain the lease for investigation');
       await delay(50);
     }

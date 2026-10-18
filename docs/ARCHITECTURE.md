@@ -9,6 +9,12 @@ sequence. Product requirements that appear there are not automatically implement
 ```mermaid
 flowchart TD
     CLI[Terminal commands] --> Workflow[Task workflow]
+    CLI --> Guided[Guided task runner]
+    Guided --> Workflow
+    Guided --> Executions
+    Guided --> Checks
+    Guided --> Deliveries
+    Guided --> Implementations
     CLI --> Sessions[Conversation runner]
     CLI --> Workspaces[Workspace lifecycle]
     CLI --> Executions[Task and session bindings]
@@ -47,6 +53,9 @@ conversation reply to repository changes, evidence acceptance or task completion
 | File | Responsibility |
 | --- | --- |
 | `src/cli.ts` | Parse commands; task and conversation entry points; Ctrl+C handling |
+| `src/guided-plan.ts` | Validate/freeze guided execution recipes, pin Git bases and hash complete approval inputs |
+| `src/guided-tasks.ts` | Journal foreground step intent, serialize guided controllers, drive existing gates and reconcile results |
+| `src/guided-status.ts` | Read saved progress, questions, findings and next commands for the CLI and future interface |
 | `src/store.ts` | SQLite schema, transactions, state snapshots and journal access |
 | `src/workflow.ts` | Versioned brief approval, attempts, evidence, decisions and completion |
 | `src/sessions.ts` | Claim a conversation, persist events, run one turn, stop and reconcile |
@@ -63,6 +72,7 @@ conversation reply to repository changes, evidence acceptance or task completion
 | `src/check-process.ts` | Control the Windows supervisor and retain bounded command output |
 | `src/check-host.ts` | Hidden detached host that forwards controller lifetime to the native helper |
 | `src/check-recovery.ts` | Allocate receipt storage, validate completion proofs and check controller absence |
+| `src/process-identity.ts`, `src/native/process.ps1` | Observe Windows process creation times and distinguish a recycled PID from its former owner |
 | `src/repository-evidence.ts` | Collect stable workspace snapshots and bounded text review context |
 | `src/native/check.ps1`, `src/native/check.cs` | Compile and run the Windows Job Object helper |
 | `src/agents/types.ts` | Provider contract, reply validation, usage fields and subscription environment |
@@ -82,6 +92,12 @@ Codex and optional Orca are discovered separately. No browser server or installe
 has been built.
 
 ## Persistence
+
+Guided tasks add an optional `guided` field to the existing task snapshot. The
+complete normalized plan, approval digest, stage, checkpoint, pending leaf request
+and controller identity are saved with their task journal events in existing
+transactions. Schema 10 remains compatible; ordinary tasks do not acquire this
+field. The guided controller never treats a provider response as a task-state API.
 
 Schema version 10 contains twelve tables:
 
@@ -372,8 +388,12 @@ is implied. The workspace root is the working directory; the environment is inhe
 
 The supervisor observes timeout, controller pipe closure and cancellation. It checks
 the job's active process count, terminates remaining descendants, and confirms zero
-before reporting settlement. A tool that exits zero but leaves children is a failed
-check. A helper crash closes the job handle but supplies no controller confirmation:
+before reporting settlement. A signalled root handle may precede the job's accounting
+update. The helper observes a cancellable drain of at most 100 ms after root exit,
+capped by the original tool deadline. Zero active processes are still required for
+success; a zero-exit root whose children remain beyond that window fails and its
+job is terminated. The same final zero-count confirmation precedes every receipt.
+A helper crash closes the job handle but supplies no controller confirmation:
 the durable lease remains unless an earlier matching completion receipt exists. Job ownership covers ordinary child creation; delegating
 to a service, WMI or an external agent is outside this boundary. It is not a sandbox.
 
@@ -417,8 +437,17 @@ tampering by the local account that already owns the journal. Receipt and output
 retention remain local; no live process is adopted or force-killed during recovery.
 
 `check-recover` requires the same host, an absent controller, the exact lease/run,
-and either a recorded pre-dispatch boundary or a matching terminal receipt plus absent
-supervisor. Live/reused/unverifiable ids block recovery. It releases ownership and
+and either a recorded pre-dispatch boundary or a matching terminal receipt plus an
+exited supervisor. New Windows workspace leases retain the controller's exact
+creation FILETIME as a decimal string; new receipts retain the supervisor's creation
+time. If a PID exists again, a bounded local observation can prove its creation time
+differs from that recorded owner. Matching live owners and unknown observations
+remain blocked. Legacy records without creation times still require PID absence.
+These optional fields preserve schema 10 and receipt protocol 1 compatibility;
+ordinary conversation and workspace-creation recovery retain their PID-only rules.
+Recovery never kills the replacement process or uses identity alone as tool-settlement
+proof. Delivery/implementation recovery captures the new controller identity before
+releasing its transaction for further inspection. Check recovery releases ownership and
 records interruption without accepting success, even for a lost exit-zero reply.
 Implementation returns from uncertain state to running for an explicit fresh check;
 a pending task stop becomes stopped. Verification recovery records a skipped gate.
@@ -552,6 +581,60 @@ then exercises real checks, simplification, live Claude review, exact-output
 acceptance and supervised local delivery. Its `--native` variant uses supervised
 Claude file tools and independent Codex review; `--native-codex` uses Codex patches
 and independent Claude review.
+
+## Guided foreground task runner
+
+`task-new` validates a complete recipe before storing a draft. It pins the source
+base to a commit and normalizes workspace/executable paths. A digest covers the
+brief, ordered slice execution configurations, scopes, validation and acceptance
+commands, expected output, provider/model choices and local delivery requests.
+`task-approve` names both the exact requirements version and this digest; ordinary
+brief approval alone cannot authorize a guided recipe. Later brief/version or
+recipe changes invalidate continuation.
+
+The runner prepares a workspace and fresh execution, then stops at a concrete
+scope/instructions checkpoint. `task-authorize` uses those exact content digests;
+it does not refresh changed inputs silently. The provider implementation, actual
+validation and submission run through existing supervised APIs. Simplification
+remains a separate explicit outcome and summary. A passing assessment continues
+through independent other-provider review, acceptance and local delivery. The
+next slice prepares another scope checkpoint; final review and acceptance retain
+the existing whole-task requirements. Explicit no-change recipes skip editing
+inference while keeping every completion gate.
+
+Each side-effecting step records intent before entering a leaf API, including the
+known result ids and original controller PID/creation time. Recovery matches new
+leaf results to that origin and to the exact authorized policy, command or delivery
+request. A result whose contents or origin differ is not adopted. Known failures
+stop progression. An uncertain leaf, lost progress update or journal failure after
+a leaf returns retains both pending intent and guided ownership for explicit
+recovery; even a verified commit is never repeated to reconstruct runner progress.
+Recovered results do not start the next step automatically. Missing leaf dispatch
+can only ready an explicit later command, using the leaf APIs' durable-before-launch
+contracts. Read-only scope collection can be repeated after explicit recovery.
+
+An assessment supplied before the leaf starts is persisted with its original
+artifact and instructions. Recovery can preserve that declaration for an explicit
+continuation. A started assessment without a settled verdict returns to a fresh
+assessment checkpoint; it cannot restore an earlier pass. Retrying a settled
+checkpoint/failure uses a fresh execution/session and fresh gates, preserves partial
+files, carries review feedback and never resets Git. Already-created approved paths
+become existing-file actions on the new scope; already-removed approved deletion
+paths are omitted. No additional path is authorized by that conversion.
+
+A transaction admits one guided controller per journal. Its controller identity
+has no expiry and remains reserved across uncertain shutdown. The stop flag is
+observed by ordinary code, with AbortSignal forwarded to the existing supervised
+process runners. No LLM polling, automatic inference retry or background scheduler
+is added. Low-level commands and other journals are outside the global guided
+limit; their existing workspace leases still apply.
+
+The readable status view includes next commands, pending questions/findings and
+underlying recovery commands. Terminal control characters in repository prose
+are escaped. JSON exposes retained snapshots and results for a future interface.
+Repository review limits are checked before guided editing inference. An authored
+JSON brief is still required; conversational kickoff, automatic repair/arbitration,
+recipe rebinding and a browser interface are not implemented by this runner.
 
 ## Native implementation contract
 

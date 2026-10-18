@@ -153,6 +153,17 @@ test('job supervision passes literal Unicode arguments and records a failed exec
   assert.equal(missing.reason, 'supervisor_error'); assert.equal(missing.exitConfirmed, true);
 });
 
+test('rapid zero-exit tools wait for job settlement instead of failing on transient accounting', windows, async () => {
+  for (let batch = 0; batch < 6; batch++) {
+    const results = await Promise.all(Array.from({ length: 4 }, () => runCheckProcess({ file: process.execPath,
+      args: ['-e', 'process.stdout.write("settled")'], cwd: process.cwd(), timeoutMs: 3000, started: () => {} })));
+    for (const result of results) {
+      assert.equal(result.reason, 'exited', JSON.stringify(result));
+      assert.equal(result.exitCode, 0); assert.equal(result.exitConfirmed, true); assert.equal(result.stdout, 'settled');
+    }
+  }
+});
+
 test('timeout terminates a real tool tree before releasing the workspace', windows, async t => {
   const f = await fixture(t);
   const spec = await f.spec("const {spawn}=require('node:child_process'); const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'}); console.log(child.pid); setInterval(()=>{},1000);");

@@ -49,6 +49,15 @@ public static class GrampusCheck {
         Accounting info; Check(QueryInformationJobObject(job, 1, out info, Marshal.SizeOf(typeof(Accounting)), IntPtr.Zero));
         return info.Active;
     }
+    static string ExitReason(IntPtr job, Stopwatch clock, int timeoutMs) {
+        // A signalled root handle can precede the job's final accounting update.
+        // Observe bounded settlement; never infer zero activity from root exit.
+        var drain = Stopwatch.StartNew();
+        while (!stop && clock.ElapsedMilliseconds < timeoutMs && Active(job) != 0 && drain.ElapsedMilliseconds < 100) Thread.Sleep(1);
+        if (stop) return "interrupted";
+        if (clock.ElapsedMilliseconds >= timeoutMs) return "timed_out";
+        return Active(job) == 0 ? "exited" : "descendants_remaining";
+    }
     static IntPtr FileHandle(string path, bool input) {
         var security = new Security { Size = Marshal.SizeOf(typeof(Security)), Inherit = 1 };
         var handle = CreateFileW(path, input ? 0x80000000u : 0x40000000u, 7, ref security, input ? 3u : 2u, 0x80, IntPtr.Zero);
@@ -70,6 +79,11 @@ public static class GrampusCheck {
         IntPtr input = IntPtr.Zero, output = IntPtr.Zero, error = IntPtr.Zero;
         var process = new ProcessInfo(); bool initialized = false, confirmed = false;
         string reason = "failed"; uint exitCode = 1;
+        string supervisorStartedAt = null;
+        try {
+            using (var owner = Process.GetProcessById(supervisorPid))
+                supervisorStartedAt = owner.StartTime.ToFileTimeUtc().ToString(System.Globalization.CultureInfo.InvariantCulture);
+        } catch { } // Unknown identity retains the legacy PID-only recovery guard.
         // A broken Windows pipe can throw rather than return EOF. Never let the
         // reader thread terminate the helper before the job is settled and receipted.
         var reader = new Thread(() => { try { Console.ReadLine(); } catch { } finally { stop = true; } });
@@ -102,7 +116,7 @@ public static class GrampusCheck {
                 if (new FileInfo(stdout).Length + new FileInfo(stderr).Length > 2 * 1024 * 1024) { reason = "output_limit"; break; }
                 if (WaitForSingleObject(process.Process, 0) == 0) {
                     Check(GetExitCodeProcess(process.Process, out exitCode));
-                    reason = Active(job) == 0 ? "exited" : "descendants_remaining"; break;
+                    reason = ExitReason(job, clock, timeoutMs); break;
                 }
                 Thread.Sleep(20);
             }
@@ -126,7 +140,9 @@ public static class GrampusCheck {
             // Names and tokens are controller-generated UUIDs, never tool output.
             if (!String.IsNullOrEmpty(receiptPath)) {
                 var receipt = Encoding.UTF8.GetBytes("{\"protocol\":1,\"checkId\":\"" + checkId + "\",\"token\":\"" + token
-                    + "\",\"supervisorPid\":" + supervisorPid + ",\"toolPid\":" + process.Pid + "," + result + "}");
+                    + "\",\"supervisorPid\":" + supervisorPid + ",\"supervisorStartedAt\":"
+                    + (supervisorStartedAt == null ? "null" : "\"" + supervisorStartedAt + "\"")
+                    + ",\"toolPid\":" + process.Pid + "," + result + "}");
                 using (var stream = new FileStream(receiptPath + ".tmp", FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough)) {
                     stream.Write(receipt, 0, receipt.Length); stream.Flush(true);
                 }
