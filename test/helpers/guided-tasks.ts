@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from '../../src/persistence/store.js';
-import { GuidedTasks, type GuidedServices } from '../../src/orchestration/guided-tasks.js';
+import { GuidedTasks } from '../../src/orchestration/guided/controller.js';
+import type { GuidedServices } from '../../src/orchestration/guided/state.js';
 import { runCheckProcess } from '../../src/process/check-process.js';
 import type { Reply } from '../../src/providers/types.js';
 
@@ -119,7 +120,7 @@ export function crashProgram(
   writeFileSync(
     file,
     `
-    import {join} from 'node:path'; import {Store} from ${url('persistence/store')}; import {GuidedTasks} from ${url('orchestration/guided-tasks')}; import {runCheckProcess} from ${url('process/check-process')};
+    import {join} from 'node:path'; import {Store} from ${url('persistence/store')}; import {GuidedTasks} from ${url('orchestration/guided/controller')}; import {runCheckProcess} from ${url('process/check-process')};
     const message = ${JSON.stringify(message)}, review = ${JSON.stringify(review)};
     const serviceFactory = ${services.toString()};
     const store = new Store(${JSON.stringify(f.store.path)}); const append = store.append.bind(store);

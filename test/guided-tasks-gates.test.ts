@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Store } from '../src/persistence/store.js';
-import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedTaskView, renderGuidedTask } from '../src/orchestration/guided-status.js';
 import { Workflow } from '../src/domain/workflow.js';
 import { runCheckProcess } from '../src/process/check-process.js';
@@ -41,6 +41,7 @@ test('guided agent turns have no deadline and plans cannot set one', windows, as
   await tasks.run(task.id);
   await tasks.authorize(task.id);
   assert.equal(tasks.get(task.id).status, 'awaiting_assessment');
+  assert.equal(tasks.get(task.id).stopReason?.code, 'ASSESSMENT_REQUIRED');
   await tasks.assess(task.id, 'passed', 'Direct output statement, no unnecessary abstraction');
   assert.equal(tasks.get(task.id).status, 'complete', tasks.get(task.id).note);
   assert.equal(tasks.get(task.id).digest, digest);
@@ -61,6 +62,7 @@ test(
       });
     const created = JSON.parse(invoke('task-new', file)) as ReturnType<typeof guidedTaskView>;
     assert.equal(created.state.status, 'draft');
+    assert.equal(created.state.stopReason?.code, 'APPROVAL_REQUIRED');
     assert.equal(created.state.plan.workspace.base, git(f.repo, 'rev-parse', 'HEAD'));
     assert.equal(created.state.plan.slices[0]!.validation.file, process.execPath);
     assert.equal(f.store.workspaces().length, 0);

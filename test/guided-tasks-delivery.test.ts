@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import { Workflow } from '../src/domain/workflow.js';
 import { renderReport } from '../src/reporting/report.js';
@@ -54,8 +54,10 @@ test(
       execFileSync(process.execPath, [cli, '--db', f.store.path, 'task-run', id], { stdio: 'pipe', windowsHide: true }),
     );
     assert.equal(f.tasks.get(id).status, 'recovery_required');
+    assert.equal(f.tasks.get(id).stopReason?.code, 'RECOVERY_REQUIRED');
     const released = await f.tasks.releaseWorkspace(id);
     assert.equal(released.status, 'ready');
+    assert.equal(released.stopReason, null);
     assert.equal(released.pending, null);
     assert.equal(released.owner, null);
     assert.equal(f.store.workspaces<Workspace>()[0]!.phase, 'released');
@@ -75,6 +77,7 @@ test('failed simplification is retained and cannot start independent review or d
   assert.equal(checkpoint.status, 'awaiting_assessment', checkpoint.note);
   const failed = await f.tasks.assess(id, 'skipped', 'Inspection still outstanding');
   assert.equal(failed.status, 'blocked', failed.note);
+  assert.equal(failed.stopReason?.code, 'SIMPLIFICATION_FAILED');
   assert.ok(
     new Workflow(f.store).get(id).evidence.some(item => item.kind === 'simplification' && item.outcome === 'skipped'),
   );
@@ -138,6 +141,7 @@ test('stale scopes stop before dispatch while repository size is independent of 
   writeFileSync(join(workspace.path!, 'greeting.js'), "console.log('external change');\n");
   const stopped = await tasks.authorize(id);
   assert.equal(stopped.status, 'blocked', stopped.note);
+  assert.equal(stopped.stopReason?.code, 'IMPLEMENTATION_FAILED');
   assert.equal(calls, 0);
   writeFileSync(join(f.repo, 'large.txt'), 'x'.repeat(256 * 1024));
   git(f.repo, 'add', '.');

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import { runCheckProcess } from '../src/process/check-process.js';
 import type { ImplementationRun } from '../src/execution/implementations.js';
@@ -41,11 +41,13 @@ test('one guided task owns execution and a cross-process stop request settles it
   execFileSync(process.execPath, [cli, '--db', f.store.path, 'task-stop', id], { windowsHide: true, stdio: 'pipe' });
   const stopped = await running;
   assert.equal(stopped.status, 'blocked', stopped.note);
+  assert.equal(stopped.stopReason?.code, 'IMPLEMENTATION_INTERRUPTED');
   assert.equal(stopped.owner, null);
   assert.equal(f.store.implementations<ImplementationRun>(stopped.executionId!)[0]!.phase, 'interrupted');
   assert.equal(f.store.lease(stopped.workspaceId!), null);
   const prepared = await tasks.run(other.id);
   assert.equal(prepared.status, 'awaiting_scope', prepared.note);
+  assert.equal(prepared.stopReason?.code, 'SCOPE_AUTHORIZATION_REQUIRED');
 });
 
 test('unknown native shutdown retains global ownership and cannot admit another guided task', windows, async t => {
@@ -69,6 +71,7 @@ test('unknown native shutdown retains global ownership and cannot admit another 
   await tasks.run(id);
   const uncertain = await tasks.authorize(id);
   assert.equal(uncertain.status, 'recovery_required');
+  assert.equal(uncertain.stopReason?.code, 'OPERATION_NEEDS_RECOVERY');
   assert.ok(uncertain.owner);
   assert.ok(uncertain.pending);
   assert.ok(f.store.lease(uncertain.workspaceId!));
@@ -131,6 +134,7 @@ test(
     await tasks.run(task.id);
     const failed = await tasks.authorize(task.id);
     assert.equal(failed.status, 'blocked', failed.note);
+    assert.equal(failed.stopReason?.code, 'CHECK_FAILED_SUPERVISED');
     const retried = await tasks.retry(task.id);
     assert.equal(retried.status, 'awaiting_scope', retried.note);
     assert.notEqual(retried.executionId, failed.executionId);
@@ -162,6 +166,7 @@ for (const gate of ['validation', 'acceptance'] as const)
       result = await f.tasks.assess(id, 'passed', 'Inspected the one direct statement');
     }
     assert.equal(result.status, 'blocked', result.note);
+    assert.equal(result.stopReason?.code, 'CHECK_FAILED_SUPERVISED');
     assert.equal(result.owner, null);
     assert.equal(f.store.deliveries(result.executionId!).length, 0);
     const view = guidedTaskView(f.store, id);
@@ -186,6 +191,7 @@ test('recovery refuses a completed result with a different file authorization', 
   const refused = await f.tasks.recover(id);
   assert.equal(refused.status, 'recovery_required');
   assert.match(refused.note, /differs from the authorized file policy/);
+  assert.equal(refused.stopReason?.code, 'RESULT_MISMATCH');
   assert.ok(refused.pending);
   assert.ok(refused.owner);
   assert.equal(f.store.checks(before.executionId!).length, 0);

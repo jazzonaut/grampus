@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import { Workflow } from '../src/domain/workflow.js';
 import { runCheckProcess } from '../src/process/check-process.js';
@@ -24,6 +24,7 @@ for (const stage of ['initial', 'slice'] as const)
     let result = await f.tasks.run(task.id);
     if (stage === 'slice') result = await f.tasks.authorize(task.id);
     assert.equal(result.status, 'blocked', result.note);
+    assert.equal(result.stopReason?.code, 'PREPARATION_FAILED');
     assert.match(result.note, /changed repository inputs|Git state or repository instructions/);
     const checks = f.store.checks<RepositoryCheck>(result.executionId!);
     assert.equal(checks.length, 1);
@@ -62,7 +63,7 @@ test('recovery adopts a completed preparation without replaying it or starting i
   writeFileSync(
     file,
     `import {Store} from ${JSON.stringify(new URL('../src/persistence/store.js', import.meta.url).href)};
-    import {GuidedTasks} from ${JSON.stringify(new URL('../src/orchestration/guided-tasks.js', import.meta.url).href)};
+    import {GuidedTasks} from ${JSON.stringify(new URL('../src/orchestration/guided/controller.js', import.meta.url).href)};
     const store=new Store(${JSON.stringify(f.store.path)}),append=store.append.bind(store);
     store.append=(id,version,type,data)=>{if(type==='guided.step_finished'&&data.stage==='scope')process.exit(29);append(id,version,type,data)};
     await new GuidedTasks(store).run(${JSON.stringify(task.id)});throw new Error('Expected controller exit');`,
@@ -106,6 +107,7 @@ test('interrupted preparation remains retryable without starting a new attempt',
   tasks.approve(task.id, 1, task.guided!.digest);
   const interrupted = await tasks.run(task.id);
   assert.equal(interrupted.status, 'blocked', interrupted.note);
+  assert.equal(interrupted.stopReason?.code, 'PREPARATION_INTERRUPTED');
   assert.equal(interrupted.owner, null);
   assert.equal(f.store.checks<RepositoryCheck>(interrupted.executionId!)[0]!.phase, 'interrupted');
   const retried = await tasks.retry(task.id);
@@ -137,6 +139,7 @@ test(
     tasks.approve(task.id, 1, task.guided!.digest);
     const uncertain = await tasks.run(task.id);
     assert.equal(uncertain.status, 'recovery_required', uncertain.note);
+    assert.equal(uncertain.stopReason?.code, 'OPERATION_NEEDS_RECOVERY');
     assert.ok(uncertain.owner);
     assert.ok(uncertain.pending);
     assert.ok(f.store.lease(uncertain.workspaceId!));

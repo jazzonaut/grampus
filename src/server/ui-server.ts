@@ -4,7 +4,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Store } from '../persistence/store.js';
-import { GuidedTasks, guidedDecisionKey } from '../orchestration/guided-tasks.js';
+import { GuidedTasks } from '../orchestration/guided/controller.js';
+import { guidedDecisionKey } from '../orchestration/guided/keys.js';
 import { guidedTaskView } from '../orchestration/guided-status.js';
 import { renderReport } from '../reporting/report.js';
 import { Kickoffs } from '../orchestration/kickoff.js';

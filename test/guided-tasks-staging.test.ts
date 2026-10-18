@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import { windows, review, git, services, fixture } from './helpers/guided-tasks.js';
 
@@ -38,6 +38,7 @@ test('explicit retry adopts staged files after an interrupted implementation', w
   assert.equal(stopped.status, 'blocked', stopped.note);
   assert.equal(stopped.stage, 'implementation');
   assert.match(stopped.note, /staged or unstaged/);
+  assert.equal(stopped.stopReason?.code, 'CHECKPOINT_CHANGED');
   assert.equal(implementations, 1);
   assert.equal(f.store.checks(stopped.executionId!).length, 0);
   const done = await tasks.retry(task.id);

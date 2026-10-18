@@ -113,37 +113,6 @@
       "count": 1
     }
   },
-  "src/orchestration/guided-tasks.ts": {
-    "@typescript-eslint/switch-exhaustiveness-check": {
-      "count": 3
-    },
-    "complexity": {
-      "count": 3
-    },
-    "max-lines": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 2
-    }
-  },
-  "src/orchestration/kickoff.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 8
-    },
-    "complexity": {
-      "count": 2
-    },
-    "max-lines-per-function": {
-      "count": 1
-    },
-    "preserve-caught-error": {
-      "count": 1
-    }
-  },
   "src/orchestration/planner-progress.ts": {
     "complexity": {
       "count": 1

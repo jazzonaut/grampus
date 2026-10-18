@@ -5,7 +5,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GuidedTasks, guidedDecisionKey } from '../src/orchestration/guided-tasks.js';
+import { GuidedTasks } from '../src/orchestration/guided/controller.js';
+import { guidedDecisionKey } from '../src/orchestration/guided/keys.js';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import { Workflow } from '../src/domain/workflow.js';
 import { renderReport } from '../src/reporting/report.js';
@@ -27,6 +28,7 @@ test(
     const revised = await new GuidedTasks(f.store, { expectedState: oldKey }).revise(id, input);
     assert.equal(revised.version, 2);
     assert.equal(revised.status, 'draft');
+    assert.equal(revised.stopReason?.code, 'APPROVAL_REQUIRED');
     assert.equal(revised.approvedDigest, null);
     assert.equal(revised.workspaceId, submitted.workspaceId);
     assert.equal(readFileSync(join(f.plan.workspace.path, 'greeting.js'), 'utf8'), before);
@@ -70,6 +72,7 @@ test(
     const blocked = await f.tasks.run(id);
     assert.equal(blocked.status, 'blocked');
     assert.match(blocked.note, /changed since revised plan/);
+    assert.equal(blocked.stopReason?.code, 'REVISION_WORKSPACE_CHANGED');
     assert.equal(f.store.executions().length, 1);
   },
 );
@@ -114,6 +117,7 @@ test(
     const revised = await f.tasks.revise(id, input);
     assert.equal(revised.sliceIndex, 1);
     assert.equal(revised.status, 'draft');
+    assert.equal(revised.stopReason?.code, 'APPROVAL_REQUIRED');
     assert.deepEqual(new Workflow(f.store).get(id).slice!.completed, [delivered]);
     assert.equal(git(f.plan.workspace.path, 'rev-parse', 'HEAD'), delivered.head);
     const tasks = new GuidedTasks(f.store, services("console.log('hello world'); // completed follow-up\n"));

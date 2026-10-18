@@ -1,4 +1,4 @@
-import type { GuidedState } from '../orchestration/guided-tasks.js';
+import type { GuidedState } from '../orchestration/guided/state.js';
 import { randomUUID } from 'node:crypto';
 import { planLimits } from '../config/limits.js';
 import type { Store } from '../persistence/store.js';

@@ -1,6 +1,7 @@
 import type { Store } from '../persistence/store.js';
 import { Kickoffs } from './kickoff.js';
-import { GuidedTasks, guidedDecisionKey, guidedQuestionKey } from './guided-tasks.js';
+import { GuidedTasks } from './guided/controller.js';
+import { guidedDecisionKey, guidedQuestionKey } from './guided/keys.js';
 import { assertTaskExecutionIdle, type Execution } from '../execution/execution-state.js';
 import type { Task } from '../domain/workflow.js';
 import type { Workspace } from '../repository/workspaces.js';

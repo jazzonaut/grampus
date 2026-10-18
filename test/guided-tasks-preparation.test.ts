@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import type { RepositoryCheck } from '../src/verification/checks.js';
 import { windows, preparation, git, services, fixture } from './helpers/guided-tasks.js';
@@ -114,6 +114,7 @@ test(
     const failed = await f.tasks.run(task.id),
       executionId = failed.executionId!;
     assert.equal(failed.status, 'blocked', failed.note);
+    assert.equal(failed.stopReason?.code, 'PREPARATION_FAILED');
     assert.equal(failed.stage, 'preparation');
     assert.equal(failed.owner, null);
     assert.equal(f.store.implementations(executionId).length, 0);
@@ -156,6 +157,7 @@ test(
     const failed = await f.tasks.authorize(task.id),
       executionId = failed.executionId!;
     assert.equal(failed.status, 'blocked', failed.note);
+    assert.equal(failed.stopReason?.code, 'PREPARATION_FAILED');
     assert.equal(failed.stage, 'refresh');
     const retried = await f.tasks.retry(task.id);
     assert.equal(retried.status, 'awaiting_assessment', retried.note);

@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import type { ImplementationRun } from '../src/execution/implementations.js';
 import { Sessions } from '../src/execution/sessions.js';
 import { windows, review, services, fixture } from './helpers/guided-tasks.js';
@@ -68,6 +68,7 @@ test('automatic work repairs a failed check with complete evidence and resumes i
   tasks.approve(task.id, 1, task.guided!.digest);
   const done = await tasks.run(task.id);
   assert.equal(done.status, 'complete', done.note);
+  assert.equal(done.stopReason, null);
   assert.equal(implementations, 2);
   const events = f.store.events(task.id);
   assert.equal(events.filter(event => event.type === 'guided.validation_repair_requested').length, 1);
@@ -98,6 +99,7 @@ test('automatic validation stops spending tokens when a repair leaves content un
   const stopped = await tasks.run(task.id);
   assert.equal(stopped.status, 'blocked');
   assert.match(stopped.note, /no.*progress|unchanged/i);
+  assert.equal(stopped.stopReason?.code, 'CHECK_NO_PROGRESS');
   assert.equal(implementations, 2);
   assert.equal(f.store.deliveries(stopped.executionId!).length, 0);
 });
@@ -131,6 +133,7 @@ test('an independent failed simplification assessment triggers repair rather tha
   tasks.approve(task.id, 1, task.guided!.digest);
   const done = await tasks.run(task.id);
   assert.equal(done.status, 'complete', done.note);
+  assert.equal(done.stopReason, null);
   assert.equal(edits, 2);
   assert.equal(reviews, 2);
 });

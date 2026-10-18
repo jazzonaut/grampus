@@ -1,7 +1,7 @@
 // Guided task tests: automatic acceptance repair with renewed evidence.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { windows, review, services, fixture } from './helpers/guided-tasks.js';
 
 test(

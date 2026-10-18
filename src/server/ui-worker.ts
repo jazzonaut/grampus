@@ -1,5 +1,5 @@
 import { Store } from '../persistence/store.js';
-import { GuidedTasks } from '../orchestration/guided-tasks.js';
+import { GuidedTasks } from '../orchestration/guided/controller.js';
 import { Kickoffs } from '../orchestration/kickoff.js';
 import { Sessions } from '../execution/sessions.js';
 import { processLimits, serverLimits } from '../config/limits.js';

@@ -7,7 +7,8 @@ import { join } from 'node:path';
 import { Store } from '../src/persistence/store.js';
 import { Kickoffs } from '../src/orchestration/kickoff.js';
 import { TaskLifecycle } from '../src/orchestration/task-lifecycle.js';
-import { GuidedTasks, guidedDecisionKey } from '../src/orchestration/guided-tasks.js';
+import { GuidedTasks } from '../src/orchestration/guided/controller.js';
+import { guidedDecisionKey } from '../src/orchestration/guided/keys.js';
 import type { Task } from '../src/domain/workflow.js';
 import type { Session } from '../src/execution/sessions.js';
 

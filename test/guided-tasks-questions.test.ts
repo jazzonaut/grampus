@@ -5,7 +5,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GuidedTasks, guidedDecisionKey } from '../src/orchestration/guided-tasks.js';
+import { GuidedTasks } from '../src/orchestration/guided/controller.js';
+import { guidedDecisionKey } from '../src/orchestration/guided/keys.js';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import { Workflow } from '../src/domain/workflow.js';
 import type { Reply } from '../src/providers/types.js';
@@ -50,6 +51,8 @@ test('blocking review stops delivery and explicit retry uses fresh sessions with
   await tasks.authorize(id);
   const failed = await tasks.assess(id, 'passed', 'One direct statement with no duplication');
   assert.equal(failed.status, 'blocked', failed.note);
+  assert.equal(failed.stopReason?.code, 'REVIEW_REPAIR_EXHAUSTED');
+  assert.equal(failed.note, 'Offline fixture review');
   assert.equal(reviews, 1);
   assert.equal(f.store.deliveries(failed.executionId!).length, 0);
   const previous = f.store.execution<Execution>(failed.executionId!);
@@ -145,6 +148,7 @@ test('review questions persist and an explicit answer resumes the same independe
   await tasks.authorize(id);
   const questioned = await tasks.assess(id, 'passed', 'Inspected one direct statement');
   assert.equal(questioned.status, 'awaiting_answer', questioned.note);
+  assert.equal(questioned.stopReason?.code, 'AGENT_QUESTION');
   assert.equal(guidedTaskView(f.store, id).questions[0]!.id, 'output');
   await assert.rejects(tasks.answer(id, {}), /every pending/);
   await assert.rejects(tasks.run(id), /awaiting_answer/);
@@ -195,6 +199,7 @@ test(
     await tasks.run(id);
     const questioned = await tasks.authorize(id);
     assert.equal(questioned.status, 'awaiting_answer', questioned.note);
+    assert.equal(questioned.stopReason?.code, 'AGENT_QUESTION');
     assert.equal(calls, 1);
     const answered = await tasks.answer(id, { wording: 'yes, hello world' });
     assert.equal(answered.status, 'awaiting_scope', answered.note);

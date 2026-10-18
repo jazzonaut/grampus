@@ -15,7 +15,7 @@ import type { Execution } from './execution/execution-state.js';
 import { Checks, type CheckSpec } from './verification/checks.js';
 import { Deliveries } from './execution/deliveries.js';
 import { Implementations } from './execution/implementations.js';
-import { GuidedTasks } from './orchestration/guided-tasks.js';
+import { GuidedTasks } from './orchestration/guided/controller.js';
 import { guidedTaskView, renderGuidedTask } from './orchestration/guided-status.js';
 import type { SimplificationAssessment } from './verification/checks.js';
 import { defaultDataDirectory, updateInstallation, versionInformation, versionLabel } from './config/runtime.js';

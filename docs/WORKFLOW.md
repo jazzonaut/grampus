@@ -12,7 +12,10 @@ New plans default to automatic execution within their exact approved file scope:
 
 Questions, scope changes, uncertain process exits, mutating checks, prerequisite failures,
 exhausted allowances and repairs that leave the failing artifact unchanged stop for
-attention. An ordinary failed test does not require a manual retry or another approval
+attention. Each stop records a typed reason code beside its note, for example
+`CHECK_REPAIR_EXHAUSTED` or `CHECK_NO_PROGRESS`
+([guided state machine](ARCHITECTURE.md#guided-state-machine)).
+An ordinary failed test does not require a manual retry or another approval
 of the same file list. Valid tests and acceptance criteria must not be weakened to pass.
 The agent may repair a defective test when it can establish the defect with evidence.
 

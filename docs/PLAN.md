@@ -66,8 +66,10 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
 5. **Dashboard.** Server-side view model (status, next action, attention items with
    reasons, workflow strip, usage), then a Vue 3 + Vite + Nuxt UI client that keeps the
    per-launch token, loopback binding, CSP and decision-key checks unchanged.
-6. **Guided controller structure.** Prompts in their own module, one handler per stage,
-   structural comparison instead of `JSON.stringify` equality.
+6. **Guided controller structure.** Done 19 October 2026. Prompts in their own modules
+   (`orchestration/guided/prompts.ts`, `orchestration/prompts/planner.ts`), one handler per stage
+   with a typed outcome, structural comparison instead of `JSON.stringify` equality, and typed stop
+   reason codes on the guided state and its journal events (the stop reason part of step 2).
 7. **Use it for real.** Run three to five real tasks and keep a short log of clicks,
    stops, review catches and cost. That log sets the next priorities.
 

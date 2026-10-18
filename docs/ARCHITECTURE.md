@@ -39,12 +39,13 @@ flowchart TD
     Workflow --> Store
 ```
 
-The guided controller (`orchestration/guided-tasks.ts`) is a sequential state machine over leaf operations. Each
+The guided controller (`orchestration/guided/`) is a sequential state machine over leaf operations. Each
 leaf is independently durable and recoverable, and the low-level CLI commands call them directly.
 
 ## From request to plan
 
-A **kickoff** (`orchestration/kickoff.ts`) is a planning conversation stored as a session with `kickoff.*` events.
+A **kickoff** (`orchestration/kickoff.ts`, prompts in `orchestration/prompts/planner.ts`) is a planning conversation
+stored as a session with `kickoff.*` events.
 The planner receives the pinned base commit, approved reference folders and the repository-read
 tools; it cannot edit files or run commands. It asks structured questions for consequential
 ambiguity and finally returns a JSON guided plan. Planning answers bind to the displayed turn and
@@ -87,21 +88,30 @@ The guided state is saved in the task record. Each step journals its intent
 leaf operation, then settles by adopting exactly one new result that matches that origin and
 request.
 
-| Stage | Work |
-| --- | --- |
-| `workspace` | Create the task worktree (Git or Orca) |
-| `execution` | Create the implementation execution and session, resuming the slice conversation when allowed |
-| `preparation` | Optional approved restore command, before scope |
-| `scope` | Snapshot, verify size limits and build the exact edit policy |
-| `implementation` | Supervised native editing by the implementer |
-| `refresh` | Optional preparation again after editing, limited to the slice's file scope |
-| `validation` | Run the approved validation command |
-| `submission` | Submit the implementation with the latest passing check |
-| `review_execution` | Create the review (or arbitration) execution |
-| `review` | Independent artifact review by the other provider |
-| `assessment` | Record the simplification assessment |
-| `verification` | Run acceptance against the active criteria |
-| `delivery` | Verified local commit, then the next slice or `complete` |
+| Stage | Handler (`orchestration/guided/stages/`) | Work |
+| --- | --- | --- |
+| `workspace` | `workspace.ts` | Create the task worktree (Git or Orca) |
+| `execution` | `execution.ts` | Create the implementation execution and session, resuming the slice conversation when allowed |
+| `preparation` | `preparation.ts` | Optional approved restore command, before scope |
+| `scope` | `scope.ts` | Snapshot, verify size limits and build the exact edit policy |
+| `implementation` | `implementation.ts` | Supervised native editing by the implementer |
+| `refresh` | `preparation.ts` | Optional preparation again after editing, limited to the slice's file scope |
+| `validation` | `checks.ts` | Run the approved validation command |
+| `submission` | `submission.ts` | Submit the implementation with the latest passing check |
+| `review_execution` | `execution.ts` | Create the review (or arbitration) execution |
+| `review` | `review.ts` | Independent artifact review by the other provider |
+| `assessment` | `assessment.ts` | Record the simplification assessment |
+| `verification` | `checks.ts` | Run acceptance against the active criteria |
+| `delivery` | `delivery.ts` | Verified local commit, then the next slice or `complete` |
+
+Each handler has three parts: the result ids that already exist before dispatch, `perform` (dispatch
+the leaf operation) and `settle` (adopt the result). `settle` returns a typed outcome (`advance`,
+`wait` for a person, `stop` as blocked, `missing` result, or `rerouted` when a repair or arbitration
+already sent the task back), and the controller (`controller.ts`) applies it as one journaled
+change. The controller owns runner ownership, the drive loop, retry, recovery and revision; the exact
+leaf requests that a step dispatches and later requires its result to match are built in one place
+(`specs.ts`), and every agent prompt is in `prompts.ts`. Structured values are compared with
+`domain/deep-equal.ts` (order-insensitive, `undefined` treated as absent, as in the stored JSON).
 
 Statuses are `draft`, `ready`, `running`, `awaiting_scope`, `awaiting_assessment`,
 `awaiting_answer`, `blocked`, `recovery_required` and `complete`.
@@ -115,6 +125,17 @@ failing artifact unchanged stops early. In **supervised** mode the controller st
 `awaiting_scope` for file authorization and at `awaiting_assessment` after submission for a human
 simplification assessment, then reviews; failed checks stop for a manual retry. The mode is part of
 the approved plan and changes only through a revision. Details are in [WORKFLOW.md](WORKFLOW.md).
+
+Every stop records a typed reason next to the human-readable note: `stopReason: { code, message, at }`
+on the guided state, and `reasonCode` on the journal event that made the change. It is set exactly
+while the status is `draft`, `awaiting_*`, `blocked` or `recovery_required`, and cleared whenever
+work resumes. The codes are listed and documented in `orchestration/guided/stop-reasons.ts`: waits
+(`APPROVAL_REQUIRED`, `SCOPE_AUTHORIZATION_REQUIRED`, `ASSESSMENT_REQUIRED`, `AGENT_QUESTION`, ...),
+settled failures (`PREPARATION_FAILED`, `CHECKPOINT_CHANGED`, `CHECK_TIMEOUT`, `CHECK_NO_PROGRESS`,
+`CHECK_REPAIR_EXHAUSTED`, `REVIEW_REPAIR_EXHAUSTED`, `ARBITRATION_UNRESOLVED`, `DELIVERY_FAILED`, ...)
+and results that cannot be adopted (`RESULT_MISMATCH`, `OPERATION_NEEDS_RECOVERY`,
+`SETTLEMENT_UNCONFIRMED`, ...). A failure without a specific code is `UNEXPECTED_ERROR` before dispatch
+or `RECOVERY_REQUIRED` after it.
 
 One guided controller runs per journal at a time. Its ownership has no expiry and is kept across an
 uncertain shutdown. Stop requests are persisted and forwarded as an `AbortSignal` to the running
@@ -328,8 +349,14 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | `domain/` | `workflow.ts`, `workflow-policy.ts` | Briefs, versions, attempts, evidence, gates, slices and completion; workflow policy validation |
 | | `guided-plan.ts` | Plan normalization, slice file simulation and approval digest |
 | | `acceptance.ts` | Acceptance expectations and observations against retained output |
-| `orchestration/` | `guided-tasks.ts`, `guided-status.ts` | Guided state machine (repairs, arbitration, retry, revision, recovery); task views and next actions |
-| | `kickoff.ts`, `planner-progress.ts`, `task-title.ts` | Planning conversations, live planner progress and task naming |
+| | `deep-equal.ts` | Structural equality for stored JSON-shaped records |
+| `orchestration/guided/` | `controller.ts` | Guided task controller: public API, runner ownership, drive loop, retry, recovery, revision |
+| | `state.ts`, `keys.ts`, `stop-reasons.ts` | Guided state types; decision and question keys; typed stop reason codes |
+| | `context.ts`, `specs.ts`, `prompts.ts` | Stage handler contract and result adoption; exact leaf requests; agent prompts |
+| | `retry.ts`, `recovery.ts`, `revision.ts` | New attempts and explicit retry checks; leaf recovery; plan revision |
+| | `stages/*.ts` | One handler per stage (see [Guided state machine](#guided-state-machine)) |
+| `orchestration/` | `guided-status.ts` | Task views and next actions |
+| | `kickoff.ts`, `prompts/planner.ts`, `planner-progress.ts`, `task-title.ts` | Planning conversations and planner prompts, live planner progress and task naming |
 | | `task-lifecycle.ts` | Reset and delete with tombstones |
 | `execution/` | `sessions.ts`, `session-context.ts` | Conversation turns, recovery and resume-or-fresh decisions |
 | | `executions.ts`, `execution-state.ts` | Execution bindings, leases and settlement |

@@ -1,7 +1,7 @@
 // Guided task tests: approved repair budgets and fresh arbitration.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import type { Reply } from '../src/providers/types.js';
 import { renderReport } from '../src/reporting/report.js';
@@ -99,6 +99,7 @@ for (const passes of [true, false])
       await tasks.authorize(id);
       const result = await tasks.assess(id, 'passed', 'Inspected the submitted implementation');
       assert.equal(result.status, passes ? 'complete' : 'blocked', result.note);
+      assert.equal(result.stopReason?.code ?? null, passes ? null : 'ARBITRATION_UNRESOLVED');
       assert.equal(turns, 2);
       assert.equal(result.reviewCycle.arbitrationUsed, true);
       assert.equal(result.reviewCycle.history.length, passes ? 1 : 2);

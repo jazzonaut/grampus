@@ -54,8 +54,14 @@ is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
   outside every repository.
 - Modules are grouped by responsibility in folders under `src/`; the module map in
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#module-map) says where each one lives.
-- The guided state machine is in `src/orchestration/guided-tasks.ts`; its tests are
-  `test/guided-tasks-*.test.ts`. Run `node scripts/run-tests.mjs guided-tasks` while iterating.
+- The guided state machine is in `src/orchestration/guided/`: `controller.ts` (public `GuidedTasks`
+  API, drive loop), one handler per stage in `stages/`, prompts in `prompts.ts` and stop reason codes
+  in `stop-reasons.ts`. Import from the defining module (`guided/controller.js`, `guided/keys.js`,
+  `guided/state.js`); there is no barrel. Prompt text is a provider contract: change it deliberately.
+  Its scenario tests are `test/guided-tasks-*.test.ts` (run `node scripts/run-tests.mjs guided-tasks`
+  while iterating); `test/guided-stop-reasons.test.ts` pins stop codes without Git or providers.
+- A new stop (blocked, waiting or recovery) needs a `StopReasonCode` and a test asserting
+  `state.stopReason.code`. Keep the existing `note` text; the dashboard and tests read it.
 - Test files over about 10 s are listed in `scripts/slow-tests.json` and skipped by `npm test`.
   Keep each test file under about 45 s; tests within one file run sequentially.
 - Codex is driven through `codex app-server` JSON-RPC and is not version-pinned. Claude runs

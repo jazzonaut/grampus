@@ -1,6 +1,7 @@
 import type { Store } from '../persistence/store.js';
 import { Workflow } from '../domain/workflow.js';
-import { GuidedTasks, guidedQuestionKey } from './guided-tasks.js';
+import { GuidedTasks } from './guided/controller.js';
+import { guidedQuestionKey } from './guided/keys.js';
 import { Sessions } from '../execution/sessions.js';
 import type { Execution, ExecutionLease } from '../execution/execution-state.js';
 import type { Workspace } from '../repository/workspaces.js';
@@ -8,6 +9,7 @@ import type { RepositoryCheck } from '../verification/checks.js';
 import type { Delivery } from '../execution/deliveries.js';
 import type { ImplementationRun } from '../execution/implementations.js';
 import { guidedPlanDigest, reviewRepairRounds } from '../domain/guided-plan.js';
+import { deepEqual } from '../domain/deep-equal.js';
 import { explorationSummary } from '../repository/repository-tools.js';
 import { integrationSummary } from '../providers/integrations.js';
 import { taskUsage, usageLines } from '../reporting/task-usage.js';
@@ -33,7 +35,7 @@ export function guidedTaskView(store: Store, id: string) {
     const command = (...args: string[]) => `npm start -- --db ${quote(store.path)} ${args.map(quote).join(' ')}`;
     const stale =
       task.version !== state.version ||
-      JSON.stringify(task.brief) !== JSON.stringify(state.plan.brief) ||
+      !deepEqual(task.brief, state.plan.brief) ||
       guidedPlanDigest(state.plan) !== state.digest;
     let next: string;
     if (stale) next = command('show', id);

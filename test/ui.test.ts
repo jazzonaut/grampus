@@ -8,7 +8,7 @@ import { request } from 'node:http';
 import { startUi } from '../src/server/ui-server.js';
 import { Kickoffs } from '../src/orchestration/kickoff.js';
 import { Store } from '../src/persistence/store.js';
-import { GuidedTasks } from '../src/orchestration/guided-tasks.js';
+import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { Sessions } from '../src/execution/sessions.js';
 import type { Execution } from '../src/execution/execution-state.js';
 import type { Connector, Reply } from '../src/providers/types.js';
