@@ -207,3 +207,32 @@ test('recovery refuses a completed result with a different file authorization', 
   assert.equal(f.store.checks(before.executionId!).length, 0);
   assert.equal(f.store.deliveries(before.executionId!).length, 0);
 });
+
+test('an implementation turn refused for its prompt budget blocks with its own reason', windows, async t => {
+  const f = fixture(t);
+  const refusal = 'Editable file context needs 300000 bytes but only 200000 of the 256 KiB turn prompt budget remain';
+  const tasks = new GuidedTasks(f.store, {
+    ...services(),
+    // The worker refuses before any provider starts and records the refusal as its turn result.
+    implementationRunner: options =>
+      runCheckProcess({
+        ...options,
+        args: [
+          '-e',
+          `require('node:fs').writeFileSync(${JSON.stringify(join(options.receipt!.directory, 'result.json'))}, ${JSON.stringify(
+            JSON.stringify({
+              id: options.receipt!.checkId,
+              result: { status: 'failed', reply: null, usage: null, error: refusal, refused: 'prompt_budget' },
+            }),
+          )});`,
+        ],
+      }),
+  });
+  const task = tasks.create(f.plan);
+  tasks.approve(task.id, 1, task.guided!.digest);
+  await tasks.run(task.id);
+  const stopped = await tasks.authorize(task.id);
+  assert.equal(stopped.status, 'blocked', stopped.note);
+  assert.equal(stopped.stopReason?.code, 'PROMPT_BUDGET_EXCEEDED');
+  assert.equal(stopped.note, refusal);
+});

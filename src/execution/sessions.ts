@@ -19,6 +19,7 @@ import { Workflow, activeSlice, activeCriteria } from '../domain/workflow.js';
 import { currentProcessStartedAt, inspectProcess } from '../process/process-identity.js';
 import { processAlive as ownedProcessAlive } from '../verification/check-recovery.js';
 import { captureRepository, reviewContext } from '../repository/repository-evidence.js';
+import { PromptBudget, PromptBudgetError, promptBytes, requirePromptBudget } from '../providers/prompt-budget.js';
 import {
   agentToolsetVersion,
   parseReply,
@@ -53,6 +54,22 @@ export function requestedTurnIds(store: Store, sessionId: string): string[] {
       event =>
         parseBoundary(turnRequestedSchema, event.data, { kind: 'journal-record', source: 'session_events' }).runId,
     );
+}
+
+const turnRefusalSchema = z.object({
+  runId: z.string(),
+  result: z.object({ refused: z.literal('prompt_budget').exactOptional() }),
+});
+
+/**
+ * Whether the settled turn `runId` was refused before dispatch because its prompt could not fit the
+ * budget. Callers name that stop distinctly instead of reporting a failed provider turn.
+ */
+export function turnRefusedForBudget(store: Store, sessionId: string, runId: string): boolean {
+  return store.sessionEvents(sessionId, ['turn.result']).some(event => {
+    const settled = parseBoundary(turnRefusalSchema, event.data, { kind: 'journal-record', source: 'session_events' });
+    return settled.runId === runId && settled.result.refused === 'prompt_budget';
+  });
 }
 
 /**
@@ -659,10 +676,19 @@ async function turnAccess(
   let access = repository;
   if (review) {
     const snapshot = await captureRepository(workspaces, review);
-    claim.prompt += `\n\n${await reviewContext(store, workspaces, review, snapshot, !!claim.session.providerSessionId)}`;
     const plan = new Workflow(store).get(execution.taskId).guided?.plan;
     const checks = taskCheckEvidence(store, execution);
-    claim.prompt += `\nRetained check evidence (use grampus_read_check for complete output):\n${checkEvidenceSummary(checks)}`;
+    const evidence = `\nRetained check evidence (use grampus_read_check for complete output):\n${checkEvidenceSummary(checks)}`;
+    // The request (task context, verdict history, lenses) and the evidence come first; the repository
+    // context fills what remains of the turn's budget.
+    const budget = new PromptBudget();
+    budget.require(
+      promptBytes(`${claim.prompt}\n\n${evidence}`),
+      'The review request and check evidence',
+      'prepare an approved revision with a smaller slice or a shorter review history',
+    );
+    const context = await reviewContext(store, workspaces, review, snapshot, !!claim.session.providerSessionId, budget);
+    claim.prompt += `\n\n${context}${evidence}`;
     if (plan?.context.exploration)
       access = { repo: claim.session.cwd, snapshot, references: plan.references ?? [], checks };
     run.emit({ type: 'review.context', data: { artifact: review.artifact, prompt: claim.prompt } });
@@ -767,6 +793,7 @@ export async function runSession(
   let result: TurnResult = { status: 'failed', reply: null, usage: null, error: 'Turn did not complete' };
   try {
     const access = await turnAccess(store, workspaces, run, review, options.repository);
+    requirePromptBudget(claim.prompt);
     result = await run.dispatch(connect, access.repository, access.configurationCwd);
   } catch (error) {
     result = {
@@ -774,6 +801,7 @@ export async function runSession(
       reply: null,
       usage: null,
       error: error instanceof Error ? error.message : String(error),
+      ...(error instanceof PromptBudgetError ? { refused: 'prompt_budget' as const } : {}),
     };
   } finally {
     const closed = await run.shutDown(result);

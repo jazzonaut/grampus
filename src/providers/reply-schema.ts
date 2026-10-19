@@ -139,5 +139,7 @@ export const turnResultSchema = z.object({
   reply: agentReplySchema.nullable(),
   usage: usageSchema.nullable(),
   error: z.string().nullable(),
+  /** Set when Grampus refused the turn before dispatch because its prompt could not fit the budget. */
+  refused: z.literal('prompt_budget').exactOptional(),
 });
 export type TurnResult = z.infer<typeof turnResultSchema>;

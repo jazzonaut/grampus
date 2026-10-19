@@ -126,7 +126,7 @@ test('native questions resume only with complete answers and a newly acknowledge
     undefined,
     { answers: { greeting: 'hello world' } },
     async options => {
-      const request = JSON.parse(readFileSync(options.args[1]!, 'utf8')) as { prompt: string };
+      const request = JSON.parse(readFileSync(options.args.at(-1)!, 'utf8')) as { prompt: string };
       assert.match(request.prompt, /hello world/);
       return fakeResult(options);
     },

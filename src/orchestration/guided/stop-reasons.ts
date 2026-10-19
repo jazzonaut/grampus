@@ -42,6 +42,11 @@ export const StopReasonCode = {
   IMPLEMENTATION_INTERRUPTED: 'IMPLEMENTATION_INTERRUPTED',
   /** An edit quality pass turn failed, was interrupted or returned no settled artifact. */
   QUALITY_PASS_FAILED: 'QUALITY_PASS_FAILED',
+  /**
+   * An implementation, edit pass or review turn was refused before dispatch because the text it must
+   * carry could not fit the turn prompt budget (`promptLimits.turnBytes`); no provider turn was spent.
+   */
+  PROMPT_BUDGET_EXCEEDED: 'PROMPT_BUDGET_EXCEEDED',
   /** Files were staged or unstaged during the implementation, so its Git checkpoint changed. */
   CHECKPOINT_CHANGED: 'CHECKPOINT_CHANGED',
   /** The workspace changed between automatic repair attempts. */

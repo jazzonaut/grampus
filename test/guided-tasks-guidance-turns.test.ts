@@ -16,7 +16,7 @@ test(
       reviews = 0;
     config.implementationRunner = options => {
       implementations++;
-      const request = JSON.parse(readFileSync(options.args[1]!, 'utf8')) as { prompt: string };
+      const request = JSON.parse(readFileSync(options.args.at(-1)!, 'utf8')) as { prompt: string };
       assert.match(request.prompt, /Keep the first implementation direct/);
       assert.throws(() => tasks.cancelGuidance(id, tasks.get(id).pending!.guidance[0]!.id), /no longer queued/);
       tasks.queueGuidance(id, 'Inspect the error path in the next review.', 'next_agent');

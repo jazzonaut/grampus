@@ -5,7 +5,13 @@
 import { formatBytes, reviewLimits } from '../../../config/limits.js';
 import { blockingFindings, priorBlockingFindings, reviewProgress, recordRepairDecision } from '../repair-policy.js';
 import { lensOutcome, selectedLenses, type LensAssessment } from '../../../domain/quality-passes.js';
-import { Sessions, requestedTurnIds, runSession, type Session } from '../../../execution/sessions.js';
+import {
+  Sessions,
+  requestedTurnIds,
+  runSession,
+  turnRefusedForBudget,
+  type Session,
+} from '../../../execution/sessions.js';
 import type { Execution } from '../../../execution/execution-state.js';
 import { GuidedStopError, stopReason, type StopReasonCode } from '../stop-reasons.js';
 import {
@@ -146,6 +152,8 @@ interface Verdict {
   summary: string | undefined;
   /** Automatic mode only: the selected lenses the reviewer failed. */
   failedLenses: LensAssessment[];
+  /** The turn was refused before dispatch because its prompt could not fit the budget. */
+  refused: boolean;
 }
 
 /**
@@ -164,7 +172,8 @@ function settleUnpassed(context: SettleContext, verdict: Verdict): StageOutcome 
     const route = routeBlockingReview(context, execution, session);
     if (route === 'repair' || route === 'arbitration') return { kind: 'rerouted', to: route };
     code = route;
-  } else code = session.phase !== 'idle' ? 'REVIEW_TURN_FAILED' : 'REVIEW_FAILED_NO_BLOCKING_FINDINGS';
+  } else if (session.phase === 'idle') code = 'REVIEW_FAILED_NO_BLOCKING_FINDINGS';
+  else code = verdict.refused ? 'PROMPT_BUDGET_EXCEEDED' : 'REVIEW_TURN_FAILED';
   const note =
     (failedLenses.length ? failedLenses.map(lens => `${lens.lens}: ${lens.summary}`).join('\n') : reply?.text) ||
     'No independent passing review. Inspect the findings, then use task-retry.';
@@ -172,7 +181,10 @@ function settleUnpassed(context: SettleContext, verdict: Verdict): StageOutcome 
     kind: 'stop',
     reason: {
       code,
-      note: code === 'REVIEW_TURN_FAILED' && verdict.summary ? `${note}\n${verdict.summary}` : note,
+      note:
+        (code === 'REVIEW_TURN_FAILED' || code === 'PROMPT_BUDGET_EXCEEDED') && verdict.summary
+          ? `${note}\n${verdict.summary}`
+          : note,
     },
   };
 }
@@ -258,6 +270,7 @@ function settleReview(context: SettleContext): StageOutcome {
     session,
     outcome: evidence?.outcome,
     summary: evidence?.summary,
+    refused: turnRefusedForBudget(store, session.id, turn.id),
     failedLenses: automatic(state)
       ? (session.lastReply?.lenses ?? []).filter(
           item => item.verdict === 'fail' && selectedLenses(state.plan.quality).some(lens => lens.id === item.lens),

@@ -106,6 +106,11 @@ export const stopPresentation: Readonly<Record<StopReasonCode, StopPresentation>
     'Implementation stopped',
     'The implementation turn was interrupted, usually by a stop request.',
   ),
+  PROMPT_BUDGET_EXCEEDED: failure(
+    'blocked',
+    'Prompt too large',
+    'The context this turn must carry does not fit the prompt budget, so nothing was sent to the agent. Enable repository exploration or revise the task into smaller slices.',
+  ),
   QUALITY_PASS_FAILED: failure(
     'blocked',
     'Quality pass failed',

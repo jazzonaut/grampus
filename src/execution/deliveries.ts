@@ -24,6 +24,7 @@ import {
 } from '../process/check-process.js';
 import { gitText, verifyCommit, verifyNoChange } from '../repository/delivery-git.js';
 import { currentProcessStartedAt } from '../process/process-identity.js';
+import { workerNodeOptions } from './worker-files.js';
 
 export type { Delivery, DeliverySpec } from '../persistence/records.js';
 
@@ -245,7 +246,7 @@ export class Deliveries {
     });
     return runner({
       file: process.execPath,
-      args: [fileURLToPath(new URL('./delivery-worker.js', import.meta.url)), requestFile],
+      args: [...workerNodeOptions, fileURLToPath(new URL('./delivery-worker.js', import.meta.url)), requestFile],
       cwd: request.cwd,
       timeoutMs: delivery.spec.timeoutMs,
       ...(signal ? { signal } : {}),

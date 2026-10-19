@@ -87,7 +87,7 @@ test('Orca delivery worker rechecks ownership before staging and before commit',
     const f = await deliveryFixture(t);
     let observations = 0;
     const delivery = await f.deliveries.run(f.execution.id, f.spec, undefined, async options => {
-      const request = JSON.parse(readFileSync(options.args[1]!, 'utf8')) as DeliveryRequest;
+      const request = JSON.parse(readFileSync(options.args.at(-1)!, 'utf8')) as DeliveryRequest;
       await assert.rejects(
         deliverRepository(request, join(f.root, 'message'), store => {
           const workspaces = new Workspaces(store, f.client);
@@ -119,7 +119,7 @@ test('Orca delivery worker rechecks ownership before staging and before commit',
 test('Orca writer rejects a request that differs from the durable delivery binding', windows, async t => {
   const f = await deliveryFixture(t);
   const delivery = await f.deliveries.run(f.execution.id, f.spec, undefined, async options => {
-    const request = JSON.parse(readFileSync(options.args[1]!, 'utf8')) as DeliveryRequest;
+    const request = JSON.parse(readFileSync(options.args.at(-1)!, 'utf8')) as DeliveryRequest;
     request.orca!.identityKey = 'wt2:local:replacement';
     await assert.rejects(
       deliverRepository(request, join(f.root, 'message'), store => new Workspaces(store, f.client)),

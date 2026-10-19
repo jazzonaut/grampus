@@ -180,5 +180,8 @@ export async function supervisedOrcaWriter(
     const request=JSON.parse(readFileSync(process.argv[1],'utf8'));
     const client=new OrcaCli(async()=>JSON.stringify({ok:true,result:{worktree:JSON.parse(readFileSync(process.argv[2],'utf8'))}}));
     console.log(await deliverRepository(request,process.argv[1]+'.message',store=>new Workspaces(store,client)));`;
-  return runCheckProcess({ ...options, args: ['--input-type=module', '-e', script, options.args[1]!, identityFile] });
+  return runCheckProcess({
+    ...options,
+    args: ['--input-type=module', '-e', script, options.args.at(-1)!, identityFile],
+  });
 }

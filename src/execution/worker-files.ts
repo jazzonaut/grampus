@@ -9,6 +9,12 @@ import { parseJson, validateInPlace, type BoundaryContext } from '../process/bou
 import { turnResultSchema } from '../providers/reply-schema.js';
 import { deliveryRequestSchema, type DeliveryRequest } from '../persistence/records.js';
 
+/**
+ * Node options for every supervised worker. Workers open the journal through `node:sqlite`, whose
+ * experimental warning would otherwise lead stderr and so the failure note people read.
+ */
+export const workerNodeOptions = ['--disable-warning=ExperimentalWarning'];
+
 /** The implementation worker's request. Settings are validated by `parseSettings`. */
 export const implementationRequestFileSchema = z.object({
   database: z.string(),

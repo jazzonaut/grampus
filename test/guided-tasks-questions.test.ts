@@ -185,7 +185,7 @@ test(
       ...services(),
       implementationRunner: options => {
         calls++;
-        const request = JSON.parse(readFileSync(options.args[1]!, 'utf8')) as { prompt: string };
+        const request = JSON.parse(readFileSync(options.args.at(-1)!, 'utf8')) as { prompt: string };
         if (calls === 2) assert.match(request.prompt, /yes, hello world/);
         return services(
           calls === 1 ? "console.log('partial');\n" : "console.log('hello world');\n",

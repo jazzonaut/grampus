@@ -135,7 +135,7 @@ can then use the remaining allowance. A passing review also needs complete dispo
 
 If progress stalls, evidence is missing or the shared allowance is exhausted, an optional
 arbitrator receives a fresh artifact-bound review with all earlier verdicts. A same-provider
-arbitrator is an explicitly approved fallback. More than twelve verdicts or 128 KiB of history
+arbitrator is an explicitly approved fallback. More than twelve verdicts or 64 KiB of history
 stops before inference rather than dropping findings. See [repair policy](WORKFLOW.md#configuration).
 
 ## Acceptance observations

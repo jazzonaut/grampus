@@ -11,6 +11,7 @@ import { editLimits, formatBytes, processLimits } from '../config/limits.js';
 import { codexFileChangeSchema } from '../providers/codex-protocol.js';
 import { z } from 'zod';
 import { systemErrorCode } from '../process/boundary.js';
+import { PromptBudget, promptBytes } from '../providers/prompt-budget.js';
 
 /**
  * The shape of an edit policy, as read from a CLI policy file or a journal record. Semantic rules
@@ -309,45 +310,53 @@ export function prepareEditing(context: EditingContext): void {
 }
 
 /**
- * Inline editable text; with exploration, large files are deferred to paginated reads of current bytes.
- * Returns a JSON array for the prompt; absent creations have null content. The `readWith` text is part of
- * the provider contract.
+ * Inline editable text within the turn's prompt budget. With exploration, a file over
+ * `editLimits.inlineFileBytes` or beyond the budget is deferred to paginated reads of current bytes; the
+ * smaller form of every entry is charged first, so deferring always fits once that charge succeeds.
+ * Returns a JSON array for the prompt; absent creations have null content. The `readWith` text is part
+ * of the provider contract.
  *
- * @throws Error when the inline context would exceed `editLimits.inlineBytes`, or a file breaks the scope rules.
+ * @throws PromptBudgetError when the entries cannot fit the budget (every content, without exploration);
+ *   Error when a file breaks the scope rules.
  */
-export function editingFileContext(context: EditingContext, exploration = false): string {
-  let size = 2;
-  const content = JSON.stringify(
-    [...context.policy.files, ...(context.policy.create ?? []), ...(context.policy.delete ?? [])].map(path => {
+export function editingFileContext(context: EditingContext, exploration = false, budget = new PromptBudget()): string {
+  const entries = [...context.policy.files, ...(context.policy.create ?? []), ...(context.policy.delete ?? [])].map(
+    path => {
       const file = checkedFile(context, path, true);
       const item = { path: file.path, content: file.bytes?.toString('utf8') ?? null };
-      const bytes = Buffer.byteLength(JSON.stringify(item)) + 1;
-      if (
-        exploration &&
-        file.bytes &&
-        (file.bytes.length > editLimits.inlineFileBytes ||
-          size + bytes > editLimits.inlineBytes - editLimits.inlineReserveBytes)
-      ) {
-        const deferred = {
-          path: file.path,
-          content: null,
-          deferred: true,
-          bytes: file.bytes.length,
-          sha256: createHash('sha256').update(file.bytes).digest('hex'),
-          readWith: 'grampus_read_file with mode=characters; follow nextOffset to read current contents before editing',
-        };
-        size += Buffer.byteLength(JSON.stringify(deferred)) + 1;
-        return deferred;
-      }
-      size += bytes;
-      return item;
+      const deferred =
+        exploration && file.bytes
+          ? {
+              path: file.path,
+              content: null,
+              deferred: true,
+              bytes: file.bytes.length,
+              sha256: createHash('sha256').update(file.bytes).digest('hex'),
+              readWith:
+                'grampus_read_file with mode=characters; follow nextOffset to read current contents before editing',
+            }
+          : null;
+      return { file, item, itemBytes: promptBytes(JSON.stringify(item)), deferred };
+    },
+  );
+  // Brackets, one separator per entry and each entry's smallest form.
+  budget.require(
+    entries.reduce(
+      (sum, entry) => sum + (entry.deferred ? promptBytes(JSON.stringify(entry.deferred)) : entry.itemBytes) + 1,
+      2,
+    ),
+    'Editable file context',
+    exploration
+      ? 'reduce the slice file scope'
+      : 'enable repository exploration or revise the task into smaller slices',
+  );
+  return JSON.stringify(
+    entries.map(({ file, item, itemBytes, deferred }) => {
+      if (!deferred) return item;
+      const extra = Math.max(itemBytes - promptBytes(JSON.stringify(deferred)), 0);
+      return (file.bytes?.length ?? 0) <= editLimits.inlineFileBytes && budget.offer(extra) ? item : deferred;
     }),
   );
-  if (Buffer.byteLength(content) > editLimits.inlineBytes)
-    throw new Error(
-      `Editable file context exceeds ${formatBytes(editLimits.inlineBytes)}; enable repository exploration or revise the task into smaller slices`,
-    );
-  return content;
 }
 
 /**

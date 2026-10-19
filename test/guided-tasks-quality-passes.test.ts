@@ -36,7 +36,7 @@ function turn(
 }
 
 const prompt = (options: CheckProcessOptions) =>
-  (JSON.parse(readFileSync(options.args[1]!, 'utf8')) as { prompt: string }).prompt;
+  (JSON.parse(readFileSync(options.args.at(-1)!, 'utf8')) as { prompt: string }).prompt;
 
 const question: Reply = {
   kind: 'question',

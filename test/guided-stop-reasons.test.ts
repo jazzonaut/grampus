@@ -7,6 +7,8 @@ import type { SettleContext, StageOutcome } from '../src/orchestration/guided/co
 import type { GuidedState } from '../src/orchestration/guided/state.js';
 import { repairIneligibility, validationStage } from '../src/orchestration/guided/stages/checks.js';
 import { reviewStage } from '../src/orchestration/guided/stages/review.js';
+import { failureCode } from '../src/orchestration/guided/stages/implementation.js';
+import type { ImplementationRun } from '../src/persistence/records.js';
 import { rerunChecksIneligibility } from '../src/orchestration/guided/rerun.js';
 import type { Store } from '../src/persistence/store.js';
 import type { Task } from '../src/domain/workflow.js';
@@ -208,7 +210,8 @@ function settleReview(
   outcome: string,
   phase = 'idle',
   recorded = record(),
-  previous?: Partial<Reply>,
+  /** The earlier verdict, and settled turn results beyond the requested turn. */
+  { previous, results = [] }: { previous?: Partial<Reply>; results?: { type: string; data: unknown }[] } = {},
 ) {
   const session = {
     id: 'session',
@@ -223,7 +226,10 @@ function settleReview(
       {
         session: (id: string) =>
           id === 'old' && previous ? { ...session, lastReply: { ...session.lastReply, ...previous } } : session,
-        sessionEvents: () => [{ type: 'turn.requested', data: { runId: 'turn' } }],
+        sessionEvents: (_id: string, types?: string[]) =>
+          [{ type: 'turn.requested', data: { runId: 'turn' } }, ...results].filter(
+            event => !types || types.includes(event.type),
+          ),
         evidence: [{ kind: 'review', id: 'turn', outcome }],
       },
       recorded,
@@ -252,7 +258,10 @@ test('a third review repair is allowed after resolved blockers within the shared
     findings: [{ severity: 'blocking' as const, description: 'New related defect', evidence: 'Current source' }],
     priorFindings: [{ id: 'old:0', status: 'resolved' as const, evidence: 'Earlier defect fixed in source' }],
   };
-  assert.deepEqual(settleReview(state, next, 'failed', 'idle', recorded, blocking), { kind: 'rerouted', to: 'repair' });
+  assert.deepEqual(settleReview(state, next, 'failed', 'idle', recorded, { previous: blocking }), {
+    kind: 'rerouted',
+    to: 'repair',
+  });
   const budget = recorded.changes.find(item => item.type === 'guided.repair_budget_used')!;
   assert.equal(budget.state.repairCycle.used, 3);
   assert.equal(budget.state.reviewCycle.repairs, 3);
@@ -265,6 +274,11 @@ test('review settlement records why a verdict stops and when it reroutes', () =>
   assert.equal(passed.kind === 'advance' && passed.next, 'assessment');
   assert.equal(stopCode(settleReview(automatic, {}, 'failed')), 'REVIEW_FAILED_NO_BLOCKING_FINDINGS');
   assert.equal(stopCode(settleReview(automatic, blocking, 'failed', 'failed')), 'REVIEW_TURN_FAILED');
+  const refusal = { type: 'turn.result', data: { runId: 'turn', result: { refused: 'prompt_budget' } } };
+  assert.equal(
+    stopCode(settleReview(automatic, {}, 'failed', 'failed', record(), { results: [refusal] })),
+    'PROMPT_BUDGET_EXCEEDED',
+  );
   assert.equal(stopCode(settleReview(automatic, {}, 'passed', 'awaiting_answer')), 'AGENT_QUESTION');
 
   const recorded = record();
@@ -383,6 +397,19 @@ test('a failed selected lens is a blocking finding in automatic mode only', () =
   assert.equal(ignored.kind === 'advance' && ignored.next, 'assessment');
   const supervised = settleReview(guided('supervised'), { lenses: [lens('simplification', 'fail')] }, 'passed');
   assert.equal(supervised.kind === 'advance' && supervised.next, 'verification');
+});
+
+test('an implementation or edit pass refused for its prompt budget is named before any other failure', () => {
+  const refused = {
+    phase: 'failed',
+    before: null,
+    after: null,
+    result: { status: 'failed', reply: null, usage: null, error: 'Too large', refused: 'prompt_budget' },
+  } as unknown as ImplementationRun;
+  assert.equal(failureCode(refused), 'PROMPT_BUDGET_EXCEEDED');
+  assert.equal(failureCode(refused, 'QUALITY_PASS_FAILED', 'QUALITY_PASS_FAILED'), 'PROMPT_BUDGET_EXCEEDED');
+  const crashed = { status: 'failed' as const, reply: null, usage: null, error: 'Crashed' };
+  assert.equal(failureCode({ ...refused, result: crashed }), 'IMPLEMENTATION_FAILED');
 });
 
 test('a check that changed its inputs is reported as a mutation even when the runner recorded an error', () => {

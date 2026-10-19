@@ -293,6 +293,14 @@ source and full check evidence on demand. Fresh contexts receive a bounded deter
 handoff from recorded state; Grampus does not spend another model call generating a
 summary. Every new verdict still applies to the current artifact.
 
+A fresh context is where a prompt is largest: a repair after a context reset carries the
+changed files and their diffs as well as the request. Every turn prompt shares one 256 KiB
+budget, so it always fits both providers; content that does not fit is left to the
+repository tools. A turn whose required content cannot fit (only possible without
+exploration, or with an extreme request) stops before dispatch with
+`PROMPT_BUDGET_EXCEEDED`, and no provider turn is spent. See
+[REPOSITORY-CONTEXT.md](REPOSITORY-CONTEXT.md#budgets).
+
 The defaults are configurable heuristics, not a measured universal optimum. Resetting
 too early causes repeated investigation; waiting too long grows input context and
 can retain obsolete assumptions. Usage stays visible, with resumed cumulative provider

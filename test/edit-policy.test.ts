@@ -14,6 +14,8 @@ import {
   type EditingContext,
 } from '../src/execution/edit-policy.js';
 import { execFileSync } from 'node:child_process';
+import { promptLimits } from '../src/config/limits.js';
+import { PromptBudget } from '../src/providers/prompt-budget.js';
 
 function fixture(t: { after(fn: () => void): void }, contents: Record<string, string>) {
   const cwd = mkdtempSync(join(tmpdir(), 'grampus-text-policy-'));
@@ -81,7 +83,7 @@ test('exploration defers large editable contents with explicit metadata and keep
   prepareEditing(context);
   const encoded = editingFileContext(context, true),
     files = JSON.parse(encoded);
-  assert.ok(Buffer.byteLength(encoded) <= 768 * 1024);
+  assert.ok(Buffer.byteLength(encoded) <= promptLimits.turnBytes);
   for (const path of ['first.txt', 'second.txt']) {
     const file = files.find((file: { path: string }) => file.path === path);
     assert.equal(file.deferred, true);
@@ -90,7 +92,13 @@ test('exploration defers large editable contents with explicit metadata and keep
     assert.equal(file.sha256, context.snapshot.files.find(file => file.path === path)!.sha256);
   }
   assert.equal(files.find((file: { path: string }) => file.path === 'small.txt').content, 'small\n');
-  assert.throws(() => editingFileContext(context), /768 KiB/);
+  assert.throws(() => editingFileContext(context), /256 KiB turn prompt budget.*enable repository exploration/);
+  // Whatever the earlier parts of the prompt used, deferring keeps every remaining entry within budget.
+  const budget = new PromptBudget();
+  budget.require(budget.remaining - 2048, 'Fixture request', 'none');
+  const deferred = JSON.parse(editingFileContext(context, true, budget)) as { deferred?: true }[];
+  assert.equal(deferred.filter(file => file.deferred).length, 2);
+  assert.ok(budget.remaining >= 0);
 });
 
 test('unsupported text reports the exact path, observed size, limit and useful next action', t => {

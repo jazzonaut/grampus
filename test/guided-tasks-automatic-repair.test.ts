@@ -11,7 +11,7 @@ test('automatic work repairs a failed check with complete evidence and resumes i
   let implementations = 0;
   const config = services();
   config.implementationRunner = options => {
-    const request = JSON.parse(readFileSync(options.args[1]!, 'utf8'));
+    const request = JSON.parse(readFileSync(options.args.at(-1)!, 'utf8'));
     const run = f.store.implementation(request.id);
     const execution = f.store.execution(run.executionId),
       sessions = new Sessions(f.store);

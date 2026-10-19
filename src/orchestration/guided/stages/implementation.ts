@@ -13,7 +13,8 @@ import { keepSnapshot } from '../snapshots.js';
 import { withGuidance } from '../guidance.js';
 
 /**
- * Why an implementation turn stopped. Staging is told apart from other failures by its snapshots
+ * Why an implementation turn stopped. A turn refused for its prompt budget never reached a provider, so
+ * it is named before anything else. Staging is told apart from other failures by its snapshots
  * (same HEAD and instructions, different index) because it needs a different action: finish
  * staging, then retry, rather than inspecting a failed edit. Edit quality passes share the rule and
  * name their own codes for other failures.
@@ -23,6 +24,7 @@ export function failureCode(
   failed: StopReasonCode = 'IMPLEMENTATION_FAILED',
   interrupted: StopReasonCode = 'IMPLEMENTATION_INTERRUPTED',
 ): StopReasonCode {
+  if (result.result?.refused === 'prompt_budget') return 'PROMPT_BUDGET_EXCEEDED';
   const { before, after } = result;
   if (
     before &&

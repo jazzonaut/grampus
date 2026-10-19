@@ -55,12 +55,8 @@ export const editLimits = {
   fileBytes: 1 * MiB,
   /** Total existing bytes across one slice's edit and delete scope. */
   scopeBytes: 4 * MiB,
-  /** Inline editable file context in a Codex starting prompt. */
-  inlineBytes: 768 * KiB,
-  /** Largest single file inlined when exploration can page the remainder. */
-  inlineFileBytes: 256 * KiB,
-  /** Headroom kept below `inlineBytes` for the descriptors of deferred files. */
-  inlineReserveBytes: 64 * KiB,
+  /** Largest single editable file inlined in a Codex prompt when exploration can page the remainder. */
+  inlineFileBytes: 64 * KiB,
   /** Text in one Edit or Write call, or one patch diff; bounds what a single authorised call can carry. */
   payloadBytes: 256 * KiB,
   /** Encoded size of a structured final reply accepted through the Claude tool hook. */
@@ -133,8 +129,8 @@ export const checkOutputLimits = {
 export const reviewLimits = {
   /** Earlier verdicts for one slice; beyond this the task stops for a revision. */
   historyVerdicts: 12,
-  /** Encoded size of the earlier verdicts sent to the reviewer. */
-  historyBytes: 128 * KiB,
+  /** Encoded size of the earlier verdicts sent to the reviewer; part of the review turn's prompt budget. */
+  historyBytes: 64 * KiB,
   /** Bytes in a reviewer's summary of one quality lens assessment. */
   lensSummaryBytes: 12_000,
 } as const;
@@ -184,8 +180,6 @@ export const repositoryLimits = {
   deliveryBlobOverheadBytes: 100,
   /** Retained change evidence (diff content) in one snapshot. */
   changeEvidenceBytes: 4 * MiB,
-  /** Inline review instructions and context. */
-  reviewContextBytes: 2 * MiB,
   /** Paths listed per page of review coverage and changed files. */
   reviewListPage: 100,
   /** Pinned trees kept in the in-memory inventory cache. */
@@ -202,12 +196,29 @@ export const repositoryLimits = {
   searchPage: 100,
 } as const;
 
-/** Context sent inline to planners and reviewers. Checked when context is selected and again at review. */
+/**
+ * Everything Grampus sends in one provider turn. Every prompt part (controller text, repository
+ * instructions, selected context, changed files, diffs and Codex's editable contents) shares this one
+ * budget, filled in priority order; what does not fit is deferred to the paging repository tools, or the
+ * turn is refused before dispatch. It is sized for the smallest provider limits: Codex refuses turn input
+ * over 1,048,576 characters (UTF-8 bytes bound characters), and at a conservative 3 bytes per token it
+ * uses under half of a 200k-token Claude context window, leaving room for the agent to work.
+ */
+export const promptLimits = {
+  /** UTF-8 bytes of one turn prompt. */
+  turnBytes: 256 * KiB,
+} as const;
+
+/**
+ * Context sent inline to planners and reviewers. Checked when context is selected and again at review.
+ * The total leaves the rest of `promptLimits.turnBytes` for the controller's own text, so selected
+ * context that passes approval always fits a starting prompt.
+ */
 export const contextLimits = {
-  /** Total bytes of selected or required context. */
-  bytes: 512 * KiB,
+  /** Total JSON-encoded bytes of selected or required context. */
+  bytes: 160 * KiB,
   /** Bytes of one context file. */
-  fileBytes: 256 * KiB,
+  fileBytes: 128 * KiB,
   /** Files in selected or required context. */
   files: 256,
 } as const;

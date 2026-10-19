@@ -56,8 +56,9 @@ Exact file scope allows regular UTF-8 files up to 1 MiB each and 4 MiB of existi
 text per slice, with at most 64 paths. Individual edit or patch text is capped at
 256 KiB. Planning checks pinned file sizes before approval; runtime errors name the
 path and reason. These limits apply equally to every filename. Codex receives bounded
-initial editable text; larger or excess files are deferred with size and hash
-metadata and read through the tools (null content means unread, not absent). The
+initial editable text; files over 64 KiB or beyond the turn budget are deferred with size
+and hash metadata and read through the tools (null content means unread, not absent).
+Editable files are supplied once: the starting context does not repeat them. The
 authorization view shows complete approved contents regardless of the prompt budget.
 
 ## Reference folders and integrations
@@ -89,12 +90,20 @@ different connections.
   empty page.
 - **Search:** case-insensitive literal text with an optional path filter, scanning up
   to 128 files or about 4 MiB per page and returning up to 50 match lines.
-- **Initial supplied text:** at most 256 files, 256 KiB per file and 512 KiB in total.
-  Excess changed-file text and diff content is deferred to `grampus_read_changes`, which
-  lists 100 changed paths per page or pages recorded `before`/`after` content in
-  12,000-character pages.
-- **Review envelope:** 2 MiB inline. Retained change evidence is limited to 4 MiB.
-  Repository instructions must fit inline.
+- **Turn prompt:** every provider turn prompt is at most 256 KiB of UTF-8, which keeps
+  it under Codex's 1,048,576-character turn input limit and under half of a 200k-token
+  Claude context window. The controller's own text is charged first; files, changed files
+  and diffs fill what remains, and Codex's editable contents come before them.
+- **Initial supplied text:** at most 256 files, 128 KiB per file and 160 KiB in total as
+  encoded in the prompt, checked when context is selected, so selected context that
+  passes approval always fits a starting prompt. With exploration, excess changed-file
+  text and diff content is deferred to `grampus_read_changes`, which lists 100 changed
+  paths per page or pages recorded `before`/`after` content in 12,000-character pages.
+  Without exploration every required file and change must fit; a turn whose required
+  context cannot fit stops before dispatch with `PROMPT_BUDGET_EXCEEDED`.
+- **Review envelope:** the turn prompt budget, after the review request, verdict history
+  and check evidence. Retained change evidence is limited to 4 MiB. Repository
+  instructions must fit inline.
 - **Snapshots:** processed file by file with a 32 MiB per-file limit and no aggregate
   cap.
 - **Caching:** pinned-tree metadata is held in an LRU of four trees, about 64 MiB.

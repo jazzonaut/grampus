@@ -151,7 +151,7 @@ on the guided state, and `reasonCode` on the journal event that made the change.
 while the status is `draft`, `awaiting_*`, `blocked` or `recovery_required`, and cleared whenever
 work resumes. The codes are listed and documented in `orchestration/guided/stop-reasons.ts`: waits
 (`APPROVAL_REQUIRED`, `SCOPE_AUTHORIZATION_REQUIRED`, `ASSESSMENT_REQUIRED`, `AGENT_QUESTION`, ...),
-settled failures (`PREPARATION_FAILED`, `CHECKPOINT_CHANGED`, `QUALITY_PASS_FAILED`, `CHECK_TIMEOUT`,
+settled failures (`PREPARATION_FAILED`, `CHECKPOINT_CHANGED`, `PROMPT_BUDGET_EXCEEDED`, `QUALITY_PASS_FAILED`, `CHECK_TIMEOUT`,
 `CHECK_NO_PROGRESS`, `CHECK_REPAIR_EXHAUSTED`, `REVIEW_MISSING_LENS`, `REVIEW_REPAIR_EXHAUSTED`,
 `REVIEW_PROGRESS_UNCONFIRMED`, `ARBITRATION_UNRESOLVED`, `DELIVERY_FAILED`, ...)
 and results that cannot be adopted (`RESULT_MISMATCH`, `OPERATION_NEEDS_RECOVERY`,
@@ -437,6 +437,19 @@ provider in the same supervised process tree. After confirmed exit, only the aut
 contents and named creations and deletions may have changed; HEAD, index, other files, modes and
 instructions must be unchanged. Scope covers regular UTF-8 files up to 1 MiB each and 4 MiB per
 slice, at most 64 paths.
+
+Every provider turn prompt fits one budget (`promptLimits.turnBytes`, 256 KiB of UTF-8, enforced by
+`providers/prompt-budget.ts`). It is sized for the smallest provider limits: Codex refuses turn input
+over 1,048,576 characters, and the budget uses under half of a 200k-token Claude context window at a
+conservative 3 bytes per token. Builders charge the text a turn must carry first (the request, task
+context, guidance, review history, check evidence and repository instructions), then fill what remains
+in priority order: Codex's editable file contents, then selected files, changed files and their diffs,
+each supplied once. With exploration anything that does not fit is deferred to the paging repository
+tools. Without it, required context that cannot fit refuses the turn before any provider starts, with
+`PROMPT_BUDGET_EXCEEDED`; selected context is sized at approval so a starting prompt always fits, but
+the diffs of a repair can still grow past it. The assembled prompt is checked again before dispatch.
+The implementation worker builds its prompt in `execution/implementation-prompt.ts` and records a refusal
+as a settled turn result (`refused: 'prompt_budget'`), not a crash.
 
 ## Delivery
 
@@ -792,11 +805,13 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `output-buffer.ts` | Coalescing streamed provider output per run |
 | | `executions.ts`, `execution-state.ts` | Execution bindings, leases and settlement |
 | | `edit-policy.ts`, `implementations.ts`, `implementation-worker.ts` | Edit scope, patch authorization and supervised editing |
+| | `implementation-prompt.ts` | The exact implementation turn prompt, built within the turn budget |
 | | `deliveries.ts`, `delivery-worker.ts`, `delivery-operation.ts` | Local commit delivery and verification |
 | | `worker-files.ts` | Validated worker request files and implementation results |
 | | `agent-timeout.ts` | Opt-in provider deadlines for low-level session and implementation commands; guided turns have none |
 | `providers/` | `types.ts`, `index.ts` | Provider contract, reply validation, usage, connector |
 | | `reply-schema.ts` | Structured reply, usage and turn result schemas; the provider output format |
+| | `prompt-budget.ts` | The one byte budget every turn prompt shares, and its dispatch-time check |
 | | `codex.ts`, `codex-protocol.ts` | Codex app-server threads, turns, approvals and dynamic tools; the pinned app-server protocol |
 | | `claude.ts`, `claude-protocol.ts`, `claude-repository.ts`, `claude-files.ts` | Claude SDK sessions and the validated SDK fields, repository MCP server, scoped delete tool |
 | | `integrations.ts` | MCP carry-over into worktrees |

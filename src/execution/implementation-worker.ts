@@ -7,11 +7,11 @@ import { Store } from '../persistence/store.js';
 import type { Execution, ImplementationRun, Session } from '../persistence/records.js';
 import { Sessions } from './sessions.js';
 import { Workspaces } from '../repository/workspaces.js';
-import type { RepositorySnapshot } from '../repository/artifacts.js';
-import { captureRepository, repositoryContext } from '../repository/repository-evidence.js';
+import { captureRepository } from '../repository/repository-evidence.js';
 import { Workflow } from '../domain/workflow.js';
-import type { GuidedPlan } from '../domain/guided-plan.js';
-import { editingFileContext, prepareEditing, type EditingContext } from './edit-policy.js';
+import { prepareEditing } from './edit-policy.js';
+import { implementationTurn, type ImplementationTurn } from './implementation-prompt.js';
+import { PromptBudgetError } from '../providers/prompt-budget.js';
 import { readImplementationRequest } from './worker-files.js';
 import { connectAgent } from '../providers/index.js';
 import type { AgentSession, TurnResult } from '../providers/types.js';
@@ -19,51 +19,18 @@ import { taskCheckEvidence } from '../verification/check-evidence.js';
 import { parseSettings, useSettings } from '../config/settings.js';
 import { OutputBuffer, deltaText } from './output-buffer.js';
 
-/** What the turn is told about the repository beyond its editable files. */
-interface StartingContext {
-  /** Selected context files, sent on the first turn of a conversation only. */
-  supplied: ReturnType<typeof repositoryContext> | null;
-  /** Inline editable file contents for Codex, which cannot read them through native file tools. */
-  fileContext: string;
-  /** Resuming an exploring conversation: the agent reads current files itself instead. */
-  continuing: boolean;
-  exploration: boolean;
-}
-
-/**
- * Decides what the turn starts with. A resumed exploring conversation gets neither the selected context
- * nor inline file contents, because its agent reads current files through the repository tools.
- */
-function startingContext(
-  session: Session,
-  editing: EditingContext,
-  context: GuidedPlan['context'] | undefined,
-): StartingContext {
-  const exploration = context?.exploration === true;
-  const continuing = !!session.providerSessionId && exploration;
-  const fileContext =
-    session.provider === 'codex' && !continuing
-      ? `\nCurrent editable file contents (deferred entries must be read with grampus_read_file before editing; null without deferred means absent):\n${editingFileContext(editing, exploration)}`
-      : '';
-  const selected = context?.files;
-  const supplied =
-    selected && !continuing ? repositoryContext(session.cwd, editing.snapshot, selected, exploration) : null;
-  return { supplied, fileContext, continuing, exploration };
-}
-
-/** The turn prompt: the request, the exact file authorisation, starting context and repository instructions. */
-function turnPrompt(prompt: string, run: ImplementationRun, snapshot: RepositorySnapshot, start: StartingContext) {
-  const { supplied, exploration, continuing, fileContext } = start;
-  const starting = supplied
-    ? `Starting repository context (read-only supporting files; does not expand editing permission). ${exploration ? 'Use repository exploration tools to inspect dependencies, callers and tests beyond these initial files.' : 'Omitted files have not been supplied; ask for missing dependencies instead of guessing.'}:\n${JSON.stringify(supplied)}`
-    : `Current artifact: ${snapshot.artifact}. Snapshot file count: ${snapshot.files.length}. ${continuing ? 'Continue this slice. Read current files before editing; earlier file contents may be stale. Use grampus_read_changes and grampus_read_check instead of reconstructing old context.' : ''}`;
-  return `${prompt}\n\nAuthorized existing editable files: ${JSON.stringify(run.policy.files)}\nAuthorized new files (existing parent directories only): ${JSON.stringify(run.policy.create ?? [])}\nAuthorized deletion-only files (unchanged snapshot bytes): ${JSON.stringify(run.policy.delete ?? [])}\n${starting}\nRepository instructions (apply within the explicit tool policy):\n${JSON.stringify(snapshot.instructions)}${fileContext}`;
-}
-
 /** Throws unless this run still holds the workspace lease and its session's running turn. */
 function requireOwnership(store: Store, run: ImplementationRun, execution: Execution, session: Session): void {
   if (store.lease(execution.workspaceId)?.runId !== run.id || session.run?.id !== run.id || session.phase !== 'running')
     throw new Error('Native implementation ownership changed');
+}
+
+/** Writes the turn's result to a temporary name and renames it, so the controller never reads a partial one. */
+function writeResult(run: ImplementationRun, result: TurnResult): void {
+  if (!run.receipt) throw new Error('Implementation run has no receipt directory');
+  const path = join(run.receipt.directory, 'result.json');
+  writeFileSync(`${path}.tmp`, JSON.stringify({ id: run.id, result }));
+  renameSync(`${path}.tmp`, path);
 }
 
 async function main(): Promise<void> {
@@ -86,11 +53,19 @@ async function main(): Promise<void> {
     const editing = { cwd: session.cwd, policy: run.policy, snapshot };
     prepareEditing(editing);
     const plan = new Workflow(store).get(execution.taskId).guided?.plan;
-    const start = startingContext(session, editing, plan?.context);
-    if (start.supplied)
+    let turn: ImplementationTurn;
+    try {
+      turn = implementationTurn(request.prompt, session, editing, plan?.context);
+    } catch (error) {
+      if (!(error instanceof PromptBudgetError)) throw error;
+      // Refused before any provider starts: a settled failure the controller can name, not a crash.
+      writeResult(run, { status: 'failed', reply: null, usage: null, error: error.message, refused: 'prompt_budget' });
+      return;
+    }
+    if (turn.coverage)
       store.appendExecution(execution.id, 'implementation.context_captured', {
         artifact: snapshot.artifact,
-        ...start.supplied.coverage,
+        ...turn.coverage,
       });
     const lost = () => new Error('Native implementation no longer owns an active turn');
     const output = new OutputBuffer(text => {
@@ -104,7 +79,7 @@ async function main(): Promise<void> {
       // Never aborted in this process: a stop ends the worker through its supervisor.
       signal: new AbortController().signal,
       editing,
-      ...(start.exploration
+      ...(turn.exploration
         ? {
             repository: {
               repo: session.cwd,
@@ -126,7 +101,7 @@ async function main(): Promise<void> {
         if (current.phase !== 'running' || !sessions.event(session.id, run.id, event)) throw lost();
       },
     });
-    const turning: Promise<TurnResult> = agent.turn(turnPrompt(request.prompt, run, snapshot, start));
+    const turning: Promise<TurnResult> = agent.turn(turn.prompt);
     // The last streamed text is journaled before the result exists, so it precedes settlement. A lost
     // run's flush fails like its other events would; the controller's settlement decides what counts.
     const result = await turning.finally(() => {
@@ -138,11 +113,7 @@ async function main(): Promise<void> {
     });
     await agent.close();
     agent = null;
-    if (!run.receipt) throw new Error('Implementation run has no receipt directory');
-    // Written to a temporary name and renamed, so the controller never reads a partial result.
-    const path = join(run.receipt.directory, 'result.json');
-    writeFileSync(`${path}.tmp`, JSON.stringify({ id: run.id, result }));
-    renameSync(`${path}.tmp`, path);
+    writeResult(run, result);
   } finally {
     try {
       await agent?.close();

@@ -28,7 +28,7 @@ import {
 import { parseReply, type TurnResult } from '../providers/types.js';
 import { currentProcessStartedAt } from '../process/process-identity.js';
 import { currentSettings, type Settings } from '../config/settings.js';
-import { readImplementationResult } from './worker-files.js';
+import { readImplementationResult, workerNodeOptions } from './worker-files.js';
 
 export type { ImplementationRun } from '../persistence/records.js';
 /** The request file the controller writes for the supervised implementation worker. */
@@ -228,7 +228,11 @@ export class Implementations {
       });
       run.process = await runner({
         file: process.execPath,
-        args: [fileURLToPath(new URL('./implementation-worker.js', import.meta.url)), requestFile],
+        args: [
+          ...workerNodeOptions,
+          fileURLToPath(new URL('./implementation-worker.js', import.meta.url)),
+          requestFile,
+        ],
         cwd: context.cwd,
         timeoutMs,
         ...(options.signal ? { signal: options.signal } : {}),

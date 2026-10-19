@@ -7,7 +7,7 @@ import { deliveryGit, deliveryGitInput } from './delivery-git.js';
 import { contextLimits, formatBytes, repositoryLimits } from '../config/limits.js';
 import { z } from 'zod';
 
-const contextBudget = `Select up to ${contextLimits.files} text files, ${formatBytes(contextLimits.fileBytes)} each and ${formatBytes(contextLimits.bytes)} total.`;
+const contextBudget = `Select up to ${contextLimits.files} text files, ${formatBytes(contextLimits.fileBytes)} each and ${formatBytes(contextLimits.bytes)} in total as encoded in the prompt.`;
 /** One regular file of a pinned commit: its path, blob id and size in bytes. */
 export interface RepositoryEntry {
   path: string;
@@ -194,26 +194,23 @@ export function pinnedContext(repo: string, base: string, selection?: unknown, r
     seen.add(entry.path);
     bytes += entry.bytes;
   }
-  const blobs = chosen.length
-    ? deliveryGitInput(repo, Buffer.from(chosen.map(entry => `${entry.oid}\n`).join('')), 'cat-file', '--batch')
-    : Buffer.alloc(0);
-  let offset = 0;
+  let encoded = 0;
   const files: { path: string; content: string }[] = [];
-  for (const entry of chosen) {
-    const end = blobs.indexOf(10, offset);
-    if (end < 0 || blobs.subarray(offset, end).toString('ascii') !== `${entry.oid} blob ${entry.bytes}`)
-      throw new Error('Pinned context blob response is invalid');
-    offset = end + 1;
-    const data = blobs.subarray(offset, offset + entry.bytes);
-    offset += entry.bytes;
-    if (data.length !== entry.bytes || blobs[offset++] !== 10)
-      throw new Error('Pinned context blob response is incomplete');
+  for (const { entry, data } of pinnedBlobs(repo, chosen)) {
+    const mandatory = explicit || instructionPath(entry.path);
     if (data.includes(0) || !Buffer.from(data.toString('utf8')).equals(data)) {
-      if (explicit || instructionPath(entry.path))
-        throw new Error(`Selected context file must be UTF-8 text: ${entry.path}`);
+      if (mandatory) throw new Error(`Selected context file must be UTF-8 text: ${entry.path}`);
       continue;
     }
-    files.push({ path: entry.path, content: data.toString('utf8') });
+    const file = { path: entry.path, content: data.toString('utf8') };
+    // The budget is what the prompt carries, so escaping counts; raw sizes above only pre-filter.
+    const itemBytes = Buffer.byteLength(JSON.stringify(file)) + 1;
+    if (encoded + itemBytes > contextLimits.bytes) {
+      if (mandatory) throw new Error(`Selected context exceeds its budget at ${entry.path}. ${contextBudget}`);
+      continue;
+    }
+    encoded += itemBytes;
+    files.push(file);
   }
   return {
     files,
@@ -223,6 +220,33 @@ export function pinnedContext(repo: string, base: string, selection?: unknown, r
       files.reduce((sum, file) => sum + Buffer.byteLength(file.content), 0),
     ),
   };
+}
+
+/**
+ * The bytes of `entries`, read in one `cat-file --batch` call.
+ *
+ * @throws Error when the blob response is malformed or incomplete.
+ */
+function pinnedBlobs(repo: string, entries: RepositoryEntry[]): { entry: RepositoryEntry; data: Buffer }[] {
+  if (!entries.length) return [];
+  const blobs = deliveryGitInput(
+    repo,
+    Buffer.from(entries.map(entry => `${entry.oid}\n`).join('')),
+    'cat-file',
+    '--batch',
+  );
+  let offset = 0;
+  return entries.map(entry => {
+    const end = blobs.indexOf(10, offset);
+    if (end < 0 || blobs.subarray(offset, end).toString('ascii') !== `${entry.oid} blob ${entry.bytes}`)
+      throw new Error('Pinned context blob response is invalid');
+    offset = end + 1;
+    const data = blobs.subarray(offset, offset + entry.bytes);
+    offset += entry.bytes;
+    if (data.length !== entry.bytes || blobs[offset++] !== 10)
+      throw new Error('Pinned context blob response is incomplete');
+    return { entry, data };
+  });
 }
 
 function suggestedEntries(tree: PinnedRepository, request: string): RepositoryEntry[] {

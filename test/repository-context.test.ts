@@ -15,6 +15,7 @@ import type { Connector } from '../src/providers/types.js';
 import type { TaskDetailV1 } from '../src/server/api-types.js';
 import { startUi } from '../src/server/ui-server.js';
 import { repositoryTools } from '../src/repository/repository-tools.js';
+import { promptLimits } from '../src/config/limits.js';
 
 function fixture(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-context-')),
@@ -129,9 +130,9 @@ test('exploration pages cumulative changes beyond inline byte and file budgets w
     f.git('commit', '-m', `Deliver ${name}`);
   }
   const snapshot = await snapshotRepository(f.repo, base);
-  assert.throws(() => repositoryContext(f.repo, snapshot, []), /text budget/);
+  assert.throws(() => repositoryContext(f.repo, snapshot, []), /Required context at a\.js.*128 KiB/);
   const supplied = repositoryContext(f.repo, snapshot, [], true);
-  assert.ok(Buffer.byteLength(JSON.stringify(supplied)) < 2 * 1024 * 1024);
+  assert.ok(Buffer.byteLength(JSON.stringify(supplied)) <= promptLimits.turnBytes);
   assert.equal(supplied.changes!.total, 3);
   assert.ok(supplied.files.length < 4);
   const events: any[] = [];
