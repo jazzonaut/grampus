@@ -2,85 +2,113 @@
 
 The dashboard is the main way to use Grampus. Run `grampus` after
 [installing](INSTALLATION.md) (port 4317), or from a checkout double-click
-`Grampus-Dev.cmd` or run `npm run ui` (port 4318). The command opens your browser on
-Windows and prints the link; keep its terminal open while you work. The dashboard
-works in a normal browser or Orca's embedded browser. The footer shows the version,
-build and whether this is an installed or development copy.
+`Grampus-Dev.cmd` or run `npm run ui` (port 4318; both build the server and the client first).
+The command opens your browser on Windows and prints the link; keep its terminal open while
+you work. The dashboard works in a normal browser or Orca's embedded browser. The footer shows
+the version, channel, build and journal.
+
+## Screens
+
+The sidebar lists **New task**, the overview, every task and planning conversation with its
+status in words (and **No activity for N min** when a step has gone silent), and **Integration
+health**. The header shows the integrations summary and links to the Health screen. Screens are
+addressed in the URL fragment (`#/`, `#/new`, `#/tasks/<id>`, `#/planning/<id>`, `#/health`), so
+Back, Forward and reload keep your place. Only the visible screen is polled (every 1.5 seconds,
+paused while the tab is hidden); the overview is polled throughout because the header and
+sidebar show it.
+
+| Screen | Shows |
+| --- | --- |
+| **Overview** | **Needs your attention** first: every task or planning conversation waiting for you, most urgent first, with one sentence on why, the stop reason code and the actions that resolve it (actions that need a form link to their screen). Then integration health, tasks (status, stage, slice i of n, last activity, stall badge, usage headline with turns and interventions), planning conversations, recent verified deliveries and how many guided tasks run against the limit |
+| **New task** | Repository folder, what should change, reference folders with **Suggest from task description**, planner and implementer (Codex or Claude; the other reviews), workspace (standalone Git worktree or local Orca worktree) and **Optional file hints**: **Suggest starting files** pins the commit and suggests paths, the repository map, the inventory digest and a search of the pinned inventory, 100 paths a page. **Start planning** shows "Preparing repository context" while the repository is inspected, then sends the first planning turn and opens the conversation. **Already have a guided plan?** imports plan JSON as an unapproved task |
+| **Planning conversation** | Status and explanation, the discussion (Markdown), live planner progress with **Stop planning**, **Recover planning session** when an earlier planner still owns the session, pending questions with suggested answers, a message to refine the plan, the proposed plan with its digest and **Review for approval**, repository access with editable file hints and inventory search, reference folders with suggestions, exploration, MCP connections, reset and delete |
+| **Task** | Summary header (slice, title, status, intended outcome, one-sentence explanation, next step: automatic, your decision or none, the controller's note with the stop reason code, stale-plan, stall and failed-action notices), the workflow strip, current activity with **Stop now**, the decision queue, results, measured usage, details on demand, plan revision and task management |
+| **Integration health** | Overall health with its reason, when it was checked and whether a new check is due, version-change warnings, and per integration its version (and SDK version), whether it is required and a status per capability with detail. **Check again** reruns the checks |
 
 ## Plan a task
 
 1. Choose **New task**, enter an existing repository folder and describe the change.
-2. Choose **Start planning**. The planner explores the repository itself through
-   read-only tools at the pinned commit; it cannot edit files or run commands. The
-   planning card shows connection status, elapsed time, recent reads and searches,
-   and MCP requests. **Optional file hints** let you point it at useful starting
-   files; **Update file hints** invalidates an earlier proposal without starting a turn.
-3. Answer consequential questions in the discussion, or ask for revisions, until the
-   proposal describes the right outcome and examples. Suggestions fill the answer box
-   for editing before you send. Discussion and plan text render Markdown; commands,
-   file contents and expected output stay literal.
+2. Choose **Start planning**. The planner explores the repository itself through read-only
+   tools at the pinned commit; it cannot edit files or run commands. The planning card shows
+   what the planner is doing, elapsed and last-activity times, repository actions, MCP requests
+   and its latest requests. Optional file hints point it at useful starting files;
+   **Update file hints** invalidates an earlier proposal without starting a turn.
+3. Answer consequential questions, or ask for revisions, until the proposal describes the right
+   outcome and examples. Suggestions fill the answer box for editing before you send. Discussion
+   and plan text render Markdown; commands, file contents and expected output stay literal.
 4. Add outside repositories or plain folders under **Reference folders**. Paths in the
-   description are detected, and the agent can suggest more with reasons, but a
-   suggestion grants nothing until you add it and choose **Update reference folders**.
-   References stay read-only throughout the task. **MCP connections** shows each
-   provider's configured connections, such as Linear.
+   description are detected, and the planner can suggest more with reasons, but a suggestion
+   grants nothing until you add it and choose **Update reference folders**. References stay
+   read-only throughout the task. **MCP connections** shows each provider's configured
+   connections, such as Linear.
 
-Planning uses subscription usage only when you start or send a turn. Naming costs
-nothing: the sidebar shows a short title from the first sentence of the description
-until the planner proposes a plan, then the plan's title.
+Planning uses subscription usage only when you start or send a turn. Naming costs nothing: the
+sidebar shows a short title from the first sentence of the description until the planner
+proposes a plan, then the plan's title.
 
-The planner covers the whole request and may split it into 1 to 64 ordered slices,
-each with its own file scope, checks and commit message. The final slice verifies
-every criterion. Review the full sequence rather than narrowing scope because a
-ticket is large.
+The planner covers the whole request and may split it into 1 to 64 ordered slices, each with
+its own file scope, checks and commit message. The final slice verifies every criterion. Review
+the full sequence rather than narrowing scope because a ticket is large.
 
 ## Approve
 
-**Review for approval** freezes the proposal as an unapproved task. Check its outcome,
-criteria, file actions and contents, executables and arguments, expected output,
-agents, command timeouts, pinned base, workflow policy, quality passes and delivery messages.
-The planner does not choose quality passes: a new plan gets the configured default
-(the simplification lens), and **Revise this task's plan** changes them before approval.
-Generated checks need your judgement: Grampus syntax-checks generated inline Node
-checks but cannot tell whether a check proves the right thing.
+**Review for approval** freezes the proposal as an unapproved task and opens it. Its plan
+(under Details) shows the outcome, repository access, criteria, approach, base commit,
+workspace, agents and models, the workflow, review and quality pass policies, preparation,
+every slice's file actions, exact commands (executable, each argument and the argument array),
+timeouts, exact expected output and delivery message. The planner does not choose quality
+passes: a new plan gets the configured default (the simplification lens), and **Revise this
+task's plan** changes them before approval. Generated checks need your judgement: Grampus
+syntax-checks generated inline Node checks but cannot tell whether a check proves the right
+thing.
 
-Approving a plan in automatic mode (the default) starts the run straight away.
+The approval card names the exact plan version and digest you approve. Approving a plan in
+automatic mode (the default) starts the run straight away.
 
 ## Run
 
 The task runs [automatically within the approved scope](WORKFLOW.md): preparation,
-implementation and any edit quality passes, validation, independent review with an
-assessment of each selected quality lens, acceptance and a verified local commit per slice. Questions, scope errors, exhausted
-repair allowances and operational failures stop for attention with the reason shown.
+implementation and any edit quality passes, validation, independent review with an assessment of
+each selected quality lens, acceptance and a verified local commit per slice. Questions, scope
+errors, exhausted repair allowances and operational failures stop for attention with the reason
+shown.
 
-- **Progress:** the current step, elapsed and last-activity times, repository reads,
-  MCP requests and file change requests. Agent activity describes what the agent
-  asked for; checks and retained evidence establish results.
-- **No activity for N min:** when a running agent turn or check has journaled nothing
-  (no output, usage, tool or other event, and for a check no growing output log) for
-  `stallWarningMs` (10 minutes by default, see [CONFIGURATION.md](CONFIGURATION.md)),
-  the task shows this badge in the sidebar and a notice on its page, and the timeline
-  records one "possibly stalled" entry per silence. Nothing is stopped: wait if the step
-  is slow, or use **Stop now** if it is hung. New activity clears the badge.
-- **Failures:** a compact issue summary with the failing test or diagnostics. Full
-  output is collapsed and loaded in pages with **Read stdout** and **Read stderr**.
-- **Timeline:** pinned while scrolling, showing the latest entries. **View full
-  timeline** expands the history.
-- **Evidence:** findings, quality lens assessments and edit passes, outputs, retained
-  changes, local commits and a downloadable Markdown report built from the journal.
-- **Measured usage:** per-provider tokens (input, output, cache read and cache write)
-  and estimated cost, session coverage and the last observation time, then a table by
-  stage (planning, implementation, quality passes, repair, review, arbitration) with
-  turns, failed and stopped turns, wall time and tokens, and a line with total turns,
-  repair attempts and human interventions after approval. Unknown values show as
-  Unknown, never 0; a `+` or **partial** marks a lower bound. Estimates never imply
-  billed cost.
+- **Workflow strip:** each stage in order (quality passes come from the plan) with its state in
+  words and who established it: *verified by Grampus* (checks, acceptance, the commit), *agent
+  reported* (implementation, edit passes, the review and its lens verdicts) or *your
+  assessment*. A stage that stopped before a result is Unknown, never passed.
+- **Current activity:** what is running, elapsed and last-activity times, repository actions,
+  MCP requests and file change requests, and the latest agent requests. Agent activity
+  describes what the agent asked for; checks and retained evidence establish results. There
+  are no percentages.
+- **No activity for N min:** when a running agent turn or check has journaled nothing (no
+  output, usage, tool or other event, and for a check no growing output log) for
+  `stallWarningMs` (10 minutes by default, see [CONFIGURATION.md](CONFIGURATION.md)), the task
+  shows this badge and a notice, and the timeline records one "possibly stalled" entry per
+  silence. Nothing is stopped: wait if the step is slow, or use **Stop now** if it is hung.
+- **Results:** unresolved problems, criteria coverage, checks with a compact failure summary,
+  the exact command and **Read stderr** / **Read stdout** (loaded in pages on request), review
+  findings, quality lens verdicts and recorded assessments, edit passes and local commits.
+- **Measured usage:** per-provider tokens (input, output, cache read and cache write) and
+  estimated cost, how complete each figure is and the last observation time, then turns,
+  failed and stopped turns and wall time per stage, and a line with total turns, repair attempts
+  and human interventions after approval. Unknown values show as Unknown, never 0; **partial**
+  or a `+` marks a lower bound. Billed cost is always unknown.
+- **Details:** the timeline (latest entries first, **View full timeline** pages through the
+  whole history), the plan, approval and artifact digests, retained changes (each file's exact
+  before and after), the report (**Load report** renders it, **Download Markdown** saves it),
+  workspace and delivery, read-only references and repository exploration.
 
-In supervised mode the task also stops for file authorization and a quality assessment,
-with forms for both. The assessment form lists each selected lens; your outcome and summary
-are recorded for every lens. Without selected lenses there is no assessment stop.
+In supervised mode the task also stops for file authorization (the card lists each file with
+its action and exact current content, and the repository instructions) and a quality
+assessment, with forms for both. The assessment form lists each selected lens; your outcome and
+summary are recorded for every lens. Without selected lenses there is no assessment stop.
 
 ## Controls
+
+Every button and form is an action the server offers for the state on screen, with its label,
+consequence and, when unavailable, why. Forms are generated from the server's description of
+the fields.
 
 | Control | Effect |
 | --- | --- |
@@ -89,57 +117,70 @@ are recorded for every lens. Without selected lenses there is no assessment stop
 | **Rerun checks** | Shown only when a validation or acceptance check stopped for an infrastructure reason (timeout, interruption, lost output, abnormal exit or runner error) on an unchanged change. Runs the same check again with no agent turn and no new attempt; refused if the workspace changed since |
 | **Retry preparation** | Reruns a failed preparation step in the same attempt |
 | **Recover saved work** | Runs the same conservative receipt checks as `task-recover` after a controller exits |
-| **Revise this task’s plan** | At a settled point, edit outcome, approach, repair policy, quality passes (ids in order), or (advanced) files, checks, criteria and remaining slices. Needs fresh approval |
+| **Revise this task's plan** | At a settled point, edit the name, outcome, approach, workflow mode, repair and conversation limits, review repairs and arbitration, quality passes (chosen and ordered), or (advanced) the plan JSON with files, checks, criteria and remaining slices. Needs fresh approval |
 | **Release unused reservation** | Clears a failed standalone worktree reservation once Git exit and absence of files are confirmed. Deletes nothing |
 | **Reset task** | Restarts planning from the original request in a fresh conversation and baseline. The old task is hidden |
 | **Delete task** | Hides the task. Workspace files, commits and history are kept |
 
-Reset and delete ask for confirmation and refuse while work is live or uncertain.
-Stale pages cannot act: every decision carries the state you inspected, so a page
-cannot approve a replaced plan, authorize different files or answer a different
-question round.
+Reset and delete ask for confirmation on the page and refuse while work is live or uncertain.
 
-Refreshing or reopening the page starts no provider calls, checks or Git writes.
-Actions run in separate worker processes, so restarting the dashboard does not stop
-them and is not evidence that they stopped. A failed action is shown on the task and
-also recorded in its timeline as `dashboard.action_failed`, so the reason survives a
-dashboard restart. After a restart, open the newly printed
-link and select the task.
+Nothing is optimistic. After an action is accepted the page says it was requested and keeps its
+buttons disabled until the server's state reflects it; if nothing changes for 20 seconds it says
+so, without repeating the action. Stale pages cannot act: every action carries the decision key
+or turn key of the state you inspected, so a page cannot approve a replaced plan, authorize
+different files or answer a different question round. When the server refuses an action as
+stale, the page reloads the current state and explains calmly that nothing was done.
+
+Refreshing or reopening the page starts no provider calls, checks or Git writes. Actions run in
+separate worker processes, so restarting the dashboard does not stop them and is not evidence
+that they stopped. A failed action is shown on the task and recorded in its timeline as
+`dashboard.action_failed`, so the reason survives a dashboard restart. After a restart, open the
+newly printed link.
 
 ## Integration health
 
-The header shows **Integrations healthy**, **Integrations need attention** or
-**Integrations not checked yet**. Open it for each integration (Codex, Claude, Git,
-Node, Windows PowerShell and Orca) with its version and a status per capability:
-executable, version, sign-in, handshake, MCP and, where relevant, SQLite or the native
-supervisor. Inference is always shown as not tested, because health checks never send a
-turn. **Check again** reruns the checks (a few seconds; no inference). The dashboard checks
-by itself when it starts and before a guided run if the stored result is older than
-`healthCheckIntervalMs` (10 minutes by default).
+The header shows **Integrations healthy**, **Integrations need attention** or **Integrations
+not checked yet**; it links to the Health screen with each integration (Codex, Claude, Git,
+Node, Windows PowerShell and Orca), its version and a status per capability: executable,
+version, sign-in, handshake, MCP and, where relevant, SQLite or the native supervisor.
+Inference is always shown as not tested, because health checks never send a turn. **Check
+again** reruns the checks (a few seconds; no inference). The dashboard checks by itself when it
+starts and before a guided run if the stored result is older than `healthCheckIntervalMs`
+(10 minutes by default).
 
-A warning such as "Codex changed from 0.162.0 to 0.163.0 since the last successful
-delivery; capabilities are untested on this version" means the provider program differs
-from the one that last carried a task to a verified commit. Grampus does not block on it:
-run a small, low-risk task first, watch for stops caused by protocol errors, and update
-the recorded protocol fixtures if the provider changed its protocol
-([ARCHITECTURE.md](ARCHITECTURE.md#health-and-stalls)). The warning clears after the
-next successful delivery on the new version.
+A warning such as "Codex changed from 0.162.0 to 0.163.0 since the last successful delivery;
+capabilities are untested on this version" means the provider program differs from the one
+that last carried a task to a verified commit. Grampus does not block on it: run a small,
+low-risk task first, watch for stops caused by protocol errors, and update the recorded protocol
+fixtures if the provider changed its protocol ([ARCHITECTURE.md](ARCHITECTURE.md#health-and-stalls)).
+The warning clears after the next successful delivery on the new version.
+
+## Accessibility
+
+Every control has a label, keyboard focus is always visible, and a skip link leads to the main
+content. Status is never shown by colour alone: each status has an icon and words. Status
+changes and action outcomes are announced to screen readers through live regions. Dense
+evidence (plan, digests, changes, report, check output) is collapsed until you open it, and the
+layout works at common laptop widths.
 
 ## Access and data
 
-The server listens only on `127.0.0.1`. The startup link carries a per-launch access
-token in the URL fragment; the browser keeps it in session storage and removes it
-from the address bar. API requests need that token and the local origin. No remote
-scripts or assets are loaded. Treat the full link as access to your local controller.
+The server listens only on `127.0.0.1`. The startup link carries a per-launch access token in
+the URL fragment; the browser keeps it in session storage and removes it from the address bar.
+Every API request needs that token and the local origin. Pasting a fresh link into an open tab
+takes its new token. The client is a bundle built from `web/` and served from `web/dist`; no
+remote scripts, styles, fonts or icons are loaded, and the strict Content Security Policy
+(scripts, styles and connections from the dashboard itself only) applies to every response.
+Treat the full link as access to your local controller.
 
-The dashboard reads a typed, versioned API under `/api/v1/` (overview, task, planning conversation,
-timeline and retained changes) with the same token and origin checks. The server decides every status,
-label, explanation and available action there; the client only draws them
-([ARCHITECTURE.md](ARCHITECTURE.md#dashboard-view-model-and-api-v1)). The page served today still uses
-the older routes; the Vue client that uses API v1 is **Planned**.
+The dashboard reads a typed, versioned API under `/api/v1/` (overview, task, planning
+conversation, timeline and retained changes) and acts through the existing action routes. The
+server decides every status, label, explanation and available action; the client only draws
+them ([ARCHITECTURE.md](ARCHITECTURE.md#dashboard-view-model-and-api-v1)).
 
 The dashboard and CLI share the same journal. Use `--db <path>`, `--port <number>` and
-`--no-open` to change the journal, port or browser behaviour. A development checkout
-needs its `src/ui` and `src/process/native` folders alongside `dist`. One guided task runs at a
-time per journal. Advanced users can import an authored JSON plan from the new-task
-screen ([guided CLI](GUIDED-WORKFLOW.md)).
+`--no-open` to change the journal, port or browser behaviour. A development checkout needs its
+`web/dist` (built by `npm run build`) and `src/process/native` folders alongside `dist`;
+without `web/dist` the page explains how to build it while the API keeps running. One guided
+task runs at a time per journal. Advanced users can import an authored JSON plan from the
+new-task screen ([guided CLI](GUIDED-WORKFLOW.md)).

@@ -98,8 +98,12 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
      ([ARCHITECTURE.md](ARCHITECTURE.md#dashboard-view-model-and-api-v1)). The legacy screens
      are inventoried in [history/dashboard-inventory-2026-10-19.md](history/dashboard-inventory-2026-10-19.md),
      the parity checklist for 5b. `web/` is typed against the DTOs.
-   - **5b. Vue client.** Build the screens on API v1 to parity with the inventory, then retire
-     `src/ui/app.js` and the routes only it reads.
+   - **5b. Vue client.** Done 19 October 2026. `web/` (Vue 3, Vite, Nuxt UI) draws the overview with the
+     attention queue first, new task, planning conversation, task detail and health screens on API v1,
+     with forms generated from `ActionView` and no optimistic state; it is served from `web/dist` under
+     the unchanged token, origin, loopback and CSP rules and built into each installed snapshot. The
+     legacy `src/ui` client, its routes (`/api/state`, the task poll and events) and its tests are gone;
+     every route now answers errors with the typed envelope ([DASHBOARD.md](DASHBOARD.md)).
 6. **Guided controller structure.** Done 19 October 2026. Prompts in their own modules
    (`orchestration/guided/prompts.ts`, `orchestration/prompts/planner.ts`), one handler per stage
    with a typed outcome, structural comparison instead of `JSON.stringify` equality, and typed stop

@@ -14,6 +14,14 @@ import { Sessions } from '../src/execution/sessions.js';
 import type { Execution } from '../src/execution/execution-state.js';
 import type { Connector, Reply } from '../src/providers/types.js';
 import type { RepositoryCheck } from '../src/verification/checks.js';
+import type {
+  KickoffDetailV1,
+  OverviewV1,
+  TaskDetailV1,
+  TimelineEntryV1,
+  TimelinePageV1,
+} from '../src/server/api-types.js';
+import { connect, offered, settled } from './helpers/dashboard.js';
 
 function fixture(_t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-ui-')),
@@ -49,22 +57,6 @@ function fixture(_t: { after(fn: () => void): void }) {
   };
   return { root, repo, plan, git, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
-function expected(view: any) {
-  const s = view.state;
-  return JSON.stringify({
-    version: s.version,
-    digest: s.digest,
-    status: s.status,
-    stage: s.stage,
-    artifact: s.snapshot?.artifact ?? null,
-    instructionsDigest: s.snapshot?.instructionsDigest ?? null,
-    executionId: s.executionId,
-    reviewId: s.reviewId,
-    failedCheckId: s.failedCheckId ?? null,
-    questionKey: view.questionKey ?? null,
-  });
-}
-
 test('dashboard polls show the actual failure without raw logs and page logs only on request', async t => {
   const f = fixture(t),
     ui = await startUi({ db: join(f.root, 'grampus.sqlite'), port: 0 });
@@ -105,13 +97,13 @@ test('dashboard polls show the actual failure without raw logs and page logs onl
   ui.store.save(task.id, saved);
   const url = new URL(ui.url),
     headers = { Authorization: `Bearer ${url.hash.slice(1)}` };
-  const response = await fetch(`${url.origin}/api/tasks/${task.id}`, { headers }),
+  const response = await fetch(`${url.origin}/api/v1/tasks/${task.id}`, { headers }),
     payload = await response.text(),
-    view = JSON.parse(payload);
-  assert.match(view.state.note, /MarkInfo/);
-  assert.ok(view.state.note.length < 4000);
-  assert.equal(view.checks[0].result.stderr, undefined);
-  assert.equal(view.checks[0].before, undefined);
+    view = JSON.parse(payload) as TaskDetailV1;
+  assert.match(view.header.note!, /MarkInfo/);
+  assert.ok(view.header.note!.length < 4000);
+  assert.equal('stderr' in view.results.checks[0]!, false);
+  assert.equal('before' in view.results.checks[0]!, false);
   assert.doesNotMatch(payload, /HUGE_RAW_LOG|\\u001b/);
   const page = await (
     await fetch(`${url.origin}/api/tasks/${task.id}/check-output?checkId=${check.id}&offset=59000`, { headers })
@@ -139,28 +131,19 @@ test('approving an automatic plan starts work without a second continue or file 
       workflowPolicy: { mode: 'automatic' },
       slices: [{ ...f.plan.slices[0], validation: { file: 'node', args: ['-e', 'process.exit(1)'] } }],
     });
-  const url = new URL(ui.url),
-    headers = { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' };
-  const get = async () => await (await fetch(`${url.origin}/api/tasks/${task.id}`, { headers })).json();
-  const draft = await get();
-  const response = await fetch(`${url.origin}/api/tasks/${task.id}/approve`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ expected: expected(draft), version: 1, digest: draft.state.digest }),
-  });
+  const api = connect(ui);
+  const draft = await api.task(task.id);
+  const response = await api.act(offered(draft, 'approve'));
   assert.equal(response.status, 202);
-  let view: any;
   const deadline = Date.now() + 20000;
-  do {
-    view = await get();
-    const status = await (await fetch(`${url.origin}/api/state`, { headers })).json();
-    if (view.state.status === 'blocked' && !status.jobs[task.id]?.running) break;
+  while (!(tasks.get(task.id).status === 'blocked' && !ui.job(task.id)?.running) && Date.now() < deadline)
     await new Promise(resolve => setTimeout(resolve, 50));
-  } while (Date.now() < deadline);
-  assert.equal(view.state.status, 'blocked', view.state.note);
-  assert.equal(view.state.stage, 'validation');
-  assert.equal(view.checks[0].phase, 'failed');
-  assert.equal(view.rerun, null, 'A genuine check failure is not offered a rerun');
+  const state = tasks.get(task.id),
+    view = await api.task(task.id);
+  assert.equal(state.status, 'blocked', state.note);
+  assert.equal(state.stage, 'validation');
+  assert.equal(view.results.checks[0]!.state, 'failed');
+  assert.ok(!view.decisions.some(item => item.id === 'rerun-checks'), 'A genuine check failure is not offered a rerun');
   assert.ok(!ui.store.events(task.id).some(event => (event.data as any)?.status === 'awaiting_scope'));
 });
 
@@ -184,38 +167,27 @@ test('a timed-out check offers Rerun checks, which runs a new check through a wo
     });
   tasks.approve(task.id, 1, task.guided!.digest);
   await tasks.run(task.id);
-  const url = new URL(ui.url),
-    headers = { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' };
-  const get = async () => await (await fetch(`${url.origin}/api/tasks/${task.id}`, { headers })).json();
-  const status = await (await fetch(`${url.origin}/api/state`, { headers })).json();
+  const api = connect(ui);
   assert.deepEqual(
-    status.qualityPasses.map((pass: any) => pass.id),
+    (await api.overview()).qualityPasses.map(pass => pass.id),
     ['simplification', 'naming', 'refactor', 'documentation'],
   );
-  let view = await get();
-  assert.equal(view.state.stopReason.code, 'CHECK_TIMEOUT', view.state.note);
-  assert.match(view.rerun, /task-rerun-checks/);
+  let view = await api.task(task.id);
+  assert.equal(view.header.stopReason?.code, 'CHECK_TIMEOUT', view.header.note ?? '');
+  const rerun = offered(view, 'rerun-checks');
+  assert.equal(rerun.enabled, true);
   const attempt = ui.store.get<any>(task.id).attempt.id;
-  const response = await fetch(`${url.origin}/api/tasks/${task.id}/rerun-checks`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ expected: expected(view) }),
-  });
+  const response = await api.act(rerun);
   assert.equal(response.status, 202);
   const deadline = Date.now() + 30000;
   do {
     await new Promise(resolve => setTimeout(resolve, 100));
-    view = await get();
-  } while (
-    ((await (await fetch(`${url.origin}/api/state`, { headers })).json()).jobs[task.id]?.running ||
-      view.checks.length < 2) &&
-    Date.now() < deadline
-  );
-  const job = (await (await fetch(`${url.origin}/api/state`, { headers })).json()).jobs[task.id];
-  assert.equal(job.error, null);
-  assert.equal(view.checks.length, 2);
-  assert.notEqual(view.checks[1].id, view.checks[0].id);
-  assert.equal(view.state.stopReason.code, 'CHECK_TIMEOUT');
+    view = await api.task(task.id);
+  } while ((ui.job(task.id)?.running || view.results.checks.length < 2) && Date.now() < deadline);
+  assert.equal(ui.job(task.id)?.error, null);
+  assert.equal(view.results.checks.length, 2);
+  assert.notEqual(view.results.checks[1]!.id, view.results.checks[0]!.id);
+  assert.equal(view.header.stopReason?.code, 'CHECK_TIMEOUT');
   assert.equal(ui.store.get<any>(task.id).attempt.id, attempt);
   assert.ok(ui.store.events(task.id).some(event => event.type === 'guided.checks_rerun_requested'));
 });
@@ -326,25 +298,15 @@ test('a failed dashboard action is journaled on its task and survives a dashboar
     f.cleanup();
   });
   const { id } = new GuidedTasks(ui.store).create(f.plan);
-  const call = async (path: string, payload?: unknown) => {
-    const url = new URL(ui.url);
-    return fetch(url.origin + path, {
-      method: payload === undefined ? 'GET' : 'POST',
-      headers: { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' },
-      ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
-    });
-  };
-  const draft = await (await call(`/api/tasks/${id}`)).json();
+  const draft = await connect(ui).task(id);
   // Running an unapproved plan is refused by the controller inside the worker.
-  assert.equal((await call(`/api/tasks/${id}/run`, { expected: expected(draft) })).status, 202);
-  let state = await (await call('/api/state')).json();
-  for (const deadline = Date.now() + 30_000; state.jobs[id]?.running && Date.now() < deadline;) {
-    await new Promise(resolve => setTimeout(resolve, 50));
-    state = await (await call('/api/state')).json();
-  }
-  assert.equal(state.jobs[id].running, false);
-  assert.match(state.jobs[id].error, /Approve the exact guided plan/);
-  assert.doesNotMatch(state.jobs[id].error, /reasonCode/, 'the structured report is shown as its message');
+  const key = offered(draft, 'approve').expected;
+  assert.equal((await connect(ui).post(`/api/tasks/${id}/run`, { expected: key })).status, 202);
+  const job = await settled(ui, id, 30_000);
+  assert.match(job?.error ?? '', /Approve the exact guided plan/);
+  assert.doesNotMatch(job?.error ?? '', /reasonCode/, 'the structured report is shown as its message');
+  const shown = await connect(ui).task(id);
+  assert.match(shown.header.actionError?.message ?? '', /Approve the exact guided plan/);
   const failure = ui.store.events(id).find(event => event.type === 'dashboard.action_failed');
   assert.ok(failure, 'the failure is in the task journal');
   assert.deepEqual(
@@ -354,13 +316,15 @@ test('a failed dashboard action is journaled on its task and survives a dashboar
   assert.match((failure.data as { note: string }).note, /Approve the exact guided plan/);
   await ui.close();
   ui = await startUi({ db: database, port: 0 });
-  const reopened = await (await call(`/api/tasks/${id}`)).json();
+  const reopened = await connect(ui).task(id);
   assert.ok(
-    reopened.events.some(
-      (event: any) => event.type === 'dashboard.action_failed' && /Approve the exact/.test(event.data.note),
+    reopened.details.timeline.recent.some(
+      entry => entry.type === 'dashboard.action_failed' && /Approve the exact/.test(entry.note ?? ''),
     ),
   );
-  assert.equal((await (await call('/api/state')).json()).jobs[id], undefined);
+  assert.equal(reopened.header.actionError?.action, 'run', 'the journaled failure is shown after a restart');
+  assert.match(reopened.header.actionError?.message ?? '', /Approve the exact/);
+  assert.equal(ui.job(id), null);
 });
 
 test('task polling refreshes live usage written by another worker without changing approval decisions', async t => {
@@ -378,11 +342,11 @@ test('task polling refreshes live usage written by another worker without changi
     session = sessions.create('claude', f.repo);
   writer.append(id, 1, 'guided.kickoff_linked', { sessionId: session.id });
   const claim = sessions.claim(session.id, 'Measure usage');
-  const url = new URL(ui.url),
-    headers = { Authorization: `Bearer ${url.hash.slice(1)}` };
-  const get = async () => await (await fetch(`${url.origin}/api/tasks/${id}`, { headers })).json();
+  const api = connect(ui);
+  const get = () => api.task(id);
+  const key = (view: TaskDetailV1) => offered(view, 'approve').expected;
   const before = await get();
-  assert.equal(before.usage.providers[0].observedSessions, 0);
+  assert.equal(before.usage.providers[0]!.observedSessions, 0);
   const observe = (inputTokens: number) =>
     sessions.event(session.id, claim.runId, {
       type: 'usage.updated',
@@ -399,20 +363,20 @@ test('task polling refreshes live usage written by another worker without changi
     });
   observe(7);
   const first = await get();
-  assert.equal(first.usage.providers[0].inputTokens, 7);
+  assert.equal(first.usage.providers[0]!.inputTokens, 7);
   observe(11);
   const next = await get();
-  assert.equal(next.usage.providers[0].inputTokens, 11);
-  assert.equal(next.usage.providers[0].observedSessions, 1);
-  assert.equal(next.usage.providers[0].activeSessions, 1);
-  assert.equal(expected(next), expected(before));
+  assert.equal(next.usage.providers[0]!.inputTokens, 11);
+  assert.equal(next.usage.providers[0]!.observedSessions, 1);
+  assert.equal(next.usage.providers[0]!.activeSessions, 1);
+  assert.equal(key(next), key(before));
   sessions.settle(session.id, claim.runId, { status: 'interrupted', reply: null, usage: null, error: 'Stopped' }, true);
   const stopped = await get();
-  assert.equal(stopped.usage.providers[0].inputTokens, 11);
-  assert.equal(stopped.usage.providers[0].activeSessions, 0);
-  assert.equal(stopped.usage.providers[0].cacheWriteInputTokens, 3);
-  assert.equal(stopped.usage.stages[0].stage, 'planning');
-  assert.equal(stopped.usage.stages[0].interruptedTurns, 1);
+  assert.equal(stopped.usage.providers[0]!.inputTokens, 11);
+  assert.equal(stopped.usage.providers[0]!.activeSessions, 0);
+  assert.equal(stopped.usage.providers[0]!.cacheWriteInputTokens, 3);
+  assert.equal(stopped.usage.stages[0]!.stage, 'planning');
+  assert.equal(stopped.usage.stages[0]!.interruptedTurns, 1);
   assert.equal(stopped.usage.turns, 1);
 });
 
@@ -431,35 +395,44 @@ test('task polls expose current execution activity and load complete sanitized h
   const task = ui.store.get<any>(id);
   task.guided.stage = 'implementation';
   task.guided.status = 'running';
+  // A runner owns the task, as a worker would while the turn runs; the view shows it as working.
+  task.guided.owner = { token: 'offline-owner', controllerPid: process.pid, controllerStartedAt: null, host: 'test' };
   ui.store.save(id, task);
   const execution = ui.store.execution<Execution>(task.guided.executionId);
   const sessions = new Sessions(ui.store),
     claim = sessions.claim(execution.sessionId, 'HIDDEN PROMPT');
-  const url = new URL(ui.url),
-    headers = { Authorization: `Bearer ${url.hash.slice(1)}` };
-  const get = async (suffix = '') => await (await fetch(`${url.origin}/api/tasks/${id}${suffix}`, { headers })).json();
+  const api = connect(ui);
+  const get = () => api.task(id);
+  const key = (view: TaskDetailV1) => offered(view, 'reset').expected;
   const initial = await get();
-  assert.equal(initial.progress.stage, 'connecting');
+  assert.ok(initial.activity, 'a claimed turn is current activity');
   sessions.event(execution.sessionId, claim.runId, {
     type: 'tool.authorized',
     data: { tool: 'Edit', path: 'greeting.js', new_string: 'HIDDEN EDIT' },
   });
   const working = await get();
-  assert.equal(working.progress.fileRequests, 1);
-  assert.equal(working.progress.activity, 'Requested file changes: greeting.js');
-  assert.equal(expected(working), expected(initial));
-  assert.doesNotMatch(JSON.stringify(working.progress), /HIDDEN/);
+  assert.equal(working.activity?.fileRequests, 1);
+  assert.equal(working.activity?.description, 'Requested file changes: greeting.js');
+  assert.equal(key(working), key(initial));
+  assert.doesNotMatch(JSON.stringify(working.activity), /HIDDEN/);
   for (let i = 0; i < 45; i++)
     ui.store.append(id, task.version, 'test.activity', { note: `Activity ${i}`, prompt: 'HIDDEN EVENT DATA' });
-  const compact = await get(),
-    history = await get('/events');
-  assert.equal(compact.events.length, 30);
-  assert.equal(compact.eventCount, ui.store.events(id).length);
-  assert.equal(history.events.length, compact.eventCount);
-  assert.equal(history.events[0].type, ui.store.events(id)[0]!.type);
-  assert.equal(history.events.at(-1).data.note, 'Activity 44');
-  assert.doesNotMatch(JSON.stringify(history), /HIDDEN|"plan":|"prompt":/);
-  assert.equal((await fetch(`${url.origin}/api/tasks/${id}/events`)).status, 401);
+  const compact = await get();
+  assert.equal(compact.details.timeline.total, ui.store.events(id).length);
+  assert.ok(compact.details.timeline.recent.length < compact.details.timeline.total);
+  const entries: TimelineEntryV1[] = [];
+  for (let cursor: number | null = null, pages = 0; pages === 0 || cursor !== null; pages++) {
+    const page: TimelinePageV1 = await api.read(
+      `${compact.details.timeline.path}?limit=20${cursor === null ? '' : `&cursor=${cursor}`}`,
+    );
+    entries.push(...page.entries);
+    cursor = page.nextCursor;
+  }
+  assert.equal(entries.length, compact.details.timeline.total);
+  assert.equal(entries.at(-1)?.type, ui.store.events(id)[0]!.type, 'oldest last');
+  assert.equal(entries[0]?.note, 'Activity 44', 'newest first');
+  assert.doesNotMatch(JSON.stringify(entries), /HIDDEN|"plan":|"prompt":/);
+  assert.equal((await fetch(`${api.origin}${compact.details.timeline.path}`)).status, 401);
   sessions.settle(
     execution.sessionId,
     claim.runId,
@@ -471,7 +444,7 @@ test('task polls expose current execution activity and load complete sanitized h
     },
     true,
   );
-  assert.equal((await get()).progress, null);
+  assert.equal((await get()).activity?.fileRequests ?? null, null, 'no live agent progress after the turn settled');
 });
 
 test('dashboard revisions run in an isolated worker and stale approval cannot approve the new version', async t => {
@@ -484,40 +457,26 @@ test('dashboard revisions run in an isolated worker and stale approval cannot ap
   const tasks = new GuidedTasks(ui.store),
     task = tasks.create(f.plan),
     id = task.id;
-  const url = new URL(ui.url),
-    headers = { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' };
-  const view = async () => (await fetch(`${url.origin}/api/tasks/${id}`, { headers })).json();
-  const post = (action: string, body: unknown) =>
-    fetch(`${url.origin}/api/tasks/${id}/${action}`, { method: 'POST', headers, body: JSON.stringify(body) });
-  const original = await view(),
-    plan = structuredClone(original.state.plan);
+  const api = connect(ui);
+  const original = await api.task(id),
+    revise = offered(original, 'revise');
+  // The form's JSON field carries the whole plan; the client writes edits into it at the field targets.
+  const plan = structuredClone(revise.form!.fields.find(item => item.name === 'plan')!.value) as any;
   plan.brief.outcome = 'Revised observable output';
   plan.reviewPolicy = { repairRounds: 1, arbitrator: { provider: 'codex' } };
-  assert.equal((await post('revise', { expected: 'stale', plan })).status, 409);
-  assert.equal((await post('revise', { expected: expected(original), plan })).status, 202);
-  const deadline = Date.now() + 15000;
-  let state: any;
-  do {
-    state = await (await fetch(url.origin + '/api/state', { headers })).json();
-    if (!state.jobs[id]?.running) break;
-    await new Promise(resolve => setTimeout(resolve, 30));
-  } while (Date.now() < deadline);
-  assert.equal(state.jobs[id]?.running, false);
-  assert.equal(state.jobs[id]?.error, null);
-  const revised = await view();
-  assert.equal(revised.state.version, 2);
-  assert.equal(revised.state.status, 'draft');
-  assert.equal(revised.state.plan.reviewPolicy.repairRounds, 1);
+  assert.equal((await api.act(revise, { expected: 'stale', plan })).status, 409);
+  assert.equal((await api.act(revise, { plan })).status, 202);
+  assert.equal((await settled(ui, id, 15_000))?.error, null);
+  const state = tasks.get(id),
+    revised = await api.task(id);
+  assert.equal(state.version, 2);
+  assert.equal(state.status, 'draft');
+  assert.equal(state.plan.reviewPolicy?.repairRounds, 1);
+  assert.equal(revised.details.approval.version, 2);
   assert.equal(ui.store.workspaces().length, 0);
   assert.equal(ui.store.sessions().length, 0);
-  assert.equal(
-    (await post('approve', { expected: expected(original), version: 1, digest: original.state.digest })).status,
-    409,
-  );
-  assert.equal(
-    (await post('approve', { expected: expected(revised), version: 2, digest: revised.state.digest })).status,
-    200,
-  );
+  assert.equal((await api.act(offered(original, 'approve'))).status, 409);
+  assert.equal((await api.act(offered(revised, 'approve'))).status, 200);
 });
 
 test('file authorization shows exact edit contents even when the task has no initial file hints', async t => {
@@ -537,14 +496,13 @@ test('file authorization shows exact edit contents even when the task has no ini
   tasks.approve(id, draft.version, draft.digest);
   await tasks.run(id);
   assert.equal(tasks.get(id).status, 'awaiting_scope');
-  const url = new URL(ui.url);
-  const response = await fetch(`${url.origin}/api/tasks/${id}`, {
-    headers: { Authorization: `Bearer ${url.hash.slice(1)}` },
-  });
-  const view = await response.json();
-  assert.equal(view.scopeError, null);
-  assert.deepEqual(view.state.plan.context.files, []);
-  assert.deepEqual(view.scopeFiles, [{ path: 'greeting.js', content: "console.log('hello');\n" }]);
+  const view = await connect(ui).task(id);
+  assert.equal(view.details.scope?.error, null);
+  assert.deepEqual(view.details.plan.context.files, []);
+  assert.deepEqual(view.details.scope?.files, [
+    { path: 'greeting.js', content: "console.log('hello');\n", action: 'edit' },
+  ]);
+  assert.equal(offered(view, 'authorize').enabled, true);
 });
 
 test('large tracked text reaches file authorization and the dashboard exposes its exact contents', async t => {
@@ -568,13 +526,9 @@ test('large tracked text reaches file authorization and the dashboard exposes it
   tasks.approve(id, draft.version, draft.digest);
   const state = await tasks.run(id);
   assert.equal(state.status, 'awaiting_scope', state.note);
-  const url = new URL(ui.url);
-  const response = await fetch(`${url.origin}/api/tasks/${id}`, {
-    headers: { Authorization: `Bearer ${url.hash.slice(1)}` },
-  });
-  const view = await response.json();
-  assert.equal(view.scopeError, null);
-  assert.deepEqual(view.scopeFiles, [{ path: 'dependency-data.yaml', content: text }]);
+  const view = await connect(ui).task(id);
+  assert.equal(view.details.scope?.error, null);
+  assert.deepEqual(view.details.scope?.files, [{ path: 'dependency-data.yaml', content: text, action: 'edit' }]);
   assert.equal(ui.store.implementations(state.executionId!).length, 0);
 });
 
@@ -588,38 +542,35 @@ test('dashboard reference selection and task reset/delete enforce displayed stat
   const reference = join(f.root, 'reference');
   mkdirSync(reference);
   writeFileSync(join(reference, 'spec.md'), 'External contract');
-  const url = new URL(ui.url),
-    headers = { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' };
-  const post = (path: string, body: unknown) =>
-    fetch(url.origin + path, { method: 'POST', headers, body: JSON.stringify(body) });
-  const state = async () => (await fetch(url.origin + '/api/state', { headers })).json();
-  const suggestions = await (await post('/api/references/suggest', { request: `Use ${reference}` })).json();
+  const api = connect(ui);
+  const suggestions = await (await api.post('/api/references/suggest', { request: `Use ${reference}` })).json();
   assert.equal(suggestions.suggestions.length, 1);
   const { id } = await (
-    await post('/api/kickoffs', { repo: f.repo, request: 'Original request', references: [reference] })
+    await api.post('/api/kickoffs', { repo: f.repo, request: 'Original request', references: [reference] })
   ).json();
-  let item = (await state()).kickoffs.find((item: any) => item.id === id);
-  assert.equal(item.config.references.length, 1);
-  assert.equal((await post(`/api/kickoffs/${id}/references`, { references: [], expected: 'stale' })).status, 409);
-  assert.equal((await post(`/api/kickoffs/${id}/references`, { references: [], expected: item.turnKey })).status, 200);
-  item = (await state()).kickoffs.find((item: any) => item.id === id);
-  assert.deepEqual(item.config.references, []);
-  assert.equal((await post(`/api/kickoffs/${id}/delete`, { expected: 'stale' })).status, 409);
-  const reset = await (await post(`/api/kickoffs/${id}/reset`, { expected: item.turnKey })).json();
-  item = (await state()).kickoffs.find((item: any) => item.id === reset.id);
-  assert.equal(item.config.request, 'Original request');
-  assert.equal(item.session.providerSessionId, null);
-  assert.equal(
-    (await state()).kickoffs.some((item: any) => item.id === id),
-    false,
+  let item = await api.kickoff(id);
+  assert.equal(item.references.length, 1);
+  const update = offered(item, 'update-references');
+  assert.equal((await api.act(update, { references: [], expected: 'stale' })).status, 409);
+  assert.equal((await api.act(update, { references: [] })).status, 200);
+  item = await api.kickoff(id);
+  assert.deepEqual(item.references, []);
+  assert.equal((await api.act(offered(item, 'delete'), { expected: 'stale' })).status, 409);
+  const reset = await (await api.act(offered(item, 'reset'))).json();
+  item = await api.kickoff(reset.id);
+  assert.equal(item.request, 'Original request');
+  assert.equal(new Kickoffs(ui.store).view(reset.id).session.providerSessionId, null);
+  assert.deepEqual(
+    (await api.overview()).planning.map(entry => entry.id),
+    [reset.id],
   );
-  assert.equal((await post(`/api/kickoffs/${reset.id}/delete`, { expected: item.turnKey })).status, 200);
-  assert.deepEqual((await state()).kickoffs, []);
+  assert.equal((await api.act(offered(item, 'delete'))).status, 200);
+  assert.deepEqual((await api.overview()).planning, []);
   const task = new GuidedTasks(ui.store).create(f.plan),
-    view = await (await fetch(`${url.origin}/api/tasks/${task.id}`, { headers })).json();
-  assert.equal((await post(`/api/tasks/${task.id}/delete`, { expected: expected(view) })).status, 200);
-  assert.deepEqual((await state()).tasks, []);
-  assert.equal((await fetch(`${url.origin}/api/tasks/${task.id}`, { headers })).status, 404);
+    view = await api.task(task.id);
+  assert.equal((await api.act(offered(view, 'delete'))).status, 200);
+  assert.deepEqual((await api.overview()).tasks, []);
+  assert.equal((await api.raw(`/api/v1/tasks/${task.id}`)).status, 404);
   assert.equal(existsSync(join(f.repo, 'greeting.js')), true);
 });
 test('dashboard requires its local token and origin, rejects stale decisions, and preserves drafts over restart', async t => {
@@ -642,12 +593,11 @@ test('dashboard requires its local token and origin, rejects stale decisions, an
       },
       ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
     });
-  assert.equal((await fetch(base + '/')).status, 200);
-  assert.equal((await fetch(base + '/app.js')).headers.get('Content-Type'), 'text/javascript; charset=utf-8');
-  assert.equal((await fetch(base + '/api/state')).status, 401);
+  assert.equal((await fetch(base + '/api/v1/overview')).status, 401);
+  assert.equal((await fetch(base + '/api/kickoffs', { method: 'POST' })).status, 401);
   assert.equal(
     (
-      await fetch(base + '/api/state', {
+      await fetch(base + '/api/v1/overview', {
         headers: { Authorization: `Bearer ${token}`, Origin: 'https://untrusted.example' },
       })
     ).status,
@@ -655,7 +605,7 @@ test('dashboard requires its local token and origin, rejects stale decisions, an
   );
   const rebound = await new Promise<number>(resolve => {
     const req = request(
-      base + '/api/state',
+      base + '/api/v1/overview',
       { headers: { Authorization: `Bearer ${token}`, Host: 'rebound.example' } },
       response => {
         response.resume();
@@ -666,37 +616,29 @@ test('dashboard requires its local token and origin, rejects stale decisions, an
   });
   assert.equal(rebound, 403);
   assert.equal((await req('/api/tasks', { plan: f.plan })).status, 201);
-  const list = await (await req('/api/state')).json(),
-    id = list.tasks[0].id;
+  const list = (await (await req('/api/v1/overview')).json()) as OverviewV1,
+    id = list.tasks[0]!.id;
   assert.equal(list.application.version, '0.1.0');
   assert.equal(list.application.channel, 'development');
-  const view = await (await req(`/api/tasks/${id}`)).json();
-  assert.equal(view.state.status, 'draft');
-  assert.equal(view.state.plan.workspace.base, f.git('rev-parse', 'HEAD'));
-  assert.equal(
-    (await req(`/api/tasks/${id}/approve`, { version: 1, digest: view.state.digest, expected: 'stale' })).status,
-    409,
-  );
+  const view = (await (await req(`/api/v1/tasks/${id}`)).json()) as TaskDetailV1;
+  assert.equal(new GuidedTasks(ui.store).get(id).status, 'draft');
+  assert.equal(view.details.plan.base, f.git('rev-parse', 'HEAD'));
+  const approve = offered(view, 'approve');
+  assert.equal((await req(approve.request.path, { ...approve.request.body, expected: 'stale' })).status, 409);
   assert.equal(ui.store.workspaces().length, 0);
-  assert.equal(
-    (await req(`/api/tasks/${id}/approve`, { version: 1, digest: view.state.digest, expected: expected(view) })).status,
-    200,
-  );
-  await assert.rejects(new GuidedTasks(ui.store, { expectedState: expected(view) }).run(id), /changed/);
+  assert.equal((await req(approve.request.path, approve.request.body)).status, 200);
+  await assert.rejects(new GuidedTasks(ui.store, { expectedState: approve.expected! }).run(id), /changed/);
   assert.equal(ui.store.workspaces().length, 0);
-  assert.equal(
-    (await req(`/api/tasks/${id}/approve`, { version: 1, digest: view.state.digest, expected: expected(view) })).status,
-    409,
-  );
+  assert.equal((await req(approve.request.path, approve.request.body)).status, 409);
   await ui.close();
   ui = await startUi({ db, port: 0 });
   url = new URL(ui.url);
   base = url.origin;
   token = url.hash.slice(1);
-  const reopened = await (await req(`/api/tasks/${id}`)).json();
-  assert.equal(reopened.state.status, 'ready');
-  assert.equal(reopened.task.approvedVersion, 1);
-  assert.equal(reopened.report, null);
+  const reopened = (await (await req(`/api/v1/tasks/${id}`)).json()) as TaskDetailV1;
+  assert.equal(reopened.header.status, 'idle');
+  assert.equal(reopened.details.approval.approved, true);
+  assert.equal(ui.store.get<any>(id).approvedVersion, 1);
   assert.match((await (await req(`/api/tasks/${id}/report`)).json()).report, /Verify greeting/);
   const connector: Connector = async () => ({
     turn: async () => ({
@@ -728,50 +670,38 @@ test(
       await ui.close();
       f.cleanup();
     });
-    const url = new URL(ui.url),
-      headers = { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' };
-    const get = async (path: string) => (await fetch(url.origin + path, { headers })).json();
-    const post = (path: string, payload: unknown) =>
-      fetch(url.origin + path, { method: 'POST', headers, body: JSON.stringify(payload) });
-    const created = await (await post('/api/tasks', { plan: f.plan })).json(),
-      id = created.id;
-    const route = `/api/tasks/${id}`;
+    const api = connect(ui);
+    const tasks = new GuidedTasks(ui.store);
+    const { id } = await (await api.post('/api/tasks', { plan: f.plan })).json();
     const wait = async () => {
-      const deadline = Date.now() + 45000;
-      while (Date.now() < deadline) {
-        const state = await get('/api/state');
-        if (!state.jobs[id]?.running) {
-          assert.equal(state.jobs[id]?.error ?? null, null);
-          return get(route);
-        }
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-      throw new Error('Worker did not settle');
+      assert.equal((await settled(ui, id))?.error ?? null, null);
+      return api.task(id);
     };
-    let view = await get(route);
-    await post(route + '/approve', { version: 1, digest: view.state.digest, expected: expected(view) });
-    view = await get(route);
-    assert.equal((await post(route + '/run', { expected: expected(view) })).status, 202);
-    assert.equal((await post(route + '/run', { expected: expected(view) })).status, 409);
+    let view = await api.task(id);
+    await api.act(offered(view, 'approve'));
+    view = await api.task(id);
+    const run = offered(view, 'run');
+    assert.equal((await api.act(run)).status, 202);
+    assert.equal((await api.act(run)).status, 409);
     view = await wait();
-    assert.equal(view.state.status, 'awaiting_scope', view.state.note);
-    assert.equal(view.state.plan.context.exploration, true);
-    assert.deepEqual(view.scopeFiles, []);
-    assert.equal((await post(route + '/authorize', { expected: expected(view) })).status, 202);
+    assert.equal(tasks.get(id).status, 'awaiting_scope', tasks.get(id).note);
+    assert.equal(view.details.plan.context.exploration, true);
+    assert.deepEqual(view.details.scope?.files, []);
+    assert.equal((await api.act(offered(view, 'authorize'))).status, 202);
     view = await wait();
-    assert.equal(view.state.status, 'awaiting_assessment', view.state.note);
-    assert.equal(view.checks[0].phase, 'passed');
-    assert.equal(view.deliveries.length, 0);
-    await post(route + '/assess', {
-      expected: expected(view),
+    assert.equal(tasks.get(id).status, 'awaiting_assessment', tasks.get(id).note);
+    assert.equal(view.results.checks[0]!.state, 'passed');
+    assert.equal(view.results.commits.length, 0);
+    await api.act(offered(view, 'assess'), {
       outcome: 'failed',
       summary: 'Offline UI test deliberately refuses the simplification gate.',
     });
     view = await wait();
-    assert.equal(view.state.status, 'blocked');
-    assert.equal(view.deliveries.length, 0);
-    assert.equal(view.state.reviewId, null);
-    assert.equal(f.git('rev-parse', 'HEAD'), view.state.plan.workspace.base);
+    const state = tasks.get(id);
+    assert.equal(state.status, 'blocked');
+    assert.equal(view.results.commits.length, 0);
+    assert.equal(state.reviewId, null);
+    assert.equal(f.git('rev-parse', 'HEAD'), state.plan.workspace.base);
   },
 );
 
@@ -820,12 +750,11 @@ test('dashboard exposes live planner activity across polls without changing the 
     f.cleanup();
   });
   await started;
-  const url = new URL(ui.url),
-    headers = { Authorization: `Bearer ${url.hash.slice(1)}` };
-  const get = async () =>
-    (await (await fetch(url.origin + '/api/state', { headers })).json()).kickoffs.find((item: any) => item.id === id);
+  const api = connect(ui);
+  const get = () => api.kickoff(id);
+  const turnKey = (view: KickoffDetailV1) => offered(view, 'delete').expected;
   const first = await get();
-  assert.equal(first.progress.stage, 'working');
+  assert.equal(first.activity?.title, 'Agent is working');
   emit({ type: 'repository.tool_requested', data: { tool: 'grampus_read_file', arguments: { path: 'greeting.js' } } });
   emit({
     type: 'repository.tool_result',
@@ -834,22 +763,29 @@ test('dashboard exposes live planner activity across polls without changing the 
   emit({ type: 'output.delta', data: { text: 'HIDDEN PARTIAL RESPONSE' } });
   // Streamed text is journaled in batches, within one flush interval.
   let updated = await get();
-  for (const deadline = Date.now() + 10_000; updated.progress.stage !== 'responding' && Date.now() < deadline;) {
+  for (
+    const deadline = Date.now() + 10_000;
+    updated.activity?.title !== 'Writing a response' && Date.now() < deadline;
+  ) {
     await new Promise(resolve => setTimeout(resolve, 50));
     updated = await get();
   }
-  assert.equal(updated.turnKey, first.turnKey);
-  assert.equal(updated.progress.stage, 'responding');
-  assert.equal(updated.progress.repositoryCalls, 1);
-  assert.equal(updated.progress.recent[0].label, 'Read greeting.js');
-  assert.doesNotMatch(JSON.stringify(updated.progress), /HIDDEN/);
-  assert.equal(updated.progress.startedAt, first.progress.startedAt);
+  assert.equal(turnKey(updated), turnKey(first));
+  assert.equal(updated.activity?.title, 'Writing a response');
+  assert.equal(updated.activity?.repositoryCalls, 1);
+  assert.equal(updated.activity?.recent[0], 'Read greeting.js');
+  assert.doesNotMatch(JSON.stringify(updated.activity), /HIDDEN/);
+  assert.equal(updated.activity?.startedAt, first.activity?.startedAt);
   finish();
   await sending;
-  const settled = await get();
-  assert.equal(settled.progress, null);
-  assert.equal(settled.session.phase, 'awaiting_answer');
-  assert.notEqual(settled.turnKey, first.turnKey);
+  const done = await get();
+  assert.equal(done.activity, null);
+  assert.equal(done.status, 'awaiting_human');
+  assert.deepEqual(
+    done.questions.map(question => question.id),
+    ['output'],
+  );
+  assert.notEqual(turnKey(done), turnKey(first));
 });
 
 test('kickoff clarifies consequential ambiguity, validates generated commands and creates only an unapproved draft', async t => {
@@ -1134,60 +1070,54 @@ test(
       await ui.close();
       f.cleanup();
     });
-    let url = new URL(ui.url),
-      headers = { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' };
-    const get = async (path: string) => (await fetch(url.origin + path, { headers })).json();
-    const post = (path: string, payload: unknown) =>
-      fetch(url.origin + path, { method: 'POST', headers, body: JSON.stringify(payload) });
-    const created = await (await post('/api/tasks', { plan: f.plan })).json(),
-      route = `/api/tasks/${created.id}`;
-    const until = async (predicate: (view: any) => boolean) => {
+    const { id } = await (await connect(ui).post('/api/tasks', { plan: f.plan })).json();
+    // The controller's own records: the HTTP views show presentation, these show processes.
+    const internal = () => ({
+      state: new GuidedTasks(ui.store).get(id),
+      checks: ui.store
+        .executions()
+        .filter(execution => execution.taskId === id)
+        .flatMap(execution => ui.store.checks(execution.id)),
+    });
+    const until = async (predicate: (current: ReturnType<typeof internal>) => unknown) => {
       const deadline = Date.now() + 45000;
       while (Date.now() < deadline) {
-        const view = await get(route);
-        if (predicate(view)) return view;
+        const current = internal();
+        if (predicate(current)) return current;
         await new Promise(resolve => setTimeout(resolve, 50));
       }
       throw new Error('Expected persisted checkpoint was not reached');
     };
-    let view = await get(route);
-    await post(route + '/approve', { version: 1, digest: view.state.digest, expected: expected(view) });
-    view = await get(route);
-    await post(route + '/run', { expected: expected(view) });
-    view = await until(view => view.state.status === 'awaiting_scope');
+    let api = connect(ui);
+    await api.act(offered(await api.task(id), 'approve'));
+    await api.act(offered(await api.task(id), 'run'));
+    await until(current => current.state.status === 'awaiting_scope');
     // Let the preparation worker exit before authorizing through the same server.
-    while ((await get('/api/state')).jobs[created.id]?.running) await new Promise(resolve => setTimeout(resolve, 50));
-    await post(route + '/authorize', { expected: expected(view) });
-    view = await until(view => view.checks[0]?.phase === 'running' && view.checks[0]?.toolPid);
-    const owner = view.state.owner,
-      checkId = view.checks[0].id;
+    await settled(ui, id);
+    await api.act(offered(await api.task(id), 'authorize'));
+    let current = await until(current => current.checks[0]?.phase === 'running' && current.checks[0]?.toolPid);
+    const owner = current.state.owner!,
+      checkId = current.checks[0]!.id;
     assert.notEqual(owner.controllerPid, process.pid);
     await assert.rejects(ui.close(), /still running/);
     // Close only the HTTP/store surface. The actual controller runs in a separate process.
     await new Promise<void>(resolve => ui.server.close(() => resolve()));
     ui.store.close();
     ui = await startUi({ db, port: 0 });
-    url = new URL(ui.url);
-    headers = { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' };
-    view = await get(route);
-    assert.deepEqual(view.state.owner, owner);
-    assert.equal(view.checks.length, 1);
-    assert.equal((await post(route + '/recover', { expected: expected(view) })).status, 202);
-    const deadline = Date.now() + 15000;
-    let job: any;
-    do {
-      job = (await get('/api/state')).jobs[created.id];
-      if (!job?.running) break;
-      await new Promise(resolve => setTimeout(resolve, 50));
-    } while (Date.now() < deadline);
-    assert.match(job.error, /still alive/);
-    assert.equal((await post(route + '/stop', {})).status, 200);
-    view = await until(view => view.state.owner === null);
-    assert.equal(view.state.status, 'blocked');
-    assert.equal(view.checks.length, 1);
-    assert.equal(view.checks[0].id, checkId);
-    assert.equal(view.checks[0].phase, 'interrupted');
-    assert.equal(view.deliveries.length, 0);
+    api = connect(ui);
+    const view = await api.task(id);
+    assert.equal(view.header.status, 'working', 'a controller started elsewhere is still working');
+    assert.deepEqual(internal().state.owner, owner);
+    assert.equal(view.results.checks.length, 1);
+    assert.equal((await api.act(offered(view, 'recover'))).status, 202);
+    assert.match((await settled(ui, id, 15_000))?.error ?? '', /still alive/);
+    assert.equal((await api.act(offered(await api.task(id), 'stop'))).status, 200);
+    current = await until(current => current.state.owner === null);
+    assert.equal(current.state.status, 'blocked');
+    assert.equal(current.checks.length, 1);
+    assert.equal(current.checks[0]!.id, checkId);
+    assert.equal(current.checks[0]!.phase, 'interrupted');
+    assert.equal((await api.task(id)).results.commits.length, 0);
   },
 );
 

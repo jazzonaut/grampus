@@ -44,11 +44,12 @@ terminal and run `grampus` to open the dashboard. Updates are explicit
 
 ```sh
 npm ci
+npm --prefix web ci
 npm run ui
 ```
 
-Or double-click **Grampus-Dev.cmd**. This builds, starts the controller and opens the
-dashboard in your browser. Keep the terminal open while you use it. The development
+Or double-click **Grampus-Dev.cmd**. This builds the server and the dashboard client, starts
+the controller and opens the dashboard in your browser. Keep the terminal open while you use it. The development
 copy uses port 4318 and its own data directory, so it can run alongside an installed
 copy (port 4317).
 
@@ -120,16 +121,19 @@ before sharing them. There is no automatic retention cleanup yet.
 | Command | Purpose |
 | --- | --- |
 | `npm ci` | Install exact dependencies |
-| `npm run build` | Compile TypeScript to `dist/` |
+| `npm run build` | Compile the server to `dist/` and build the dashboard client to `web/dist/` |
+| `npm run build:server` | Compile the server only (what the tests need) |
 | `npm run typecheck` | Type-check without emitting |
 | `npm run lint` | ESLint. Existing violations are baselined in `eslint-suppressions.json`, which may only shrink |
 | `npm run lint:prune` | Remove suppressions for violations you have fixed |
 | `npm run format`, `npm run format:check` | Apply or check Prettier formatting |
-| `npm test` | Build, then run the fast test subset (skips files listed in `scripts/slow-tests.json`) |
-| `npm run test:all` | Build, then run every test file |
+| `npm test` | Build the server, then run the fast test subset (skips files listed in `scripts/slow-tests.json`) |
+| `npm run test:all` | Build the server, then run every test file |
 | `npm run check` | Typecheck, lint, format check and fast tests. Run before finishing a change |
 | `npm run check:full` | The same with every test (several minutes) |
 | `node scripts/run-tests.mjs <name>...` | Run selected compiled test files after a build |
+| `npm --prefix web run typecheck`, `lint`, `test`, `build` | The dashboard client in `web/`: `vue-tsc`, ESLint, Vitest component tests and the Vite build |
+| `npm --prefix web run dev` | Vite dev server for the client, proxying `/api` to a running `npm run ui` (port 4318) |
 
 Tests are offline. They use temporary Git repositories, SQLite files and fake
 providers, and never call a live model. Opt-in live probes use your subscriptions and

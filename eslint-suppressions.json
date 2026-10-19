@@ -275,17 +275,6 @@
       "count": 1
     }
   },
-  "src/ui/app.js": {
-    "no-control-regex": {
-      "count": 3
-    },
-    "no-empty": {
-      "count": 4
-    },
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/verification/check-output.ts": {
     "complexity": {
       "count": 1
@@ -299,38 +288,6 @@
       "count": 1
     }
   },
-  "test/browser-binding.probe.js": {
-    "no-global-assign": {
-      "count": 2
-    },
-    "no-undef": {
-      "count": 18
-    }
-  },
-  "test/browser-exploration.probe.js": {
-    "no-global-assign": {
-      "count": 2
-    },
-    "no-undef": {
-      "count": 30
-    }
-  },
-  "test/browser-task-management.probe.js": {
-    "no-global-assign": {
-      "count": 2
-    },
-    "no-undef": {
-      "count": 28
-    }
-  },
-  "test/browser-workflow-gaps.probe.js": {
-    "no-global-assign": {
-      "count": 2
-    },
-    "no-undef": {
-      "count": 25
-    }
-  },
   "test/implementations-recovery.test.ts": {
     "no-empty": {
       "count": 1
@@ -338,11 +295,6 @@
   },
   "test/task-lifecycle.test.ts": {
     "@typescript-eslint/unbound-method": {
-      "count": 1
-    }
-  },
-  "test/ui-markdown.test.ts": {
-    "no-control-regex": {
       "count": 1
     }
   },

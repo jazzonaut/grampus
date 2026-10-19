@@ -341,8 +341,15 @@ same rules everywhere:
 
 ## Dashboard server
 
-`server/ui-server.ts` serves the dashboard and a JSON API over the same journal; it is not a second
-workflow engine.
+`server/ui-server.ts` serves the dashboard client and a JSON API over the same journal; it is not a
+second workflow engine.
+
+- The client is the Vue 3 + Vite + Nuxt UI application in `web/`, built to `web/dist` (`npm run build`
+  builds the server and then the client; the installer builds it inside each snapshot).
+  `server/static-client.ts` serves `index.html` at `/`, `favicon.svg` and the hashed bundles under
+  `/assets/`, with an explicit content type per extension. Request paths are decoded and checked
+  segment by segment and the resolved file must stay inside the client folder; anything else is 404.
+  Without a build, `/` answers 503 with a page saying how to build it, and the API keeps working.
 
 - Listens on `127.0.0.1` only, port 4317 installed or 4318 development unless `config.json` sets
   `dashboardPort` ([CONFIGURATION.md](CONFIGURATION.md)).
@@ -350,7 +357,10 @@ workflow engine.
   every API call (constant-time comparison).
 - The `Host` header must match and any `Origin` must equal the local origin.
 - Strict CSP (`default-src 'none'`, self-hosted scripts and styles only, `frame-ancestors 'none'`),
-  `nosniff`, `no-referrer` and `no-store`. Assets are local; there is no CDN.
+  `nosniff`, `no-referrer` and `no-store` on every response, the client's files included. Assets are
+  local; there is no CDN. The client is built for this policy: no inline scripts or styles, no runtime
+  style injection (the Nuxt UI colour plugin is not installed; `web/src/theme/theme.css` declares its
+  variables), icons bundled at build time and system fonts only.
 - Every task decision carries a **decision key** built from version, digest, status, stage,
   artifact, instructions digest, execution ids, the failed check on display and, for answers, the
   exact turn and questions. Commands that need one take its SHA-256 digest (`task-rerun-checks`). The
@@ -362,9 +372,12 @@ workflow engine.
   planning conversation, so the failure survives a restart. Settled jobs are dropped from the
   in-memory job list after five minutes (`serverLimits.settledJobRetentionMs`).
 - `GET /api/health` returns the stored [health](#health-and-stalls) with version warnings;
-  `?refresh=1` runs the checks first. `/api/state` carries a compact copy (no executable paths) and
-  each task summary, like each task poll, carries `stalled` (null or `{ since, lastActivityAt, owner }`). Polling responses are cached by journal
-  revision and exclude large snapshots (`server/task-poll.ts`).
+  `?refresh=1` runs the checks first (the Health screen's **Check again**, which then rereads the
+  overview). Besides `/api/v1/`, the client reads only `GET /api/tasks/:id/report` and the paged
+  `GET /api/tasks/:id/check-output`, and posts lookups (`/api/repositories/inspect`,
+  `/api/repositories/files`, `/api/references/suggest`), creation (`/api/kickoffs`, `/api/tasks`) and
+  the action routes; their response shapes are typed in `server/api-types.ts` too. The legacy polls
+  (`/api/state`, `GET /api/tasks/:id`, `/api/tasks/:id/events`) were removed with the legacy client.
 - Every route parses its body with its own schema (`server/api-schemas.ts`); unknown fields are ignored
   because the browser posts whole forms. Failures map to statuses by error class
   (`server/errors.ts`): 400 with field-level `issues` for an invalid body or a controller refusal,
@@ -372,9 +385,9 @@ workflow engine.
   longer matches the current state or an action is already running, 413 and 415 for oversized or
   non-JSON bodies. A stale key that orchestration itself detects inside its transaction (a race after
   the server's check) is still a plain refusal (400).
-- Read routes under `/api/v1/` serve the [view model](#dashboard-view-model-and-api-v1) and answer every
-  failure, including 401 and 403, with the typed envelope `{ error: { status, code, message, issues? } }`
-  (`errorResponseV1`); the other routes keep `{ error, issues? }` until the legacy client is retired.
+- Read routes under `/api/v1/` serve the [view model](#dashboard-view-model-and-api-v1). Every route
+  answers every failure, including 401 and 403, with the typed envelope
+  `{ error: { status, code, message, issues? } }` (`ErrorV1`, `errorResponse`).
 
 ## Dashboard view model and API v1
 
@@ -545,8 +558,6 @@ still refuse what they cannot use when a turn starts.
 
 - Windows only. macOS and Linux supervision and installers are **Planned**.
 - One guided task at a time per journal. A small parallel limit is **Planned**.
-- The Vue dashboard client that consumes API v1 is **Planned** ([PLAN.md](PLAN.md)); the served client is
-  still `src/ui/app.js` over the older routes.
 - No background scheduler, retention cleanup, push or pull request delivery.
 
 ## Module map
@@ -608,11 +619,29 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `health.ts`, `health-record.ts` | Stored health, staleness, the compact view and version change warnings; the pinned health record |
 | | `stalls.ts` | Stall detection for running guided sessions and checks |
 | `server/` | `ui-server.ts`, `ui-worker.ts` | Loopback dashboard server and action workers |
-| | `api-schemas.ts`, `errors.ts`, `task-poll.ts` | Request body and worker request schemas, error-to-status mapping (plain and v1 envelopes), the compact task poll |
-| | `api-types.ts`, `api-v1.ts` | The typed v1 DTOs (types only, shared with `web/`); the v1 read routes and their revision cache |
+| | `static-client.ts` | Serving the built client from `web/dist` with a path guard and content types |
+| | `api-schemas.ts`, `errors.ts` | Request body and worker request schemas, error-to-status mapping with the typed envelope |
+| | `api-types.ts`, `api-v1.ts` | The typed DTOs of v1 and of the lookup and action routes (types only, shared with `web/`); the v1 read routes and their revision cache |
 | `server/view-model/` | `overview.ts`, `task-detail.ts`, `kickoff-detail.ts` | Overview with the attention queue; task facts and the task page; the planning page |
 | | `actions.ts`, `status.ts`, `workflow.ts` | Which actions exist and why one is disabled; status vocabulary, stop descriptions and UI language; the workflow strip |
 | | `usage.ts`, `health.ts`, `plan.ts`, `timeline.ts`, `scope.ts`, `context.ts` | Usage with completeness; the health card; the plan for approval; timeline summaries and paging; scope file contents; the dashboard state the view model reads |
-| `ui/` | `index.html`, `app.js`, `app.css`, `markdown.js`, `favicon.svg` | Browser client, served as static files |
 | `probes/` | `*-probe.ts`, `multifile-fixture.ts`, `probe-interruption.ts` | Opt-in live and scale probes and their fixtures |
 | | `demo.ts` | Synthetic demo |
+
+The dashboard client is its own npm project in `web/` (paths under `web/src/`), typed against
+`src/server/api-types.ts` with `import type` and checked by `vue-tsc`:
+
+| Folder | Files | Responsibility |
+| --- | --- | --- |
+| `/` | `main.ts`, `App.vue`, `router.ts` | Entry point (token first, then routing), the shell with the overview poll, fragment routes (`#/`, `#/new`, `#/tasks/<id>`, `#/planning/<id>`, `#/health`) |
+| | `announcer.ts`, `settings.ts`, `markdown.ts` | Live-region announcements and the shared clock; client timing constants; sanitised Markdown |
+| | `mock.ts`, `testing.ts` | Typed DTO fixtures and the fake server for Vitest |
+| `api/` | `client.ts`, `usePolled.ts` | Access token, typed requests and `ApiError` (401, stale 409); polling one request at a time, paused while hidden |
+| | `actions.ts`, `useActions.ts`, `report.ts` | `ActionView` plus typed drafts to the exact request body (JSON pointer targets); sending actions with requested, stale and refused states; the report download |
+| `pages/` | `HomePage`, `NewTaskPage`, `PlanningPage`, `TaskPage`, `HealthPage` | One screen each |
+| `components/` | `ActionButton`, `ActionForm`, `FormFieldInput`, `MultiSelectField`, `DecisionCard`, `DecisionQueue`, `AttentionPanel` | Actions and server-described forms |
+| | `TaskHeader`, `WorkflowStrip`, `ActivityCard`, `ResultsPanel`, `CheckItem`, `CheckOutput`, `FindingList`, `UsagePanel`, `UsageSummary`, `TaskDetails`, `TimelinePanel`, `ChangesPanel`, `ReportPanel`, `ScopeReview`, `PlanCard`, `PlanSlice`, `CommandDetails` | Task and plan presentation |
+| | `DiscussionThread`, `PlanningContext`, `FileSearch`, `StartingFileHints`, `ReferenceFolders`, `ImportPlan` | Planning and new-task pieces |
+| | `AppShell`, `AppSidebar`, `HealthIndicator`, `HealthSummaryBar`, `TaskSummaryItem`, `StatusBadge`, `NoticeBox`, `ErrorBanner`, `EmptyState`, `EvidenceSection`, `LogViewer`, `MarkdownView`, `format.ts` | Shell and shared building blocks |
+| `theme/` | `status.ts`, `tokens.ts`, `theme.css`, `colorScheme.ts` | Icon, words and colour per status (never colour alone); design tokens; static Nuxt UI variables; light and dark from the system |
+

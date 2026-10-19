@@ -15,11 +15,12 @@ is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 | `npm ci` | Install exact dependencies |
 | `npm run check` | Typecheck, lint, format check and the fast test subset. Run before saying you are done |
 | `npm run check:full` | The same with every test (several minutes) |
-| `npm test` / `npm run test:all` | Build, then run fast or all tests |
-| `node scripts/run-tests.mjs <name>...` | Run selected compiled test files after `npm run build`, e.g. `guided-tasks` |
+| `npm test` / `npm run test:all` | Build the server (`build:server`), then run fast or all tests |
+| `node scripts/run-tests.mjs <name>...` | Run selected compiled test files after `npm run build:server`, e.g. `guided-tasks` |
+| `npm --prefix web ci`, then `cd web && npm run typecheck && npm run lint && npm test` | The dashboard client (Vue, own `package.json`); `npm run build` builds it to `web/dist` |
 | `npm run format` | Apply Prettier |
 | `npm run lint:prune` | Shrink `eslint-suppressions.json` after fixing suppressed violations |
-| `npm run ui` | Build and open the development dashboard |
+| `npm run ui` | Build server and client, then open the development dashboard |
 | `npm run doctor` | Check local Codex, Claude and Orca integration readiness |
 
 ## Rules
@@ -48,7 +49,10 @@ is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 
 ## Pitfalls
 
-- Tests run from `dist/`. Run `npm run build` (or `npm test`) after editing TypeScript.
+- Tests run from `dist/`. Run `npm run build:server` (or `npm test`) after editing TypeScript.
+- The dashboard client in `web/` draws server DTOs (`src/server/api-types.ts`) and sends `ActionView.request`
+  unchanged; business rules belong in `src/server/view-model/`, never in a component. Its own lint limits
+  are stricter (300 lines per file, complexity 15).
 - Working copies use CRLF on Windows; Prettier keeps existing line endings (`endOfLine: auto`).
 - `C:\Users\<you>` may itself be a Git repository. Tests must not assume a temp folder is
   outside every repository.

@@ -54,13 +54,9 @@ test('v1 routes need the token and the local origin, and answer errors with the 
   await failure(await api.get(`/api/v1/tasks/${randomUUID()}`), 404, 'not_found');
   await failure(await api.get(`/api/v1/kickoffs/${randomUUID()}`), 404, 'not_found');
   await failure(await api.get(`/api/v1/kickoffs/${randomUUID()}/timeline`), 404, 'not_found');
-  const legacy = await api.get('/api/nothing');
-  assert.equal(legacy.status, 404);
-  assert.equal(
-    typeof ((await legacy.json()) as { error: unknown }).error,
-    'string',
-    'other routes keep their envelope',
-  );
+  // The lookup and action routes answer with the same envelope.
+  await failure(await api.get('/api/nothing'), 404, 'not_found');
+  await failure(await api.post(`/api/tasks/${randomUUID()}/run`, { expected: 'x' }), 404, 'not_found');
 });
 
 test('overview, task detail and timeline have the v1 shape and no inventories or raw output', async t => {

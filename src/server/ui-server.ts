@@ -1,10 +1,11 @@
-// Owns the loopback dashboard server: static client assets, the token-guarded JSON API over the journal
-// and the action workers it starts. Request bodies are parsed by api-schemas.ts; failures map to HTTP
-// statuses in errors.ts. The server is not a second workflow engine: every decision goes to the controller.
+// Owns the loopback dashboard server: the built Vue client (static-client.ts), the token-guarded JSON API
+// over the journal and the action workers it starts. The client reads `/api/v1/` (api-v1.ts) and acts
+// through the POST routes here. Request bodies are parsed by api-schemas.ts; failures map to HTTP statuses
+// and the typed error envelope in errors.ts. The server is not a second workflow engine: every decision
+// goes to the controller.
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { Store } from '../persistence/store.js';
@@ -15,19 +16,25 @@ import { guidedTaskView } from '../orchestration/guided-status.js';
 import { renderReport } from '../reporting/report.js';
 import { Kickoffs } from '../orchestration/kickoff.js';
 import { Sessions } from '../execution/sessions.js';
-import { versionInformation } from '../config/runtime.js';
 import { checkOutputLimits, formatBytes, serverLimits, stallLimits } from '../config/limits.js';
 import { currentSettings } from '../config/settings.js';
 import { TaskLifecycle } from '../orchestration/task-lifecycle.js';
 import { suggestReferenceFolders } from '../repository/reference-folders.js';
 import type { Task } from '../domain/workflow.js';
-import { availableQualityPasses } from '../domain/quality-passes.js';
 import { outputExcerpt, readCheckLog } from '../verification/check-output.js';
 import { describeIssues } from '../process/boundary.js';
-import { HttpError, errorResponseFor } from './errors.js';
+import { HttpError, errorResponse } from './errors.js';
 import { createApiV1 } from './api-v1.js';
-import { eventSummary, taskPoll } from './task-poll.js';
-import { HealthMonitor, compactHealth, healthView, type HealthCheck } from '../health/health.js';
+import type {
+  CheckOutputPage,
+  CreatedResponse,
+  FileSearchResponse,
+  InspectRepositoryResponse,
+  ReferenceSuggestionsResponse,
+  ReportResponse,
+} from './api-types.js';
+import { defaultClientDirectory, missingClientPage, readClientFile } from './static-client.js';
+import { HealthMonitor, healthView, type HealthCheck } from '../health/health.js';
 import { StallWatchdog } from '../health/stalls.js';
 import {
   approveTaskBody,
@@ -112,16 +119,10 @@ export interface UiOptions {
   health?: HealthCheck;
   /** Clock for staleness and stall detection; tests inject one. */
   now?: () => number;
+  /** The built client folder; defaults to `web/dist` of this installation. Tests pass a fixture. */
+  client?: string;
 }
 
-const assets: Record<string, [string, string]> = {
-  '/': ['src/ui/index.html', 'text/html'],
-  '/app.js': ['src/ui/app.js', 'text/javascript'],
-  '/app.css': ['src/ui/app.css', 'text/css'],
-  '/favicon.svg': ['src/ui/favicon.svg', 'image/svg+xml'],
-  '/markdown.js': ['src/ui/markdown.js', 'text/javascript'],
-  '/vendor/markdown-it.js': ['node_modules/markdown-it/dist/browser/markdown-it.umd.min.js', 'text/javascript'],
-};
 const itemRoute = /^\/api\/(?<kind>tasks|kickoffs)\/(?<id>[a-f0-9-]+)(?:\/(?<action>[a-z-]+))?$/;
 const routeSchema = z.object({ kind: z.enum(['tasks', 'kickoffs']), id: z.string(), action: z.string().optional() });
 type ItemRoute = z.infer<typeof routeSchema>;
@@ -173,7 +174,6 @@ interface Dashboard {
   tasks: GuidedTasks;
   kickoffs: Kickoffs;
   jobs: Map<string, Job>;
-  cachedViews: Map<string, { revision: string; value: unknown }>;
   launch: (id: string, work: WorkerAction) => void;
   stalls: StallWatchdog;
   /** Null when the dashboard was started without integration checks. */
@@ -181,9 +181,17 @@ interface Dashboard {
   now: () => number;
 }
 
-/** A task poll with the current stall, which depends on time rather than on the journal revision. */
-function withStall(dashboard: Dashboard, id: string, poll: unknown): unknown {
-  return { ...z.looseObject({}).parse(poll), stalled: dashboard.stalls.stall(id) };
+/** The built client: index.html, the favicon and hashed assets; a short explanation while it is unbuilt. */
+function serveClient(directory: string, path: string, response: ServerResponse): void {
+  const file = readClientFile(directory, path);
+  if (file) {
+    response.writeHead(200, { 'Content-Type': file.type });
+    response.end(file.body);
+    return;
+  }
+  if (path !== '/') throw new HttpError(404, 'Not found');
+  response.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8' });
+  response.end(missingClientPage);
 }
 
 function json(response: ServerResponse, code: number, body: unknown): void {
@@ -197,33 +205,25 @@ function liveTask(store: Store, id: string): Task {
   return task;
 }
 
-function cachedPoll(dashboard: Dashboard, id: string): unknown {
-  const revision = dashboard.store.revision(),
-    cached = dashboard.cachedViews.get(id);
-  if (cached?.revision === revision) return cached.value;
-  const value = taskPoll(dashboard.store, id);
-  if (dashboard.cachedViews.size >= serverLimits.cachedTaskViews) {
-    const oldest = dashboard.cachedViews.keys().next();
-    if (!oldest.done) dashboard.cachedViews.delete(oldest.value);
-  }
-  dashboard.cachedViews.set(id, { revision, value });
-  return value;
-}
-
-function getItem(dashboard: Dashboard, route: ItemRoute, url: URL): unknown {
+/** The two task reads the client makes outside `/api/v1/`: the report and paged check output. */
+function getItem(dashboard: Dashboard, route: ItemRoute, url: URL): ReportResponse | CheckOutputPage {
   const { store } = dashboard;
   if (route.kind !== 'tasks') throw new HttpError(404, 'Not found');
   const task = liveTask(store, route.id);
-  if (route.action === 'events') return { events: store.events(route.id).map(eventSummary) };
   if (route.action === 'report') return { report: renderReport(store, route.id) };
   if (route.action === 'check-output') {
     const query = parseRequest(checkOutputQuery, Object.fromEntries(url.searchParams));
     const check = store.check(query.checkId);
     if (store.execution(check.executionId).taskId !== task.id)
       throw new HttpError(404, 'Check belongs to another task');
-    return readCheckLog(check, query.stream, query.offset, checkOutputLimits.maxPageCharacters, query.raw === '1');
+    return readCheckLog(
+      check,
+      query.stream,
+      query.offset,
+      checkOutputLimits.maxPageCharacters,
+      query.raw === '1',
+    ) satisfies CheckOutputPage;
   }
-  if (route.action === undefined) return withStall(dashboard, route.id, cachedPoll(dashboard, route.id));
   throw new HttpError(404, 'Not found');
 }
 
@@ -233,18 +233,23 @@ function postRoot(dashboard: Dashboard, path: string, payload: unknown): [number
     case '/api/references/suggest':
       return [
         200,
-        { suggestions: suggestReferenceFolders(parseRequest(suggestReferencesBody, payload).request ?? '') },
+        {
+          suggestions: suggestReferenceFolders(parseRequest(suggestReferencesBody, payload).request ?? ''),
+        } satisfies ReferenceSuggestionsResponse,
       ];
     case '/api/repositories/inspect': {
       const inspected = kickoffs.inspect(parseRequest(inspectRepositoryBody, payload));
-      return [200, { repo: inspected.repo, base: inspected.base, context: inspected.context }];
+      return [
+        200,
+        { repo: inspected.repo, base: inspected.base, context: inspected.context } satisfies InspectRepositoryResponse,
+      ];
     }
     case '/api/repositories/files':
-      return [200, kickoffs.search(parseRequest(searchFilesBody, payload))];
+      return [200, kickoffs.search(parseRequest(searchFilesBody, payload)) satisfies FileSearchResponse];
     case '/api/kickoffs':
-      return [201, { id: kickoffs.create(parseRequest(createKickoffBody, payload)) }];
+      return [201, { id: kickoffs.create(parseRequest(createKickoffBody, payload)) } satisfies CreatedResponse];
     case '/api/tasks':
-      return [201, { id: tasks.create(parseRequest(createTaskBody, payload).plan).id }];
+      return [201, { id: tasks.create(parseRequest(createTaskBody, payload).plan).id } satisfies CreatedResponse];
     default:
       throw new HttpError(404, 'Not found');
   }
@@ -429,33 +434,15 @@ export async function startUi(options: UiOptions) {
     kickoffs = new Kickoffs(store);
   const token = randomBytes(32).toString('hex'),
     jobs = new Map<string, Job>();
-  let cachedState: {
-    revision: string;
-    value: { tasks: ReturnType<Store['guidedSummaries']>; kickoffs: unknown };
-  } | null = null;
+  const client = options.client ?? defaultClientDirectory;
   let origin = '';
   const now = options.now ?? Date.now;
   const stalls = new StallWatchdog(store, now);
   const health = options.health ? new HealthMonitor(store, options.health, now) : null;
   const stallTimer = watchStalls(stalls);
   const launch = (id: string, work: WorkerAction) => launchWorker(store, jobs, health !== null, id, work);
-  const dashboard: Dashboard = { store, tasks, kickoffs, jobs, cachedViews: new Map(), launch, stalls, health, now };
+  const dashboard: Dashboard = { store, tasks, kickoffs, jobs, launch, stalls, health, now };
   const apiV1 = createApiV1({ store, kickoffs, jobs, stalls, now });
-  const state = () => {
-    pruneJobs(jobs);
-    const revision = store.revision();
-    if (cachedState?.revision !== revision)
-      cachedState = { revision, value: { tasks: store.guidedSummaries(), kickoffs: kickoffs.list() } };
-    return {
-      ...cachedState.value,
-      tasks: cachedState.value.tasks.map(task => ({ ...task, stalled: stalls.stall(task.id) })),
-      health: compactHealth(healthView(store, now())),
-      jobs: Object.fromEntries(jobs),
-      journal: store.path,
-      application: versionInformation(currentSettings().dashboardPort),
-      qualityPasses: availableQualityPasses(currentSettings().qualityPasses),
-    };
-  };
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     securityHeaders(response);
     if (
@@ -466,11 +453,8 @@ export async function startUi(options: UiOptions) {
     }
     const url = new URL(request.url ?? '/', origin);
     const path = url.pathname;
-    const asset = request.method === 'GET' ? assets[path] : undefined;
-    if (asset) {
-      const [file, mime] = asset;
-      response.writeHead(200, { 'Content-Type': `${mime}; charset=utf-8` });
-      response.end(readFileSync(new URL(`../../../${file}`, import.meta.url)));
+    if (request.method === 'GET' && !path.startsWith('/api/')) {
+      serveClient(client, path, response);
       return;
     }
     const supplied = Buffer.from(request.headers.authorization?.replace(/^Bearer /, '') ?? '');
@@ -480,11 +464,8 @@ export async function startUi(options: UiOptions) {
     const route = groups ? routeSchema.parse(groups) : null;
     if (request.method === 'GET') {
       if (path.startsWith('/api/v1/')) {
+        pruneJobs(jobs);
         json(response, 200, apiV1.get(path, url));
-        return;
-      }
-      if (path === '/api/state') {
-        json(response, 200, state());
         return;
       }
       if (path === '/api/health') {
@@ -502,7 +483,7 @@ export async function startUi(options: UiOptions) {
   };
   const server = createServer((request, response) => {
     handle(request, response).catch((error: unknown) => {
-      const { status, body } = errorResponseFor(request.url ?? '', error);
+      const { status, body } = errorResponse(error);
       if (!response.headersSent) json(response, status, body);
       else response.end();
     });
@@ -533,6 +514,8 @@ export async function startUi(options: UiOptions) {
     url: `${origin}/#${token}`,
     /** Stall detection of this dashboard; tests call `scan` with an injected clock. */
     stalls,
+    /** The action worker this dashboard last started for a task or planning conversation, if any. */
+    job: (id: string): Readonly<Job> | null => jobs.get(id) ?? null,
     close: async () => {
       if ([...jobs.values()].some(job => job.running))
         throw new Error('An action is still running; stop it and wait for settlement before closing');
