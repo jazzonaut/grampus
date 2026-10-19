@@ -348,6 +348,53 @@ test(
 );
 
 test(
+  'installer accepts an npm-installed Codex through the native binary its package vendors',
+  { skip: process.platform !== 'win32' || !['x64', 'arm64'].includes(process.arch) },
+  t => {
+    const root = mkdtempSync(join(tmpdir(), 'grampus-install-npm-codex-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    // An npm global prefix: only script shims on PATH, the native binary under the platform package.
+    const prefix = join(root, 'npm');
+    const target = process.arch === 'arm64' ? 'aarch64-pc-windows-msvc' : 'x86_64-pc-windows-msvc';
+    const vendored = join(prefix, 'node_modules', '@openai', 'codex', 'node_modules', '@openai');
+    const bin = join(vendored, `codex-win32-${process.arch}`, 'vendor', target, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(prefix, 'codex.cmd'), '@echo off\r\nexit /b 1\r\n');
+    copyFileSync(process.execPath, join(bin, 'codex.exe'));
+    const git = execFileSync('where.exe', ['git.exe'], { encoding: 'utf8' }).split(/\r?\n/)[0] ?? '';
+    // A held lock stops the installer right after the dependency checks, before any build.
+    const destination = join(root, 'installed');
+    mkdirSync(destination);
+    writeFileSync(
+      join(destination, 'grampus-install.json'),
+      JSON.stringify({ application: 'grampus', schema: 1, addToPath: false }),
+    );
+    writeFileSync(join(destination, 'install.lock'), JSON.stringify({ pid: process.pid }));
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => !['PATH', 'GRAMPUS_CODEX_COMMAND'].includes(name.toUpperCase())),
+    );
+    const result = spawnSync(
+      process.execPath,
+      [fileURLToPath(installerUrl), '--yes', '--no-path', '--dir', destination],
+      {
+        env: {
+          ...env,
+          PATH: [prefix, join(git, '..')].join(';'),
+          npm_execpath: join(process.execPath, '..', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+          GRAMPUS_CLAUDE_COMMAND: process.execPath,
+        },
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 60000,
+      },
+    );
+    assert.doesNotMatch(result.stderr, /Installation refused/);
+    assert.match(result.stdout, /OK Codex CLI/);
+    assert.match(result.stderr, /Another installation may be running/);
+  },
+);
+
+test(
   'interactive installer shows its plan and cancellation leaves the destination absent',
   { skip: process.platform !== 'win32' },
   async t => {

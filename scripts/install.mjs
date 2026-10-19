@@ -12,6 +12,7 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -38,6 +39,36 @@ const run = (file, args, options = {}) =>
 export function requireNode(version = process.versions.node) {
   if (!/^\d+\.\d+\.\d+/.test(version) || Number(version.split('.')[0]) < 24)
     throw new Error(`Node.js 24 or later is required (found ${version}).`);
+}
+
+/**
+ * The Codex program Grampus will run, found as `codexExecutable` in src/providers/executables.ts finds it
+ * (the installer cannot import uncompiled sources): the override, else a native `codex` on PATH, else the
+ * native binary vendored by the npm package whose script shim is first on PATH. Spawning the name alone
+ * would refuse an npm installation, because a shell-free spawn never runs its `.cmd` shim.
+ */
+export function codexCommand(env = process.env) {
+  if (env.GRAMPUS_CODEX_COMMAND) return env.GRAMPUS_CODEX_COMMAND;
+  const directories = (env.PATH ?? '').split(';').filter(Boolean);
+  const file = path => existsSync(path) && statSync(path).isFile();
+  for (const directory of directories)
+    for (const name of ['codex.com', 'codex.exe']) if (file(join(directory, name))) return join(directory, name);
+  const shim = directories.find(directory =>
+    ['codex.cmd', 'codex.bat', 'codex.ps1'].some(name => existsSync(join(directory, name))),
+  );
+  const target = { x64: 'x86_64-pc-windows-msvc', arm64: 'aarch64-pc-windows-msvc' }[process.arch];
+  if (shim && target && isAbsolute(shim)) {
+    const scope = join(shim, 'node_modules', '@openai'),
+      platformPackage = `codex-win32-${process.arch}`;
+    for (const vendor of [
+      join(scope, 'codex', 'node_modules', '@openai', platformPackage, 'vendor'),
+      join(scope, platformPackage, 'vendor'),
+      join(scope, 'codex', 'vendor'),
+    ])
+      for (const folder of ['bin', 'codex'])
+        if (file(join(vendor, target, folder, 'codex.exe'))) return join(vendor, target, folder, 'codex.exe');
+  }
+  return 'codex';
 }
 
 /** Check external prerequisites before creating any installation files. No inference or login prompts. */
@@ -83,7 +114,7 @@ export function checkDependencies() {
     return run(process.execPath, [npmCli, '--version']).trim();
   });
   inspect('Git', () => run('git', ['--version']).trim());
-  inspect('Codex CLI', () => run(process.env.GRAMPUS_CODEX_COMMAND ?? 'codex', ['--version']).trim());
+  inspect('Codex CLI', () => run(codexCommand(), ['--version']).trim());
   inspect('Claude Code CLI', () => run(process.env.GRAMPUS_CLAUDE_COMMAND ?? 'claude', ['--version']).trim());
   if (failures.length)
     throw new Error(
