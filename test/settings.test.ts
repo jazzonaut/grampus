@@ -85,6 +85,7 @@ test('invalid types, out-of-range values and malformed JSON are refused with the
     { defaultWorkflowPolicy: { repairRounds: 6 } },
     { defaultWorkflowPolicy: { mode: 'unattended' } },
     { maxConcurrentTasks: 0 },
+    { maxConcurrentTasks: 5 },
     { healthCheckIntervalMs: 999 },
     [],
     null,

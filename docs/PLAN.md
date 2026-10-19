@@ -43,8 +43,8 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
 - **Central configuration.** Done 19 October 2026. Fixed limits are in `src/config/limits.ts` and
   operational settings in `src/config/settings.ts`; an optional validated `config.json` in the data
   directory overrides ports, usage polling, the default check timeout and the default workflow
-  policy ([CONFIGURATION.md](CONFIGURATION.md)). The concurrency key is accepted
-  but **Planned**; the stall threshold is used since step 3. The stricter compiler flags from the structure step landed at the same time.
+  policy ([CONFIGURATION.md](CONFIGURATION.md)). The concurrency key is used since step 4
+  and the stall threshold since step 3. The stricter compiler flags from the structure step landed at the same time.
 - **Configurable quality passes.** Done 19 October 2026. Declarative pass definitions (no code
   plugins) of two kinds: review lenses assessed in the independent review turn, and edit passes
   that run as scoped implementer turns after the first successful implementation and before
@@ -83,8 +83,15 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
    `guided.stall_detected` event per silence and nothing stopped. Recorded Codex and Claude
    protocol fixtures are replayed through the adapters as a drift canary
    ([ARCHITECTURE.md](ARCHITECTURE.md#health-and-stalls)).
-4. **Parallel tasks.** A small configurable limit (default 2) of guided tasks running
-   at once, each in its own worktree.
+4. **Parallel tasks.** Done 19 October 2026. A bounded runner pool replaces the single
+   global runner: up to `maxConcurrentTasks` (default 2, 1 to 4) guided tasks own a runner at
+   once, each in its own worktree, and they may share a source repository. A full pool refuses
+   the claim with a typed error (409 in the dashboard, a message naming the running tasks in
+   the CLI) instead of queueing, because there is no background scheduler; recovery is never
+   blocked by a full pool. The pool also bounds simultaneous guided agent turns. Process
+   identity queries moved out of hot-path journal transactions and the busy timeout rose to
+   15 s, so writers from parallel tasks wait rather than fail
+   ([ARCHITECTURE.md](ARCHITECTURE.md#parallel-tasks-and-concurrency)).
 5. **Dashboard.** Server-side view model (status, next action, attention items with
    reasons, workflow strip, usage), then a Vue 3 + Vite + Nuxt UI client that keeps the
    per-launch token, loopback binding, CSP and decision-key checks unchanged.

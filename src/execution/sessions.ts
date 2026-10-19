@@ -96,6 +96,8 @@ export class Sessions {
   ): { session: Session; prompt: string; runId: string } {
     if (answers !== undefined && (!answers || typeof answers !== 'object' || Array.isArray(answers)))
       throw new Error('Answers must be a JSON object');
+    // The first identity query of a process starts PowerShell: make it before taking the write lock.
+    const controllerStartedAt = currentProcessStartedAt();
     return this.change(id, session => {
       if (session.deletedAt) throw new Error('This planning conversation was deleted');
       if (editing) {
@@ -128,7 +130,7 @@ export class Sessions {
       session.run = {
         id: randomUUID(),
         controllerPid: process.pid,
-        controllerStartedAt: currentProcessStartedAt(),
+        controllerStartedAt,
         host: hostname(),
         providerPid: null,
         providerStartedAt: null,
@@ -170,6 +172,11 @@ export class Sessions {
   }
 
   event(id: string, runId: string, event: AgentEvent): boolean {
+    // Observed before the write lock: the query starts PowerShell, which would hold up every other
+    // task's journal writes. The provider's identity does not depend on what the transaction reads.
+    const startedPid =
+      event.type === 'process.started' ? processStartedEventSchema.safeParse(event.data).data?.pid : undefined;
+    const observed = startedPid === undefined ? null : inspectProcess(startedPid);
     return this.change(id, session => {
       if (session.run?.id !== runId || !['running', 'stop_requested'].includes(session.phase)) {
         this.store.appendSession(id, 'event.ignored', { runId, eventType: event.type });
@@ -197,14 +204,10 @@ export class Sessions {
           }
         }
       }
-      if (event.type === 'process.started') {
-        const pid = processStartedEventSchema.safeParse(event.data).data?.pid;
-        if (pid !== undefined) {
-          const observed = inspectProcess(pid);
-          session.run.providerPid = pid;
-          session.run.providerStartedAt = observed.state === 'present' ? observed.startedAt : null;
-          session.run.providerDispatch = 'requested';
-        }
+      if (startedPid !== undefined && observed) {
+        session.run.providerPid = startedPid;
+        session.run.providerStartedAt = observed.state === 'present' ? observed.startedAt : null;
+        session.run.providerDispatch = 'requested';
       }
       this.store.appendSession(id, event.type, { runId, data: event.data });
       return true;

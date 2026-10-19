@@ -315,13 +315,14 @@ export class Store {
   }
 
   /**
-   * Tasks other than `except` whose guided runner is owned. Answered from an indexed column computed
-   * when the task is saved, so claiming the runner never parses other tasks' state.
+   * Tasks whose guided runner is owned, in creation order, including owners kept for recovery.
+   * Answered from an indexed column computed when the task is saved, so counting the runner pool never
+   * parses task state.
    */
-  runnerOwners(except: string): string[] {
+  runnerOwners(): string[] {
     return this.db
-      .prepare('SELECT id FROM tasks WHERE runner IS NOT NULL AND id <> ? ORDER BY rowid')
-      .all(except)
+      .prepare('SELECT id FROM tasks WHERE runner IS NOT NULL ORDER BY rowid')
+      .all()
       .map(row => parseBoundary(idRow, row, journal('tasks')).id);
   }
 

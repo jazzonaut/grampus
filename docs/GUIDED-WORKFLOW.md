@@ -188,7 +188,13 @@ If standalone worktree creation failed before producing a checkout,
 `task-release-workspace <task-id>` releases the reservation metadata after confirming
 Git exited and nothing was created. Branches, files and history are never deleted.
 
-One guided controller runs per journal at a time, and its ownership survives an
-uncertain shutdown. Keep the journal and plan files outside task worktrees. Every
+One guided controller runs per task at a time, and up to `maxConcurrentTasks` guided tasks
+(2 by default, see [CONFIGURATION.md](CONFIGURATION.md)) run at once per journal, each in its
+own worktree. When every slot is taken, `task-run` and the other commands that start work
+(`task-authorize`, `task-assess`, `task-answer`, `task-retry`, `task-rerun-checks`) are
+refused with a message naming the running tasks; nothing is queued, so run the command again
+once a slot is free. Recovery, revision and `task-release-workspace` are never refused for a
+full pool. A controller's ownership survives an uncertain shutdown and keeps its slot until
+`task-recover` settles it. Keep the journal and plan files outside task worktrees. Every
 command accepts `--db <path>`; the default journal is `grampus.sqlite` in the data
 directory ([INSTALLATION.md](INSTALLATION.md#develop-alongside-the-installed-app)).

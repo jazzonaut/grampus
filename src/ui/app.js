@@ -111,7 +111,7 @@ function nav() {
     )
     .join('');
   const info = state.application;
-  return `<aside class="sidebar"><div class="brand"><img class="mark" src="/favicon.svg" width="31" height="31" alt="">grampus</div><button class="new" data-action="new">＋ New task</button><div class="eyebrow">Tasks</div>${items || '<p class="empty">Your tasks will appear here.</p>'}${kickoffs ? `<div class="eyebrow">Planning</div>${kickoffs}` : ''}<footer>WINDOWS ALPHA${info ? `<br>v${esc(info.version)} · ${esc(info.channel)}${info.build ? `<br><span title="${esc(info.build.builtAt)}">Build ${esc(info.build.id)}</span>` : ''}` : ''}<br>Local work. Independent review.<br>Your journal survives restarts.</footer></aside>`;
+  return `<aside class="sidebar"><div class="brand"><img class="mark" src="/favicon.svg" width="31" height="31" alt="">grampus</div><button class="new" data-action="new">＋ New task</button><div class="eyebrow">Tasks${state.runners ? ` · ${state.runners.active} of ${state.runners.limit} running` : ''}</div>${items || '<p class="empty">Your tasks will appear here.</p>'}${kickoffs ? `<div class="eyebrow">Planning</div>${kickoffs}` : ''}<footer>WINDOWS ALPHA${info ? `<br>v${esc(info.version)} · ${esc(info.channel)}${info.build ? `<br><span title="${esc(info.build.builtAt)}">Build ${esc(info.build.id)}</span>` : ''}` : ''}<br>Local work. Independent review.<br>Your journal survives restarts.</footer></aside>`;
 }
 const healthNames = {
   healthy: 'Healthy',
@@ -121,6 +121,12 @@ const healthNames = {
   auth_unavailable: 'Sign-in needed',
   temporarily_unavailable: 'Temporarily unavailable',
 };
+// Starting work is refused while the runner pool is full, unless this task already holds a slot.
+const runnersFull = s => !!state.runners && !s.owner && state.runners.active >= state.runners.limit;
+const runnersNotice = () =>
+  notice(
+    `${state.runners.active} of ${state.runners.limit} tasks are already running or awaiting recovery, the most allowed at once. Wait for one to finish, or stop it, then continue this task. Nothing is queued.`,
+  );
 const minutesSince = since => Math.max(0, Math.floor((Date.now() - Date.parse(since)) / 60000)) || 0;
 // Silence is only surfaced; the user decides whether to stop the task.
 const stallBadge = stalled =>
@@ -218,8 +224,8 @@ function workflowPolicyCard(plan) {
   const policy = plan.workflowPolicy;
   return `<p class="hint">${policy.mode === 'automatic' ? `Automatic workflow: implement, validate, repair, independently review and deliver within the approved scope. Up to ${policy.repairRounds} check repairs per slice.` : 'Supervised workflow: pause for file authorization and quality assessment.'} Resume conversations within a slice; start fresh after ${policy.maxSessionTurns} turns or ${policy.maxContextTokens.toLocaleString()} observed context tokens. Each slice and arbitration starts fresh.</p>`;
 }
-function questionsForm(questions, kickoff = false) {
-  return `<form id="${kickoff ? 'planner-answer-form' : 'answer-form'}">${questions.map((question, index) => `<label for="answer-${index}">${markdownInline(question.prompt)}</label>${question.choices.length ? `<p class="hint" id="answer-hint-${index}">Choose a suggestion to fill your answer, then edit if needed.</p><ul class="answer-suggestions" aria-label="Suggested answers">${question.choices.map(choice => `<li><button type="button" data-answer-target="answer-${index}" data-answer-value="${esc(choice)}" aria-controls="answer-${index}">${markdownInline(choice)}</button></li>`).join('')}</ul>` : ''}<textarea id="answer-${index}" name="${esc(question.id)}" rows="2" ${question.choices.length ? `aria-describedby="answer-hint-${index}"` : ''} required></textarea>`).join('')}<div class="actions"><button class="primary" type="submit">Send answers and continue →</button></div></form>`;
+function questionsForm(questions, kickoff = false, disabled = false) {
+  return `<form id="${kickoff ? 'planner-answer-form' : 'answer-form'}">${questions.map((question, index) => `<label for="answer-${index}">${markdownInline(question.prompt)}</label>${question.choices.length ? `<p class="hint" id="answer-hint-${index}">Choose a suggestion to fill your answer, then edit if needed.</p><ul class="answer-suggestions" aria-label="Suggested answers">${question.choices.map(choice => `<li><button type="button" data-answer-target="answer-${index}" data-answer-value="${esc(choice)}" aria-controls="answer-${index}">${markdownInline(choice)}</button></li>`).join('')}</ul>` : ''}<textarea id="answer-${index}" name="${esc(question.id)}" rows="2" ${question.choices.length ? `aria-describedby="answer-hint-${index}"` : ''} required></textarea>`).join('')}<div class="actions"><button class="primary" type="submit" ${disabled ? 'disabled' : ''}>Send answers and continue →</button></div></form>`;
 }
 function elapsedTime(since, now = Date.now()) {
   const seconds = Math.max(0, Math.floor((now - Date.parse(since)) / 1000)) || 0;
@@ -483,13 +489,18 @@ function taskAction(view) {
     return `${taskProgressCard(view)}<div class="actions">${s.owner ? button('stop', s.stopRequested ? 'Stop requested…' : 'Stop now', 'danger') : ''}</div>`;
   if (s.owner || s.pending || s.status === 'recovery_required')
     return `${notice('The previous operation needs reconciliation. Recovery checks saved process and result evidence; it does not replay work.')}<div class="actions">${button('recover', 'Recover saved work', 'primary')}${s.stage === 'workspace' && view.workspace?.adapter === 'git' && view.workspace.phase === 'recovery_required' ? button('release-workspace', 'Release unused reservation') : ''}${s.owner ? button('stop', 'Request stop', 'danger') : ''}</div>`;
+  const full = runnersFull(s),
+    hold = full ? 'disabled' : '',
+    waiting = full ? runnersNotice() : '';
   switch (s.status) {
     case 'draft':
+      if (full && s.plan.workflowPolicy.mode === 'automatic')
+        return `<p>Review the outcome, file actions, commands and expected output below. Approval applies to this complete plan and its pinned base.</p>${notice(`${state.runners.active} of ${state.runners.limit} tasks are already running, the most allowed at once. Approving now keeps this task ready; continue it once a task finishes.`)}<p class="hint">Version ${s.version} · approval digest <code>${esc(s.digest)}</code></p><div class="actions">${button('approve', 'Approve this plan', 'primary')}</div>`;
       return `<p>Review the outcome, file actions, commands and expected output below. Approval applies to this complete plan and its pinned base.</p><p class="hint">Version ${s.version} · approval digest <code>${esc(s.digest)}</code></p><div class="actions">${button('approve', s.plan.workflowPolicy.mode === 'automatic' ? 'Approve and start' : 'Approve this plan', 'primary')}</div>`;
     case 'ready':
-      return `<p>Continue the approved task to its next decision checkpoint.</p><div class="actions">${button('run', 'Continue task →', 'primary')}</div>`;
+      return `<p>Continue the approved task to its next decision checkpoint.</p>${waiting}<div class="actions">${button('run', 'Continue task →', 'primary', hold)}</div>`;
     case 'awaiting_scope':
-      return `<p>Inspect the repository instructions and authorized files below. Authorization starts the implementation and validation steps.</p>${notice(view.scopeError, true)}<div class="actions">${button('authorize', 'Authorize these files and start →', 'primary', view.scopeError ? 'disabled' : '')}${button('retry', 'Refresh file checkpoint')}</div>`;
+      return `<p>Inspect the repository instructions and authorized files below. Authorization starts the implementation and validation steps.</p>${notice(view.scopeError, true)}${waiting}<div class="actions">${button('authorize', 'Authorize these files and start →', 'primary', view.scopeError || full ? 'disabled' : '')}${button('retry', 'Refresh file checkpoint', '', hold)}</div>`;
     case 'awaiting_assessment':
       return `<p>Inspect the changes and check output, then assess them against each quality lens below. Your outcome and summary are recorded for every lens listed.</p>${s.plan.quality.passes
         .filter(pass => pass.kind === 'lens')
@@ -499,15 +510,15 @@ function taskAction(view) {
         )
         .join(
           '',
-        )}<form id="assessment-form"><label for="outcome">Quality assessment outcome</label><select id="outcome" name="outcome"><option value="">Choose after inspecting…</option><option value="passed">Passed</option><option value="failed">Failed: changes needed</option><option value="skipped">Skipped: assessment unavailable</option></select><label for="summary">Your assessment</label><textarea id="summary" name="summary" required rows="3" placeholder="Explain what you inspected and why this outcome applies."></textarea><div class="actions"><button class="primary" type="submit">Record assessment and continue →</button>${button('retry', 'Revise implementation')}</div><p class="hint">A pass continues through independent review, acceptance checks and a verified local commit. Failed or skipped assessments stop progression.</p></form>`;
+        )}<form id="assessment-form"><label for="outcome">Quality assessment outcome</label><select id="outcome" name="outcome"><option value="">Choose after inspecting…</option><option value="passed">Passed</option><option value="failed">Failed: changes needed</option><option value="skipped">Skipped: assessment unavailable</option></select><label for="summary">Your assessment</label><textarea id="summary" name="summary" required rows="3" placeholder="Explain what you inspected and why this outcome applies."></textarea>${waiting}<div class="actions"><button class="primary" type="submit" ${hold}>Record assessment and continue →</button>${button('retry', 'Revise implementation', '', hold)}</div><p class="hint">A pass continues through independent review, acceptance checks and a verified local commit. Failed or skipped assessments stop progression.</p></form>`;
     case 'awaiting_answer':
-      return questionsForm(view.questions);
+      return `${waiting}${questionsForm(view.questions, false, full)}`;
     case 'blocked':
       if (['preparation', 'refresh'].includes(s.stage))
-        return `<p>Preparation failed. Inspect its command output below, resolve the cause, then retry this step. The implementation attempt and retained files are preserved.</p><div class="actions">${button('retry', 'Retry preparation', 'primary')}</div>`;
+        return `<p>Preparation failed. Inspect its command output below, resolve the cause, then retry this step. The implementation attempt and retained files are preserved.</p>${waiting}<div class="actions">${button('retry', 'Retry preparation', 'primary', hold)}</div>`;
       if (view.rerun)
-        return `<p>The check stopped for an infrastructure reason (${esc(s.stopReason?.code || 'check problem')}) and the change has not been edited since. Rerun the same check on the same change, without an agent turn or a new implementation attempt, or retry with a fresh attempt.</p><div class="actions">${button('rerun-checks', 'Rerun checks', 'primary')}${button('retry', 'Retry repair')}</div>`;
-      return `<p>${s.stage === 'scope' ? 'File authorization could not be prepared. Inspect the reported path and revise this task’s plan if its file scope is unsupported. Starting a fresh attempt preserves files and uses the same approved scope; it will fail again until the cause is resolved.' : 'Inspect the findings, check output and retained changes. Retrying creates a fresh attempt and preserves existing files.'}</p><div class="actions">${button('retry', 'Retry repair', 'primary')}</div>`;
+        return `<p>The check stopped for an infrastructure reason (${esc(s.stopReason?.code || 'check problem')}) and the change has not been edited since. Rerun the same check on the same change, without an agent turn or a new implementation attempt, or retry with a fresh attempt.</p>${waiting}<div class="actions">${button('rerun-checks', 'Rerun checks', 'primary', hold)}${button('retry', 'Retry repair', '', hold)}</div>`;
+      return `<p>${s.stage === 'scope' ? 'File authorization could not be prepared. Inspect the reported path and revise this task’s plan if its file scope is unsupported. Starting a fresh attempt preserves files and uses the same approved scope; it will fail again until the cause is resolved.' : 'Inspect the findings, check output and retained changes. Retrying creates a fresh attempt and preserves existing files.'}</p>${waiting}<div class="actions">${button('retry', 'Retry repair', 'primary', hold)}</div>`;
     case 'complete':
       return `<p>The task passed its gates and was delivered locally. The report retains the checks, reviews, assessments and delivery evidence.</p><div class="actions">${button('report', 'Download task report', 'primary')}</div>`;
     default:

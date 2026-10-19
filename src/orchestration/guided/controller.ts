@@ -1,6 +1,7 @@
 // Owns the guided task controller: its public API for the CLI, dashboard and tests, claiming and
-// releasing the single runner, the drive loop, and every journaled change of guided state. What each
-// stage dispatches and how it settles lives in ./stages; prompts in ./prompts.ts.
+// releasing a task's runner within the bounded pool (./runner-pool.ts), the drive loop, and every
+// journaled change of guided state. What each stage dispatches and how it settles lives in ./stages;
+// prompts in ./prompts.ts.
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { Store } from '../../persistence/store.js';
@@ -20,6 +21,7 @@ import { currentProcessStartedAt } from '../../process/process-identity.js';
 import { evidenceIds, type GuidedContext, type StageOutcome, type StateUpdate, type StopInput } from './context.js';
 import { guidedDecisionDigest, guidedDecisionKey, guidedQuestionKey } from './keys.js';
 import { rerunChecksIneligibility } from './rerun.js';
+import { assertRunnerAvailable } from './runner-pool.js';
 import { recoverLeafOperations } from './recovery.js';
 import { implementationRetrySnapshot, preparationRetrySnapshot, prepareRetry } from './retry.js';
 import { draftRevision, requireLinkedSessionsSettled, revisedState } from './revision.js';
@@ -186,31 +188,39 @@ export class GuidedTasks {
     });
   }
   /**
-   * Claims the single runner for this task. Ownership never expires: a previous owner is displaced
-   * only by recovery, and only once it is provably gone from this host.
+   * Claims this task's runner. Ownership never expires: a previous owner is displaced only by
+   * recovery, and only once it is provably gone from this host. A claim that starts work (anything but
+   * recovery, workspace release or revision, which never start an agent turn or check) needs a free
+   * slot in the runner pool ({@link assertRunnerAvailable}); recovery may always displace its own task's
+   * dead owner, so a full pool of crashed owners can still be recovered.
    */
   private take(id: string, recover = false, expected?: Status | Status[], unapproved = false): string {
+    // Process identity queries start PowerShell; run them before taking the journal's write lock so
+    // concurrent tasks are not kept waiting. A dead owner stays dead, so the verdict holds for its token.
+    const startedAt = currentProcessStartedAt();
+    const previous = recover ? this.get(id).owner : null;
+    const previousGone =
+      previous !== null &&
+      previous.host === hostname() &&
+      !processAlive(previous.controllerPid, previous.controllerStartedAt);
     return this.store.transaction(() => {
       if (!recover) this.current(id, !unapproved);
       const state = this.get(id);
       this.requireExpected(state);
       if (expected && !(Array.isArray(expected) ? expected : [expected]).includes(state.status))
         throw new Error(`Task is ${state.status}; inspect task-show for its next action`);
-      // An indexed column of the tasks table: no other task's state is parsed to find the owner.
-      const other = this.store.runnerOwners(id).at(0);
-      if (other) throw new Error(`Another guided task owns the runner: ${other}. Inspect or recover it first.`);
       if (state.owner) {
         if (!recover)
           throw new Error('This task has an active or uncertain guided controller; use task-recover after it exits');
-        if (state.owner.host !== hostname() || processAlive(state.owner.controllerPid, state.owner.controllerStartedAt))
+        if (!previousGone || state.owner.token !== previous?.token)
           throw new Error('Previous guided controller is still alive, on another host or unverifiable');
-      }
+      } else if (!recover && !unapproved) assertRunnerAvailable(this.store);
       const token = randomUUID();
       this.change(id, null, 'guided.controller_claimed', state => {
         state.owner = {
           token,
           controllerPid: process.pid,
-          controllerStartedAt: currentProcessStartedAt(),
+          controllerStartedAt: startedAt,
           host: hostname(),
         };
         state.stopRequested = false;

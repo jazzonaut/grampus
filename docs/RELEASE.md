@@ -16,11 +16,12 @@ and delivery by hand. This is the target, not a claim that the alpha is ready.
   excluded from review. See [repository context](REPOSITORY-CONTEXT.md).
 - Configured MCP connections (including Linear ticket reads) and read-only reference
   folders.
-- One guided task executing at a time per journal.
+- Up to `maxConcurrentTasks` guided tasks (2 by default, at most 4) executing at once per
+  journal, each in its own worktree.
 - Local verified commits and a journal-derived report. The user pushes.
 
 After the alpha: macOS and Linux, published installers, dedicated Linear workflow
-automation, pull request delivery, parallel tasks and broader unattended operation.
+automation, pull request delivery and broader unattended operation.
 
 ## Release gates
 

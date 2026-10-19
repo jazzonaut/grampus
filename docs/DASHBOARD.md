@@ -44,7 +44,9 @@ The planner does not choose quality passes: a new plan gets the configured defau
 Generated checks need your judgement: Grampus syntax-checks generated inline Node
 checks but cannot tell whether a check proves the right thing.
 
-Approving a plan in automatic mode (the default) starts the run straight away.
+Approving a plan in automatic mode (the default) starts the run straight away, unless the
+[runner pool](#parallel-tasks) is full: the plan is then approved and waits as **Ready to
+continue**.
 
 ## Run
 
@@ -79,6 +81,18 @@ repair allowances and operational failures stop for attention with the reason sh
 In supervised mode the task also stops for file authorization and a quality assessment,
 with forms for both. The assessment form lists each selected lens; your outcome and summary
 are recorded for every lens. Without selected lenses there is no assessment stop.
+
+## Parallel tasks
+
+Up to `maxConcurrentTasks` guided tasks (2 by default, at most 4, see
+[CONFIGURATION.md](CONFIGURATION.md)) run at once, each in its own worktree; they may share a
+source repository. The sidebar heading shows how many slots are taken, for example
+**Tasks · 1 of 2 running**. A task stopped for recovery keeps its slot until **Recover saved
+work** settles it. While every slot is taken, **Continue task**, **Authorize these files and
+start**, the assessment and answer forms, **Retry** and **Rerun checks** are disabled with a
+notice, and an action sent anyway is refused. Nothing is queued: continue the task once another
+finishes or is stopped. Recovery, revision and releasing a reservation are never limited,
+because they start no agent turn or check.
 
 ## Controls
 
@@ -134,6 +148,6 @@ scripts or assets are loaded. Treat the full link as access to your local contro
 
 The dashboard and CLI share the same journal. Use `--db <path>`, `--port <number>` and
 `--no-open` to change the journal, port or browser behaviour. A development checkout
-needs its `src/ui` and `src/process/native` folders alongside `dist`. One guided task runs at a
-time per journal. Advanced users can import an authored JSON plan from the new-task
+needs its `src/ui` and `src/process/native` folders alongside `dist`. Up to `maxConcurrentTasks`
+guided tasks run at once per journal ([parallel tasks](#parallel-tasks)). Advanced users can import an authored JSON plan from the new-task
 screen ([guided CLI](GUIDED-WORKFLOW.md)).

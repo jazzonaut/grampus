@@ -38,7 +38,10 @@ export interface Settings {
   qualityPasses: readonly QualityPassDefinition[];
   /** Quality pass ids selected for new plans that omit `quality`; approved plans keep their own copy. */
   defaultQualityPasses: readonly string[];
-  /** Planned: guided tasks that may run at once, each in its own worktree. Not used yet. */
+  /**
+   * Guided tasks that may own a runner at once, each in its own worktree. A claim that would exceed it
+   * is refused, never queued. Also the bound on simultaneous guided agent turns, one per task.
+   */
   maxConcurrentTasks: number;
   /** Silence after which a running turn or check of a guided task is shown as possibly stalled; nothing is stopped. */
   stallWarningMs: number;
@@ -85,7 +88,7 @@ const overridesSchema = z
       .optional(),
     qualityPasses: z.array(qualityPassDefinitionSchema).max(qualityLimits.customPasses).optional(),
     defaultQualityPasses: z.array(z.string()).max(qualityLimits.passes).optional(),
-    maxConcurrentTasks: integer(1, 16).optional(),
+    maxConcurrentTasks: integer(1, 4).optional(),
     stallWarningMs: integer(1000, 86_400_000).optional(),
     healthCheckIntervalMs: integer(1000, 86_400_000).optional(),
   })

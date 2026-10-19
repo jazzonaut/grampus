@@ -320,8 +320,13 @@ export const processLimits = {
   identityTimeoutMs: 5000,
   /** Process identity query output size. */
   identityOutputBytes: 4096,
-  /** SQLite busy timeout for journal connections. */
-  journalBusyMs: 5000,
+  /**
+   * SQLite busy timeout for journal connections: how long a writer waits for another process's write
+   * transaction. Parallel guided tasks write from separate processes, so it must exceed the slowest
+   * work done while holding the write lock (process identity queries during explicit recovery, each up
+   * to `identityTimeoutMs`) for a concurrent task's write to wait rather than fail.
+   */
+  journalBusyMs: 15_000,
   /** Deadline for ordinary Git commands. */
   gitTimeoutMs: 30_000,
   /** Deadline for creating a worktree, which checks out every file. */

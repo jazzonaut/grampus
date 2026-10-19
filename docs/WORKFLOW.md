@@ -20,6 +20,12 @@ An ordinary failed test does not require a manual retry or another approval
 of the same file list. Valid tests and acceptance criteria must not be weakened to pass.
 The agent may repair a defective test when it can establish the defect with evidence.
 
+Up to `maxConcurrentTasks` guided tasks (2 by default) run this flow at once, each in its own
+worktree, and they may share a source repository. Starting another task while every slot is
+taken is refused rather than queued, and approving an automatic plan then approves it without
+starting it; continue it once a slot is free
+([parallel tasks](ARCHITECTURE.md#parallel-tasks-and-concurrency)).
+
 Staging or unstaging files during an implementation stops that attempt because its
 Git checkpoint changed. Finish staging, then choose **Retry repair**. Explicit retry
 preserves those staged files and authorized edits, checks that HEAD, instructions

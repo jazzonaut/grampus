@@ -155,21 +155,23 @@ retained record proves a settled process tree can be rerun with `GuidedTasks.rer
 fresh snapshot confirms the artifact is unchanged, with no agent turn
 ([rerun checks](WORKFLOW.md#rerun-checks)).
 
-One guided controller runs per journal at a time. Its ownership has no expiry and is kept across an
+One guided controller runs per task at a time, and up to `maxConcurrentTasks` tasks run at once
+([parallel tasks](#parallel-tasks-and-concurrency)). Ownership has no expiry and is kept across an
 uncertain shutdown. Stop requests are persisted and forwarded as an `AbortSignal` to the running
 leaf.
 
 ## Persistence
 
-`persistence/store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a five-second
-busy timeout. There is one schema, version 1, with thirteen tables and no migrations. A new or empty
+`persistence/store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a
+15-second busy timeout ([parallel tasks](#parallel-tasks-and-concurrency)). There is one schema,
+version 1, with thirteen tables and no migrations. A new or empty
 file gets the schema; any other version, or a version 1 file missing a table, is refused with a
 clear error after a read-only inspection, so the file is never modified. The default journal is
 `grampus.sqlite` in the data directory.
 
 | Table | Contents |
 | --- | --- |
-| `tasks`, `events` | Task JSON state (including guided state and slice progress) and its ordered journal. An indexed generated column holds the guided runner's ownership token, so claiming the runner never parses other tasks |
+| `tasks`, `events` | Task JSON state (including guided state and slice progress) and its ordered journal. An indexed generated column holds the guided runner's ownership token, so counting the runner pool never parses task state |
 | `snapshots` | Repository snapshots referred to by guided state, keyed by artifact digest and written once |
 | `sessions`, `session_events` | Agent conversations, kickoffs and their events (prompts with their usage stage, tool calls, coalesced output, usage, replies) |
 | `workspaces`, `workspace_events` | Worktree reservations, identities and lifecycle events |
@@ -339,6 +341,51 @@ same rules everywhere:
 - Recovery never sends a provider turn, reruns a command or repeats a Git write, and does not start
   the next step automatically.
 
+## Parallel tasks and concurrency
+
+Several guided tasks run at once, each in its own worktree, from separate processes (one dashboard
+worker or `task-run` per task) over one journal.
+
+- **Bounded runner pool.** A task has at most one owning controller (`guided.owner`, fenced on its
+  token, no expiry). Up to `maxConcurrentTasks` tasks (default 2, 1 to 4) may own a runner at once
+  (`orchestration/guided/runner-pool.ts`). A claim that starts work (run, authorize, assess, answer,
+  retry, rerun checks) counts the owners from the indexed `runner` column inside its `BEGIN
+  IMMEDIATE` claim transaction, so counting and claiming are atomic across processes, and fails with
+  `RunnerPoolFullError` when the pool is full. An owner kept for recovery after an uncertain stop
+  still holds its slot. Recovery, workspace release and revision start no agent turn or check and are
+  not limited; recovery may always displace its own task's dead owner, so a pool full of crashed
+  owners can still be recovered.
+- **Refused, never queued.** There is no background scheduler: a queued task would have to start
+  without a click whenever a slot freed, possibly when nobody is watching. A refused claim changes
+  nothing. The CLI names the running tasks and the command to repeat; the dashboard answers 409
+  before starting a worker (the worker's own claim stays authoritative if another task takes the
+  slot first) and shows the pool in `/api/state` as `runners: { active, limit, owners }`. Approving
+  an automatic plan while the pool is full approves it without starting it.
+- **Agent concurrency.** A task runs one agent turn or check at a time (stages are sequential and
+  its workspace lease admits one operation), so `maxConcurrentTasks` is also the shared limit on
+  active guided agents across tasks. Planning conversations and low-level CLI commands are not
+  counted.
+- **One source repository, several tasks.** Each task gets its own worktree on its own branch
+  `grampus/<task-id>` at a distinct destination (reservation paths are unique in the journal).
+  `git worktree add` and delivery commits in different worktrees change only per-worktree state
+  (index, HEAD), their own branch ref and content-addressed objects written atomically. A stress
+  run of 60 concurrent worktree creations and 60 concurrent commits, four at a time, on one
+  repository (Git 2.53) saw no lock failure, so creation is not retried, which would replay a Git
+  write; a failed creation still stops in `recovery_required` for explicit recovery.
+- **Journal contention.** Each process has its own connection to the WAL journal and every write is a
+  short `BEGIN IMMEDIATE` transaction. Process identity queries start PowerShell, so the ones on the
+  hot path (claiming a runner, a provider process starting, `git worktree add` starting) run before
+  the write lock is taken. The busy timeout (`processLimits.journalBusyMs`, 15 s) outlasts the
+  slowest work still done under the lock, identity queries during explicit recovery
+  (`identityTimeoutMs` each), so a concurrent task's write waits instead of failing with
+  `SQLITE_BUSY`.
+- **Per-task resources.** The dashboard keeps one job per task id and one worker process per action.
+  Each run worker refreshes stale health first; two runs starting together may both refresh, which
+  only replaces the single `health` row twice. Check receipts get a fresh directory under
+  `<journal>.checks/`, the native supervisor is one Job Object per check, streamed output buffers and
+  Claude usage polling belong to one run, and stall detection reports each task separately. The
+  repository inventory cache is per process.
+
 ## Dashboard server
 
 `server/ui-server.ts` serves the dashboard and a JSON API over the same journal; it is not a second
@@ -369,7 +416,7 @@ workflow engine.
   because the browser posts whole forms. Failures map to statuses by error class
   (`server/errors.ts`): 400 with field-level `issues` for an invalid body or a controller refusal,
   404 for an unknown route or record, 409 when the decision key, turn key or proposal digest no
-  longer matches the current state or an action is already running, 413 and 415 for oversized or
+  longer matches the current state, an action is already running or the runner pool is full, 413 and 415 for oversized or
   non-JSON bodies. A stale key that orchestration itself detects inside its transaction (a race after
   the server's check) is still a plain refusal (400).
 
@@ -501,7 +548,6 @@ still refuse what they cannot use when a turn starts.
 ## Limits
 
 - Windows only. macOS and Linux supervision and installers are **Planned**.
-- One guided task at a time per journal. A small parallel limit is **Planned**.
 - A server-side view model for the dashboard is **Planned** ([PLAN.md](PLAN.md)).
 - No background scheduler, retention cleanup, push or pull request delivery.
 
@@ -526,6 +572,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `acceptance.ts` | Acceptance expectations and observations against retained output |
 | | `deep-equal.ts` | Structural equality for stored JSON-shaped records |
 | `orchestration/guided/` | `controller.ts` | Guided task controller: public API, runner ownership, drive loop, retry, recovery, revision |
+| | `runner-pool.ts` | The bounded runner pool (`maxConcurrentTasks`), its typed refusal and the pool view |
 | | `state.ts`, `keys.ts`, `stop-reasons.ts` | Guided state types; decision and question keys; typed stop reason codes |
 | | `context.ts`, `specs.ts`, `prompts.ts` | Stage handler contract and result adoption; exact leaf requests; agent prompts |
 | | `retry.ts`, `recovery.ts`, `revision.ts` | New attempts and explicit retry checks; leaf recovery; plan revision |

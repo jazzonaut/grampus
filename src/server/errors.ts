@@ -4,12 +4,14 @@
 // - `BoundaryError` from a request body is 400 with field-level issues.
 // - `RecordNotFoundError` from the journal is 404.
 // - `StaleStateError` is 409: the decision named a state that is no longer current.
+// - `RunnerPoolFullError` is 409: `maxConcurrentTasks` guided tasks already run; nothing was queued.
 // - Any other error is a refusal by the controller (an invariant or a gate) and is 400.
 //
 // Orchestration still throws plain `Error`s for stale keys it detects itself inside a transaction (a race
 // after the server's own check); those remain 400 until orchestration throws `StaleStateError`.
 import { BoundaryError } from '../process/boundary.js';
 import { RecordNotFoundError, StaleStateError } from '../persistence/errors.js';
+import { RunnerPoolFullError } from '../orchestration/guided/runner-pool.js';
 
 /** An API failure with an explicit HTTP status. */
 export class HttpError extends Error {
@@ -37,7 +39,8 @@ export function errorResponse(error: unknown): { status: number; body: ErrorBody
       body: { error: error.message, ...(error.issues.length ? { issues: error.issues } : {}) },
     };
   if (error instanceof RecordNotFoundError) return { status: 404, body: { error: error.message } };
-  if (error instanceof StaleStateError) return { status: 409, body: { error: error.message } };
+  if (error instanceof StaleStateError || error instanceof RunnerPoolFullError)
+    return { status: 409, body: { error: error.message } };
   if (error instanceof BoundaryError && error.kind === 'http-request')
     return { status: 400, body: { error: error.message, issues: error.issues } };
   return { status: 400, body: { error: error instanceof Error ? error.message : String(error) } };

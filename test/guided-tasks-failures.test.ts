@@ -1,4 +1,5 @@
-// Guided task tests: execution ownership, shutdown, deletion-only retries and failing gate commands.
+// Guided task tests: execution ownership within a one-slot runner pool, shutdown, deletion-only retries and
+// failing gate commands.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -7,9 +8,18 @@ import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import { runCheckProcess } from '../src/process/check-process.js';
 import type { ImplementationRun } from '../src/execution/implementations.js';
+import { RunnerPoolFullError } from '../src/orchestration/guided/runner-pool.js';
+import { defaultSettings, useSettings } from '../src/config/settings.js';
 import { windows, cli, message, git, services, fixture, crashProgram } from './helpers/guided-tasks.js';
 
-test('one guided task owns execution and a cross-process stop request settles its actual tool', windows, async t => {
+/** Limits the runner pool to one slot for one test, so a second task's claim is refused. */
+function oneSlot(t: { after(fn: () => void): void }): void {
+  useSettings({ ...defaultSettings(), maxConcurrentTasks: 1 });
+  t.after(() => useSettings(defaultSettings()));
+}
+
+test('a one-slot pool admits one task and a cross-process stop request settles its actual tool', windows, async t => {
+  oneSlot(t);
   const f = fixture(t),
     id = f.create();
   const other = f.tasks.create({
@@ -36,7 +46,7 @@ test('one guided task owns execution and a cross-process stop request settles it
   await tasks.run(id);
   const running = tasks.authorize(id);
   await entered;
-  await assert.rejects(tasks.run(other.id), /Another guided task/);
+  await assert.rejects(tasks.run(other.id), RunnerPoolFullError);
   await assert.rejects(tasks.recover(id), /still alive/);
   execFileSync(process.execPath, [cli, '--db', f.store.path, 'task-stop', id], { windowsHide: true, stdio: 'pipe' });
   const stopped = await running;
@@ -50,7 +60,8 @@ test('one guided task owns execution and a cross-process stop request settles it
   assert.equal(prepared.stopReason?.code, 'SCOPE_AUTHORIZATION_REQUIRED');
 });
 
-test('unknown native shutdown retains global ownership and cannot admit another guided task', windows, async t => {
+test('unknown native shutdown keeps its runner slot and cannot admit another guided task', windows, async t => {
+  oneSlot(t);
   const f = fixture(t),
     id = f.create();
   const other = f.tasks.create({
@@ -75,7 +86,7 @@ test('unknown native shutdown retains global ownership and cannot admit another 
   assert.ok(uncertain.owner);
   assert.ok(uncertain.pending);
   assert.ok(f.store.lease(uncertain.workspaceId!));
-  await assert.rejects(tasks.run(other.id), /Another guided task/);
+  await assert.rejects(tasks.run(other.id), /1 of 1 guided tasks are already running/);
   await assert.rejects(tasks.retry(id), /recover uncertain/);
   await assert.rejects(tasks.recover(id), /still alive/);
 });

@@ -17,6 +17,7 @@ import { Checks } from './verification/checks.js';
 import { Deliveries } from './execution/deliveries.js';
 import { Implementations } from './execution/implementations.js';
 import { GuidedTasks } from './orchestration/guided/controller.js';
+import { RunnerPoolFullError } from './orchestration/guided/runner-pool.js';
 import { guidedTaskView, renderGuidedTask } from './orchestration/guided-status.js';
 import { defaultDataDirectory, updateInstallation, versionInformation, versionLabel } from './config/runtime.js';
 import { currentSettings, loadSettings, useSettings } from './config/settings.js';
@@ -345,7 +346,13 @@ async function taskCommand(invocation: Invocation): Promise<void> {
   await withStore(invocation, store =>
     interruptible(async signal => {
       const tasks = new GuidedTasks(store);
-      const taskId = await guidedTaskAction(invocation, tasks, signal);
+      const taskId = await guidedTaskAction(invocation, tasks, signal).catch((error: unknown) => {
+        if (error instanceof RunnerPoolFullError)
+          throw new Error(`${error.message} Run grampus ${action} ${argument(invocation)} again once a slot is free.`, {
+            cause: error,
+          });
+        throw error;
+      });
       console.log(
         values.json
           ? JSON.stringify(guidedTaskView(store, taskId), null, 2)

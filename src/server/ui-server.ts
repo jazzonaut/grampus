@@ -11,6 +11,7 @@ import { Store } from '../persistence/store.js';
 import { StaleStateError } from '../persistence/errors.js';
 import { GuidedTasks } from '../orchestration/guided/controller.js';
 import { guidedDecisionKey } from '../orchestration/guided/keys.js';
+import { assertRunnerAvailable, runnerPool } from '../orchestration/guided/runner-pool.js';
 import { guidedTaskView } from '../orchestration/guided-status.js';
 import { renderReport } from '../reporting/report.js';
 import { Kickoffs } from '../orchestration/kickoff.js';
@@ -59,6 +60,19 @@ interface Job {
 
 /** Worker actions that act on a planning conversation rather than a task. */
 const kickoffWorkerActions: readonly WorkerActionName[] = ['plan', 'planner-recover'];
+
+/**
+ * Task worker actions that claim a slot in the guided runner pool. Recovery, workspace release and
+ * revision never start an agent turn or check, so the controller does not limit them.
+ */
+const pooledWorkerActions: readonly WorkerActionName[] = [
+  'run',
+  'authorize',
+  'assess',
+  'answer',
+  'retry',
+  'rerun-checks',
+];
 
 /** The failure a worker reported on its last stderr line, or its raw stderr tail when it reported none. */
 function workerFailure(output: string, fallback: string): WorkerFailure {
@@ -303,11 +317,17 @@ function taskAction(dashboard: Dashboard, id: string, action: string, payload: u
     const body = parseRequest(approveTaskBody, payload);
     const approved = new GuidedTasks(store, { expectedState: body.expected }).approve(id, body.version, body.digest);
     if (approved.plan.workflowPolicy.mode !== 'automatic') return [200, { ok: true }];
+    // Approval stands even when the runner pool is full; the task waits as ready for an explicit Continue.
+    const pool = runnerPool(store);
+    if (pool.active >= pool.limit) return [200, { ok: true, started: false }];
     dashboard.launch(id, { action: 'run', payload: { expected: guidedDecisionKey(approved) } });
     return [202, { ok: true }];
   }
   if (!taskWorkerActions.some(name => name === action)) throw new HttpError(404, 'Unknown task action');
-  dashboard.launch(id, parseRequest(workerActionSchema, { action, payload }));
+  const work = parseRequest(workerActionSchema, { action, payload });
+  // Answer 409 at once; the worker's own claim stays authoritative if another task takes the slot first.
+  if (pooledWorkerActions.includes(work.action)) assertRunnerAvailable(store);
+  dashboard.launch(id, work);
   return [202, { ok: true }];
 }
 
@@ -448,6 +468,7 @@ export async function startUi(options: UiOptions) {
       ...cachedState.value,
       tasks: cachedState.value.tasks.map(task => ({ ...task, stalled: stalls.stall(task.id) })),
       health: compactHealth(healthView(store, now())),
+      runners: runnerPool(store),
       jobs: Object.fromEntries(jobs),
       journal: store.path,
       application: versionInformation(currentSettings().dashboardPort),

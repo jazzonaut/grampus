@@ -10,6 +10,7 @@
   "guided-tasks-arbitration",
   "guided-tasks-automatic-continuation",
   "guided-tasks-automatic-repair",
+  "guided-tasks-concurrency",
   "guided-tasks-delivery",
   "guided-tasks-failures",
   "guided-tasks-gates",

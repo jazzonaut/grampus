@@ -53,7 +53,7 @@ Example:
 | `defaultWorkflowPolicy` | see below | see below | Workflow policy for new plans that omit it, or omit some of its fields |
 | `qualityPasses` | `[]` | up to 16 definitions | Custom quality passes a plan may select by id, in addition to the built-ins (see below) |
 | `defaultQualityPasses` | `["simplification"]` | up to 6 distinct known ids, or `[]` | Quality passes selected for new plans that omit `quality` |
-| `maxConcurrentTasks` | `2` | 1 to 16 | **Planned:** guided tasks that may run at once. Accepted but not used yet |
+| `maxConcurrentTasks` | `2` | 1 to 4 | Guided tasks that may run at once, each in its own worktree. While this many own a runner (tasks awaiting recovery included), starting work on another task is refused, never queued; recovery, revision and workspace release are not limited. Also bounds simultaneous guided agent turns, one per task ([parallel tasks](ARCHITECTURE.md#parallel-tasks-and-concurrency)) |
 | `stallWarningMs` | `600000` | 1000 to 86400000 | Silence after which a running agent turn or check of a guided task is shown as possibly stalled (a dashboard badge and one timeline entry per silence). Nothing is stopped. Read by the dashboard server |
 | `healthCheckIntervalMs` | `600000` | 1000 to 86400000 | Age after which the stored integration health is checked again automatically, when the dashboard starts and before a guided run it starts. `grampus doctor` and **Check again** always check |
 

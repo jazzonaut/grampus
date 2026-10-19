@@ -251,8 +251,9 @@ export class Workspaces {
             baseCommit,
           ],
           pid => {
+            // Observed before the write lock: the query starts PowerShell, which would hold up other tasks.
+            const observed = pid === null ? null : inspectProcess(pid);
             this.change(workspace.id, 'git.started', current => {
-              const observed = pid === null ? null : inspectProcess(pid);
               const owner = creationOwner(current);
               owner.gitPid = pid;
               owner.gitStartedAt = observed?.state === 'present' ? observed.startedAt : null;
