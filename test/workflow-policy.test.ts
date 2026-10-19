@@ -46,7 +46,8 @@ test('check evidence retains the assertion after noisy output and pages durable 
     assert.equal(page.incomplete, false);
   }
   assert.equal(text, plainOutput(output));
-  assert.doesNotMatch(text, /\ufffd|\x1b|\[31m/);
+  assert.doesNotMatch(text, /\ufffd|\[31m/);
+  assert.ok(!text.includes('\u001b'), 'no raw escape sequences');
   assert.equal(readCheckLog(check, 'stderr', 65535, 100, true).content, output.slice(65535, 65635));
   assert.throws(() => readCheckLog(check, 'stderr', -1), /Invalid/);
   const emoji = {

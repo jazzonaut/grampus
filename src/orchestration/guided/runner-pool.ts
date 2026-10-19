@@ -1,9 +1,7 @@
 // Owns the bounded pool of guided runners: how many guided tasks may own a runner at once
 // (`maxConcurrentTasks`), the typed refusal when the pool is full, and the pool view the dashboard and
-// CLI show. Claiming, fencing, releasing and recovering ownership stay in controller.ts.
-//
-// A full pool refuses the claim; nothing is queued. Grampus has no background scheduler, and a queued
-// task would have to start without a click whenever a slot freed, possibly long after the person left.
+// CLI show. Claiming, fencing, releasing and recovering ownership stay in controller.ts. A full pool
+// refuses the claim and never queues it (see `RunnerPoolFullError` for why).
 import type { Store } from '../../persistence/store.js';
 import { currentSettings } from '../../config/settings.js';
 
@@ -26,6 +24,8 @@ export function runnerPool(store: Store): RunnerPool {
 /**
  * A claim that would start work while `maxConcurrentTasks` guided tasks already own a runner. The task
  * is unchanged and nothing is queued: continue it again once a slot is free. The dashboard maps it to 409.
+ * Grampus has no background scheduler on purpose: a queued task would have to start without a click
+ * whenever a slot freed, possibly long after the person left.
  */
 export class RunnerPoolFullError extends Error {
   readonly pool: RunnerPool;

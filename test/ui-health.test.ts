@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { createContext, runInContext } from 'node:vm';
 import { startUi } from '../src/server/ui-server.js';
 import { Store } from '../src/persistence/store.js';
+import { guidedRecord, taskRecord } from './helpers/task-records.js';
 import type { HealthReport } from '../src/health/health-record.js';
 import type { Session } from '../src/persistence/records.js';
 
@@ -87,12 +88,13 @@ test('a fresh stored result is not checked again at start, and stalls appear on 
   const seed = new Store(db);
   seed.transaction(() => {
     seed.saveHealth(healthy(new Date().toISOString()));
-    seed.save(taskId, {
-      id: taskId,
-      version: 1,
-      brief: { title: 'Silent' },
-      guided: { status: 'running', stage: 'review' },
-    });
+    seed.save(
+      taskId,
+      taskRecord(taskId, {
+        brief: { title: 'Silent', outcome: 'Fixture outcome', criteria: ['Fixture criterion'], plan: 'Fixture plan' },
+        guided: guidedRecord({ status: 'running', stage: 'review' }),
+      }),
+    );
     seed.saveWorkspace(workspaceId, taskId, workspaceId, { id: workspaceId } as never);
     const session: Session = {
       id: sessionId,

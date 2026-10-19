@@ -61,14 +61,14 @@ export function healthFingerprint(integrations: readonly IntegrationHealth[]): s
     .slice(0, healthLimits.fingerprintCharacters);
 }
 
-/** True when there is no stored result or it is older than `intervalMs`. */
+/** True when there is no stored result, its time cannot be parsed, or it is at least `intervalMs` old. */
 export function healthIsStale(report: HealthReport | null, now: number, intervalMs: number): boolean {
   if (!report) return true;
   const checked = Date.parse(report.checkedAt);
   return !Number.isFinite(checked) || now - checked >= intervalMs;
 }
 
-/** Run `check` and store its result as the latest health. */
+/** Run `check` and store its result as the latest health. When `check` rejects, nothing is stored. */
 export async function refreshHealth(store: Store, check: HealthCheck): Promise<HealthReport> {
   const report = await check();
   store.transaction(() => store.saveHealth(report));
@@ -120,7 +120,10 @@ export interface HealthView {
   integrations: IntegrationHealth[];
 }
 
-/** The latest stored health with staleness and version change warnings, computed at `now`. */
+/**
+ * The latest stored health with staleness and version change warnings, computed at `now`. A failure to
+ * read the last delivery's sessions becomes a warning, so the health view itself still renders.
+ */
 export function healthView(store: Store, now: number = Date.now()): HealthView {
   const report = store.health();
   const stale = healthIsStale(report, now, currentSettings().healthCheckIntervalMs);

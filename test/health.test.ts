@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { Store } from '../src/persistence/store.js';
+import { taskRecord } from './helpers/task-records.js';
 import { Sessions } from '../src/execution/sessions.js';
 import { BoundaryError } from '../src/process/boundary.js';
 import {
@@ -286,7 +287,7 @@ function deliveredTask(store: Store, runtimes: Session['runtime'][]): void {
   const taskId = randomUUID(),
     workspaceId = randomUUID();
   store.transaction(() => {
-    store.save(taskId, { id: taskId, version: 1 });
+    store.save(taskId, taskRecord(taskId));
     store.saveWorkspace(workspaceId, taskId, workspaceId, { id: workspaceId } as never);
     runtimes.forEach((runtime, index) => {
       const session: Session = {

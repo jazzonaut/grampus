@@ -3,7 +3,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { GuidedTasks } from '../src/orchestration/guided/controller.js';
-import type { ImplementationRun } from '../src/execution/implementations.js';
 import { Sessions } from '../src/execution/sessions.js';
 import { windows, review, services, fixture, lens } from './helpers/guided-tasks.js';
 
@@ -13,8 +12,8 @@ test('automatic work repairs a failed check with complete evidence and resumes i
   const config = services();
   config.implementationRunner = options => {
     const request = JSON.parse(readFileSync(options.args[1]!, 'utf8'));
-    const run = f.store.implementation<ImplementationRun>(request.id);
-    const execution = f.store.execution<any>(run.executionId),
+    const run = f.store.implementation(request.id);
+    const execution = f.store.execution(run.executionId),
       sessions = new Sessions(f.store);
     const session = sessions.get(execution.sessionId);
     if (implementations++) {
@@ -77,8 +76,8 @@ test('automatic work repairs a failed check with complete evidence and resumes i
   );
   assert.equal(
     f.store
-      .get<any>(task.id)
-      .evidence.find((e: any) => e.kind === 'quality' && e.pass === 'simplification' && e.outcome === 'passed').source,
+      .get(task.id)
+      .evidence.find((e: any) => e.kind === 'quality' && e.pass === 'simplification' && e.outcome === 'passed')!.source,
     'agent',
   );
 });

@@ -1,3 +1,6 @@
+// Owns shell-free subprocesses: short bounded helper commands and the line-delimited JSON-RPC transport
+// for one owned app-server process. It pins only the RPC envelope; it must not interpret method results,
+// and it never authorises a server request on its own.
 import {
   execFile,
   spawn,
@@ -9,7 +12,14 @@ import { z } from 'zod';
 import { processLimits } from '../config/limits.js';
 import { BoundaryError, describeIssues } from './boundary.js';
 
-/** Run a short helper command; `cwd` defaults to this process's working directory. */
+/**
+ * Run a short helper command; `cwd` defaults to this process's working directory.
+ *
+ * No shell is involved, output is capped at `processLimits.commandOutputBytes` and stdin is closed at once.
+ * Resolves with trimmed stdout, or trimmed stderr when stdout is empty.
+ * Rejects on a timeout, a non-zero exit or a spawn failure; the error names only the file and the exit
+ * code or signal, never the command's output.
+ */
 export function command(
   file: string,
   args: string[],
@@ -48,7 +58,14 @@ export const rpcMessageSchema = z.object({
 });
 export type RpcMessage = z.infer<typeof rpcMessageSchema>;
 
-/** Bounded requests plus notifications for one owned app-server process. */
+/**
+ * Bounded requests plus notifications for one owned app-server process.
+ *
+ * The transport fails once and for good: a spawn error, process exit, an oversized or non-JSON line, an
+ * invalid envelope or a throwing message listener rejects every pending request with that error, notifies
+ * the failure listeners and refuses later requests. Server requests are answered only with a value the
+ * registered handler returns synchronously; anything else gets a JSON-RPC error, so it never authorises work.
+ */
 export class RpcProcess {
   private readonly child: ChildProcessWithoutNullStreams;
   private sequence = 0;
@@ -145,16 +162,27 @@ export class RpcProcess {
     for (const listener of this.failures) listener(error);
   }
 
+  /**
+   * Observe every valid envelope, before requests are answered or responses settled. A listener that
+   * throws fails the whole transport. Returns an unsubscribe function.
+   */
   onMessage(listener: (message: RpcMessage) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
+  /** Observe the single terminal failure of the transport (including `close`). Returns an unsubscribe function. */
   onFailure(listener: (error: Error) => void): () => void {
     this.failures.add(listener);
     return () => this.failures.delete(listener);
   }
 
+  /**
+   * Register the one handler that answers server-initiated requests. The handler must be synchronous and
+   * must persist any authorisation before returning it; `undefined` or a throw is answered as refused.
+   *
+   * @throws Error when a handler is already registered, so two owners cannot both answer approvals.
+   */
   onRequest(handler: (message: RpcMessage) => unknown): () => void {
     if (this.serverRequest) throw new Error('RPC server request handler already registered');
     this.serverRequest = handler;
@@ -167,7 +195,12 @@ export class RpcProcess {
     return this.child.pid;
   }
 
-  /** Resolves with the raw, unvalidated result; the caller parses it with the method's own schema. */
+  /**
+   * Resolves with the raw, unvalidated result; the caller parses it with the method's own schema.
+   * Rejects when the transport has stopped, on the response's JSON-RPC error, when the transport fails
+   * while the request is pending, or after `timeout` ms. A timeout or transport failure says nothing about
+   * whether the server acted on the request.
+   */
   request(method: string, params: unknown, timeout: number = processLimits.rpcRequestTimeoutMs): Promise<unknown> {
     if (this.stopped) return Promise.reject(new Error('RPC process unavailable'));
     const id = ++this.sequence;
@@ -181,11 +214,21 @@ export class RpcProcess {
     });
   }
 
+  /**
+   * Send a parameterless notification.
+   *
+   * @throws Error when the transport has already stopped.
+   */
   notify(method: string): void {
     if (this.stopped) throw new Error('RPC process unavailable');
     this.child.stdin.write(`${JSON.stringify({ method, params: {} })}\n`);
   }
 
+  /**
+   * Fail the transport, end stdin, then escalate to a terminate signal and a kill on fixed timers.
+   * Resolves only once the child has closed; rejects with `RPC shutdown unconfirmed` when that is not seen
+   * within `processLimits.rpcShutdownMs`, because an unconfirmed exit must not be reported as settled.
+   */
   async close(): Promise<void> {
     this.fail(new Error('RPC client closed'));
     this.child.stdin.end();

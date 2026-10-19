@@ -1,9 +1,14 @@
+// Opt-in integration exercise, never part of the offline test suite: one greeting task through every
+// gate with live providers and a verified local commit. Native mode uses supervised file tools; the
+// default applies one allowlisted response.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { z } from 'zod';
 import { Store } from '../persistence/store.js';
+import type { Execution } from '../persistence/records.js';
 import { Workflow } from '../domain/workflow.js';
 import { Workspaces } from '../repository/workspaces.js';
 import { Executions } from '../execution/executions.js';
@@ -14,8 +19,6 @@ import { runSession, Sessions } from '../execution/sessions.js';
 import { renderReport } from '../reporting/report.js';
 import { orcaExecutable } from '../repository/orca.js';
 
-// Opt-in integration exercise, never part of the offline test suite. Native mode
-// uses supervised file tools; the default applies one allowlisted response.
 const flags = process.argv.slice(2);
 const orca = flags.includes('--orca');
 const args = flags.filter(flag => flag !== '--orca').join(' ');
@@ -41,7 +44,12 @@ function git(cwd: string, ...args: string[]): string {
   }).trim();
 }
 const store = new Store(join(root, 'grampus.sqlite'));
-async function main(): Promise<void> {
+
+/** A journaled tool decision (`{ runId, data }`); only the tool name is inspected. */
+const toolEventSchema = z.object({ data: z.object({ tool: z.string() }) });
+
+/** The fixture repository: one greeting script and repository instructions, committed with your Git identity. */
+function fixtureRepository(): void {
   const name = git(process.cwd(), 'config', 'user.name');
   const email = git(process.cwd(), 'config', 'user.email');
   assert.ok(name && email, 'Configure your Git identity before running this probe');
@@ -57,6 +65,66 @@ async function main(): Promise<void> {
   );
   git(repo, 'add', '.');
   git(repo, 'commit', '-m', 'Greeting baseline');
+}
+
+/**
+ * Natively, the implementer edits greeting.js through supervised file tools. Otherwise Codex only
+ * replies with one statement, which the probe applies after checking it is the single allowlisted
+ * output statement. Returns the resulting source line.
+ */
+async function implementGreeting(
+  checks: Checks,
+  implementation: Execution,
+  directory: string,
+  taskId: string,
+): Promise<string> {
+  if (native) {
+    const before = await checks.snapshot(implementation.id);
+    const edited = await new Implementations(store).run(implementation.id, {
+      artifact: before.artifact,
+      instructionsDigest: before.instructionsDigest,
+      files: ['greeting.js'],
+    });
+    assert.equal(edited.phase, 'completed', edited.error ?? edited.result?.error ?? JSON.stringify(edited.process));
+    assert.ok(
+      store
+        .sessionEvents(implementation.sessionId)
+        .some(
+          event =>
+            event.type === 'tool.authorized' &&
+            ['Edit', 'Write', 'apply_patch'].includes(toolEventSchema.safeParse(event.data).data?.data.tool ?? ''),
+        ),
+      'Native editing must use an authorized write tool',
+    );
+    return readFileSync(join(directory, 'greeting.js'), 'utf8').trim();
+  }
+  const result = await runSession(
+    store,
+    implementation.sessionId,
+    "The repository has greeting.js containing console.log('hello'); and AGENTS.md requiring one direct output statement and exact output verification. Supply the complete replacement JavaScript for greeting.js so it prints exactly hello world followed by one newline. Return kind message, and put only the one console.log statement in text (no Markdown). Do not use any tools.",
+    { timeoutMs: 120_000 },
+  );
+  assert.equal(result.status, 'completed', result.error ?? 'Implementation conversation did not complete');
+  assert.equal(result.reply?.kind, 'message');
+  const source = result.reply.text.trim();
+  assert.match(
+    source,
+    /^console\.log\((['"])hello world\1\);?$/,
+    'Only the single allowlisted output statement may be applied',
+  );
+  writeFileSync(join(directory, 'greeting.js'), `${source}\n`);
+  store.append(taskId, 1, 'probe.response_applied', {
+    sessionId: implementation.sessionId,
+    file: 'greeting.js',
+    source,
+    policy: 'Single allowlisted output statement; native provider tools disabled',
+  });
+  return source;
+}
+
+/** The whole pilot in one process; any failed gate throws and leaves the evidence in place. */
+async function main(): Promise<void> {
+  fixtureRepository();
   const workflow = new Workflow(store);
   const checks = new Checks(store);
   const executions = new Executions(store);
@@ -68,14 +136,16 @@ async function main(): Promise<void> {
   });
   workflow.approve(task.id, 1);
   if (orca) {
-    const response = JSON.parse(
-      execFileSync(orcaExecutable(), ['repo', 'add', '--path', repo, '--json'], {
-        encoding: 'utf8',
-        windowsHide: true,
-        timeout: 120_000,
-        stdio: 'pipe',
-      }),
-    ) as { ok?: boolean };
+    const response = z.object({ ok: z.boolean().optional() }).parse(
+      JSON.parse(
+        execFileSync(orcaExecutable(), ['repo', 'add', '--path', repo, '--json'], {
+          encoding: 'utf8',
+          windowsHide: true,
+          timeout: 120_000,
+          stdio: 'pipe',
+        }),
+      ),
+    );
     assert.equal(response.ok, true, 'Orca fixture repository registration failed');
   }
   const workspaces = new Workspaces(store);
@@ -84,49 +154,7 @@ async function main(): Promise<void> {
     : await workspaces.create(task.id, 1, repo, join(root, 'workspace'));
   const implementation = await executions.create(workspace.id, 1, implementer);
   console.log(JSON.stringify({ stage: 'implementation', evidence: relativeRoot }));
-  let source: string;
-  if (native) {
-    const before = await checks.snapshot(implementation.id);
-    const edited = await new Implementations(store).run(implementation.id, {
-      artifact: before.artifact,
-      instructionsDigest: before.instructionsDigest,
-      files: ['greeting.js'],
-    });
-    assert.equal(edited.phase, 'completed', edited.error ?? edited.result?.error ?? JSON.stringify(edited.process));
-    source = readFileSync(join(workspace.path, 'greeting.js'), 'utf8').trim();
-    assert.ok(
-      store
-        .sessionEvents(implementation.sessionId)
-        .some(
-          event =>
-            event.type === 'tool.authorized' &&
-            ['Edit', 'Write', 'apply_patch'].includes((event.data as { data: { tool: string } }).data.tool),
-        ),
-      'Native editing must use an authorized write tool',
-    );
-  } else {
-    const result = await runSession(
-      store,
-      implementation.sessionId,
-      "The repository has greeting.js containing console.log('hello'); and AGENTS.md requiring one direct output statement and exact output verification. Supply the complete replacement JavaScript for greeting.js so it prints exactly hello world followed by one newline. Return kind message, and put only the one console.log statement in text (no Markdown). Do not use any tools.",
-      { timeoutMs: 120_000 },
-    );
-    assert.equal(result.status, 'completed', result.error ?? 'Implementation conversation did not complete');
-    assert.equal(result.reply?.kind, 'message');
-    source = result.reply.text.trim();
-    assert.match(
-      source,
-      /^console\.log\((['"])hello world\1\);?$/,
-      'Only the single allowlisted output statement may be applied',
-    );
-    writeFileSync(join(workspace.path, 'greeting.js'), `${source}\n`);
-    store.append(task.id, 1, 'probe.response_applied', {
-      sessionId: implementation.sessionId,
-      file: 'greeting.js',
-      source,
-      policy: 'Single allowlisted output statement; native provider tools disabled',
-    });
-  }
+  const source = await implementGreeting(checks, implementation, workspace.path, task.id);
   assert.match(source, /^console\.log\((['"])hello world\1\);?$/, 'Pilot expects a direct output statement');
   const snapshot = await checks.snapshot(implementation.id);
   const spec = {
@@ -152,7 +180,7 @@ async function main(): Promise<void> {
       'Controller inspected the single output statement: no names, duplication, abstraction or unrelated changes to simplify. Regression compares the executed program output to the requested greeting.',
   });
   console.log(JSON.stringify({ stage: 'independent-review', validation: validation.phase }));
-  const review = await executions.create(workspace.id, 1, reviewer, 'review');
+  const review = await executions.create(workspace.id, 1, reviewer, { role: 'review' });
   const reviewed = await runSession(
     store,
     review.sessionId,
@@ -180,7 +208,8 @@ async function main(): Promise<void> {
     timeoutMs: 30_000,
   });
   assert.equal(delivery.phase, 'delivered', delivery.error ?? undefined);
-  const commit = delivery.commit!;
+  const commit = delivery.commit;
+  assert.ok(commit, 'Delivery recorded no commit');
   assert.equal(git(workspace.path, 'status', '--porcelain'), '');
   assert.equal(git(workspace.path, 'show', `${commit}:greeting.js`), source);
   writeFileSync(join(root, 'report.md'), renderReport(store, task.id));

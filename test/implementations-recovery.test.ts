@@ -7,7 +7,6 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Executions } from '../src/execution/executions.js';
 import { Sessions } from '../src/execution/sessions.js';
-import type { ImplementationRun } from '../src/execution/implementations.js';
 import { windows, git, fixture } from './helpers/implementations.js';
 
 function crashCode(
@@ -57,7 +56,9 @@ for (const target of ['greeting.js', 'new.txt', 'other.txt'])
       t.after(() => {
         try {
           controller.kill();
-        } catch {}
+        } catch {
+          // The controller has usually exited already; the test only needs it gone.
+        }
       });
       const waitFor = async (condition: () => boolean) => {
         const deadline = Date.now() + 15000;
@@ -74,7 +75,7 @@ for (const target of ['greeting.js', 'new.txt', 'other.txt'])
       );
       controller.kill();
       await closed;
-      const run = f.store.implementations<ImplementationRun>(f.execution.id).at(-1)!;
+      const run = f.store.implementations(f.execution.id).at(-1)!;
       await waitFor(() => existsSync(join(run.receipt!.directory, 'completion.json')));
       await waitFor(() => {
         try {
@@ -102,7 +103,7 @@ test('native recovery before dispatch invokes no tools and marks the attempt sto
     windowsHide: true,
     stdio: 'pipe',
   });
-  const pending = f.store.implementations<ImplementationRun>(f.execution.id).at(-1)!;
+  const pending = f.store.implementations(f.execution.id).at(-1)!;
   assert.equal(pending.dispatch, 'not_requested');
   const recovered = await f.implementations.recover(pending.id);
   assert.equal(recovered.phase, 'interrupted');

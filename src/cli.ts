@@ -1,5 +1,9 @@
 // Owns the command line: option parsing, dispatch to the controller and Ctrl+C handling. Option values
-// and JSON input files are validated by cli-input.ts before any command touches the journal.
+// and JSON input files are validated by cli-input.ts before any command touches the journal. It decides
+// nothing itself: every state change goes through the owning controller module.
+//
+// Exit codes: 0 when the command reached its intended outcome, 130 when it was interrupted (Ctrl+C or a
+// requested stop), 1 for any other failure, block or recovery need, including an uncaught error.
 import { parseArgs } from 'node:util';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -82,7 +86,7 @@ const help = `Grampus — local agent controller
   execution-snapshot <id>        Inspect repository content, diff and instruction digest
   execution-check <id> <file.json>  Run an explicit check against that snapshot (Windows)
   execution-finish <id> <check-id> Submit implementation with the latest passing check
-  execution-simplify <id> <file.json> Record an explicit quality lens assessment of the submitted artifact
+  execution-assess <id> <file.json> Record an explicit quality lens assessment of the submitted artifact
   execution-verify <id> <file.json> Verify current slice criteria (all task criteria for final slice)
   execution-review <id>           Review a verified artifact (review execution; optional --answers-file)
   execution-complete <id>         Recheck artifact and require every completion gate
@@ -151,10 +155,12 @@ function argument(invocation: Invocation, what = 'an argument'): string {
   return invocation.id;
 }
 
+/** The journal named by `--db`, or the default one in the data directory. */
 function openStore(invocation: Invocation): Store {
   return new Store(invocation.values.db ?? defaultDatabasePath());
 }
 
+/** Run `action` with an open journal, closing it however the action ends. */
 async function withStore<T>(invocation: Invocation, action: (store: Store) => Promise<T> | T): Promise<T> {
   const store = openStore(invocation);
   try {
@@ -164,7 +170,11 @@ async function withStore<T>(invocation: Invocation, action: (store: Store) => Pr
   }
 }
 
-/** Run `action` with an abort signal that Ctrl+C triggers. */
+/**
+ * Run `action` with an abort signal that Ctrl+C triggers. A SIGINT listener replaces Node's default of
+ * exiting at once, so the command keeps running until its owned processes have exited and the outcome
+ * is journaled; a second Ctrl+C only repeats the request. `notice` tells the person why it is waiting.
+ */
 async function interruptible<T>(action: (signal: AbortSignal) => Promise<T>, notice?: string): Promise<T> {
   const abort = new AbortController();
   const stop = () => {
@@ -180,10 +190,12 @@ async function interruptible<T>(action: (signal: AbortSignal) => Promise<T>, not
 }
 
 const print = (value: unknown) => console.log(JSON.stringify(value, null, 2));
+/** Exit 130 for an interrupted phase and 1 for any other phase than `success`; the output is printed first. */
 const exitFor = (phase: string, success: string) => {
   if (phase !== success) process.exitCode = phase === 'interrupted' ? 130 : 1;
 };
 
+/** `--timeout-ms`, when given; without it agent turns have no deadline. */
 function timeoutOption(invocation: Invocation): { timeoutMs?: number } {
   const value = invocation.values['timeout-ms'];
   return value ? { timeoutMs: milliseconds(value, 'timeout-ms') } : {};
@@ -201,6 +213,10 @@ function versionCommand(invocation: Invocation): void {
   );
 }
 
+/**
+ * Start the dashboard and leave it running. Ctrl+C and SIGTERM close it only after active actions
+ * settle; the handlers stay registered until that close has finished, so a signal never kills it midway.
+ */
 async function uiCommand(invocation: Invocation): Promise<void> {
   const { values } = invocation;
   const listen = port(values.port ?? String(currentSettings().dashboardPort));
@@ -210,6 +226,7 @@ async function uiCommand(invocation: Invocation): Promise<void> {
     `${versionLabel()}\nGrampus dashboard: ${ui.url}\nJournal: ${ui.store.path}\nKeep this terminal open. Ctrl+C closes the dashboard after active actions settle.`,
   );
   if (!values['no-open'] && process.platform === 'win32') {
+    // Opens the default browser without a shell, so the URL is never interpreted as a command line.
     const { execFile } = await import('node:child_process');
     execFile('rundll32.exe', ['url.dll,FileProtocolHandler', ui.url], { windowsHide: true }, error => {
       if (error) console.error('Open the dashboard link above in your browser.');
@@ -251,6 +268,7 @@ async function doctorCommand(invocation: Invocation): Promise<void> {
   if (report.integrations.some(item => item.required && item.status !== 'healthy')) process.exitCode = 1;
 }
 
+/** The synthetic demo, always in a fresh temporary journal that is kept for inspection. */
 function demoCommand(invocation: Invocation): void {
   if (invocation.values.db) throw new Error('demo uses an isolated database; omit --db');
   const path = join(mkdtempSync(join(tmpdir(), 'grampus-demo-')), 'grampus.sqlite');
@@ -280,6 +298,7 @@ const taskCommands = [
   'task-recover',
 ];
 
+/** Run one guided task command and return the id of the task to display afterwards. */
 async function guidedTaskAction(invocation: Invocation, tasks: GuidedTasks, signal: AbortSignal): Promise<string> {
   const { action, values, positionals, second } = invocation;
   const id = argument(invocation);
@@ -339,6 +358,11 @@ async function guidedTaskAction(invocation: Invocation, tasks: GuidedTasks, sign
   }
 }
 
+/**
+ * The guided task commands. Each prints the task's resulting state; commands that advance the task then
+ * exit 130 when stopped and 1 when blocked or needing recovery. A full runner pool
+ * refuses the command without changing anything, so the error names the command to repeat.
+ */
 async function taskCommand(invocation: Invocation): Promise<void> {
   const { action, values } = invocation;
   if (!taskCommands.includes(action) || !invocation.id)
@@ -367,6 +391,7 @@ async function taskCommand(invocation: Invocation): Promise<void> {
   );
 }
 
+/** Low-level workspace commands; Orca mode requires a pinned `--base` and chooses its own destination. */
 async function workspaceCommand(invocation: Invocation): Promise<void> {
   const { action, values } = invocation;
   const commands = [
@@ -412,7 +437,7 @@ const executionCommands = [
   'execution-snapshot',
   'execution-check',
   'execution-finish',
-  'execution-simplify',
+  'execution-assess',
   'execution-verify',
   'execution-review',
   'execution-complete',
@@ -421,12 +446,16 @@ const executionCommands = [
   'execution-recover',
 ];
 
-/** The JSON file argument of an execution command. */
+/** The second positional argument of an execution command: a JSON file or, for `execution-finish`, a check id. */
 function inputFile(invocation: Invocation, what: string): string {
   if (!invocation.second) throw new Error(`${invocation.action} requires ${what}`);
   return invocation.second;
 }
 
+/**
+ * The execution commands that do work: assessment, checks, review, editing and delivery. Long-running
+ * ones are interruptible and set the exit code from their settled phase after printing it.
+ */
 async function runExecutionWork(invocation: Invocation, store: Store, id: string): Promise<void> {
   const { action, values } = invocation;
   const workflow = new Workflow(store),
@@ -434,7 +463,7 @@ async function runExecutionWork(invocation: Invocation, store: Store, id: string
     checks = new Checks(store);
   const showTask = () => print(workflow.get(executions.get(id).taskId));
   switch (action) {
-    case 'execution-simplify': {
+    case 'execution-assess': {
       const assessment = assessmentFile(inputFile(invocation, 'an assessment file'));
       await checks.assess(id, assessment);
       showTask();
@@ -503,6 +532,7 @@ async function runExecutionWork(invocation: Invocation, store: Store, id: string
   }
 }
 
+/** Low-level execution commands: record keeping here, work in `runExecutionWork`. */
 async function executionCommand(invocation: Invocation): Promise<void> {
   const { action, values } = invocation;
   if (!executionCommands.includes(action)) throw new Error('Unknown execution command');
@@ -520,9 +550,11 @@ async function executionCommand(invocation: Invocation): Promise<void> {
             id,
             positiveInteger(invocation.second, 'A positive integer version is required'),
             provider(invocation.positionals[3]),
-            executionRole(values.role),
-            values.model ?? null,
-            values['fallback-reason'] ?? null,
+            {
+              role: executionRole(values.role),
+              model: values.model ?? null,
+              fallbackReason: values['fallback-reason'] ?? null,
+            },
           ),
         );
         return;
@@ -556,6 +588,10 @@ async function executionCommand(invocation: Invocation): Promise<void> {
   });
 }
 
+/**
+ * Show or recover an implementation, delivery or check run. Recovery reconciles from saved evidence and
+ * never replays a provider turn or Git write; a delivery that does not recover as delivered exits 1.
+ */
 async function recordCommand(invocation: Invocation): Promise<void> {
   const { action } = invocation;
   const id = argument(invocation, 'an id');
@@ -575,6 +611,7 @@ async function recordCommand(invocation: Invocation): Promise<void> {
   });
 }
 
+/** Conversation commands. `session-send` and `session-answer` run one live, interruptible turn. */
 async function sessionCommand(invocation: Invocation): Promise<void> {
   const { action, values } = invocation;
   const commands = ['session-new', 'session-send', 'session-answer', 'session-show', 'session-list', 'session-recover'];
@@ -615,6 +652,7 @@ async function sessionCommand(invocation: Invocation): Promise<void> {
   });
 }
 
+/** The low-level brief workflow commands, and the fallback for any unknown command, which prints help. */
 async function briefCommand(invocation: Invocation): Promise<void> {
   const { action } = invocation;
   if (!['create', 'approve', 'list', 'show', 'report'].includes(action))
@@ -650,6 +688,10 @@ async function briefCommand(invocation: Invocation): Promise<void> {
   });
 }
 
+/**
+ * Parse the arguments and dispatch: fixed commands first, then by command prefix. No command means the
+ * dashboard. Unknown options make `parseArgs` throw, which exits 1.
+ */
 async function main(): Promise<void> {
   const { positionals, values } = parseArgs({ allowPositionals: true, options });
   const [action = 'ui', id, second] = positionals;

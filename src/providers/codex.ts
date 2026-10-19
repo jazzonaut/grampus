@@ -81,6 +81,7 @@ export async function listCodexMcpServers(
   return servers;
 }
 
+/** Journals MCP status. Status is observational, so a failure is reported as unavailable, never thrown. */
 async function reportIntegrations(rpc: RpcProcess, threadId: string, emit: ConnectOptions['emit']) {
   try {
     const servers = await listCodexMcpServers(rpc, threadId);
@@ -106,6 +107,11 @@ function withoutNulls(value: unknown): unknown {
 
 const mcpServerSchema = z.looseObject({ enabled: z.unknown().optional() });
 
+/**
+ * Thread config overrides: web search off, and every MCP server effective for the configuration folder
+ * passed explicitly, so a thread whose `cwd` is a worktree keeps the source project's integrations. A
+ * server counts as enabled unless its configuration says `enabled = false`.
+ */
 async function mcpOverrides(rpc: RpcProcess, options: ConnectOptions): Promise<Record<string, unknown>> {
   const overrides: Record<string, unknown> = { web_search: 'disabled' };
   const effective = parseCodexResponse(
@@ -195,7 +201,16 @@ export function hasCodexSubscription(handshake: CodexHandshake): boolean {
   return handshake.account?.type === 'chatgpt';
 }
 
-/** Connect a Codex session. `start` creates the app-server process; replay tests substitute a recorded server. */
+/**
+ * Connect a Codex session. `start` creates the app-server process; replay tests substitute a recorded server.
+ * Every thread asks for `approvalPolicy: untrusted` and a read-only sandbox; editing threads also name the
+ * user (Grampus) as approvals reviewer, so each native patch must come back here for a decision.
+ *
+ * Rejects without starting a turn when the login is not a ChatGPT subscription, a response is malformed,
+ * a resume lands in another thread, an editing thread does not confirm those approval and sandbox
+ * settings, or the signal aborts. The app-server is then closed and its exit journaled as confirmed; if
+ * the close cannot confirm the exit, its error is thrown instead.
+ */
 export async function connectCodex(
   options: ConnectOptions,
   start: (cwd: string) => RpcProcess = startCodexAppServer,
@@ -218,6 +233,8 @@ export async function connectCodex(
       developerInstructions: developerInstructions(options),
       config: await mcpOverrides(rpc, options),
       ...(options.editing ? { approvalsReviewer: 'user' } : {}),
+      // Dynamic tools are declared on thread/start only; a resumed thread keeps those it began with, which
+      // is why a changed `agentToolsetVersion` starts a fresh conversation.
       ...(options.repository && !options.providerSessionId
         ? { dynamicTools: repositoryToolDefinitions.map(tool => ({ type: 'function', ...tool })) }
         : {}),
@@ -234,6 +251,7 @@ export async function connectCodex(
     );
     if (options.providerSessionId && thread.thread.id !== options.providerSessionId)
       throw new Error('Codex resumed a different session');
+    // Editing relies on Codex asking before every patch; a thread that did not confirm that is refused.
     const sandbox = readOnlySandboxSchema.safeParse(thread.sandbox);
     if (
       options.editing &&
@@ -273,6 +291,11 @@ interface ActiveTurn {
 
 const patchOwnershipSchema = z.looseObject({ threadId: z.string(), turnId: z.string(), itemId: z.string() });
 
+/**
+ * One connected Codex thread on an owned app-server process. Server requests (repository tool calls and
+ * patch approvals) are answered synchronously and only for the active, acknowledged, unstopped turn of
+ * this thread; anything else is declined or refused.
+ */
 export class CodexSession implements AgentSession {
   private active: ActiveTurn | null = null;
   private readonly unsubscribe: (() => void)[];
@@ -313,6 +336,7 @@ export class CodexSession implements AgentSession {
         call.data.turnId !== active.turnId
       )
         throw new Error('Repository tool call lacks current turn ownership');
+      // Each call id is answered once, and a turn's tool calls are bounded.
       const callKey = `tool:${call.data.callId}`;
       if (active.toolCalls.has(callKey) || active.toolCalls.size >= providerLimits.turnToolCalls)
         throw new Error('Duplicate repository tool call or turn tool limit exceeded');
@@ -327,6 +351,11 @@ export class CodexSession implements AgentSession {
     }
   }
 
+  /**
+   * Decide one patch approval. Only a patch announced by this turn's in-progress `fileChange` item can be
+   * approved, and only the changes Grampus saw in its notifications; the policy journals the decision
+   * before it is returned to Codex.
+   */
   private approvePatch(editing: EditingContext, params: unknown): unknown {
     const active = this.active;
     const owned = patchOwnershipSchema.safeParse(params);
@@ -349,6 +378,10 @@ export class CodexSession implements AgentSession {
     return { decision: 'decline' };
   }
 
+  /**
+   * Answers a server request. Must stay synchronous: the transport writes the answer as soon as this
+   * returns, so any authorization is journaled first. Returning undefined refuses the request.
+   */
   private approve(message: RpcMessage): unknown {
     if (message.method === 'item/tool/call') return this.callTool(message.params);
     if (!this.editing) return undefined;
@@ -393,6 +426,7 @@ export class CodexSession implements AgentSession {
 
   private notification(active: ActiveTurn, notification: CodexNotification): void {
     if (notification.method === 'turn/started') {
+      // A turn/start acknowledgement may already have fixed the id; another turn's start is ignored.
       const id = notification.params.turn.id;
       if (active.turnId && active.turnId !== id) return;
       active.turnId = id;
@@ -434,6 +468,13 @@ export class CodexSession implements AgentSession {
     }
   }
 
+  /**
+   * Remembers the changes each in-progress `fileChange` item of the turn proposes. An item started a
+   * second time loses its pending patch rather than being re-recorded, and a completed item is
+   * forgotten, so an approval can only ever match one announced, unfinished patch.
+   *
+   * @throws Error when the turn announces more patch items than `providerLimits.turnPatchItems`.
+   */
   private trackPatch(active: ActiveTurn, notification: CodexNotification): void {
     if (notification.method === 'item/started') {
       const item = fileChangeItem(notification.params.item);
@@ -453,6 +494,7 @@ export class CodexSession implements AgentSession {
     }
   }
 
+  /** `last` input tokens are the live context size; `total` is the thread's cumulative usage. */
   private usage(
     active: ActiveTurn,
     tokenUsage: Extract<CodexNotification, { method: 'thread/tokenUsage/updated' }>['params']['tokenUsage'],
@@ -495,6 +537,10 @@ export class CodexSession implements AgentSession {
     }
   }
 
+  /**
+   * Start one turn with `turn/start`. The request is sent once and never repeated: when it fails or times
+   * out Codex may still have started the turn, so the error is thrown for the caller to settle.
+   */
   async turn(prompt: string): Promise<TurnResult> {
     if (this.active) throw new Error('Codex already has an active turn');
     let resolve!: ActiveTurn['resolve'];
@@ -541,12 +587,18 @@ export class CodexSession implements AgentSession {
     });
   }
 
+  /**
+   * Marks the turn as stopping, so no further tool call or patch is approved, then asks Codex to interrupt.
+   *
+   * @throws Error before Codex has acknowledged the turn id; the caller must then shut the process down.
+   */
   async interrupt(): Promise<void> {
     if (this.active) this.active.stopping = true;
     if (!this.active?.turnId) throw new Error('Codex turn has not been acknowledged; shutdown is required');
     await this.rpc.request('turn/interrupt', { threadId: this.threadId, turnId: this.active.turnId });
   }
 
+  /** Fails any active turn, then closes the app-server; rejects when its exit is not confirmed. */
   async close(): Promise<void> {
     this.active?.reject(new Error('Codex session closed before completion'));
     this.active = null;

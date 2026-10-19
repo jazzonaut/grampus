@@ -78,6 +78,7 @@ async function bounded<T>(promise: Promise<T>, what: string): Promise<T> {
   }
 }
 
+/** One integration's result; its status derives from the capability rows, never set separately. */
 function integration(
   id: IntegrationId,
   required: boolean,
@@ -113,6 +114,10 @@ function serverList(servers: readonly { name: string; status: string }[]): strin
   return `${servers.length} configured: ${listed.join(', ')}${more > 0 ? ` and ${more} more` : ''}`;
 }
 
+/**
+ * Codex: the resolved executable, its version, an app-server handshake with `account/read`, the
+ * subscription login and the configured MCP servers. Without an executable nothing else is attempted.
+ */
 async function codex(): Promise<IntegrationHealth> {
   const executable = codexExecutable();
   const runtime = providerRuntime('codex');
@@ -162,6 +167,11 @@ async function codex(): Promise<IntegrationHealth> {
   return integration('codex', true, facts, rows);
 }
 
+/**
+ * Claude: the resolved executable and its version, the Agent SDK control handshake, the subscription
+ * login and the configured MCP servers. A bundled executable whose version differs from the one the
+ * pinned SDK declares fails the version row.
+ */
 async function claude(): Promise<IntegrationHealth> {
   const executable = claudeExecutable();
   const runtime = providerRuntime('claude');
@@ -212,6 +222,7 @@ async function claude(): Promise<IntegrationHealth> {
           ),
     );
     try {
+      // Grampus's own servers (`grampus_*`) are left out, so the row reports the user's configuration.
       const servers = (await bounded(session.mcpStatus(), 'Claude MCP status')).filter(
         server => !server.name.startsWith('grampus_'),
       );
@@ -249,6 +260,7 @@ async function git(): Promise<IntegrationHealth> {
 
 const enginesSchema = z.looseObject({ engines: z.looseObject({ node: z.string() }) });
 
+/** This Node: its major version against the first number of `engines.node`, and whether `node:sqlite` opens. */
 function node(): IntegrationHealth {
   const version = process.versions.node;
   const required = enginesSchema.parse(JSON.parse(readFileSync(join(applicationRoot, 'package.json'), 'utf8'))).engines
@@ -269,6 +281,10 @@ function node(): IntegrationHealth {
   ]);
 }
 
+/**
+ * Windows PowerShell and the native supervisor sources it runs. The supervisor row is at best
+ * `untested`: its files are present, but the Job Object helper is only compiled by a real check.
+ */
 async function powershell(): Promise<IntegrationHealth> {
   const path = resolve(
     process.env.SystemRoot ?? process.env.WINDIR ?? '',
@@ -309,6 +325,10 @@ async function powershell(): Promise<IntegrationHealth> {
   }
 }
 
+/**
+ * Orca is optional: required (a missing executable fails) only with `options.orca`, otherwise a
+ * missing executable is `not_configured` and the worktree handshake is not attempted.
+ */
 async function orca(options: DoctorOptions): Promise<IntegrationHealth> {
   const name = orcaExecutable();
   const path = /[\\/]/.test(name) ? (existsSync(name) ? resolve(name) : null) : findExecutable(name);
@@ -348,7 +368,10 @@ async function orca(options: DoctorOptions): Promise<IntegrationHealth> {
   return integration('orca', options.orca, { executable: path, version }, rows);
 }
 
-/** Check every integration without inference. Checks run concurrently; none throws. */
+/**
+ * Check every integration without inference. Checks run concurrently and record handshake and command
+ * failures as capability rows rather than throwing. PowerShell is checked on Windows only.
+ */
 export async function doctor(options: DoctorOptions = { orca: false }): Promise<HealthReport> {
   const started = Date.now();
   const integrations = await Promise.all([

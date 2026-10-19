@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Store, defaultDatabasePath } from '../src/persistence/store.js';
+import { BoundaryError } from '../src/process/boundary.js';
+import { guidedRecord, taskRecord } from './helpers/task-records.js';
 
 function directory(t: { after(fn: () => void): void }): string {
   const root = mkdtempSync(join(tmpdir(), 'grampus-store-'));
@@ -16,8 +18,9 @@ function directory(t: { after(fn: () => void): void }): string {
 test('a new journal gets the current schema at version 1 and reopens with its records', t => {
   const path = join(directory(t), 'nested', 'grampus.sqlite');
   const store = new Store(path);
+  const kept = taskRecord('task');
   store.transaction(() => {
-    store.save('task', { title: 'kept' });
+    store.save('task', kept);
     store.append('task', 1, 'task.created', {});
   });
   store.close();
@@ -29,7 +32,7 @@ test('a new journal gets the current schema at version 1 and reopens with its re
   }
   const reopened = new Store(path);
   try {
-    assert.deepEqual(reopened.get('task'), { title: 'kept' });
+    assert.deepEqual(reopened.get('task'), kept);
     assert.equal(reopened.events('task').length, 1);
   } finally {
     reopened.close();
@@ -86,4 +89,33 @@ test('the default journal is grampus.sqlite in the data directory', t => {
   });
   process.env.GRAMPUS_HOME = root;
   assert.equal(defaultDatabasePath(), join(root, 'grampus.sqlite'));
+});
+
+test('task records are validated with their guided state on every read and keep their stored bytes', t => {
+  const path = join(directory(t), 'grampus.sqlite');
+  // Closed in the test body: `directory` removes the folder in an earlier-registered after hook.
+  const store = new Store(path);
+  const task = taskRecord('guided', { guided: guidedRecord() });
+  store.save(task.id, task);
+  const stored = new DatabaseSync(path);
+  try {
+    const raw = (id: string) => stored.prepare('SELECT state FROM tasks WHERE id = ?').get(id)?.['state'];
+    // Validation is in place: the record read back serialises to exactly the stored text.
+    assert.equal(JSON.stringify(store.get(task.id)), raw(task.id));
+    stored
+      .prepare('UPDATE tasks SET state = ? WHERE id = ?')
+      .run(JSON.stringify({ ...task, guided: { ...task.guided, status: 'unknown_status' } }), task.id);
+    assert.throws(
+      () => store.get(task.id),
+      (error: unknown) =>
+        error instanceof BoundaryError &&
+        error.kind === 'journal-record' &&
+        error.source === 'tasks' &&
+        error.issues.some(issue => issue.startsWith('guided.status')),
+    );
+    assert.throws(() => store.list(), BoundaryError);
+  } finally {
+    stored.close();
+    store.close();
+  }
 });

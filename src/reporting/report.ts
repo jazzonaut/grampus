@@ -1,3 +1,6 @@
+// Owns the Markdown task report: brief, slices, usage, completion gates, exploration and the full
+// journal, rendered from stored records only. It reads and never changes state, and it treats every
+// piece of user or provider text as data that must not shape the document.
 import type { Store } from '../persistence/store.js';
 import { Workflow, activeSlice } from '../domain/workflow.js';
 import { explorationSummary } from '../repository/repository-tools.js';
@@ -8,6 +11,11 @@ function prose(value: string): string {
   return value.replace(/[&<>"'`*_[\]#|\\]/g, char => `&#${char.charCodeAt(0)};`).replace(/\r?\n/g, ' ');
 }
 
+/**
+ * The Markdown report of task `id`. Gates come from {@link Workflow.blockers}, so the report shows the
+ * controller's own verdict rather than any agent's account. Throws as `Store.get` does when the task is
+ * missing or malformed.
+ */
 export function renderReport(store: Store, id: string): string {
   const workflow = new Workflow(store);
   const task = workflow.get(id);
@@ -34,6 +42,7 @@ export function renderReport(store: Store, id: string): string {
     `Task: ${task.id}  `,
     `State: ${task.phase}  `,
     `Requirements version: ${task.version}; approved version: ${task.approvedVersion ?? 'none'}  `,
+    // Provider totals, turns and interventions only; the per-stage lines are the table further down.
     ...usageLines(usage).slice(0, usage.providers.length + 2),
     '',
     prose(task.brief.outcome),

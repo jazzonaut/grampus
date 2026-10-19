@@ -49,4 +49,29 @@ export default tseslint.config(
     files: ['**/*.js', '**/*.mjs'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
+  {
+    // Browser probes are evaluated inside the loaded dashboard page, so they read and replace the
+    // page script's own top-level bindings (src/ui/app.js), including the browser's `screen`.
+    files: ['test/browser-*.probe.js'],
+    languageOptions: {
+      globals: {
+        state: 'writable',
+        detail: 'writable',
+        selected: 'writable',
+        pending: 'writable',
+        screen: 'writable',
+        refresh: 'readonly',
+        refreshSerial: 'writable',
+        render: 'readonly',
+        select: 'readonly',
+        expected: 'readonly',
+        signature: 'writable',
+        renderedKey: 'writable',
+        repositoryPreview: 'writable',
+        previewInput: 'writable',
+        fileSearch: 'writable',
+        token: 'readonly',
+      },
+    },
+  },
 );

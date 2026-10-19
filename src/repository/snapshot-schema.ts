@@ -24,6 +24,7 @@ export const snapshotChangeSchema = z.object({
   previousContent: z.string().nullable(),
 });
 
+/** A whole snapshot as `snapshotRepository` returns it; only the shape is checked, not the digest. */
 export const repositorySnapshotSchema = z.object({
   artifact: z.string(),
   head: z.string(),

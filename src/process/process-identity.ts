@@ -7,9 +7,18 @@ import { processLimits } from '../config/limits.js';
 import { processObservationSchema } from './supervisor-protocol.js';
 
 export { validProcessStartTime } from './supervisor-protocol.js';
+/**
+ * What the OS says about a PID. `present` carries its creation time, so a caller can tell the original
+ * owner from a recycled PID; `unknown` never proves the process absent.
+ */
 export type ProcessObservation = { state: 'present'; startedAt: string } | { state: 'absent' | 'unknown' };
 
-/** Query an OS creation time without rounding its 64-bit FILETIME through a JS number. */
+/**
+ * Query an OS creation time without rounding its 64-bit FILETIME through a JS number.
+ *
+ * Never throws: other platforms, invalid PIDs, a missing helper, denied access, a timeout or output that
+ * does not match the pinned schema all return `unknown`.
+ */
 export function inspectProcess(pid: number): ProcessObservation {
   if (process.platform !== 'win32' || !Number.isSafeInteger(pid) || pid < 1) return { state: 'unknown' };
   try {
@@ -40,6 +49,10 @@ export function inspectProcess(pid: number): ProcessObservation {
 }
 
 let ownStartedAt: string | null | undefined;
+/**
+ * This controller's own creation time, recorded on leases and runs so recovery can later prove the owner
+ * gone. Queried once and cached; `null` when it could not be observed.
+ */
 export function currentProcessStartedAt(): string | null {
   if (ownStartedAt === undefined) {
     const observed = inspectProcess(process.pid);

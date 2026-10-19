@@ -1,8 +1,15 @@
+// Owns the synthetic `demo` command: one task through the workflow with a simulated controller
+// restart, using a database the demo owns. It must never start a provider, worker or Git write, and
+// everything it records is marked synthetic.
 import { randomUUID } from 'node:crypto';
 import { Store } from '../persistence/store.js';
 import { Workflow, type Evidence } from '../domain/workflow.js';
 
-/** Exercises the controller, not provider integration. Always marked synthetic. */
+/**
+ * Exercises the controller, not provider integration. Always marked synthetic. Reopens the store to
+ * show history surviving a restart, recovers the interrupted attempt and then delivers it a late result
+ * that the workflow ignores. Returns the task id. `path` must be a database only the demo uses.
+ */
 export function runDemo(path: string): string {
   let store = new Store(path);
   try {
@@ -26,6 +33,7 @@ export function runDemo(path: string): string {
     workflow.recover();
     workflow.confirmStopped(task.id, interrupted.id, 'Synthetic attempt had no child process');
     const attempt = workflow.start(task.id, { ...agent, sessionId: randomUUID() });
+    // A late result for the stopped attempt; the workflow journals it as ignored.
     workflow.finish(task.id, interrupted.id, task.version, 'succeeded', 'fixture:obsolete', 'Simulated late response');
     workflow.finish(
       task.id,

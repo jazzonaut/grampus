@@ -9,7 +9,6 @@ import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedTaskView, renderGuidedTask } from '../src/orchestration/guided-status.js';
 import { Workflow } from '../src/domain/workflow.js';
 import { runCheckProcess } from '../src/process/check-process.js';
-import type { ImplementationRun } from '../src/execution/implementations.js';
 import { renderReport } from '../src/reporting/report.js';
 import { windows, cli, message, review, git, services, fixture } from './helpers/guided-tasks.js';
 
@@ -91,7 +90,7 @@ test('guided task connects real gates and a verified local commit across control
     const checkpoint = await tasks.authorize(id);
     assert.equal(checkpoint.status, 'awaiting_assessment', checkpoint.note);
     assert.equal(new Workflow(second).get(id).evidence.filter(item => item.outcome === 'passed').length, 1);
-    assert.equal(second.implementations<ImplementationRun>(checkpoint.executionId!).length, 1);
+    assert.equal(second.implementations(checkpoint.executionId!).length, 1);
     assert.match(renderGuidedTask(second, id, true), /validated/);
     assert.throws(() => tasks.approve(id, 1, checkpoint.digest), /draft/);
     const done = await tasks.assess(

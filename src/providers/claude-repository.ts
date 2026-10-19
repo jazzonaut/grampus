@@ -1,3 +1,6 @@
+// Owns the Claude face of the controller's read-only repository tools: an in-process SDK MCP server that
+// forwards each call to repository-tools.ts. It must not add behaviour of its own; reading, bounds and
+// journaling stay in the shared toolset so Codex and Claude see the same tools.
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { repositoryTools, repositoryToolDefinitions, type RepositoryAccess } from '../repository/repository-tools.js';
@@ -6,8 +9,13 @@ import { repositoryToolLimits } from '../config/limits.js';
 
 const pageLimit = () => z.number().int().min(1).max(repositoryToolLimits.pageCharacters).optional();
 
+/** True for the SDK's name (`mcp__grampus_repository__<tool>`) of one of Grampus' repository tools. */
 export const isRepositoryTool = (name: string) =>
   repositoryToolDefinitions.some(def => name === `mcp__grampus_repository__${def.name}`);
+/**
+ * The `grampus_repository` in-process MCP server. `ownsTurn` must stay true only while the turn that may
+ * read is active, so a stopped or settled turn cannot read on.
+ */
 export function claudeRepository(access: RepositoryAccess, emit: (event: AgentEvent) => void, ownsTurn: () => boolean) {
   return createSdkMcpServer({
     name: 'grampus_repository',
@@ -17,6 +25,13 @@ export function claudeRepository(access: RepositoryAccess, emit: (event: AgentEv
     tools: claudeRepositoryTools(access, emit, ownsTurn),
   });
 }
+/**
+ * The repository tools as SDK tool definitions, one per shared definition. Tool failures are returned to
+ * Claude as tool errors, never thrown.
+ *
+ * @throws Error when a shared repository tool has no Claude input schema here, so a tool added to
+ * repository-tools.ts cannot reach Claude without an advertised shape.
+ */
 export function claudeRepositoryTools(
   access: RepositoryAccess,
   emit: (event: AgentEvent) => void,

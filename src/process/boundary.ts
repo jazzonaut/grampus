@@ -121,6 +121,8 @@ export function describeIssues(error: z.ZodError, limit: number = boundaryLimits
 /**
  * Parse `value` with `schema` and return zod's output. Use this for foreign protocols, where unknown fields
  * are dropped and only what Grampus relies on is kept.
+ *
+ * @throws BoundaryError with field-level issues (and the zod error as `cause`) when the value does not match.
  */
 export function parseBoundary<S extends z.ZodType>(schema: S, value: unknown, context: BoundaryContext): z.output<S> {
   const result = schema.safeParse(value);
@@ -134,6 +136,8 @@ export function parseBoundary<S extends z.ZodType>(schema: S, value: unknown, co
  * records Grampus wrote itself (journal state, receipts, worker requests): zod emits keys in schema
  * order, and fences and digests compare these records by their serialised bytes, so the stored key
  * order must survive. The schema must not transform: its input and output types are the same `T`.
+ *
+ * @throws BoundaryError with field-level issues (and the zod error as `cause`) when the value does not match.
  */
 export function validateInPlace<T>(schema: z.ZodType<T, T>, value: unknown, context: BoundaryContext): T {
   const result = schema.safeParse(value);
@@ -148,10 +152,15 @@ export function systemErrorCode(error: unknown): string | undefined {
   return error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
 }
 
-/** `JSON.parse` whose syntax errors are categorised boundary errors instead of bare `SyntaxError`s. */
+/**
+ * `JSON.parse` whose syntax errors are categorised boundary errors instead of bare `SyntaxError`s.
+ *
+ * @throws BoundaryError (`(root): not valid JSON`, with the `SyntaxError` as `cause`) when `text` is not JSON.
+ */
 export function parseJson(text: string, context: BoundaryContext): unknown {
   try {
-    return JSON.parse(text) as unknown;
+    const value: unknown = JSON.parse(text);
+    return value;
   } catch (error) {
     throw new BoundaryError(context, ['(root): not valid JSON'], undefined, { cause: error });
   }
@@ -190,7 +199,8 @@ function sanitise(value: unknown, depth: number): unknown {
 /**
  * A bounded, sanitised JSON excerpt of an unexpected value for the journal: strings are shortened,
  * secret-looking keys are redacted, nesting and entry counts are capped and control characters removed.
- * It shows the shape that changed without retaining prompts, file contents or credentials.
+ * It shows the shape that changed while keeping at most a short prefix of any string (such as a prompt or
+ * file content) and no value under a secret-looking key.
  */
 export function boundedExcerpt(value: unknown): string {
   const text = JSON.stringify(sanitise(value, 0)) ?? 'undefined';

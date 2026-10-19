@@ -1,18 +1,23 @@
 // Owns the `submission` stage: submitting the implementation attempt with its latest passing
 // validation, then handing it to review (automatic) or to a human quality assessment (supervised).
+// It sends no agent turn and runs no command; it only binds the attempt to the validated artifact.
 import { GuidedStopError } from '../stop-reasons.js';
 import { evidenceIds, type StageHandler } from '../context.js';
 import { automatic } from '../specs.js';
+import { required } from '../state.js';
 import { selectedLenses } from '../../../domain/quality-passes.js';
 
 /**
  * Submission is proven by the task record itself: the attempt must have succeeded on exactly the
- * artifact this controller validated.
+ * artifact this controller validated. `Checks.finish` refuses a validation that is not the latest
+ * check or whose artifact has since changed. Without that proof, explicit recovery treats the result
+ * as missing, which leaves this read-only step to run again, and a live run throws
+ * `SUBMISSION_UNSETTLED`.
  */
 export const submissionStage: StageHandler = {
   known: evidenceIds,
   async perform({ state, checks }) {
-    await checks.finish(state.executionId!, state.validationId!);
+    await checks.finish(required(state, 'executionId'), required(state, 'validationId'));
     return null;
   },
   settle({ id, state, workflow, recovering }) {

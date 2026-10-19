@@ -7,7 +7,6 @@ import { join } from 'node:path';
 import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import { runCheckProcess } from '../src/process/check-process.js';
-import type { ImplementationRun } from '../src/execution/implementations.js';
 import { RunnerPoolFullError } from '../src/orchestration/guided/runner-pool.js';
 import { defaultSettings, useSettings } from '../src/config/settings.js';
 import { windows, cli, message, git, services, fixture, crashProgram } from './helpers/guided-tasks.js';
@@ -53,7 +52,7 @@ test('a one-slot pool admits one task and a cross-process stop request settles i
   assert.equal(stopped.status, 'blocked', stopped.note);
   assert.equal(stopped.stopReason?.code, 'IMPLEMENTATION_INTERRUPTED');
   assert.equal(stopped.owner, null);
-  assert.equal(f.store.implementations<ImplementationRun>(stopped.executionId!)[0]!.phase, 'interrupted');
+  assert.equal(f.store.implementations(stopped.executionId!)[0]!.phase, 'interrupted');
   assert.equal(f.store.lease(stopped.workspaceId!), null);
   const prepared = await tasks.run(other.id);
   assert.equal(prepared.status, 'awaiting_scope', prepared.note);
@@ -197,7 +196,7 @@ test('recovery refuses a completed result with a different file authorization', 
   await f.tasks.run(id);
   crashProgram(f, 'authorize', 'validation', id);
   const before = f.tasks.get(id),
-    run = f.store.implementations<ImplementationRun>(before.executionId!)[0]!;
+    run = f.store.implementations(before.executionId!)[0]!;
   f.store.saveImplementation(run.id, run.executionId, { ...run, policy: { ...run.policy, files: ['AGENTS.md'] } });
   const refused = await f.tasks.recover(id);
   assert.equal(refused.status, 'recovery_required');

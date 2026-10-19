@@ -1,3 +1,6 @@
+// Owns controller-side supervision of one Windows Job Object run: it launches the detached check host,
+// validates the supervisor's line protocol and reads bounded output previews. It never interprets the
+// tool's output or exit code as success; a launched run's exit is confirmed only by the supervisor's report.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, openSync, readSync, closeSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,14 +28,18 @@ export const checkProcessResultSchema = z.object({
   elapsedMs: z.number().exactOptional(),
 });
 export type CheckProcessResult = z.infer<typeof checkProcessResultSchema>;
+/** One supervised run: a literal executable and arguments started at `cwd` without a shell. */
 export interface CheckProcessOptions {
-  /** Zero disables the runtime deadline for agent workers. */
   file: string;
   args: string[];
   cwd: string;
+  /** Zero disables the runtime deadline for agent workers. */
   timeoutMs: number;
+  /** Aborting asks the supervisor to stop the job; the run still waits for its result. */
   signal?: AbortSignal;
+  /** Called with the check host's PID once spawned, then with the tool's PID when the supervisor reports it. */
   started: (kind: 'supervisor' | 'tool', pid: number) => void;
+  /** With a receipt, output and `completion.json` go to its durable directory and are kept afterwards. */
   receipt?: CheckReceipt;
 }
 
@@ -56,6 +63,11 @@ function output(path: string): { text: string; truncated: boolean; available: bo
   }
 }
 
+/**
+ * Read the first `commandLimits.previewBytes` of the `stdout` and `stderr` logs in a run directory. Used
+ * both after a live run and by recovery reading a settled receipt directory. A log that cannot be opened
+ * is reported as `outputUnavailable` rather than silently passed off as empty output.
+ */
 export function retainedOutput(
   directory: string,
 ): Pick<CheckProcessResult, 'stdout' | 'stderr' | 'outputTruncated' | 'outputUnavailable'> {
@@ -69,7 +81,39 @@ export function retainedOutput(
   };
 }
 
-/** Windows job supervision is deliberately separate from provider conversation processes. */
+/**
+ * The single request line the check host forwards to the supervisor: the literal command, its output
+ * logs in `directory` and, with a receipt, where and under which token to write settlement proof.
+ */
+function hostRequest(options: CheckProcessOptions, directory: string) {
+  return {
+    file: options.file,
+    args: options.args,
+    cwd: options.cwd,
+    timeoutMs: options.timeoutMs,
+    stdout: join(directory, 'stdout'),
+    stderr: join(directory, 'stderr'),
+    ...(options.receipt
+      ? {
+          receiptPath: join(directory, 'completion.json'),
+          checkId: options.receipt.checkId,
+          token: options.receipt.token,
+        }
+      : {}),
+  };
+}
+
+/**
+ * Run one tool under the Windows Job Object supervisor and report how it ended.
+ *
+ * Windows job supervision is deliberately separate from provider conversation processes. The result
+ * starts as `supervisor_lost` with an unconfirmed exit and only the supervisor's `result` line replaces
+ * it; an invalid, extra or oversized line, a host that cannot be reached or a missed deadline kills the
+ * host and keeps `supervisor_lost`, so an unknown outcome is never reported as an exit. A host that never
+ * got a PID is `supervisor_unavailable` with a confirmed exit, because nothing was started.
+ *
+ * @throws Error for a timeout outside `commandLimits` (other than zero) or on a platform other than Windows.
+ */
 export async function runCheckProcess(options: CheckProcessOptions): Promise<CheckProcessResult> {
   if (
     !Number.isSafeInteger(options.timeoutMs) ||
@@ -88,8 +132,6 @@ export async function runCheckProcess(options: CheckProcessOptions): Promise<Che
       outputTruncated: false,
     };
   const directory = options.receipt?.directory ?? mkdtempSync(join(tmpdir(), 'grampus-check-'));
-  const stdout = join(directory, 'stdout');
-  const stderr = join(directory, 'stderr');
   const host = fileURLToPath(new URL('./check-host.js', import.meta.url));
   let result: CheckProcessResult = {
     reason: 'supervisor_lost',
@@ -114,6 +156,8 @@ export async function runCheckProcess(options: CheckProcessOptions): Promise<Che
     let receivedResult = false;
     let stopping = false;
     let deadline: ReturnType<typeof setTimeout>;
+    // A second line (or end of input) is the stop request: the host and the native supervisor treat it as
+    // an interruption, then must still report and exit within the report window.
     const stop = () => {
       if (stopping) return;
       stopping = true;
@@ -137,6 +181,7 @@ export async function runCheckProcess(options: CheckProcessOptions): Promise<Che
         // Any line that is not a valid `started` or `result` message fails the protocol below.
         const message = supervisorMessageSchema.parse(JSON.parse(line));
         if (message.type === 'started') {
+          // An unlimited worker may run for as long as it needs once it has started.
           if (options.timeoutMs === 0 && !stopping) clearTimeout(deadline);
           options.started('tool', message.pid);
         } else {
@@ -148,6 +193,7 @@ export async function runCheckProcess(options: CheckProcessOptions): Promise<Che
             exitConfirmed: message.exitConfirmed,
             ...(message.elapsedMs === null ? {} : { elapsedMs: message.elapsedMs }),
           };
+          // The host must still exit after reporting; until it closes, the result is not final.
           clearTimeout(deadline);
           deadline = setTimeout(fail, processLimits.supervisorReportMs);
         }
@@ -160,23 +206,7 @@ export async function runCheckProcess(options: CheckProcessOptions): Promise<Che
     options.signal?.addEventListener('abort', stop, { once: true });
     try {
       if (child.pid) options.started('supervisor', child.pid);
-      child.stdin.write(
-        `${JSON.stringify({
-          file: options.file,
-          args: options.args,
-          cwd: options.cwd,
-          timeoutMs: options.timeoutMs,
-          stdout,
-          stderr,
-          ...(options.receipt
-            ? {
-                receiptPath: join(directory, 'completion.json'),
-                checkId: options.receipt.checkId,
-                token: options.receipt.token,
-              }
-            : {}),
-        })}\n`,
-      );
+      child.stdin.write(`${JSON.stringify(hostRequest(options, directory))}\n`);
       if (options.signal?.aborted) stop();
     } catch {
       fail();

@@ -1,5 +1,6 @@
 // Owns the `execution` and `review_execution` stages: binding the current attempt to a fresh
 // implementation or review execution, resuming the slice's conversation where the policy allows.
+// Implementation and review never share a conversation, and arbitration never resumes one.
 import { snapshotRepository } from '../../../repository/artifacts.js';
 import { Sessions } from '../../../execution/sessions.js';
 import { GuidedStopError } from '../stop-reasons.js';
@@ -11,7 +12,7 @@ import {
   type StageHandler,
   type StageOutcome,
 } from '../context.js';
-import type { GuidedState } from '../state.js';
+import { required, type GuidedState } from '../state.js';
 import { automatic, reviewer } from '../specs.js';
 
 /**
@@ -20,6 +21,7 @@ import { automatic, reviewer } from '../specs.js';
  */
 const arbitrationApproval = 'Explicitly approved fresh arbitration after independent blocking review';
 
+/** Every execution of the task, of either role; settlement then picks the new one of its own role. */
 function executionIds({ id, executions }: GuidedContext): string[] {
   return executions
     .list()
@@ -34,14 +36,17 @@ function executionIds({ id, executions }: GuidedContext): string[] {
  */
 async function requireRevisionAnchor({ id, executions, workspaces }: GuidedContext, state: GuidedState) {
   const revision = state.plan.revision;
+  // Only the first execution of the revised version, at the revision's first remaining slice, is
+  // compared with the anchor.
   if (
     !revision ||
     state.sliceIndex !== revision.sliceIndex ||
     executions.list().some(execution => execution.taskId === id && execution.version === state.version)
   )
     return;
-  const workspace = (await workspaces.inspect(state.workspaceId!, false)).workspace;
-  const snapshot = await snapshotRepository(workspace.path!, workspace.baseCommit);
+  const workspace = (await workspaces.inspect(required(state, 'workspaceId'), false)).workspace;
+  if (!workspace.path) throw new Error(`Workspace ${workspace.id} has no directory`);
+  const snapshot = await snapshotRepository(workspace.path, workspace.baseCommit);
   if (
     snapshot.artifact !== revision.artifact ||
     snapshot.head !== revision.head ||
@@ -94,15 +99,10 @@ export const executionStage: StageHandler = {
   async perform(context) {
     const { state, executions } = context;
     await requireRevisionAnchor(context, state);
-    await executions.create(
-      state.workspaceId!,
-      state.version,
-      state.plan.implementation.provider,
-      'implementation',
-      state.plan.implementation.model,
-      null,
-      automatic(state) ? state.implementationContinuation : null,
-    );
+    await executions.create(required(state, 'workspaceId'), state.version, state.plan.implementation.provider, {
+      model: state.plan.implementation.model,
+      resumeFrom: automatic(state) ? state.implementationContinuation : null,
+    });
     return null;
   },
   settle: context => settleExecution(context, 'implementation'),
@@ -121,18 +121,16 @@ export const reviewExecutionStage: StageHandler = {
       new Sessions(store).get(executions.get(state.reviewContinuation).sessionId).provider === config.provider
         ? state.reviewContinuation
         : null;
-    await executions.create(
-      state.workspaceId!,
-      state.version,
-      config.provider,
-      'review',
-      config.model,
-      state.reviewCycle.arbitrating && config.provider === state.plan.implementation.provider
-        ? arbitrationApproval
-        : null,
-      automatic(state) && !state.reviewCycle.arbitrating ? continuation : null,
-      state.reviewCycle.arbitrating,
-    );
+    await executions.create(required(state, 'workspaceId'), state.version, config.provider, {
+      role: 'review',
+      model: config.model,
+      fallbackReason:
+        state.reviewCycle.arbitrating && config.provider === state.plan.implementation.provider
+          ? arbitrationApproval
+          : null,
+      resumeFrom: automatic(state) && !state.reviewCycle.arbitrating ? continuation : null,
+      arbitration: state.reviewCycle.arbitrating,
+    });
     return null;
   },
   settle: context => settleExecution(context, 'review'),

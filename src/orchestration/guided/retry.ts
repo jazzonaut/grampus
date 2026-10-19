@@ -1,14 +1,14 @@
 // Owns returning a guided task to a new implementation attempt (automatic repair or explicit retry)
-// and the checks that make an explicit retry safe to adopt a workspace a person has touched.
+// and the checks that make an explicit retry safe to adopt a workspace a person has touched. A retry
+// never replays a turn or check: it closes the attempt's executions and the next attempt starts afresh.
 import { checkOutputLimits } from '../../config/limits.js';
 import { assertTaskExecutionIdle } from '../../execution/execution-state.js';
 import { verifyEditingScope } from '../../execution/edit-policy.js';
 import { Sessions } from '../../execution/sessions.js';
 import { snapshotRepository, type RepositorySnapshot } from '../../repository/artifacts.js';
-import type { RepositoryCheck } from '../../verification/checks.js';
 import { checkFeedback, checkIssue, outputExcerpt } from '../../verification/check-output.js';
-import type { GuidedContext } from './context.js';
-import type { GuidedState } from './state.js';
+import { workspacePath, type GuidedContext } from './context.js';
+import { required, type GuidedState } from './state.js';
 import { automatic, preparationSpec } from './specs.js';
 import { guidedSnapshot, requireGuidedSnapshot } from './snapshots.js';
 
@@ -25,7 +25,7 @@ function retryFeedback({ store, checks, executions }: RetryContext, state: Guide
   const failedCheck = state.failedCheckId
     ? checks.get(state.failedCheckId)
     : state.executionId
-      ? store.checks<RepositoryCheck>(state.executionId).findLast(check => check.phase === 'failed')
+      ? store.checks(state.executionId).findLast(check => check.phase === 'failed')
       : null;
   return JSON.stringify({
     reason: failedCheck ? checkIssue(failedCheck) : outputExcerpt(state.note, checkOutputLimits.feedbackCharacters),
@@ -38,12 +38,15 @@ function retryFeedback({ store, checks, executions }: RetryContext, state: Guide
 /**
  * Closes the attempt's executions and returns to `execution` with feedback, keeping the slice's
  * conversations for resumption. Automatic repairs anchor the next attempt to the failed artifact;
- * an explicit retry may pass the snapshot it verified, which then becomes the anchor.
+ * an explicit retry may pass the snapshot it verified, which then becomes the anchor. Executions are
+ * closed and the state changed in one transaction. Throws when the task has no guided plan or the
+ * runner is no longer owned.
  */
 export function prepareRetry(context: RetryContext, type: string, explicitSnapshot?: RepositorySnapshot): void {
   const { id, store, workflow, executions, change } = context;
   store.transaction(() => {
-    const state = workflow.get(id).guided!;
+    const state = workflow.get(id).guided;
+    if (!state) throw new Error('This task has no guided plan');
     const feedback = retryFeedback(context, state);
     if (state.reviewId && executions.get(state.reviewId).phase !== 'closed') executions.close(state.reviewId);
     if (state.executionId && executions.get(state.executionId).phase !== 'closed') executions.close(state.executionId);
@@ -54,6 +57,7 @@ export function prepareRetry(context: RetryContext, type: string, explicitSnapsh
       current.pending = null;
       current.implementationContinuation = state.executionId;
       current.reviewContinuation = state.reviewId ?? state.reviewContinuation;
+      // Supervised mode needs no anchor: the person authorizes the next attempt's scope explicitly.
       const anchor = explicitSnapshot ?? state.snapshot;
       current.retryAnchor =
         automatic(state) && anchor
@@ -75,7 +79,8 @@ export function prepareRetry(context: RetryContext, type: string, explicitSnapsh
  * The workspace snapshot an explicit retry of a stopped implementation adopts. The person may have
  * staged files, which is accepted, but HEAD, repository instructions and the file scope must still
  * match. Returns undefined when the task did not stop in an implementation or edit quality pass turn
- * with a policy.
+ * with a policy. Throws when an operation holds the task's lease or the workspace no longer matches
+ * the retained HEAD, instructions or file scope.
  */
 export async function implementationRetrySnapshot(
   { store, workspaces }: RetryContext,
@@ -88,40 +93,39 @@ export async function implementationRetrySnapshot(
     !state.policy
   )
     return;
-  const workspace = workspaces.get(state.workspaceId!);
+  const workspace = workspaces.get(required(state, 'workspaceId'));
+  const cwd = workspacePath(workspaces, state);
   // The failed execution is settled and cannot acquire another operation lease.
   // The controller owns the task; bind this read to the next leased scope step.
   assertTaskExecutionIdle(store, workspace.taskId);
   await workspaces.inspect(workspace.id, false);
-  const snapshot = await snapshotRepository(workspace.path!, workspace.baseCommit);
+  const snapshot = await snapshotRepository(cwd, workspace.baseCommit);
   assertTaskExecutionIdle(store, workspace.taskId);
   // An explicit retry accepts the user's staging, while preserving HEAD,
   // instruction and file-scope guards. Automatic repairs keep their old anchor.
   const anchor = requireGuidedSnapshot(store, state);
-  verifyEditingScope(
-    { cwd: workspace.path!, policy: state.policy, snapshot: { ...anchor, index: snapshot.index } },
-    snapshot,
-  );
+  verifyEditingScope({ cwd, policy: state.policy, snapshot: { ...anchor, index: snapshot.index } }, snapshot);
   return snapshot;
 }
 
 /**
  * The snapshot an explicit retry of a stopped preparation continues from. A failed preparation may
  * have changed files only within its approved scope (a slice refresh); initial preparation may not
- * have changed repository inputs at all, so the retry would otherwise adopt unapproved bytes.
+ * have changed repository inputs at all, so the retry would otherwise adopt unapproved bytes. Throws
+ * when the workspace breaks either rule.
  */
 export async function preparationRetrySnapshot(
   { checks, store, workspaces }: RetryContext,
   state: GuidedState,
 ): Promise<RepositorySnapshot> {
-  const snapshot = await checks.snapshot(state.executionId!);
+  const snapshot = await checks.snapshot(required(state, 'executionId'));
   const current = guidedSnapshot(store, state);
   if (!state.snapshot || !current) return snapshot;
   const spec = preparationSpec(state, current);
   if (spec.preparation?.scope)
     verifyEditingScope(
       {
-        cwd: workspaces.get(state.workspaceId!).path!,
+        cwd: workspacePath(workspaces, state),
         snapshot: current,
         policy: {
           ...spec.preparation.scope,

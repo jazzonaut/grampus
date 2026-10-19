@@ -11,7 +11,6 @@ import { Store } from '../src/persistence/store.js';
 import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedSnapshot } from '../src/orchestration/guided/snapshots.js';
 import { Sessions } from '../src/execution/sessions.js';
-import type { Execution } from '../src/execution/execution-state.js';
 import type { Connector, Reply } from '../src/providers/types.js';
 import type { RepositoryCheck } from '../src/verification/checks.js';
 
@@ -98,10 +97,10 @@ test('dashboard polls show the actual failure without raw logs and page logs onl
     result: { stdout: '', stderr: raw, reason: 'exited', exitCode: 1, exitConfirmed: true, outputTruncated: false },
   };
   ui.store.saveCheck(check.id, check.executionId, check);
-  const saved = ui.store.get<any>(task.id);
-  saved.guided.status = 'blocked';
-  saved.guided.stage = 'validation';
-  saved.guided.note = raw;
+  const saved = ui.store.get(task.id);
+  saved.guided!.status = 'blocked';
+  saved.guided!.stage = 'validation';
+  saved.guided!.note = raw;
   ui.store.save(task.id, saved);
   const url = new URL(ui.url),
     headers = { Authorization: `Bearer ${url.hash.slice(1)}` };
@@ -117,7 +116,7 @@ test('dashboard polls show the actual failure without raw logs and page logs onl
     await fetch(`${url.origin}/api/tasks/${task.id}/check-output?checkId=${check.id}&offset=59000`, { headers })
   ).json();
   assert.match(page.content, /MarkInfo/);
-  assert.doesNotMatch(page.content, /\x1b/);
+  assert.ok(!page.content.includes('\u001b'), 'no raw escape sequences');
   assert.ok(page.content.length <= 16000);
   const other = tasks.create({ ...f.plan, workspace: { ...f.plan.workspace, path: join(f.root, 'other-workspace') } });
   assert.equal(
@@ -195,7 +194,7 @@ test('a timed-out check offers Rerun checks, which runs a new check through a wo
   let view = await get();
   assert.equal(view.state.stopReason.code, 'CHECK_TIMEOUT', view.state.note);
   assert.match(view.rerun, /task-rerun-checks/);
-  const attempt = ui.store.get<any>(task.id).attempt.id;
+  const attempt = ui.store.get(task.id).attempt!.id;
   const response = await fetch(`${url.origin}/api/tasks/${task.id}/rerun-checks`, {
     method: 'POST',
     headers,
@@ -216,7 +215,7 @@ test('a timed-out check offers Rerun checks, which runs a new check through a wo
   assert.equal(view.checks.length, 2);
   assert.notEqual(view.checks[1].id, view.checks[0].id);
   assert.equal(view.state.stopReason.code, 'CHECK_TIMEOUT');
-  assert.equal(ui.store.get<any>(task.id).attempt.id, attempt);
+  assert.equal(ui.store.get(task.id).attempt!.id, attempt);
   assert.ok(ui.store.events(task.id).some(event => event.type === 'guided.checks_rerun_requested'));
 });
 
@@ -428,11 +427,11 @@ test('task polls expose current execution activity and load complete sanitized h
   const draft = tasks.get(id);
   tasks.approve(id, draft.version, draft.digest);
   await tasks.run(id);
-  const task = ui.store.get<any>(id);
-  task.guided.stage = 'implementation';
-  task.guided.status = 'running';
+  const task = ui.store.get(id);
+  task.guided!.stage = 'implementation';
+  task.guided!.status = 'running';
   ui.store.save(id, task);
-  const execution = ui.store.execution<Execution>(task.guided.executionId);
+  const execution = ui.store.execution(task.guided!.executionId!);
   const sessions = new Sessions(ui.store),
     claim = sessions.claim(execution.sessionId, 'HIDDEN PROMPT');
   const url = new URL(ui.url),
@@ -913,8 +912,8 @@ test('kickoff clarifies consequential ambiguity, validates generated commands an
   assert.throws(() => kickoffs.prepare(id), /errors/);
   await kickoffs.send(id, 'Return the complete corrected plan');
   const taskId = kickoffs.prepare(id),
-    task = store.get<any>(taskId);
-  assert.equal(task.guided.status, 'draft');
+    task = store.get(taskId);
+  assert.equal(task.guided!.status, 'draft');
   assert.equal(task.approvedVersion, null);
   assert.equal(store.workspaces().length, 0);
   assert.equal(kickoffs.view(id).taskId, taskId);
@@ -994,7 +993,7 @@ test('kickoff plans the full ticket across ordered slices on initial and resumed
     tasks = new GuidedTasks(store),
     draft = tasks.get(taskId);
   assert.equal(draft.status, 'draft');
-  assert.equal(store.get<any>(taskId).approvedVersion, null);
+  assert.equal(store.get(taskId).approvedVersion, null);
   assert.equal(draft.plan.slices.length, 2);
   assert.deepEqual(draft.plan.brief.criteria, criteria);
   assert.equal(store.workspaces().length, 0);

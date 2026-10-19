@@ -1,3 +1,6 @@
+// Live probe of the read-only repository tools through subscriptions: each provider must find a contract
+// with grampus_list_files, grampus_search and grampus_read_file, reading the pinned commit (fresh and
+// resumed) and then a working tree snapshot. Fixtures are retained; the controller never uses this file.
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
@@ -6,6 +9,10 @@ import { Store } from '../persistence/store.js';
 import { Sessions, runSession } from '../execution/sessions.js';
 import { snapshotRepository } from '../repository/artifacts.js';
 import type { Provider } from '../providers/types.js';
+import { z } from 'zod';
+
+/** A journaled agent event (`{ runId, data }`) naming the tool it reports. */
+const toolEventSchema = z.object({ data: z.object({ tool: z.string() }) });
 
 async function main() {
   if (!process.argv.includes('--live'))
@@ -37,7 +44,9 @@ async function main() {
   console.log(JSON.stringify({ root, note: 'Live subscription exploration; no external actions or task delivery' }));
   const results: unknown[] = [];
   try {
-    for (const provider of (providerArg ? [providerArg] : ['codex', 'claude']) as Provider[]) {
+    const providers: Provider[] =
+      providerArg === 'codex' || providerArg === 'claude' ? [providerArg] : ['codex', 'claude'];
+    for (const provider of providers) {
       const session = new Sessions(store).create(provider, repo);
       for (const stage of ['pinned', 'resumed', 'snapshot'] as const) {
         const before = store.sessionEvents(session.id).length;
@@ -52,7 +61,7 @@ async function main() {
           .sessionEvents(session.id)
           .slice(before)
           .filter(event => event.type === 'repository.tool_result');
-        const used = new Set(events.map(event => (event.data as { data: { tool: string } }).data.tool));
+        const used = new Set(events.flatMap(event => toolEventSchema.safeParse(event.data).data?.data.tool ?? []));
         const passed =
           result.status === 'completed' &&
           result.reply?.text.trim() === (snapshot ? second : first) &&

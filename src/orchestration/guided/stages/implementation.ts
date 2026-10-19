@@ -1,10 +1,12 @@
 // Owns the `implementation` stage: the supervised editing turn within the exact authorized policy,
-// and adopting its settled artifact, questions or failure.
+// and adopting its settled artifact, questions or failure. It never adopts a result produced under
+// any policy other than the one authorized.
 import { Implementations, type ImplementationRun } from '../../../execution/implementations.js';
 import { boundedRepositoryFiles } from '../../../repository/repository-evidence.js';
 import { deepEqual } from '../../../domain/deep-equal.js';
 import { withReason, type StopReasonCode } from '../stop-reasons.js';
-import { adoptOne, mismatch, requireOrigin, requireSettled, type StageHandler } from '../context.js';
+import { adoptOne, mismatch, requireOrigin, requireSettled, workspacePath, type StageHandler } from '../context.js';
+import { required } from '../state.js';
 import { implementationPrompt } from '../prompts.js';
 import { afterEditing, currentSlice, editPolicy } from '../specs.js';
 import { keepSnapshot } from '../snapshots.js';
@@ -37,11 +39,11 @@ export function failureCode(
  * explicitly. The result is adopted only under the exact policy that was authorized.
  */
 export const implementationStage: StageHandler = {
-  known: ({ store }, state) => store.implementations<ImplementationRun>(state.executionId!).map(item => item.id),
+  known: ({ store }, state) => store.implementations(required(state, 'executionId')).map(item => item.id),
   async perform({ state, store, workspaces, services, signal }) {
     await new Implementations(store, workspaces).run(
-      state.executionId!,
-      state.policy!,
+      required(state, 'executionId'),
+      required(state, 'policy'),
       implementationPrompt({ slicePreparation: currentSlice(state).preparation, feedback: state.feedback }),
       { signal, timeoutMs: 0, ...(state.answers ? { answers: state.answers } : {}) },
       services.implementationRunner,
@@ -50,9 +52,10 @@ export const implementationStage: StageHandler = {
   },
   settle(context) {
     const { state, pending, store, workspaces } = context;
-    const result = adoptOne(store.implementations<ImplementationRun>(state.executionId!), pending);
+    const executionId = required(state, 'executionId');
+    const result = adoptOne(store.implementations(executionId), pending);
     if (!result) return { kind: 'missing' };
-    requireOrigin(context, state.executionId!, result.id, pending);
+    requireOrigin(context, executionId, result.id, pending);
     if (!deepEqual(result.policy, state.policy))
       throw mismatch('Implementation result differs from the authorized file policy');
     requireSettled(result, 'Implementation');
@@ -70,12 +73,13 @@ export const implementationStage: StageHandler = {
     const after = result.after;
     withReason('SCOPE_REJECTED', () =>
       boundedRepositoryFiles(
-        workspaces.get(state.workspaceId!).path!,
+        workspacePath(workspaces, state),
         after,
         state.plan.context.files,
         state.plan.context.exploration,
       ),
     );
+    // The turn consumed any answers; later steps bind to the artifact it left.
     const update = (current: typeof state) => {
       current.answers = null;
       current.snapshot = keepSnapshot(store, after);

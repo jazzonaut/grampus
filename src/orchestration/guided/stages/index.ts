@@ -1,5 +1,5 @@
 // Owns the mapping from each active guided stage to its handler. Typed as a complete record so a new
-// stage cannot be added without a handler.
+// stage cannot be added without a handler. It holds no stage logic; the controller imports only this.
 import type { ActiveStage } from '../state.js';
 import type { StageHandler } from '../context.js';
 import { workspaceStage } from './workspace.js';

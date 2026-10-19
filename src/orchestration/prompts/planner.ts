@@ -21,6 +21,7 @@ export interface PlannerPromptContext {
   repo: string;
   base: string;
   adapter: 'git' | 'orca';
+  /** The Git worktree destination; shown to the planner only for the Git adapter. */
   path: string;
   provider: Provider;
   /** The original user request. */

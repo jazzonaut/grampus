@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../src/persistence/store.js';
 import { processLimits } from '../src/config/limits.js';
+import { taskRecord } from './helpers/task-records.js';
 
 /** Transactions each writer commits after the held one. */
 const writes = 150;
@@ -32,7 +33,8 @@ test('processes writing one journal at once all commit without busy failures', a
     import { Store } from ${JSON.stringify(new URL('../src/persistence/store.js', import.meta.url).href)};
     const [db, id, role] = process.argv.slice(2);
     const store = new Store(db);
-    store.transaction(() => { store.save(id, { id, count: 0 }); store.append(id, 1, 'writer.started', {}); });
+    const task = { ...${JSON.stringify(taskRecord('fixture', { version: 0 }))}, id };
+    store.transaction(() => { store.save(id, task); store.append(id, 1, 'writer.started', {}); });
     if (role === 'holder')
       store.transaction(() => {
         writeFileSync(${JSON.stringify(held)}, '');
@@ -42,8 +44,7 @@ test('processes writing one journal at once all commit without busy failures', a
     else while (!existsSync(${JSON.stringify(held)})) await new Promise(resolve => setTimeout(resolve, 5));
     for (let i = 1; i <= ${writes}; i++)
       store.transaction(() => {
-        const task = store.get(id);
-        store.save(id, { ...task, count: i });
+        store.save(id, { ...store.get(id), version: i });
         store.append(id, 1, 'writer.wrote', { i });
       });
     store.close();
@@ -66,7 +67,7 @@ test('processes writing one journal at once all commit without busy failures', a
   try {
     for (const role of ['holder', 'first', 'second']) {
       const id = `task-${role}`;
-      assert.equal(store.get<{ count: number }>(id).count, writes);
+      assert.equal(store.get(id).version, writes);
       assert.equal(store.events(id, ['writer.wrote']).length, writes);
     }
   } finally {

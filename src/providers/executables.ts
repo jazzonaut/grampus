@@ -27,7 +27,10 @@ export type ExecutableSource = z.infer<typeof executableSourceSchema>;
 /** A resolved provider program. */
 export interface ProviderExecutable {
   provider: Provider;
-  /** What the adapter spawns: the absolute path when resolved, otherwise the configured name, which then fails to start. */
+  /**
+   * What the adapter spawns: the absolute path when resolved, otherwise the configured name, which then
+   * fails to start.
+   */
   command: string;
   /** Absolute path of the executable, or null when none was found. */
   path: string | null;
@@ -120,6 +123,10 @@ export function npmVendoredCodex(directory: string, arch: string = process.arch)
   return null;
 }
 
+/**
+ * An environment override: a value with a path separator is taken as a path, a bare name is searched on
+ * PATH by the same rules. An unresolved override is reported as a problem, never replaced by a fallback.
+ */
 function configured(provider: Provider, value: string, variable: string): ProviderExecutable {
   const named = isAbsolute(value) || /[\\/]/.test(value);
   const path = named ? (executableFile(resolve(value)) ? resolve(value) : null) : findExecutable(value);

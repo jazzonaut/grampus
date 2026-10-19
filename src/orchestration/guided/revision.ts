@@ -1,14 +1,15 @@
 // Owns plan revision at an idle checkpoint: validating that a revised plan preserves delivered slices
-// and the retained workspace, and building the fresh draft state that needs new approval.
+// and the retained workspace, and building the fresh draft state that needs new approval. It never
+// rewrites a delivered slice or touches worktree bytes, and no earlier evidence carries forward.
 import type { Task } from '../../domain/workflow.js';
 import { deepEqual } from '../../domain/deep-equal.js';
 import { guidedPlanDigest, normalizeGuidedPlan, type GuidedPlan } from '../../domain/guided-plan.js';
-import type { Session } from '../../execution/sessions.js';
 import { snapshotRepository, type RepositorySnapshot } from '../../repository/artifacts.js';
 import type { GuidedContext } from './context.js';
 import { freshRepairCycle, freshReviewCycle, type GuidedState } from './state.js';
 import { stopReason } from './stop-reasons.js';
 import type { SnapshotRef } from './snapshots.js';
+import type { Workspace } from '../../repository/workspaces.js';
 
 /** Slice deliveries already recorded on the task. */
 export type CompletedSlices = NonNullable<Task['slice']>['completed'];
@@ -20,6 +21,12 @@ export interface RevisionDraft {
   anchor: RepositorySnapshot | null;
   workspaceId: string | null;
   completed: CompletedSlices;
+}
+
+/** Snapshots a retained workspace, which exists on disk once it is adopted into the guided state. */
+async function retainedSnapshot(workspace: Workspace): Promise<RepositorySnapshot> {
+  if (!workspace.path) throw new Error(`Workspace ${workspace.id} has no directory`);
+  return snapshotRepository(workspace.path, workspace.baseCommit);
 }
 
 /** Delivered slices are history: their brief and execution configuration must be unchanged. */
@@ -38,7 +45,9 @@ function requirePreservedPrefix(plan: GuidedPlan, observed: GuidedState, complet
 /**
  * Normalises and validates a revised plan against the observed state. The retained workspace is
  * snapshotted twice so the revision binds to bytes that were stable while it was prepared; that
- * snapshot becomes the revision anchor the next execution must still match.
+ * snapshot becomes the revision anchor the next execution must still match. Throws when the plan is
+ * invalid, changes the workspace identity or a delivered slice, leaves no remaining slice, or the
+ * workspace changed between the two snapshots. Nothing is written; the caller commits the draft.
  */
 export async function draftRevision(
   { id, workspaces, workflow }: GuidedContext,
@@ -47,16 +56,17 @@ export async function draftRevision(
   directory?: string,
 ): Promise<RevisionDraft> {
   const workspace = observed.workspaceId ? (await workspaces.inspect(observed.workspaceId, false)).workspace : null;
-  const anchor = workspace ? await snapshotRepository(workspace.path!, workspace.baseCommit) : null;
-  const editable = structuredClone(input) as Record<string, unknown>;
-  if (editable && typeof editable === 'object') delete editable['revision'];
+  const anchor = workspace ? await retainedSnapshot(workspace) : null;
+  // The revision anchor is the controller's to set; a revision the caller supplies is discarded.
+  const editable: unknown = structuredClone(input);
+  if (editable && typeof editable === 'object') Reflect.deleteProperty(editable, 'revision');
   const plan = normalizeGuidedPlan(editable, directory, workspace ? observed.plan.workspace : undefined);
   if (workspace && !deepEqual(plan.workspace, observed.plan.workspace))
     throw new Error('A revision must preserve the repository, pinned base and workspace identity');
   const completed = structuredClone(workflow.get(id).slice?.completed ?? []);
   requirePreservedPrefix(plan, observed, completed);
-  if (anchor) {
-    const again = await snapshotRepository(workspace!.path!, workspace!.baseCommit);
+  if (workspace && anchor) {
+    const again = await retainedSnapshot(workspace);
     if (
       again.artifact !== anchor.artifact ||
       again.instructionsDigest !== anchor.instructionsDigest ||
@@ -74,12 +84,16 @@ export async function draftRevision(
   return { plan, anchor, workspaceId: workspace?.id ?? null, completed };
 }
 
-/** Refuses a revision while any agent session linked to the task is active or uncertain. */
+/**
+ * Refuses a revision while any agent session linked to the task is active or uncertain, then closes
+ * every linked execution, so no conversation from the old plan can act after it. Call it inside the
+ * transaction that commits the revision.
+ */
 export function requireLinkedSessionsSettled({ id, store, executions }: GuidedContext): void {
   const linked = executions.list().filter(execution => execution.taskId === id);
   if (
     linked.some(execution => {
-      const session = store.session<Session>(execution.sessionId);
+      const session = store.session(execution.sessionId);
       return session.run || ['running', 'stop_requested', 'recovery_required'].includes(session.phase);
     })
   )

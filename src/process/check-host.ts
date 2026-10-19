@@ -1,3 +1,7 @@
+// Owns the detached Node host that runs the native Job Object supervisor (native/check.ps1) for one check
+// and relays its stdout lines to the controller unchanged. Protocol validation stays with the controller and
+// tool parameters are not interpreted; the host only bounds the supervisor's lifetime and forwards one request
+// (adding its own PID) plus a stop signal.
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +28,7 @@ process.stdout.on('error', () => {
 });
 const output = createInterface({ input: child.stdout, crlfDelay: Infinity });
 output.on('line', line => {
+  // Without a tool deadline, only startup and the post-result settle window are bounded here.
   if (unlimited && !stopping) {
     try {
       const message = supervisorMessageSchema.safeParse(JSON.parse(line));
@@ -52,6 +57,7 @@ const stop = () => {
   deadline = setTimeout(() => child.kill(), processLimits.supervisorSettleMs);
   if (!child.stdin.writableEnded) child.stdin.end('\n');
 };
+// The first line is the request; any later line, end of input or a broken pipe is a stop request.
 input.on('line', line => {
   if (requested) {
     stop();
@@ -62,12 +68,15 @@ input.on('line', line => {
     clearTimeout(deadline);
     const timeout = request.timeoutMs;
     unlimited = timeout === 0;
+    // A zero or out-of-range timeout keeps only the startup bound (zero clears it once the tool starts);
+    // otherwise this is the backstop that kills a supervisor which has not settled after the tool deadline.
     deadline = setTimeout(
       () => child.kill(),
       Number.isSafeInteger(timeout) && timeout >= commandLimits.minTimeoutMs && timeout <= commandLimits.maxTimeoutMs
         ? timeout + processLimits.supervisorSettleMs
         : processLimits.supervisorStartupMs,
     );
+    // The host's own PID is the supervisor identity the receipt records alongside its creation time.
     child.stdin.write(`${JSON.stringify({ ...request, supervisorPid: process.pid })}\n`);
     requested = true;
   } catch {

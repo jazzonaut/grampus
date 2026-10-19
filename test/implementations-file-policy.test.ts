@@ -12,7 +12,6 @@ import {
   prepareEditing,
   validateEditPolicy,
   verifyEditingScope,
-  type EditPolicy,
 } from '../src/execution/edit-policy.js';
 import { snapshotRepository } from '../src/repository/artifacts.js';
 import { windows, reply, fixture, fakeResult } from './helpers/implementations.js';
@@ -129,7 +128,7 @@ test('creation policies reject overlaps, controls, aliases and paths without exi
   }
   if (process.platform === 'win32') assert.throws(() => validateEditPolicy({ ...f.policy, create: ['GREETING.js'] }));
   assert.throws(() => validateEditPolicy({ ...f.policy, create: Array.from({ length: 64 }, (_, i) => `${i}.txt`) }));
-  assert.throws(() => validateEditPolicy({ ...f.policy, create: null } as unknown as EditPolicy));
+  assert.throws(() => validateEditPolicy({ ...f.policy, create: null }));
   validateEditPolicy({ ...f.policy, files: [], create: ['new.txt'] });
   for (const path of ['other.txt', 'missing/new.txt', 'greeting.js/new.txt']) {
     assert.throws(() => prepareEditing({ ...f.context, policy: { ...f.policy, create: [path] } }));
@@ -221,7 +220,7 @@ test('deletion policy validates distinct existing targets and current snapshot b
     { ...f.policy, delete: ['other.txt', 'other.txt'] },
     { ...f.policy, delete: null },
   ]) {
-    assert.throws(() => validateEditPolicy(value as EditPolicy));
+    assert.throws(() => validateEditPolicy(value));
   }
   if (process.platform === 'win32') assert.throws(() => validateEditPolicy({ ...f.policy, delete: ['GREETING.js'] }));
   assert.throws(() => validateEditPolicy({ ...f.policy, create: Array.from({ length: 63 }, (_, i) => `${i}.txt`) }));

@@ -10,7 +10,6 @@ import { Workspaces } from '../../src/repository/workspaces.js';
 import { Executions } from '../../src/execution/executions.js';
 import { Checks } from '../../src/verification/checks.js';
 import { Deliveries } from '../../src/execution/deliveries.js';
-import type { ExecutionLease } from '../../src/execution/execution-state.js';
 
 export const windows = { skip: process.platform !== 'win32' };
 
@@ -120,7 +119,7 @@ export function deadController(f: Awaited<ReturnType<typeof fixture>>): void {
   const pid = Number(
     execFileSync(process.execPath, ['-e', 'console.log(process.pid)'], { encoding: 'utf8', windowsHide: true }),
   );
-  const lease = f.store.lease<ExecutionLease>(f.workspace.id)!;
+  const lease = f.store.lease(f.workspace.id)!;
   f.store.transaction(() => {
     f.store.releaseLease(f.workspace.id, f.execution.id, lease.runId);
     f.store.acquireLease(f.workspace.id, f.execution.id, lease.runId, { ...lease, controllerPid: pid });

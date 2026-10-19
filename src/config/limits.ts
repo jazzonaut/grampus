@@ -87,7 +87,7 @@ export const commandLimits = {
   previewBytes: 64 * KiB,
   /** Bytes of one supervisor protocol line or completion receipt accepted from the native host. */
   protocolBytes: 4096,
-  /** Bytes in a recorded simplification assessment summary. */
+  /** Bytes in a recorded quality assessment summary (any lens, not only simplification). */
   assessmentBytes: 16 * KiB,
 } as const;
 

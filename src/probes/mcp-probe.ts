@@ -1,4 +1,8 @@
+// Live probe of MCP carry-over: configured Codex MCP servers and a Claude project MCP fixture, through
+// subscriptions. With --fixture-server this file is itself the read-only stdio MCP fixture, answering
+// just enough JSON-RPC to list and call one tool.
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,15 +11,25 @@ import { execFileSync } from 'node:child_process';
 import { Store } from '../persistence/store.js';
 import { Sessions, runSession } from '../execution/sessions.js';
 
+/** A journaled agent event (`{ runId, data }`) naming the tool it reports. */
+const toolEventSchema = z.object({ data: z.object({ tool: z.string() }) });
+
+/** The JSON-RPC request fields the fixture server answers; notifications have no id. */
+const fixtureRequestSchema = z.object({
+  id: z.union([z.string(), z.number()]).optional(),
+  method: z.string(),
+  params: z.looseObject({ protocolVersion: z.unknown() }).optional(),
+});
+
 if (process.argv.includes('--fixture-server')) {
   const marker = process.argv[process.argv.indexOf('--fixture-server') + 1];
   createInterface({ input: process.stdin }).on('line', line => {
-    const request = JSON.parse(line);
+    const request = fixtureRequestSchema.parse(JSON.parse(line));
     if (request.id === undefined) return;
     const result =
       request.method === 'initialize'
         ? {
-            protocolVersion: request.params.protocolVersion,
+            protocolVersion: request.params?.protocolVersion,
             capabilities: { tools: {} },
             serverInfo: { name: 'read-only-fixture', version: '1.0.0' },
           }
@@ -100,7 +114,7 @@ if (process.argv.includes('--fixture-server')) {
         .some(
           event =>
             event.type === 'integration.tool_authorized' &&
-            String((event.data as { data: { tool: string } }).data.tool).endsWith('__read_contract'),
+            !!toolEventSchema.safeParse(event.data).data?.data.tool.endsWith('__read_contract'),
         );
       const summary = {
         provider: 'claude',

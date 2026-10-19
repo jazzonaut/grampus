@@ -92,7 +92,7 @@ checkout. Every task command accepts `--db <path>`. `grampus --help` prints the 
 | `task-stop <id>`, `task-recover <id>`, `task-release-workspace <id>` | Stop, reconcile after a crash, release an unused failed reservation |
 | `create`, `approve`, `list`, `show`, `report` | Low-level task records and the Markdown report |
 | `workspace-new`, `-list`, `-show`, `-inspect`, `-recover`, `-release` | Low-level worktree lifecycle (Git or `--orca`) |
-| `execution-new`, `-list`, `-show`, `-close`, `-snapshot`, `-implement`, `-check`, `-finish`, `-simplify`, `-review`, `-verify`, `-complete`, `-deliver`, `-recover` | Low-level execution gates, one call per step |
+| `execution-new`, `-list`, `-show`, `-close`, `-snapshot`, `-implement`, `-check`, `-finish`, `-assess`, `-review`, `-verify`, `-complete`, `-deliver`, `-recover` | Low-level execution gates, one call per step |
 | `implementation-show`, `-recover`; `check-show`, `-recover`; `delivery-show`, `-recover` | Inspect or reconcile individual supervised operations |
 | `session-new`, `-send`, `-answer`, `-show`, `-list`, `-recover` | Standalone live conversations with Codex or Claude |
 

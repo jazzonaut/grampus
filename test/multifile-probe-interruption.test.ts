@@ -148,7 +148,7 @@ for (const mode of ['existing', 'new', 'delete'] as const)
           outcome: 'passed',
           summary: 'Offline fixture: one calculation function and a CLI that reuses it; no additional abstractions',
         });
-        const review = await new Executions(store).create(workspace.id, 1, 'codex', 'review');
+        const review = await new Executions(store).create(workspace.id, 1, 'codex', { role: 'review' });
         const reviewed = await runSession(
           store,
           review.sessionId,

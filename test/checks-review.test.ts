@@ -8,7 +8,6 @@ import { fileURLToPath } from 'node:url';
 import { runSession } from '../src/execution/sessions.js';
 import type { Checks } from '../src/verification/checks.js';
 import { runCheckProcess, retainedOutput } from '../src/process/check-process.js';
-import type { ExecutionLease } from '../src/execution/execution-state.js';
 import type { Connector, Reply } from '../src/providers/types.js';
 import { windows, fixture, deadController, crashDuringInspection } from './helpers/checks.js';
 
@@ -39,7 +38,7 @@ async function submitted(f: Awaited<ReturnType<typeof fixture>>) {
 test('artifact review supplies verified files and records independent evidence only after provider shutdown', async t => {
   const f = await fixture(t);
   const snapshot = await submitted(f);
-  const review = await f.executions.create(f.workspace.id, 1, 'claude', 'review');
+  const review = await f.executions.create(f.workspace.id, 1, 'claude', { role: 'review' });
   const connector: Connector = async (_, options) => ({
     turn: async prompt => {
       assert.match(prompt, /console.log\('hello'\)/);
@@ -73,7 +72,7 @@ test('artifact review supplies verified files and records independent evidence o
 test('changed artifacts block review dispatch and changes during review cannot pass', async t => {
   const f = await fixture(t);
   await submitted(f);
-  const review = await f.executions.create(f.workspace.id, 1, 'claude', 'review');
+  const review = await f.executions.create(f.workspace.id, 1, 'claude', { role: 'review' });
   writeFileSync(join(f.workspace.path, 'greeting.js'), "console.log('changed');\n");
   let called = false;
   const stale = await runSession(f.store, review.sessionId, 'Review', { artifactReview: true }, async () => {
@@ -100,14 +99,10 @@ test('changed artifacts block review dispatch and changes during review cannot p
 test('blocking findings, questions, and unknown review shutdown cannot leave an older approval current', async t => {
   const f = await fixture(t);
   await submitted(f);
-  const review = await f.executions.create(
-    f.workspace.id,
-    1,
-    'codex',
-    'review',
-    null,
-    'Fixture alternate provider unavailable',
-  );
+  const review = await f.executions.create(f.workspace.id, 1, 'codex', {
+    role: 'review',
+    fallbackReason: 'Fixture alternate provider unavailable',
+  });
   await runSession(f.store, review.sessionId, 'Review', { artifactReview: true }, reviewer());
   assert.equal(f.workflow.get(f.task.id).evidence.at(-1)?.outcome, 'passed');
   await runSession(
@@ -217,7 +212,7 @@ test('completion checks every gate and revalidates artifact before the final tra
   const f = await fixture(t);
   const validation = await f.checks.run(f.execution.id, await f.spec());
   await f.checks.finish(f.execution.id, validation.id);
-  const review = await f.executions.create(f.workspace.id, 1, 'claude', 'review');
+  const review = await f.executions.create(f.workspace.id, 1, 'claude', { role: 'review' });
   await runSession(f.store, review.sessionId, 'Review', { artifactReview: true }, reviewer());
   const spec = { ...(await f.spec("console.log('hello')")), criteria: ['Print hello'], expectedStdout: 'hello\n' };
   await f.checks.run(f.execution.id, spec);
@@ -269,7 +264,7 @@ test('explicit quality assessment records all outcomes, rejects stale inputs and
     assert.equal(f.workflow.get(f.task.id).evidence.at(-1)?.outcome, outcome);
     assert.ok(f.workflow.blockers(f.task.id).some(item => item.includes('simplification')));
   }
-  const review = await f.executions.create(f.workspace.id, 1, 'claude', 'review');
+  const review = await f.executions.create(f.workspace.id, 1, 'claude', { role: 'review' });
   await assert.rejects(f.checks.assess(review.id, assessment), /implementation execution/);
   assert.equal(f.store.lease(f.workspace.id), null);
 });
@@ -287,13 +282,13 @@ test('quality assessment CLI persists assessment and crashed reassessment recove
   const specFile = join(f.root, 'simplification.json');
   writeFileSync(specFile, JSON.stringify(assessment));
   const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
-  execFileSync(process.execPath, [cli, 'execution-simplify', f.execution.id, specFile, '--db', f.db], {
+  execFileSync(process.execPath, [cli, 'execution-assess', f.execution.id, specFile, '--db', f.db], {
     windowsHide: true,
     stdio: 'pipe',
   });
   assert.equal(f.workflow.get(f.task.id).evidence.at(-1)?.outcome, 'passed');
   crashDuringInspection(f, `await checks.assess(${JSON.stringify(f.execution.id)}, ${JSON.stringify(assessment)});`);
-  assert.equal(f.store.lease<ExecutionLease>(f.workspace.id)?.kind, 'simplification');
+  assert.equal(f.store.lease(f.workspace.id)?.kind, 'assessment');
   assert.equal(f.workflow.get(f.task.id).evidence.at(-1)?.outcome, 'skipped');
   f.executions.recoverReadOnly(f.execution.id);
   assert.equal(f.store.lease(f.workspace.id), null);

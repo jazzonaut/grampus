@@ -1,7 +1,7 @@
-// Owns the guided task controller: its public API for the CLI, dashboard and tests, claiming and
-// releasing a task's runner within the bounded pool (./runner-pool.ts), the drive loop, and every
-// journaled change of guided state. What each stage dispatches and how it settles lives in ./stages;
-// prompts in ./prompts.ts.
+// Owns the guided task controller: its public API for the CLI, dashboard and tests, claiming and releasing a
+// task's runner within the bounded pool (./runner-pool.ts), the drive loop and every journaled change of guided
+// state; stage dispatch and settlement live in ./stages, prompts in ./prompts.ts. It never replays a provider
+// turn, command or Git write, and never takes ownership from a live or unverifiable controller.
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { Store } from '../../persistence/store.js';
@@ -32,6 +32,7 @@ import {
   freshRepairCycle,
   freshReviewCycle,
   isProgressStatus,
+  required,
   type GuidedServices,
   type GuidedState,
   type Pending,
@@ -40,6 +41,16 @@ import {
 import { GuidedStopError, errorReasonCode, stopReason } from './stop-reasons.js';
 
 const draftNote = 'Inspect the brief, selected files, commands, expected output and pinned base before approving.';
+
+/** How a caller claims the runner; see {@link GuidedTasks.take}. */
+interface Claim {
+  /** Explicit recovery: may displace this task's own provably dead owner, and skips the plan checks. */
+  recover?: boolean;
+  /** The statuses the task must be in when the claim is made. */
+  expected?: Status | Status[];
+  /** Revision works on an unapproved plan and never starts work, so it needs no runner pool slot. */
+  unapproved?: boolean;
+}
 
 /** Moves the state to a stop status, recording the note and its typed reason together. */
 function markStopped(state: GuidedState, status: Status, { code, note }: StopInput): void {
@@ -73,7 +84,11 @@ export class GuidedTasks {
     if (!state) throw new Error('This task has no guided plan');
     return state;
   }
-  /** Creates an unapproved guided task from a plan; nothing runs until its exact digest is approved. */
+  /**
+   * Creates an unapproved guided task from a plan; nothing runs until its exact digest is approved.
+   * Throws for an in-memory journal, since ownership and recovery need durable records, and for a plan
+   * that fails normalisation.
+   */
   create(input: unknown, directory?: string): Task {
     if (this.store.path === ':memory:') throw new Error('Guided tasks require a durable journal');
     const plan = normalizeGuidedPlan(input, directory);
@@ -172,7 +187,10 @@ export class GuidedTasks {
       return state;
     });
   }
-  /** Approves the exact current draft version and plan digest. */
+  /**
+   * Approves the exact current draft version and plan digest. Throws when either differs from the
+   * current draft, so an approval can never apply to a plan the person did not see.
+   */
   approve(id: string, version: number, digest: string): GuidedState {
     return this.store.transaction(() => {
       const state = this.current(id, false);
@@ -194,7 +212,7 @@ export class GuidedTasks {
    * slot in the runner pool ({@link assertRunnerAvailable}); recovery may always displace its own task's
    * dead owner, so a full pool of crashed owners can still be recovered.
    */
-  private take(id: string, recover = false, expected?: Status | Status[], unapproved = false): string {
+  private take(id: string, { recover = false, expected, unapproved = false }: Claim = {}): string {
     // Process identity queries start PowerShell; run them before taking the journal's write lock so
     // concurrent tasks are not kept waiting. A dead owner stays dead, so the verdict holds for its token.
     const startedAt = currentProcessStartedAt();
@@ -228,7 +246,11 @@ export class GuidedTasks {
       return token;
     });
   }
-  /** Revise at an idle checkpoint; preserve delivered prefixes and all worktree bytes. */
+  /**
+   * Revises at an idle checkpoint, preserving delivered prefixes and all worktree bytes. The revised
+   * plan is a new draft that needs fresh approval. Throws when the task is owned, pending, needs
+   * recovery, changed while the revision was prepared, or the revision itself is refused.
+   */
   async revise(id: string, input: unknown, directory?: string, expectedVersion?: number): Promise<GuidedState> {
     const observed = this.current(id, false);
     if (expectedVersion !== undefined && expectedVersion !== observed.version)
@@ -236,7 +258,7 @@ export class GuidedTasks {
     this.requireExpected(observed);
     if (observed.owner || observed.pending || observed.status === 'recovery_required')
       throw new Error('Stop and recover active or uncertain work before revising');
-    const token = this.take(id, false, undefined, true);
+    const token = this.take(id, { unapproved: true });
     try {
       const context = this.context(id, token);
       const draft = await draftRevision(context, observed, input, directory);
@@ -272,6 +294,7 @@ export class GuidedTasks {
     }
     return this.get(id);
   }
+  /** Refuses when the caller supplied the decision key it inspected and the task no longer matches it. */
   private requireExpected(state: GuidedState): void {
     if (
       this.services.expectedState !== undefined &&
@@ -296,7 +319,10 @@ export class GuidedTasks {
       } else state.owner = null;
     });
   }
-  /** Requests a stop; the running controller forwards it to the current leaf as an abort signal. */
+  /**
+   * Requests a stop; the running controller forwards it to the current leaf as an abort signal. Not
+   * fenced on a token, so any process may ask; throws when no controller owns the task.
+   */
   stop(id: string): GuidedState {
     return this.change(id, null, 'guided.stop_requested', state => {
       if (!state.owner) throw new Error('No guided controller is running');
@@ -320,9 +346,15 @@ export class GuidedTasks {
     };
     return context;
   }
+  /** The result ids that already exist for the current stage, so settlement can find the one new result. */
   private known(context: GuidedContext, state: GuidedState): string[] {
     return state.stage === 'complete' ? evidenceIds(context) : stageHandlers[state.stage].known(context, state);
   }
+  /**
+   * Journals the step intent (`guided.step_requested`) before any dispatch: the known result ids and
+   * this controller's identity, which settlement and recovery later require the result to match. A step
+   * already pending is never begun again, because its leaf may have run.
+   */
   private begin(id: string, token: string): GuidedState {
     const state = this.current(id);
     if (state.pending) throw new Error('An earlier step needs explicit recovery; nothing will be replayed');
@@ -332,7 +364,7 @@ export class GuidedTasks {
         stage: state.stage,
         known,
         assessment: state.assessments[0] ?? null,
-        controller: { ...state.owner! },
+        controller: { ...required(state, 'owner') },
       };
       state.status = 'running';
       state.note = `Running ${state.stage}.`;
@@ -342,9 +374,13 @@ export class GuidedTasks {
     if (state.stage === 'complete') return null;
     return stageHandlers[state.stage].perform({ ...this.context(id, token), state, signal });
   }
+  /**
+   * Settles the pending step from durable records, reading the state afresh rather than trusting what
+   * `perform` saw. `recovering` is explicit recovery of a step a previous controller left pending.
+   */
   private settle(id: string, token: string, snapshot: RepositorySnapshot | null = null, recovering = false): void {
     const state = this.get(id),
-      pending = state.pending!;
+      pending = required(state, 'pending');
     if (pending.stage === 'complete') return;
     const context = { ...this.context(id, token), state, pending, snapshot, recovering };
     this.apply(id, token, pending, stageHandlers[pending.stage].settle(context), recovering);
@@ -406,10 +442,10 @@ export class GuidedTasks {
         this.change(id, token, 'guided.step_failed', state => {
           const note = error instanceof Error ? error.message : String(error);
           state.note = note;
+          const pending = state.pending;
           const recorded =
-            state.pending &&
-            this.known(this.context(id, token), state).some(value => !state.pending!.known.includes(value));
-          if (state.pending && (operationReturned || recorded || this.unsettled(id, state)))
+            pending && this.known(this.context(id, token), state).some(value => !pending.known.includes(value));
+          if (pending && (operationReturned || recorded || this.unsettled(id, state)))
             markStopped(state, 'recovery_required', { code: errorReasonCode(error, 'RECOVERY_REQUIRED'), note });
           else {
             markStopped(state, 'blocked', { code: errorReasonCode(error, 'UNEXPECTED_ERROR'), note });
@@ -425,16 +461,15 @@ export class GuidedTasks {
   private async owned(
     id: string,
     action: (token: string, signal: AbortSignal) => Promise<unknown>,
-    signal?: AbortSignal,
-    recover = false,
-    expected?: Status | Status[],
+    { signal, ...claim }: Omit<Claim, 'unapproved'> & { signal?: AbortSignal | undefined } = {},
   ): Promise<GuidedState> {
-    const token = this.take(id, recover, expected),
+    const token = this.take(id, claim),
       abort = new AbortController();
     const timer = setInterval(() => {
       try {
         if (this.get(id).stopRequested) abort.abort();
       } catch {
+        // A task that can no longer be read is treated as a stop request rather than left running.
         abort.abort();
       }
     }, processLimits.stopPollMs);
@@ -446,11 +481,14 @@ export class GuidedTasks {
     }
     return this.get(id);
   }
-  /** Runs a ready task until it completes or stops. */
+  /**
+   * Runs a ready task until it completes or stops. Throws when the task is not ready, is owned, or the
+   * runner pool is full (`RunnerPoolFullError`).
+   */
   async run(id: string, signal?: AbortSignal): Promise<GuidedState> {
     const state = this.current(id);
     if (state.status !== 'ready') throw new Error(`Task is ${state.status}; inspect task-show for its next action`);
-    return this.owned(id, (token, signal) => this.drive(id, token, signal), signal, false, 'ready');
+    return this.owned(id, (token, signal) => this.drive(id, token, signal), { signal, expected: 'ready' });
   }
   /** Supervised mode: authorizes the displayed file scope and continues. */
   async authorize(id: string, signal?: AbortSignal): Promise<GuidedState> {
@@ -464,9 +502,7 @@ export class GuidedTasks {
         });
         await this.drive(id, token, signal);
       },
-      signal,
-      false,
-      'awaiting_scope',
+      { signal, expected: 'awaiting_scope' },
     );
   }
   /**
@@ -496,10 +532,11 @@ export class GuidedTasks {
       id,
       async (token, signal) => {
         this.change(id, token, 'guided.assessment_supplied', state => {
+          const snapshot = required(state, 'snapshot');
           state.assessments = lenses.map(lens => ({
             pass: lens.id,
-            artifact: state.snapshot!.artifact,
-            instructionsDigest: state.snapshot!.instructionsDigest,
+            artifact: snapshot.artifact,
+            instructionsDigest: snapshot.instructionsDigest,
             outcome,
             summary,
           }));
@@ -507,23 +544,26 @@ export class GuidedTasks {
         });
         await this.drive(id, token, signal);
       },
-      signal,
-      false,
-      'awaiting_assessment',
+      { signal, expected: 'awaiting_assessment' },
     );
   }
   /** Answers every pending agent question by id and resumes the same conversation. */
   async answer(id: string, answers: Record<string, string>, signal?: AbortSignal): Promise<GuidedState> {
     const state = this.current(id);
     if (state.status !== 'awaiting_answer') throw new Error('No guided questions are pending');
-    const execution = this.executions.get(state.stage === 'review' ? state.reviewId! : state.executionId!);
-    const questions = new Sessions(this.store).get(execution.sessionId).lastReply!.questions;
+    const execution = this.executions.get(required(state, state.stage === 'review' ? 'reviewId' : 'executionId'));
+    const reply = new Sessions(this.store).get(execution.sessionId).lastReply;
+    if (!reply) throw new Error('No guided questions are pending');
+    const questions = reply.questions;
     if (
       !answers ||
       typeof answers !== 'object' ||
       Array.isArray(answers) ||
       Object.keys(answers).length !== questions.length ||
-      questions.some(question => typeof answers[question.id] !== 'string' || !answers[question.id]!.trim())
+      questions.some(question => {
+        const answer = answers[question.id];
+        return typeof answer !== 'string' || !answer.trim();
+      })
     )
       throw new Error('Answer every pending question by id');
     return this.owned(
@@ -537,9 +577,7 @@ export class GuidedTasks {
         });
         await this.drive(id, token, signal);
       },
-      signal,
-      false,
-      'awaiting_answer',
+      { signal, expected: 'awaiting_answer' },
     );
   }
   /**
@@ -570,9 +608,7 @@ export class GuidedTasks {
         prepareRetry(context, 'guided.retry_requested', await implementationRetrySnapshot(context, state));
         await this.drive(id, token, signal);
       },
-      signal,
-      false,
-      allowed,
+      { signal, expected: allowed },
     );
   }
   /**
@@ -598,11 +634,9 @@ export class GuidedTasks {
         // Claiming the runner leaves the decision key unchanged, so the inspected decision must still apply.
         const state = eligible();
         if (this.unsettled(id, state)) throw new Error('Recover the unfinished operation before rerunning checks');
-        const snapshot = await this.checks.snapshot(state.executionId!);
-        if (
-          snapshot.artifact !== state.snapshot!.artifact ||
-          snapshot.instructionsDigest !== state.snapshot!.instructionsDigest
-        )
+        const snapshot = await this.checks.snapshot(required(state, 'executionId'));
+        const checked = required(state, 'snapshot');
+        if (snapshot.artifact !== checked.artifact || snapshot.instructionsDigest !== checked.instructionsDigest)
           throw new Error(
             'The workspace changed since the check ran; rerun checks applies only to the unchanged artifact. Use task-retry for a new attempt or revise the plan.',
           );
@@ -612,9 +646,7 @@ export class GuidedTasks {
         });
         await this.drive(id, token, signal);
       },
-      signal,
-      false,
-      'blocked',
+      { signal, expected: 'blocked' },
     );
   }
   /**
@@ -646,8 +678,7 @@ export class GuidedTasks {
           });
         }
       },
-      undefined,
-      true,
+      { recover: true },
     );
   }
   /** Releases an unused workspace-creation reservation (metadata only; files and branches are kept). */
@@ -672,8 +703,7 @@ export class GuidedTasks {
             'Unused reservation released; files and branches were retained. Continue explicitly to create a new workspace.';
         });
       },
-      undefined,
-      true,
+      { recover: true },
     );
   }
 }

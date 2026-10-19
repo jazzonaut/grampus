@@ -219,7 +219,7 @@ An **execution** (`execution/executions.ts`) binds one attempt to a workspace an
 given role, with a usage stage fixed at creation: `implementation` for the first implementation of a
 slice, `repair` for any later implementation attempt in the same slice (automatic repairs and
 explicit retries), `review`, or `arbitration` for a fresh arbitrator. Every turn or operation claims the workspace lease (`execution/execution-state.ts`) under a run id
-and lease kind (`conversation`, `snapshot`, `check`, `submission`, `simplification` (used by every
+and lease kind (`conversation`, `snapshot`, `check`, `submission`, `assessment` (used by every
 quality lens assessment), `verification`, `completion`, `implementation` or `delivery`). The lease is held until process exit is confirmed.
 Session state, task outcome, journal events and lease release settle in one transaction, fenced on
 the exact run id. There is no expiry or heartbeat takeover. Leases coordinate Grampus processes
@@ -436,7 +436,8 @@ fields, not values, and are bounded.
 | Supervisor output, check host request, completion receipts, process identity | `process/supervisor-protocol.ts` | Supervisor protocol failure (`supervisor_lost`), refused receipt, or an unknown process observation |
 | Worker request and result files | `execution/worker-files.ts` | The worker stops before any provider or Git work; a bad result is the run's error |
 | Stored integration health | `health/health-record.ts` | `journal-record` error naming the `health` table |
-| Journal records owned by the execution layer | `persistence/records.ts` | `journal-record` error naming the table. Records are validated in place so their stored bytes, which fences compare, are unchanged. Task and guided state records are validated by domain and orchestration |
+| Journal records: tasks with their guided state, and the execution-layer tables | `persistence/records.ts` (task fields from `domain/workflow.ts`, guided state from `orchestration/guided/state.ts`, plan from `domain/guided-plan.ts`) | `journal-record` error naming the table. Records are validated in place on every read so their stored bytes, which fences and digests compare, are unchanged. Stored shapes check structure; value bounds were enforced when the value was accepted |
+| Kickoff session events | `orchestration/kickoff.ts` | `journal-record` error naming the event type |
 | Orca CLI JSON | `repository/orca-protocol.ts` | `orca-output` error naming the command |
 | Git plumbing output | `repository/git-output.ts` | `git-output` error |
 | Repository tool arguments from agents | `repository/repository-tool-arguments.ts` | The tool call fails with a message the agent can act on |

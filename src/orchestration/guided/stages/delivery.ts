@@ -1,9 +1,10 @@
 // Owns the `delivery` stage: the verified local commit of the checked artifact, then either the
-// next slice with fresh allowances and conversations, or completion.
-import { Deliveries, type Delivery } from '../../../execution/deliveries.js';
+// next slice with fresh allowances and conversations, or completion. A failed delivery stops with its
+// retained HEAD, index and files; this stage never repeats a Git write on its own.
+import { Deliveries } from '../../../execution/deliveries.js';
 import { deepEqual } from '../../../domain/deep-equal.js';
 import { adoptOne, mismatch, requireOrigin, requireSettled, type StageHandler } from '../context.js';
-import { freshRepairCycle, freshReviewCycle, type GuidedState } from '../state.js';
+import { freshRepairCycle, freshReviewCycle, required, type GuidedState } from '../state.js';
 import { deliverySpec } from '../specs.js';
 
 /**
@@ -34,16 +35,18 @@ function startNextSlice(state: GuidedState): void {
  * slice's delivery.
  */
 export const deliveryStage: StageHandler = {
-  known: ({ store }, state) => store.deliveries<Delivery>(state.executionId!).map(item => item.id),
+  known: ({ store }, state) => store.deliveries(required(state, 'executionId')).map(item => item.id),
+  // The delivery module itself requires every gate on the current artifact before it stages anything.
   async perform({ state, store, workspaces, signal }) {
-    await new Deliveries(store, workspaces).run(state.executionId!, deliverySpec(state), signal);
+    await new Deliveries(store, workspaces).run(required(state, 'executionId'), deliverySpec(state), signal);
     return null;
   },
   settle(context) {
     const { id, state, pending, store, workflow } = context;
-    const result = adoptOne(store.deliveries<Delivery>(state.executionId!), pending);
+    const executionId = required(state, 'executionId');
+    const result = adoptOne(store.deliveries(executionId), pending);
     if (!result) return { kind: 'missing' };
-    requireOrigin(context, state.executionId!, result.id, pending);
+    requireOrigin(context, executionId, result.id, pending);
     if (!deepEqual(result.spec, deliverySpec(state)))
       throw mismatch('Delivery result differs from the approved artifact or delivery request');
     requireSettled(result, 'Delivery');

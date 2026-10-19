@@ -1,6 +1,4 @@
 // Guided task tests: revising approved recipes and preserving partial or delivered work.
-import type { Execution } from '../src/execution/execution-state.js';
-import type { Workspace } from '../src/repository/workspaces.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -33,8 +31,8 @@ test(
     assert.equal(revised.workspaceId, submitted.workspaceId);
     assert.equal(readFileSync(join(f.plan.workspace.path, 'greeting.js'), 'utf8'), before);
     assert.equal(new Workflow(f.store).get(id).evidence.length, 0);
-    assert.equal(f.store.execution<Execution>(submitted.executionId!).phase, 'closed');
-    assert.equal(f.store.workspace<Workspace>(revised.workspaceId!).version, 2);
+    assert.equal(f.store.execution(submitted.executionId!).phase, 'closed');
+    assert.equal(f.store.workspace(revised.workspaceId!).version, 2);
     assert.throws(
       () => new GuidedTasks(f.store, { expectedState: oldKey }).approve(id, 2, revised.digest),
       /changed since/,

@@ -1,3 +1,6 @@
+// Owns Grampus sessions and their provider turns: claiming a turn under a run id, journaling provider
+// events fenced on that run, confirming the provider's exit and settling once, and recovery of
+// conversation turns. A turn is never replayed; an unconfirmed exit leaves the session for explicit recovery.
 import type { RepositoryAccess } from '../repository/repository-tools.js';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
@@ -5,14 +8,14 @@ import { resolve } from 'node:path';
 import { statSync } from 'node:fs';
 import { z } from 'zod';
 import type { Store } from '../persistence/store.js';
-import type { Session, TurnStage } from '../persistence/records.js';
+import type { Execution, Session, TurnStage } from '../persistence/records.js';
 import { processLimits } from '../config/limits.js';
 import { agentTimeout } from './agent-timeout.js';
 import { connectAgent } from '../providers/index.js';
 import { providerRuntime, type ProviderRuntime } from '../providers/executables.js';
 import { Workspaces } from '../repository/workspaces.js';
 import { claimExecution, requireExecutionLease, settleExecution, stopExecution } from './execution-state.js';
-import { Workflow, activeSlice, activeCriteria, type Task } from '../domain/workflow.js';
+import { Workflow, activeSlice, activeCriteria } from '../domain/workflow.js';
 import { currentProcessStartedAt, inspectProcess } from '../process/process-identity.js';
 import { processAlive as ownedProcessAlive } from '../verification/check-recovery.js';
 import { captureRepository, reviewContext } from '../repository/repository-evidence.js';
@@ -27,6 +30,7 @@ import {
 } from '../providers/types.js';
 import { taskCheckEvidence, checkEvidenceSummary } from '../verification/check-evidence.js';
 import { OutputBuffer, deltaText } from './output-buffer.js';
+import { parseBoundary } from '../process/boundary.js';
 
 export type { Session } from '../persistence/records.js';
 
@@ -35,6 +39,27 @@ export type { Session } from '../persistence/records.js';
 const connectedEventSchema = z.object({ providerSessionId: z.string().min(1), model: z.string().nullish() });
 const processStartedEventSchema = z.object({ pid: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) });
 
+/** The part of a `turn.requested` session event that identifies the turn. */
+const turnRequestedSchema = z.object({ runId: z.string() });
+
+/**
+ * The run ids of every turn requested in a session, in order. Settlement adopts a turn by these ids,
+ * so a malformed event is a journal error rather than a turn that silently disappears.
+ */
+export function requestedTurnIds(store: Store, sessionId: string): string[] {
+  return store
+    .sessionEvents(sessionId, ['turn.requested'])
+    .map(
+      event =>
+        parseBoundary(turnRequestedSchema, event.data, { kind: 'journal-record', source: 'session_events' }).runId,
+    );
+}
+
+/**
+ * Session records and the turn protocol on them. A session's `run` is the single active turn; every write
+ * for a turn checks the run id (and, for an execution, its workspace lease), so a late event from a
+ * stopped or superseded turn is ignored or refused rather than applied.
+ */
 export class Sessions {
   constructor(private readonly store: Store) {}
   get(id: string): Session {
@@ -85,6 +110,11 @@ export class Sessions {
    * Claims the session for one turn and journals `turn.requested` with the turn's usage stage: the
    * linked execution's stage, `planning` without one, or `stage` when the caller names a turn kind the
    * execution does not imply (an edit quality pass in the implementation conversation).
+   * `editing` claims an `implementation` lease instead of a `conversation` one; `trackDispatch` records a
+   * provider dispatch boundary on the run (native editing tracks dispatch on its implementation run).
+   *
+   * @throws Error when the session is deleted, in the wrong mode, already owned or needing recovery, the
+   *   answers do not match the pending questions, or the execution's workspace cannot be claimed.
    */
   claim(
     id: string,
@@ -100,32 +130,10 @@ export class Sessions {
     const controllerStartedAt = currentProcessStartedAt();
     return this.change(id, session => {
       if (session.deletedAt) throw new Error('This planning conversation was deleted');
-      if (editing) {
-        if (session.providerSessionId && session.mode !== 'editing')
-          throw new Error('Native editing requires a fresh session or an existing editing session');
-        const execution = this.store.executionForSession(id);
-        if (execution?.role !== 'implementation')
-          throw new Error('Native editing requires an implementation execution');
-        session.mode = 'editing';
-      } else if (session.mode === 'editing') throw new Error('Use execution-implement to continue an editing session');
+      this.requireMode(session, editing);
       if (['running', 'stop_requested', 'recovery_required'].includes(session.phase))
         throw new Error('Session already owned or needs recovery; no automatic replay');
-      if (session.phase === 'awaiting_answer') {
-        const questions = session.lastReply?.questions;
-        if (!questions) throw new Error('The pending questions are missing; recover the session');
-        if (
-          !answers ||
-          Object.keys(answers).length !== questions.length ||
-          questions.some(q => {
-            const answer = answers[q.id];
-            return typeof answer !== 'string' || !answer.trim();
-          })
-        ) {
-          throw new Error('Answer every pending question by its id');
-        }
-        prompt = `${prompt.trim() ? `${prompt}\n\n` : ''}User answers to the pending questions:\n${JSON.stringify(answers)}`;
-        this.store.appendSession(id, 'questions.answered', { answers });
-      } else if (answers) throw new Error('Session has no pending questions');
+      prompt = this.answeredPrompt(session, prompt, answers);
       if (!prompt.trim()) throw new Error('Prompt must not be empty');
       session.run = {
         id: randomUUID(),
@@ -138,28 +146,7 @@ export class Sessions {
       };
       claimExecution(this.store, session, session.run.id, editing ? 'implementation' : 'conversation');
       const execution = this.store.executionForSession(id);
-      if (execution) {
-        const task = this.store.get<Task>(execution.taskId);
-        prompt = `Approved task context (${editing ? 'native file editing; do not claim validation or completion' : 'conversation only; do not claim repository execution or completion'}):\n${JSON.stringify(
-          {
-            ...(session.providerSessionId
-              ? { title: task.brief.title, criteria: activeCriteria(task), continuedConversation: true }
-              : { brief: task.brief }),
-            version: execution.version,
-            attemptId: execution.attemptId,
-            role: execution.role,
-            artifact: execution.artifact,
-            ...(task.slice
-              ? {
-                  currentSlice: activeSlice(task),
-                  completedSlices: task.slice.completed,
-                  scope:
-                    'Work on the current slice only. The final slice requires integration review and verification of every task criterion.',
-                }
-              : {}),
-          },
-        )}\n\nUser turn:\n${prompt}`;
-      }
+      if (execution) prompt = this.taskPrompt(session, execution, editing, prompt);
       session.phase = 'running';
       this.store.appendSession(id, 'turn.requested', {
         runId: session.run.id,
@@ -171,6 +158,79 @@ export class Sessions {
     });
   }
 
+  /**
+   * Native editing needs an implementation execution and a fresh or editing-mode conversation; once a
+   * session edits, only editing turns may continue it, because its tools differ.
+   */
+  private requireMode(session: Session, editing: boolean): void {
+    if (editing) {
+      if (session.providerSessionId && session.mode !== 'editing')
+        throw new Error('Native editing requires a fresh session or an existing editing session');
+      const execution = this.store.executionForSession(session.id);
+      if (execution?.role !== 'implementation') throw new Error('Native editing requires an implementation execution');
+      session.mode = 'editing';
+    } else if (session.mode === 'editing') throw new Error('Use execution-implement to continue an editing session');
+  }
+
+  /**
+   * The prompt with the answers to the pending questions appended, journaling them. Answers are
+   * required exactly when questions are pending: one nonempty answer per question id.
+   */
+  private answeredPrompt(session: Session, prompt: string, answers: Record<string, string> | undefined): string {
+    if (session.phase !== 'awaiting_answer') {
+      if (answers) throw new Error('Session has no pending questions');
+      return prompt;
+    }
+    const questions = session.lastReply?.questions;
+    if (!questions) throw new Error('The pending questions are missing; recover the session');
+    if (
+      !answers ||
+      Object.keys(answers).length !== questions.length ||
+      questions.some(q => {
+        const answer = answers[q.id];
+        return typeof answer !== 'string' || !answer.trim();
+      })
+    ) {
+      throw new Error('Answer every pending question by its id');
+    }
+    this.store.appendSession(session.id, 'questions.answered', { answers });
+    return `${prompt.trim() ? `${prompt}\n\n` : ''}User answers to the pending questions:\n${JSON.stringify(answers)}`;
+  }
+
+  /**
+   * Prefixes an execution's turn with the approved task context, so the agent works from the
+   * controller's record rather than its own memory. A continued conversation gets the short form.
+   */
+  private taskPrompt(session: Session, execution: Execution, editing: boolean, prompt: string): string {
+    const task = this.store.get(execution.taskId);
+    return `Approved task context (${editing ? 'native file editing; do not claim validation or completion' : 'conversation only; do not claim repository execution or completion'}):\n${JSON.stringify(
+      {
+        ...(session.providerSessionId
+          ? { title: task.brief.title, criteria: activeCriteria(task), continuedConversation: true }
+          : { brief: task.brief }),
+        version: execution.version,
+        attemptId: execution.attemptId,
+        role: execution.role,
+        artifact: execution.artifact,
+        ...(task.slice
+          ? {
+              currentSlice: activeSlice(task),
+              completedSlices: task.slice.completed,
+              scope:
+                'Work on the current slice only. The final slice requires integration review and verification of every task criterion.',
+            }
+          : {}),
+      },
+    )}\n\nUser turn:\n${prompt}`;
+  }
+
+  /**
+   * Journals one provider event for the active run and applies the ones that change session identity:
+   * the provider conversation id and model, and the provider process identity that recovery later needs
+   * to prove its exit. Returns false (journaled as ignored) when the run no longer owns the session.
+   *
+   * @throws Error when the run lost its execution lease, or the provider conversation id is missing or changed.
+   */
   event(id: string, runId: string, event: AgentEvent): boolean {
     // Observed before the write lock: the query starts PowerShell, which would hold up every other
     // task's journal writes. The provider's identity does not depend on what the transaction reads.
@@ -193,7 +253,7 @@ export class Sessions {
         session.toolsetVersion = agentToolsetVersion;
         if (data.model) session.model = data.model;
         if (execution?.role === 'implementation' && data.model) {
-          const task = this.store.get<Task>(execution.taskId);
+          const task = this.store.get(execution.taskId);
           if (task.attempt?.id === execution.attemptId && task.version === execution.version) {
             task.attempt.agent.model = data.model;
             this.store.save(task.id, task);
@@ -204,6 +264,7 @@ export class Sessions {
           }
         }
       }
+      // A null start time (the process was not observed) means recovery must see the PID absent.
       if (startedPid !== undefined && observed) {
         session.run.providerPid = startedPid;
         session.run.providerStartedAt = observed.state === 'present' ? observed.startedAt : null;
@@ -231,6 +292,12 @@ export class Sessions {
     });
   }
 
+  /**
+   * The provider dispatch boundary: journaled before the provider process is started, so recovery can
+   * prove a turn whose boundary is still `not_requested` never launched anything.
+   *
+   * @throws Error when the run no longer owns a running session or already crossed the boundary.
+   */
   requestConnection(id: string, runId: string): void {
     this.change(id, session => {
       if (session.run?.id !== runId || session.phase !== 'running' || session.run.providerDispatch !== 'not_requested')
@@ -240,6 +307,10 @@ export class Sessions {
     });
   }
 
+  /**
+   * Journals a stop request for the running turn (and its implementation attempt). It only records intent;
+   * the caller interrupts the provider. A no-op when the run is not the session's running turn.
+   */
   stop(id: string, runId: string, reason: string): void {
     this.change(id, session => {
       if (session.run?.id !== runId || session.phase !== 'running') return;
@@ -249,6 +320,12 @@ export class Sessions {
     });
   }
 
+  /**
+   * Settles the run's turn with its result. With a confirmed exit the session becomes idle, awaiting an
+   * answer, failed or interrupted and any execution lease is released; without one it becomes
+   * `recovery_required` and keeps the run and lease. A result for a run that no longer owns the session is journaled as
+   * ignored. A stop request makes the turn interrupted whatever the provider returned.
+   */
   settle(id: string, runId: string, result: TurnResult, exitConfirmed: boolean): void {
     this.change(id, session => {
       if (session.run?.id !== runId || !['running', 'stop_requested'].includes(session.phase)) {
@@ -279,6 +356,14 @@ export class Sessions {
     });
   }
 
+  /**
+   * Explicit recovery of a conversation turn whose controller died, without replaying it. The original
+   * controller must be provably gone on this host, and either the dispatch boundary proves no provider was
+   * requested or the recorded provider process is provably gone. The turn settles interrupted. Native
+   * editing sessions are refused because only a supervisor receipt can prove their settlement.
+   *
+   * @throws Error when any of those proofs is missing.
+   */
   recover(id: string, alive = ownedProcessAlive): void {
     this.change(id, session => {
       if (session.mode === 'editing')
@@ -308,17 +393,351 @@ export class Sessions {
   }
 }
 
+/** How one turn is run. Every field is optional; `timeoutMs` defaults to the agent timeout. */
 export interface RunOptions {
   repository?: RepositoryAccess;
   timeoutMs?: number;
+  /** Probe-only fault injection: request a stop this long after the provider turn starts. */
   interruptAfterMs?: number;
   signal?: AbortSignal;
   answers?: Record<string, string>;
   onEvent?: (event: AgentEvent) => void;
+  /** Review the execution's bound artifact read-only and record the verdict as review evidence. */
   artifactReview?: boolean;
 }
 
-/** Each CLI invocation owns one process, closes it, and retains a resumable provider id. */
+/** A claimed turn: the session as claimed, the prompt to send and the run id every effect is fenced on. */
+type TurnClaim = ReturnType<Sessions['claim']>;
+
+const interruptedBeforeResult = (): TurnResult => ({
+  status: 'interrupted',
+  reply: null,
+  usage: null,
+  error: 'Interrupted before a final provider result',
+});
+
+/**
+ * The live state of one provider turn: stop requests, timers, coalesced output and what is known
+ * about the provider process. Its flags decide whether the process exit can be confirmed, which is
+ * what allows the session to settle rather than require recovery.
+ */
+class TurnRun {
+  private stopped = false;
+  private connectionFinished = false;
+  private connectionPending = false;
+  private connectorClosed = false;
+  private processStarted = false;
+  private agent: AgentSession | null = null;
+  private readonly connectionAbort = new AbortController();
+  private interruptTimer: ReturnType<typeof setTimeout> | undefined;
+  private timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+  private graceTimer: ReturnType<typeof setTimeout> | undefined;
+  private stopNow: () => void = () => {};
+  /** Resolves once a stop has waited its grace period; racing it ends the turn without a result. */
+  private readonly stopSignal = new Promise<void>(resolve => {
+    this.stopNow = resolve;
+  });
+  private readonly output: OutputBuffer;
+
+  constructor(
+    private readonly sessions: Sessions,
+    private readonly id: string,
+    readonly claim: TurnClaim,
+    private readonly options: RunOptions,
+  ) {
+    this.output = new OutputBuffer(text => {
+      if (sessions.delta(id, claim.runId, text)) options.onEvent?.({ type: 'output.delta', data: { text } });
+    });
+  }
+
+  /** Whether a stop was requested (by the caller, the timeout or the probe). */
+  get interrupted(): boolean {
+    return this.stopped;
+  }
+
+  /**
+   * Journals the stop, then interrupts the provider (or aborts the connection) and gives it the
+   * grace period to settle. Pending output is flushed first so the journal keeps its order.
+   */
+  readonly requestStop = (reason: string): void => {
+    if (this.stopped) return;
+    this.stopped = true;
+    this.flushOutput();
+    this.sessions.stop(this.id, this.claim.runId, reason);
+    if (this.agent) void this.agent.interrupt().catch(() => {});
+    else this.connectionAbort.abort();
+    this.graceTimer = setTimeout(this.stopNow, processLimits.stopGraceMs);
+  };
+
+  private readonly aborted = () => this.requestStop('user interrupt');
+
+  /** Streams text into the output buffer; every other event flushes it first and is journaled in order. */
+  readonly emit = (event: AgentEvent): void => {
+    const text = deltaText(event);
+    if (text !== null) {
+      this.output.add(text);
+      return;
+    }
+    if (event.type === 'process.started') this.processStarted = true;
+    if (event.type === 'process.exit_confirmed') this.connectorClosed = true;
+    this.output.flush();
+    if (!this.sessions.event(this.id, this.claim.runId, event)) return;
+    this.options.onEvent?.(event);
+    if (event.type === 'turn.started' && this.options.interruptAfterMs && !this.interruptTimer) {
+      this.interruptTimer = setTimeout(
+        () => this.requestStop('scheduled probe interrupt'),
+        this.options.interruptAfterMs,
+      );
+    }
+  };
+
+  /** Starts listening for the caller's abort signal and the turn deadline (0 means none). */
+  arm(timeout: number): void {
+    this.options.signal?.addEventListener('abort', this.aborted, { once: true });
+    if (this.options.signal?.aborted) this.aborted();
+    if (timeout > 0) this.timeoutTimer = setTimeout(() => this.requestStop('turn timeout'), timeout);
+  }
+
+  /** Refuses to connect once a stop arrived while the context was being prepared. */
+  requireRunning(): void {
+    if (this.stopped) throw new Error('Interrupted before provider connection');
+  }
+
+  /**
+   * Connects the provider and runs the turn. The connection request is journaled before the provider
+   * starts, so recovery can tell an undispatched turn apart. A connection that outlives a stop is
+   * closed when it eventually returns; a prompt is never sent after a stop.
+   */
+  async dispatch(
+    connect: Connector,
+    repository: RepositoryAccess | undefined,
+    configurationCwd: string,
+  ): Promise<TurnResult> {
+    const { sessions, id, claim } = this;
+    this.connectionPending = true;
+    const connection = Promise.resolve()
+      .then(() => {
+        sessions.requestConnection(id, claim.runId);
+        return connect(claim.session.provider, {
+          cwd: claim.session.cwd,
+          providerSessionId: claim.session.providerSessionId,
+          model: claim.session.model,
+          configurationCwd,
+          signal: this.connectionAbort.signal,
+          emit: this.emit,
+          ...(repository ? { repository } : {}),
+        });
+      })
+      .then(
+        value => {
+          this.connectionPending = false;
+          this.agent = value;
+          this.connectionFinished = true;
+          return value;
+        },
+        (error: unknown) => {
+          this.connectionPending = false;
+          throw error;
+        },
+      );
+    // A connection that completes after a stop still owns a provider process; close it when it arrives.
+    void connection
+      .then(async value => {
+        if (this.stopped) await value.close();
+      })
+      .catch(() => {});
+    const connected = await Promise.race([connection, this.stopSignal.then(() => null)]);
+    if (!connected || this.stopped) {
+      const interrupted: TurnResult = {
+        status: 'interrupted',
+        reply: null,
+        usage: null,
+        error: 'Interrupted during connection',
+      };
+      return interrupted;
+    }
+    const result = await Promise.race([connected.turn(claim.prompt), this.stopSignal.then(interruptedBeforeResult)]);
+    if (result.status === 'completed') result.reply = parseReply(result.reply);
+    return result;
+  }
+
+  /**
+   * Stops the timers and closes the provider process. The exit is confirmed only when `close` returned,
+   * the connector reported it, or no process ever started and no connection is still pending.
+   */
+  async shutDown(result: TurnResult): Promise<{ result: TurnResult; exitConfirmed: boolean }> {
+    clearTimeout(this.interruptTimer);
+    clearTimeout(this.timeoutTimer);
+    clearTimeout(this.graceTimer);
+    this.options.signal?.removeEventListener('abort', this.aborted);
+    try {
+      if (this.agent) {
+        await this.agent.close();
+        return { result, exitConfirmed: true };
+      }
+      return { result, exitConfirmed: this.connectorClosed || (!this.processStarted && !this.connectionPending) };
+    } catch (error) {
+      return {
+        result: {
+          ...result,
+          status: 'failed',
+          error: `Process shutdown unconfirmed: ${error instanceof Error ? error.message : String(error)}`,
+        },
+        exitConfirmed: false,
+      };
+    }
+  }
+
+  /**
+   * The final word before settlement: a stopped turn is interrupted whatever it returned, and a
+   * connection still pending (or a stopped one whose process started but never connected) cannot have
+   * a confirmed exit, because its process may yet appear.
+   */
+  conclude(result: TurnResult, exitConfirmed: boolean): boolean {
+    if (this.stopped || this.options.signal?.aborted) {
+      result.status = 'interrupted';
+      result.reply = null;
+    }
+    const unconfirmed =
+      !this.connectorClosed &&
+      (this.connectionPending || (!this.connectionFinished && this.stopped && this.processStarted));
+    this.flushOutput();
+    return exitConfirmed && !unconfirmed;
+  }
+
+  private flushOutput(): void {
+    try {
+      this.output.flush();
+    } catch {
+      /* Display-only text; the stop or settlement that follows is what must be journaled. */
+    }
+  }
+}
+
+/** The agent identity review evidence names: the reviewer's own session. */
+function reviewerAgent(session: Session): { provider: string; sessionId: string; model: string } {
+  return { provider: session.provider, sessionId: session.id, model: session.model ?? 'provider-default' };
+}
+
+/**
+ * Records skipped review evidence for the review about to run, so an earlier verdict on the same
+ * artifact can no longer pass the review gate while this one is pending.
+ */
+function recordReviewRequested(store: Store, review: Execution, session: Session): void {
+  new Workflow(store).record(review.taskId, {
+    id: randomUUID(),
+    attemptId: review.attemptId,
+    version: review.version,
+    artifact: review.artifact ?? '',
+    kind: 'review',
+    outcome: 'skipped',
+    source: 'agent',
+    summary: 'Artifact review requested; a new verified verdict is pending',
+    agent: reviewerAgent(session),
+    ...(review.fallbackReason ? { fallbackReason: review.fallbackReason } : {}),
+  });
+}
+
+/**
+ * The repository access and configuration directory of the turn. An execution's turn is refused if
+ * its task version changed; a review also gets the review context, the retained check evidence and,
+ * with exploration, read access bound to the reviewed snapshot.
+ */
+async function turnAccess(
+  store: Store,
+  workspaces: Workspaces,
+  run: TurnRun,
+  review: Execution | null,
+  repository: RepositoryAccess | undefined,
+): Promise<{ repository: RepositoryAccess | undefined; configurationCwd: string }> {
+  const { claim } = run;
+  const execution = store.executionForSession(claim.session.id);
+  if (!execution) return { repository, configurationCwd: repository?.repo ?? claim.session.cwd };
+  const configurationCwd = workspaces.get(execution.workspaceId).repository;
+  const inspected = await workspaces.inspect(execution.workspaceId, !review);
+  if (!inspected.taskCurrent) throw new Error('Execution task version changed before dispatch');
+  let access = repository;
+  if (review) {
+    const snapshot = await captureRepository(workspaces, review);
+    claim.prompt += `\n\n${await reviewContext(store, workspaces, review, snapshot, !!claim.session.providerSessionId)}`;
+    const plan = new Workflow(store).get(execution.taskId).guided?.plan;
+    const checks = taskCheckEvidence(store, execution);
+    claim.prompt += `\nRetained check evidence (use grampus_read_check for complete output):\n${checkEvidenceSummary(checks)}`;
+    if (plan?.context.exploration)
+      access = { repo: claim.session.cwd, snapshot, references: plan.references ?? [], checks };
+    run.emit({ type: 'review.context', data: { artifact: review.artifact, prompt: claim.prompt } });
+  }
+  run.requireRunning();
+  return { repository: access, configurationCwd };
+}
+
+/**
+ * A completed review only counts if the repository is still exactly the reviewed artifact and the
+ * verdict says something; otherwise the turn fails with the reason.
+ */
+async function verifiedReview(workspaces: Workspaces, review: Execution, result: TurnResult): Promise<TurnResult> {
+  try {
+    if ((await captureRepository(workspaces, review)).artifact !== review.artifact)
+      return { ...result, status: 'failed', error: 'Repository changed during review' };
+    if (result.reply?.kind === 'review' && !result.reply.text.trim())
+      return { ...result, status: 'failed', error: 'Review requires an explicit summary' };
+    return result;
+  } catch (error) {
+    return { ...result, status: 'failed', error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * Settles the session and, for a review this run still owned with a confirmed exit, records the
+ * verdict as review evidence: failed on any blocking finding or failure, passed for a review reply,
+ * skipped otherwise. One transaction, so the verdict and the session settle together.
+ */
+function settleTurn(
+  store: Store,
+  sessions: Sessions,
+  run: { id: string; runId: string; review: Execution | null },
+  result: TurnResult,
+  exitConfirmed: boolean,
+): void {
+  const { id, runId, review } = run;
+  store.transaction(() => {
+    const owned = sessions.get(id).run?.id === runId;
+    sessions.settle(id, runId, result, exitConfirmed);
+    if (!review || !exitConfirmed || !owned) return;
+    const session = sessions.get(id);
+    const verdict = result.status === 'completed' && result.reply?.kind === 'review' ? result.reply : null;
+    const outcome =
+      result.status === 'failed' || verdict?.findings.some(finding => finding.severity === 'blocking')
+        ? 'failed'
+        : verdict !== null
+          ? 'passed'
+          : 'skipped';
+    new Workflow(store).record(review.taskId, {
+      id: runId,
+      attemptId: review.attemptId,
+      version: review.version,
+      artifact: review.artifact ?? '',
+      kind: 'review',
+      outcome,
+      source: 'agent',
+      summary: result.error ?? (result.reply?.text.trim() || 'Artifact review did not produce a review verdict'),
+      agent: reviewerAgent(session),
+      ...(review.fallbackReason ? { fallbackReason: review.fallbackReason } : {}),
+    });
+    store.appendExecution(review.id, 'review.settled', {
+      runId,
+      artifact: review.artifact,
+      outcome,
+      findings: result.reply?.findings ?? [],
+    });
+  });
+}
+
+/**
+ * Runs one provider turn in a session. Each CLI invocation owns one provider process, closes it and
+ * keeps a resumable provider id. The turn is never retried: whatever happens, the session settles
+ * once, and an unconfirmed process exit leaves it `recovery_required` rather than settled.
+ */
 export async function runSession(
   store: Store,
   id: string,
@@ -337,219 +756,32 @@ export async function runSession(
   const review = options.artifactReview ? store.executionForSession(id) : null;
   if (options.artifactReview && (review?.role !== 'review' || !review.artifact?.startsWith('sha256:')))
     throw new Error('Artifact review requires a review execution bound to a verified content digest');
-  const reviewArtifact = review?.artifact ?? '';
+  // The pending review marker is recorded before the claim, since `Workflow.record` refuses while the task
+  // holds a lease; one transaction keeps marker and claim together.
   const claim = store.transaction(() => {
-    if (review) {
-      const session = sessions.get(id);
-      new Workflow(store).record(review.taskId, {
-        id: randomUUID(),
-        attemptId: review.attemptId,
-        version: review.version,
-        artifact: reviewArtifact,
-        kind: 'review',
-        outcome: 'skipped',
-        source: 'agent',
-        summary: 'Artifact review requested; a new verified verdict is pending',
-        agent: { provider: session.provider, sessionId: session.id, model: session.model ?? 'provider-default' },
-        ...(review.fallbackReason ? { fallbackReason: review.fallbackReason } : {}),
-      });
-    }
+    if (review) recordReviewRequested(store, review, sessions.get(id));
     return sessions.claim(id, prompt, options.answers, false, true);
   });
-  let agent: AgentSession | null = null;
-  let stopped = false;
-  let connectionFinished = false;
-  let connectionPending = false;
-  let connectorClosed = false;
-  let processStarted = false;
-  const connectionAbort = new AbortController();
-  let interruptTimer: ReturnType<typeof setTimeout> | undefined;
-  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
-  let graceTimer: ReturnType<typeof setTimeout> | undefined;
-  let stopNow!: () => void;
-  const stopSignal = new Promise<void>(resolve => {
-    stopNow = resolve;
-  });
-  const output = new OutputBuffer(text => {
-    if (sessions.delta(id, claim.runId, text)) options.onEvent?.({ type: 'output.delta', data: { text } });
-  });
-  const requestStop = (reason: string): void => {
-    if (stopped) return;
-    stopped = true;
-    try {
-      output.flush();
-    } catch {
-      /* Display-only text; the stop below is what must be journaled. */
-    }
-    sessions.stop(id, claim.runId, reason);
-    if (agent) void agent.interrupt().catch(() => {});
-    else connectionAbort.abort();
-    graceTimer = setTimeout(stopNow, processLimits.stopGraceMs);
-  };
-  const aborted = () => requestStop('user interrupt');
-  const emit = (event: AgentEvent): void => {
-    const text = deltaText(event);
-    if (text !== null) {
-      output.add(text);
-      return;
-    }
-    if (event.type === 'process.started') processStarted = true;
-    if (event.type === 'process.exit_confirmed') connectorClosed = true;
-    output.flush();
-    if (!sessions.event(id, claim.runId, event)) return;
-    options.onEvent?.(event);
-    if (event.type === 'turn.started' && options.interruptAfterMs && !interruptTimer) {
-      interruptTimer = setTimeout(() => requestStop('scheduled probe interrupt'), options.interruptAfterMs);
-    }
-  };
-  options.signal?.addEventListener('abort', aborted, { once: true });
-  if (options.signal?.aborted) aborted();
-  if (timeout > 0) timeoutTimer = setTimeout(() => requestStop('turn timeout'), timeout);
+  const run = new TurnRun(sessions, id, claim, options);
+  run.arm(timeout);
   let result: TurnResult = { status: 'failed', reply: null, usage: null, error: 'Turn did not complete' };
-  let exitConfirmed = false;
   try {
-    const execution = store.executionForSession(id);
-    let repository = options.repository;
-    let configurationCwd = options.repository?.repo ?? claim.session.cwd;
-    if (execution) {
-      configurationCwd = workspaces.get(execution.workspaceId).repository;
-      const inspected = await workspaces.inspect(execution.workspaceId, !review);
-      if (!inspected.taskCurrent) throw new Error('Execution task version changed before dispatch');
-      if (review) {
-        const snapshot = await captureRepository(workspaces, review);
-        claim.prompt += `\n\n${await reviewContext(store, workspaces, review, snapshot, !!claim.session.providerSessionId)}`;
-        const plan = new Workflow(store).get(execution.taskId).guided?.plan;
-        const checks = taskCheckEvidence(store, execution);
-        claim.prompt += `\nRetained check evidence (use grampus_read_check for complete output):\n${checkEvidenceSummary(checks)}`;
-        if (plan?.context.exploration)
-          repository = { repo: claim.session.cwd, snapshot, references: plan.references ?? [], checks };
-        emit({ type: 'review.context', data: { artifact: review.artifact, prompt: claim.prompt } });
-      }
-      if (stopped) throw new Error('Interrupted before provider connection');
-    }
-    connectionPending = true;
-    const connection = Promise.resolve()
-      .then(() => {
-        sessions.requestConnection(id, claim.runId);
-        return connect(claim.session.provider, {
-          cwd: claim.session.cwd,
-          providerSessionId: claim.session.providerSessionId,
-          model: claim.session.model,
-          configurationCwd,
-          signal: connectionAbort.signal,
-          emit,
-          ...(repository ? { repository } : {}),
-        });
-      })
-      .then(
-        value => {
-          connectionPending = false;
-          agent = value;
-          connectionFinished = true;
-          return value;
-        },
-        error => {
-          connectionPending = false;
-          throw error;
-        },
-      );
-    // If startup outlives the deadline, close it when it eventually returns. Never send a prompt.
-    void connection
-      .then(async value => {
-        if (stopped) await value.close();
-      })
-      .catch(() => {});
-    const connected = await Promise.race([connection, stopSignal.then(() => null)]);
-    if (connected && !stopped) {
-      result = await Promise.race([
-        connected.turn(claim.prompt),
-        stopSignal.then((): TurnResult => ({
-          status: 'interrupted',
-          reply: null,
-          usage: null,
-          error: 'Interrupted before a final provider result',
-        })),
-      ]);
-      if (result.status === 'completed') result.reply = parseReply(result.reply);
-    } else result = { status: 'interrupted', reply: null, usage: null, error: 'Interrupted during connection' };
+    const access = await turnAccess(store, workspaces, run, review, options.repository);
+    result = await run.dispatch(connect, access.repository, access.configurationCwd);
   } catch (error) {
     result = {
-      status: stopped ? 'interrupted' : 'failed',
+      status: run.interrupted ? 'interrupted' : 'failed',
       reply: null,
       usage: null,
       error: error instanceof Error ? error.message : String(error),
     };
   } finally {
-    clearTimeout(interruptTimer);
-    clearTimeout(timeoutTimer);
-    clearTimeout(graceTimer);
-    options.signal?.removeEventListener('abort', aborted);
-    try {
-      if (agent) {
-        await (agent as AgentSession).close();
-        exitConfirmed = true;
-      } else exitConfirmed = connectorClosed || (!processStarted && !connectionPending);
-    } catch (error) {
-      result = {
-        ...result,
-        status: 'failed',
-        error: `Process shutdown unconfirmed: ${error instanceof Error ? error.message : String(error)}`,
-      };
-    }
-    if (review && exitConfirmed && result.status === 'completed') {
-      try {
-        if ((await captureRepository(workspaces, review)).artifact !== review.artifact)
-          throw new Error('Repository changed during review');
-        if (result.reply?.kind === 'review' && !result.reply.text.trim())
-          throw new Error('Review requires an explicit summary');
-      } catch (error) {
-        result = { ...result, status: 'failed', error: error instanceof Error ? error.message : String(error) };
-      }
-    }
-    if (stopped || options.signal?.aborted) {
-      result.status = 'interrupted';
-      result.reply = null;
-    }
-    if (!connectorClosed && (connectionPending || (!connectionFinished && stopped && processStarted)))
-      exitConfirmed = false;
-    try {
-      output.flush();
-    } catch {
-      /* Display-only text; settlement below records whether this run still owned the session. */
-    }
-    store.transaction(() => {
-      const owned = sessions.get(id).run?.id === claim.runId;
-      sessions.settle(id, claim.runId, result, exitConfirmed);
-      if (review && exitConfirmed && owned) {
-        const session = sessions.get(id);
-        const verdict = result.status === 'completed' && result.reply?.kind === 'review' ? result.reply : null;
-        const isReview = verdict !== null;
-        const outcome =
-          result.status === 'failed' || verdict?.findings.some(finding => finding.severity === 'blocking')
-            ? 'failed'
-            : isReview
-              ? 'passed'
-              : 'skipped';
-        new Workflow(store).record(review.taskId, {
-          id: claim.runId,
-          attemptId: review.attemptId,
-          version: review.version,
-          artifact: reviewArtifact,
-          kind: 'review',
-          outcome,
-          source: 'agent',
-          summary: result.error ?? (result.reply?.text.trim() || 'Artifact review did not produce a review verdict'),
-          agent: { provider: session.provider, sessionId: session.id, model: session.model ?? 'provider-default' },
-          ...(review.fallbackReason ? { fallbackReason: review.fallbackReason } : {}),
-        });
-        store.appendExecution(review.id, 'review.settled', {
-          runId: claim.runId,
-          artifact: review.artifact,
-          outcome,
-          findings: result.reply?.findings ?? [],
-        });
-      }
-    });
+    const closed = await run.shutDown(result);
+    result = closed.result;
+    if (review && closed.exitConfirmed && result.status === 'completed')
+      result = await verifiedReview(workspaces, review, result);
+    const exitConfirmed = run.conclude(result, closed.exitConfirmed);
+    settleTurn(store, sessions, { id, runId: claim.runId, review }, result, exitConfirmed);
   }
   return result;
 }

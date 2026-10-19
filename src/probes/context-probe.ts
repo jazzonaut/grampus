@@ -1,3 +1,6 @@
+// Offline scale probe of repository context: builds a synthetic repository of up to 100000 files with
+// `git fast-import` and times pinned indexing, search, context selection and, with `--checkout`, full
+// snapshot and scope verification. It starts no provider and is never used by the controller.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';

@@ -1,10 +1,11 @@
 // Owns the `review` stage: the independent artifact review (or fresh arbitration) by the other
 // provider, and the policy for blocking findings: repair within the allowance, then optional
-// arbitration, then stop.
+// arbitration, then stop. The reviewer only reads the submitted artifact, and earlier verdicts are
+// never dropped from what it is shown.
 import { formatBytes, reviewLimits } from '../../../config/limits.js';
 import { reviewRepairRounds } from '../../../domain/guided-plan.js';
 import { lensOutcome, selectedLenses, type LensAssessment } from '../../../domain/quality-passes.js';
-import { Sessions, runSession, type Session } from '../../../execution/sessions.js';
+import { Sessions, requestedTurnIds, runSession, type Session } from '../../../execution/sessions.js';
 import type { Execution } from '../../../execution/execution-state.js';
 import { GuidedStopError, stopReason, type StopReasonCode } from '../stop-reasons.js';
 import {
@@ -15,15 +16,13 @@ import {
   type StageHandler,
   type StageOutcome,
 } from '../context.js';
-import type { GuidedState } from '../state.js';
+import { required, type GuidedState } from '../state.js';
 import { reviewPrompt } from '../prompts.js';
 import { automatic } from '../specs.js';
 
+/** The requested turns of the review session; a review step's result is its one new turn. */
 function reviewTurnIds({ store, executions }: GuidedContext, state: GuidedState): string[] {
-  return store
-    .sessionEvents(executions.get(state.reviewId!).sessionId)
-    .filter(event => event.type === 'turn.requested')
-    .map(event => (event.data as { runId: string }).runId);
+  return requestedTurnIds(store, executions.get(required(state, 'reviewId')).sessionId);
 }
 
 /**
@@ -57,11 +56,15 @@ function reviewHistory({ store, executions }: GuidedContext, state: GuidedState)
  */
 function routeBlockingReview(context: SettleContext, execution: Execution): 'repair' | 'arbitration' | StopReasonCode {
   const { store, state, executions, change, prepareRetry } = context;
+  const artifact = execution.artifact;
+  if (!artifact) throw new Error(`Review execution ${execution.id} is not bound to an artifact`);
   return store.transaction(() => {
     const cycle = structuredClone(state.reviewCycle);
     // Blocking the same artifact twice means the last repair changed nothing the reviewer cared about.
-    const noProgress = automatic(state) && cycle.history.some(item => item.artifact === execution.artifact);
-    cycle.history.push({ executionId: execution.id, artifact: execution.artifact! });
+    const noProgress = automatic(state) && cycle.history.some(item => item.artifact === artifact);
+    cycle.history.push({ executionId: execution.id, artifact });
+    // Journaled first in every route, so the blocking verdict is on record before any repair or
+    // arbitration moves the task on; the transient code is replaced by whatever follows.
     change('guided.blocking_review', current => {
       current.reviewCycle = cycle;
       current.pending = null;
@@ -145,8 +148,12 @@ function settlePassed({ state }: SettleContext, { execution, session }: Verdict)
       },
     };
   const lenses = selectedLenses(state.plan.quality);
-  const assessed = lenses.map(lens => session.lastReply?.lenses?.find(item => item.lens === lens.id));
-  const missing = lenses.filter((_, index) => assessed[index]?.verdict !== 'pass').map(lens => lens.id);
+  const verdictOf = (id: string) => session.lastReply?.lenses?.find(item => item.lens === id);
+  const assessed = lenses.flatMap(lens => {
+    const item = verdictOf(lens.id);
+    return item?.verdict === 'pass' ? [item] : [];
+  });
+  const missing = lenses.filter(lens => verdictOf(lens.id)?.verdict !== 'pass').map(lens => lens.id);
   if (missing.length)
     return {
       kind: 'stop',
@@ -155,31 +162,37 @@ function settlePassed({ state }: SettleContext, { execution, session }: Verdict)
         note: `The reviewer did not supply a passing assessment of the selected quality lens ${missing.join(', ')}. Inspect the verdict before continuing.`,
       },
     };
+  // With no lenses selected nothing is queued, so a snapshot is needed only when there is one.
+  const snapshot = assessed.length ? required(state, 'snapshot') : null;
   return {
     kind: 'advance',
     next: lenses.length ? 'assessment' : 'verification',
     update: current => {
       current.answers = null;
-      current.assessments = assessed.map(item => ({
-        pass: item!.lens,
-        outcome: lensOutcome(item!.verdict),
-        summary: item!.summary,
-        artifact: state.snapshot!.artifact,
-        instructionsDigest: state.snapshot!.instructionsDigest,
-        reviewId: execution.id,
-      }));
+      current.assessments = !snapshot
+        ? []
+        : assessed.map(item => ({
+            pass: item.lens,
+            outcome: lensOutcome(item.verdict),
+            summary: item.summary,
+            artifact: snapshot.artifact,
+            instructionsDigest: snapshot.instructionsDigest,
+            reviewId: execution.id,
+          }));
     },
   };
 }
 
+/**
+ * Adopts the one new review turn of this step, only under this controller. A session that still has a
+ * run is uncertain and needs recovery; questions wait for answers; any other verdict is routed as
+ * passed or not passed.
+ */
 function settleReview(context: SettleContext): StageOutcome {
   const { id, state, pending, store, executions, workflow } = context;
-  const execution = executions.get(state.reviewId!),
+  const execution = executions.get(required(state, 'reviewId')),
     session = new Sessions(store).get(execution.sessionId);
-  const turns = store
-    .sessionEvents(session.id)
-    .filter(event => event.type === 'turn.requested')
-    .map(event => ({ id: (event.data as { runId: string }).runId }));
+  const turns = requestedTurnIds(store, session.id).map(id => ({ id }));
   const turn = adoptOne(turns, pending);
   if (!turn) return { kind: 'missing' };
   requireOrigin(context, execution.id, turn.id, pending);
@@ -222,7 +235,7 @@ export const reviewStage: StageHandler = {
     const verdicts = reviewHistory(context, state);
     await runSession(
       store,
-      executions.get(state.reviewId!).sessionId,
+      executions.get(required(state, 'reviewId')).sessionId,
       reviewPrompt({
         arbitrating: state.reviewCycle.arbitrating,
         verdicts,

@@ -99,6 +99,34 @@ export const lensAssessmentsSchema = z
   .max(qualityLimits.passes)
   .refine(list => new Set(list.map(item => item.lens)).size === list.length, 'Each lens may be assessed only once');
 
+/*
+ * Stored shapes. Plans and guided state are validated on every read; their bounds and id syntax were
+ * enforced when the value was accepted, so these check structure only. A bound tightened later must
+ * not make an existing record unreadable.
+ */
+const qualityPassRecordSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  kind: z.enum(['lens', 'edit']),
+  instructions: z.string(),
+}) satisfies z.ZodType<QualityPassDefinition, QualityPassDefinition>;
+
+/** The `quality` section of a stored plan: full definitions, as approval bound them. */
+export const planQualitySchema = z.object({ passes: z.array(qualityPassRecordSchema) }) satisfies z.ZodType<
+  PlanQuality,
+  PlanQuality
+>;
+
+/** A quality assessment queued in the guided state, before it is recorded as evidence. */
+export const qualityAssessmentRecordSchema = z.object({
+  pass: z.string(),
+  reviewId: z.string().exactOptional(),
+  artifact: z.string(),
+  instructionsDigest: z.string(),
+  outcome: z.enum(['passed', 'failed', 'skipped']),
+  summary: z.string(),
+}) satisfies z.ZodType<QualityAssessment, QualityAssessment>;
+
 /** A recorded quality assessment. Its summary bound is the recorded-assessment bound. */
 export const qualityAssessmentSchema = z.strictObject({
   pass: qualityPassIdSchema,
@@ -244,23 +272,19 @@ export function qualitySettingsProblems(
 /**
  * Resolves a plan's `quality` input to full definitions. Entries are ids of available passes or full
  * definitions; a full definition is taken as given, so a revised plan keeps the exact instructions it
- * was approved with even if the settings changed since. Without `quality` the defaults apply.
+ * was approved with even if the settings changed since. Without `quality` the defaults apply. Throws on
+ * a malformed selection, too many passes, an unknown id, an invalid definition or a repeated id.
  */
 export function normalizeQuality(
   value: unknown,
   available: readonly QualityPassDefinition[],
   defaults: readonly string[],
 ): PlanQuality {
-  const input = value === undefined ? { passes: [...defaults] } : value;
-  if (
-    !input ||
-    typeof input !== 'object' ||
-    Array.isArray(input) ||
-    Object.keys(input).some(key => key !== 'passes') ||
-    !Array.isArray((input as { passes?: unknown }).passes)
-  )
+  const input: unknown = value === undefined ? { passes: [...defaults] } : value;
+  const selection = z.strictObject({ passes: z.array(z.unknown()) }).safeParse(input);
+  if (!selection.success)
     throw new Error('Invalid quality; supply { passes: [...] } with quality pass ids or full definitions');
-  const entries = (input as { passes: unknown[] }).passes;
+  const entries = selection.data.passes;
   if (entries.length > qualityLimits.passes) throw new Error(`Select at most ${qualityLimits.passes} quality passes`);
   const passes = entries.map((entry): QualityPassDefinition => {
     if (typeof entry === 'string') {

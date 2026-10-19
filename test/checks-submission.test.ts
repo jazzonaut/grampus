@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { Store } from '../src/persistence/store.js';
 import { Sessions } from '../src/execution/sessions.js';
 import { Executions } from '../src/execution/executions.js';
-import { Checks, type CheckSpec, type RepositoryCheck } from '../src/verification/checks.js';
+import { Checks, type CheckSpec } from '../src/verification/checks.js';
 import { windows, git, fixture } from './helpers/checks.js';
 
 test('real check records content and output, then explicit submission passes only validation', windows, async t => {
@@ -85,7 +85,7 @@ test('checks share the session lease, persist intent before dispatch and reject 
   const f = await fixture(t);
   const spec = await f.spec();
   const check = await f.checks.run(f.execution.id, spec, undefined, async () => {
-    assert.equal(f.store.checks<RepositoryCheck>(f.execution.id).at(-1)?.phase, 'running');
+    assert.equal(f.store.checks(f.execution.id).at(-1)?.phase, 'running');
     assert.equal(f.store.executionEvents(f.execution.id).at(-1)?.type, 'check.dispatch_requested');
     assert.throws(() => new Sessions(f.store).claim(f.execution.sessionId, 'Compete'), /lease/);
     await assert.rejects(

@@ -42,11 +42,15 @@ export interface ProviderUsage extends Counters {
   provider: Provider;
   /** Distinct provider sessions (a resumed conversation counts once). */
   sessions: number;
+  /** Provider sessions with at least one usage observation. */
   observedSessions: number;
+  /** Provider sessions whose latest turn is still running or stopping. */
   activeSessions: number;
+  /** Time of the latest usage observation; null when there is none. */
   updatedAt: string | null;
   /** Fields whose total is a lower bound: some turn's usage is unknown or still incomplete. */
   incomplete: UsageField[];
+  /** Always null: the journal records provider estimates, never what was actually billed. */
   billedCostUsd: null;
 }
 
@@ -153,6 +157,10 @@ const counters = (values: (field: UsageField) => number | null): Counters => ({
   estimatedCostUsd: values('estimatedCostUsd'),
 });
 
+/**
+ * Adds one cumulative usage snapshot to a turn. A field the snapshot does not report keeps its last
+ * known value, and `complete: false` marks an interim sample that a later snapshot may still raise.
+ */
 function observe(run: Run, usage: Usage, event: RecordEvent): void {
   const values = counters(field => numeric(usage[field]));
   run.first ??= values;
@@ -162,9 +170,13 @@ function observe(run: Run, usage: Usage, event: RecordEvent): void {
   run.updatedAt = event.at;
 }
 
-/** Turns of one Grampus session. Usage and results belong to the turn requested most recently before them. */
+/**
+ * Turns of one Grampus session. Usage and results belong to the turn requested most recently before them;
+ * only the first result of a turn counts. A request without a readable stage is counted as planning.
+ */
 function sessionRuns(store: Store, sessionId: string): Run[] {
   const session = store.session(sessionId);
+  // Keyed by the provider conversation, so Grampus sessions that resume one conversation share its totals.
   const key = `${session.provider}:${session.providerSessionId ?? `local:${session.id}`}`;
   const runs: Run[] = [];
   for (const event of store.sessionEvents(sessionId, ['turn.requested', 'usage.updated', 'turn.result'])) {
@@ -239,6 +251,7 @@ function attribute(runs: Run[]): void {
   }
 }
 
+/** The sum of the known per-turn values of `field`, or null when no turn measured it. */
 function sum(rows: Run[], field: UsageField): number | null {
   const values = rows.map(run => run.delta[field]).filter((value): value is number => value !== null);
   return values.length ? values.reduce((total, value) => total + value, 0) : null;
@@ -256,6 +269,7 @@ function incompleteFields(rows: Run[]): UsageField[] {
   );
 }
 
+/** Counts {@link Interventions} strictly after the first `guided.approved` event; none before approval. */
 function interventions(events: JournalEvent[]): Interventions {
   const result: Interventions = {
     total: 0,
@@ -297,7 +311,8 @@ function linkedSessions(store: Store, taskId: string): string[] {
 
 /**
  * Measured usage of a task. Each provider turn's usage is attributed to the stage recorded when it was
- * requested; provider totals are the sums over turns, so a resumed conversation counts once.
+ * requested; provider totals are the sums over turns, so a resumed conversation counts once. Throws as
+ * `Store.get` and `Store.session` do when a linked record is missing or malformed.
  */
 export function taskUsage(store: Store, taskId: string): TaskUsage {
   const runs = linkedSessions(store, taskId)

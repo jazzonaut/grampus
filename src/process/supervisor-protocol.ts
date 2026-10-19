@@ -22,6 +22,10 @@ const pid = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const startTime = z.string().refine(validProcessStartTime, 'Invalid process creation time');
 const elapsedMs = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 
+/**
+ * One stdout line of the supervisor: `started` with the tool's PID, then one `result`. `exitConfirmed` is
+ * true only when the job was seen with zero active processes (or nothing was started).
+ */
 export const supervisorMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('started'), pid }),
   z.object({
@@ -52,6 +56,11 @@ export const receiptReasons = [
   'supervisor_error',
 ] as const;
 
+/**
+ * The flushed `completion.json` receipt. The supervisor writes one even when it could not confirm exit,
+ * but only `exitConfirmed: true` parses, so an unconfirmed run never counts as settled. `supervisorPid` and
+ * `supervisorStartedAt` identify the check host; `toolPid` is zero when the tool never started.
+ */
 export const completionReceiptSchema = z.object({
   protocol: z.literal(1),
   checkId: z.string(),
@@ -66,6 +75,7 @@ export const completionReceiptSchema = z.object({
 });
 export type CompletionReceipt = z.infer<typeof completionReceiptSchema>;
 
+/** The process identity helper's single JSON reply for one PID. */
 export const processObservationSchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('present'), startedAt: startTime }),
   z.object({ state: z.literal('absent') }),

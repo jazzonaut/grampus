@@ -1,3 +1,6 @@
+// Live probe of approved reference folders through subscriptions: each provider must read a contract
+// that exists only in an external folder (with a space in its path) through the `reference-1` root. It
+// requests no edits or external writes, and the controller never uses this file.
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
@@ -7,6 +10,10 @@ import { Store } from '../persistence/store.js';
 import { Sessions, runSession } from '../execution/sessions.js';
 import { inspectReference } from '../repository/reference-folders.js';
 import type { Provider } from '../providers/types.js';
+import { z } from 'zod';
+
+/** A journaled tool result (`{ runId, data }`) with the root it read from. */
+const toolEventSchema = z.object({ data: z.object({ root: z.string().optional(), tool: z.string() }) });
 
 async function main() {
   if (!process.argv.includes('--live'))
@@ -34,7 +41,8 @@ async function main() {
     results: unknown[] = [];
   console.log(JSON.stringify({ root }));
   try {
-    for (const provider of ['codex', 'claude'] as Provider[]) {
+    const providers: Provider[] = ['codex', 'claude'];
+    for (const provider of providers) {
       const session = new Sessions(store).create(provider, repo);
       const result = await runSession(
         store,
@@ -45,7 +53,7 @@ async function main() {
       const events = store.sessionEvents(session.id).filter(event => event.type === 'repository.tool_result');
       const used = new Set(
         events
-          .map(event => (event.data as { data: { root?: string; tool: string } }).data)
+          .flatMap(event => toolEventSchema.safeParse(event.data).data?.data ?? [])
           .filter(data => data.root === 'reference-1')
           .map(data => data.tool),
       );

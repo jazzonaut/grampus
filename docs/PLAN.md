@@ -38,8 +38,8 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   provider protocols, agent replies, supervisor output and receipts, worker files, execution-layer
   journal records, Orca and Git output, dashboard bodies and CLI input
   ([ARCHITECTURE.md](ARCHITECTURE.md#external-boundaries)); `no-explicit-any` and
-  `no-non-null-assertion` are errors. Task and guided state records and journal event payloads are
-  still read unvalidated by domain and orchestration.
+  `no-non-null-assertion` are errors. Task and guided state records and kickoff events are
+  validated on read; other journal event payloads are still read field by field by their consumers.
 - **Central configuration.** Done 19 October 2026. Fixed limits are in `src/config/limits.ts` and
   operational settings in `src/config/settings.ts`; an optional validated `config.json` in the data
   directory overrides ports, usage polling, the default check timeout and the default workflow

@@ -1,98 +1,131 @@
+// Owns the task record and its gates: the brief, versions and approval, attempts, artifact-bound
+// evidence, decisions and slice progress. `Workflow` is the only code that changes a task's phase;
+// it trusts its caller (the controller) and never validates provider messages itself.
 import type { GuidedState } from '../orchestration/guided/state.js';
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import { planLimits } from '../config/limits.js';
 import { selectedLenses } from './quality-passes.js';
 import type { Store } from '../persistence/store.js';
-import type { Workspace } from '../repository/workspaces.js';
 import { assertTaskExecutionIdle } from '../execution/execution-state.js';
-import type { Execution } from '../execution/execution-state.js';
-import type { Delivery } from '../execution/deliveries.js';
+import type { Delivery, Execution } from '../persistence/records.js';
 
-export interface Slice {
-  title: string;
-  plan: string;
-  criteria: string[];
-}
+/** One ordered slice of a brief: an independently verifiable outcome naming the task criteria it delivers. */
+export const sliceSchema = z.object({ title: z.string(), plan: z.string(), criteria: z.array(z.string()) });
+export type Slice = z.infer<typeof sliceSchema>;
 
-export interface Brief {
-  title: string;
-  outcome: string;
-  criteria: string[];
-  plan: string;
-  slices?: Slice[];
-}
+/** What the task must achieve. `slices`, when present, cover every criterion; see {@link validateBrief}. */
+export const briefSchema = z.object({
+  title: z.string(),
+  outcome: z.string(),
+  criteria: z.array(z.string()),
+  plan: z.string(),
+  slices: z.array(sliceSchema).exactOptional(),
+});
+export type Brief = z.infer<typeof briefSchema>;
 
-export interface Agent {
-  provider: string;
-  model: string;
-  sessionId: string;
-}
+/** The provider session an attempt or a review ran in. Review independence compares these. */
+export const agentSchema = z.object({ provider: z.string(), model: z.string(), sessionId: z.string() });
+export type Agent = z.infer<typeof agentSchema>;
 
-export interface Attempt {
-  id: string;
-  version: number;
-  agent: Agent;
-  artifact: string | null;
-  outcome: 'running' | 'succeeded' | 'failed' | 'stopped' | 'uncertain';
-}
+/** One implementation try. A fresh id per try is what invalidates evidence from earlier tries. */
+export const attemptSchema = z.object({
+  id: z.string(),
+  version: z.number(),
+  agent: agentSchema,
+  /** The content digest the attempt finished with; null until it succeeds. */
+  artifact: z.string().nullable(),
+  /** `uncertain` after a controller restart while running: the outcome must be reconciled, never assumed. */
+  outcome: z.enum(['running', 'succeeded', 'failed', 'stopped', 'uncertain']),
+});
+export type Attempt = z.infer<typeof attemptSchema>;
 
 /**
  * One gate result bound to an attempt, version and artifact. `quality` evidence is a lens assessment
  * and names its quality pass in `pass`; no other kind has a pass.
  */
-export interface Evidence {
-  id: string;
-  attemptId: string;
-  version: number;
-  artifact: string;
-  kind: 'quality' | 'validation' | 'review' | 'verification';
-  pass?: string;
-  outcome: 'passed' | 'failed' | 'skipped';
-  summary: string;
-  source: 'controller' | 'agent' | 'synthetic';
-  agent?: Agent;
-  criteria?: string[];
-  fallbackReason?: string;
-}
+export const evidenceSchema = z.object({
+  id: z.string(),
+  attemptId: z.string(),
+  version: z.number(),
+  artifact: z.string(),
+  kind: z.enum(['quality', 'validation', 'review', 'verification']),
+  pass: z.string().exactOptional(),
+  outcome: z.enum(['passed', 'failed', 'skipped']),
+  summary: z.string(),
+  /** Who established it. Agent evidence can never establish validation or verification. */
+  source: z.enum(['controller', 'agent', 'synthetic']),
+  /** The reviewer's session, required for review evidence. */
+  agent: agentSchema.exactOptional(),
+  /** The criteria a verification covered. */
+  criteria: z.array(z.string()).exactOptional(),
+  /** Why a review used the implementer's provider; required in that case. */
+  fallbackReason: z.string().exactOptional(),
+});
+export type Evidence = z.infer<typeof evidenceSchema>;
 
-export type Phase =
-  | 'draft'
-  | 'ready'
-  | 'running'
-  | 'stop_requested'
-  | 'recovery_required'
-  | 'stopped'
-  | 'failed'
-  | 'awaiting_verification'
-  | 'awaiting_decision'
-  | 'complete';
+/**
+ * The task phase. `running`, `stop_requested` and `recovery_required` mean a provider or process may
+ * still be working, so the record cannot be revised until the work is settled or reconciled.
+ */
+export const phaseSchema = z.enum([
+  'draft',
+  'ready',
+  'running',
+  'stop_requested',
+  'recovery_required',
+  'stopped',
+  'failed',
+  'awaiting_verification',
+  'awaiting_decision',
+  'complete',
+]);
+export type Phase = z.infer<typeof phaseSchema>;
 
-export interface Task {
-  deletedAt?: string;
-  resetTo?: string;
-  id: string;
-  brief: Brief;
-  version: number;
-  approvedVersion: number | null;
-  phase: Phase;
-  synthetic: boolean;
-  attempt: Attempt | null;
-  evidence: Evidence[];
-  decisions: { id: string; version: number; rationale: string; accepted: boolean }[];
-  guided?: GuidedState;
-  slice?: {
-    index: number;
-    completed: {
-      index: number;
-      attemptId: string;
-      artifact: string;
-      deliveryId: string;
-      outcome: 'committed' | 'no_change';
-      commit: string | null;
-      head: string;
-    }[];
-  };
-}
+/** A provisional decision; pending ones block completion and survive revisions until accepted. */
+const decisionSchema = z.object({ id: z.string(), version: z.number(), rationale: z.string(), accepted: z.boolean() });
+
+/** A delivered slice: the attempt and artifact it delivered and the head it left behind. */
+const completedSliceSchema = z.object({
+  index: z.number(),
+  attemptId: z.string(),
+  artifact: z.string(),
+  deliveryId: z.string(),
+  outcome: z.enum(['committed', 'no_change']),
+  commit: z.string().nullable(),
+  /** The commit a no-change delivery verified, or the new commit; the next slice builds on it. */
+  head: z.string(),
+});
+
+/**
+ * Every task field except the guided state. The complete stored record, with `guided` validated by its
+ * owner in orchestration/, is `taskSchema` in persistence/records.ts; it is composed there because the
+ * guided plan itself depends on this module.
+ */
+export const taskFieldsSchema = z.object({
+  /** Set by the dashboard's delete; a deleted task refuses every change. */
+  deletedAt: z.string().exactOptional(),
+  /** Set by a dashboard reset: the id of the kickoff that replaced this task. */
+  resetTo: z.string().exactOptional(),
+  id: z.string(),
+  brief: briefSchema,
+  version: z.number(),
+  approvedVersion: z.number().nullable(),
+  phase: phaseSchema,
+  /** Only a task created synthetic (the demo) accepts synthetic evidence; it can never be changed. */
+  synthetic: z.boolean(),
+  attempt: attemptSchema.nullable(),
+  /** Evidence for the current attempt only; a new attempt clears it. */
+  evidence: z.array(evidenceSchema),
+  decisions: z.array(decisionSchema),
+  /** Present exactly when the brief has slices. `completed.length === index` until the final delivery. */
+  slice: z.object({ index: z.number(), completed: z.array(completedSliceSchema) }).exactOptional(),
+});
+
+type CompletedSlice = z.infer<typeof completedSliceSchema>;
+
+/** The stored task record. Changes only through {@link Workflow} and the guided controller. */
+export type Task = z.infer<typeof taskFieldsSchema> & { guided?: GuidedState };
 
 /**
  * The quality lenses whose latest assessment must pass before delivery: the plan's selected lenses
@@ -102,19 +135,43 @@ export function requiredQualityLenses(task: Task): string[] {
   return task.guided ? selectedLenses(task.guided.plan.quality).map(pass => pass.id) : ['simplification'];
 }
 
-/** Final verification covers the whole outcome, including earlier slices. */
+/** The brief's slices; throws when a task tracks slice progress without them, a corrupt record. */
+function plannedSlices(task: Task): Slice[] {
+  if (!task.brief.slices) throw new Error(`Task ${task.id} tracks slice progress but its brief has no slices`);
+  return task.brief.slices;
+}
+
+/** The slice at `index` of the brief; throws when the index is past the planned slices. */
+function plannedSlice(task: Task, index: number): Slice {
+  const slice = plannedSlices(task)[index];
+  if (!slice) throw new Error(`Task ${task.id} has no slice ${index + 1}`);
+  return slice;
+}
+
+/** The current attempt, for transitions that are only reachable once one has started. */
+function currentAttempt(task: Task): Attempt {
+  if (!task.attempt) throw new Error(`Task ${task.id} has no current attempt`);
+  return task.attempt;
+}
+
+/**
+ * The criteria the current attempt must satisfy: the current slice's own criteria for an intermediate
+ * slice, and every task criterion otherwise, because final verification covers the whole outcome,
+ * including earlier slices.
+ */
 export function activeCriteria(task: Task): string[] {
   const index = task.slice?.index ?? 0;
   return task.slice && task.brief.slices && index < task.brief.slices.length - 1
-    ? task.brief.slices[index]!.criteria
+    ? plannedSlice(task, index).criteria
     : task.brief.criteria;
 }
 
+/** The current slice with its active criteria and position, or null for an unsliced task. */
 export function activeSlice(task: Task): (Slice & { number: number; total: number; final: boolean }) | null {
   if (!task.brief.slices || !task.slice) return null;
   const index = task.slice.index;
   return {
-    ...task.brief.slices[index]!,
+    ...plannedSlice(task, index),
     criteria: activeCriteria(task),
     number: index + 1,
     total: task.brief.slices.length,
@@ -122,40 +179,63 @@ export function activeSlice(task: Task): (Slice & { number: number; total: numbe
   };
 }
 
-function nonempty(value: string, field: string): void {
+function nonempty(value: unknown, field: string): asserts value is string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${field} must not be empty`);
 }
 
-export function validateBrief(brief: Brief): void {
-  nonempty(brief.title, 'title');
-  nonempty(brief.outcome, 'outcome');
-  nonempty(brief.plan, 'plan');
-  if (!Array.isArray(brief.criteria) || brief.criteria.length === 0) throw new Error('Acceptance criteria required');
-  brief.criteria.forEach(value => nonempty(value, 'criterion'));
-  if (new Set(brief.criteria).size !== brief.criteria.length) throw new Error('Acceptance criteria must be distinct');
-  if (brief.slices !== undefined) {
-    if (!Array.isArray(brief.slices) || brief.slices.length < 1 || brief.slices.length > planLimits.slices)
-      throw new Error(`Plan requires 1–${planLimits.slices} ordered slices`);
-    for (const slice of brief.slices) {
-      if (
-        !slice ||
-        typeof slice !== 'object' ||
-        Object.keys(slice).some(key => !['title', 'plan', 'criteria'].includes(key))
-      )
-        throw new Error('Invalid slice');
-      nonempty(slice.title, 'slice title');
-      nonempty(slice.plan, 'slice plan');
-      if (
-        !Array.isArray(slice.criteria) ||
-        slice.criteria.length === 0 ||
-        new Set(slice.criteria).size !== slice.criteria.length ||
-        slice.criteria.some(value => !brief.criteria.includes(value))
-      )
-        throw new Error('Slice criteria must name distinct approved task criteria');
-    }
-    if (!brief.criteria.every(criterion => brief.slices!.some(slice => slice.criteria.includes(criterion))))
-      throw new Error('Slices must cover every task criterion');
+/** The criteria one slice names; throws unless they are a nonempty, distinct subset of the task's. */
+function sliceCriteria(value: unknown, criteria: string[]): string[] {
+  const invalid = new Error('Slice criteria must name distinct approved task criteria');
+  if (!Array.isArray(value) || value.length === 0) throw invalid;
+  const names: string[] = [];
+  const list: unknown[] = value;
+  for (const name of list) {
+    if (typeof name !== 'string' || !criteria.includes(name) || names.includes(name)) throw invalid;
+    names.push(name);
   }
+  return names;
+}
+
+/** Throws unless every slice is a well-formed, distinct subset of the approved criteria and together they cover all. */
+function validateSlices(slices: unknown, criteria: string[]): void {
+  if (!Array.isArray(slices) || slices.length < 1 || slices.length > planLimits.slices)
+    throw new Error(`Plan requires 1–${planLimits.slices} ordered slices`);
+  const list: unknown[] = slices;
+  const parsed = list.map(item => {
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      Object.keys(item).some(key => !['title', 'plan', 'criteria'].includes(key))
+    )
+      throw new Error('Invalid slice');
+    const slice: Partial<Record<keyof Slice, unknown>> = item;
+    nonempty(slice.title, 'slice title');
+    nonempty(slice.plan, 'slice plan');
+    return sliceCriteria(slice.criteria, criteria);
+  });
+  if (!criteria.every(criterion => parsed.some(sliceCriteria => sliceCriteria.includes(criterion))))
+    throw new Error('Slices must cover every task criterion');
+}
+
+/**
+ * Validates a brief before it is created or revised: nonempty text, distinct criteria and, when sliced,
+ * 1 to `planLimits.slices` slices that each name distinct task criteria and together cover every one.
+ * Throws a message naming the first problem.
+ */
+export function validateBrief(brief: unknown): asserts brief is Brief {
+  if (!brief || typeof brief !== 'object') throw new Error('Invalid brief');
+  const fields: Partial<Record<keyof Brief, unknown>> = brief;
+  nonempty(fields.title, 'title');
+  nonempty(fields.outcome, 'outcome');
+  nonempty(fields.plan, 'plan');
+  if (!Array.isArray(fields.criteria) || fields.criteria.length === 0) throw new Error('Acceptance criteria required');
+  const list: unknown[] = fields.criteria;
+  const criteria = list.map(value => {
+    nonempty(value, 'criterion');
+    return value;
+  });
+  if (new Set(criteria).size !== criteria.length) throw new Error('Acceptance criteria must be distinct');
+  if (fields.slices !== undefined) validateSlices(fields.slices, criteria);
 }
 
 function validateAgent(agent: Agent): void {
@@ -164,21 +244,87 @@ function validateAgent(agent: Agent): void {
   nonempty(agent.sessionId, 'sessionId');
 }
 
+/** Phases in which a provider or process may still be working, so the record cannot be revised. */
 function unsettled(task: Task): boolean {
   return ['running', 'stop_requested', 'recovery_required'].includes(task.phase);
 }
 
-/** Trusted controller API. Provider messages must be validated before calling it. */
+/** Throws unless `evidence` has a known kind, outcome and source, and a pass exactly when it is `quality`. */
+function validateEvidenceShape(evidence: Evidence): void {
+  nonempty(evidence.id, 'evidence id');
+  nonempty(evidence.summary, 'summary');
+  if (
+    !['quality', 'validation', 'review', 'verification'].includes(evidence.kind) ||
+    (evidence.kind === 'quality') !== (typeof evidence.pass === 'string' && evidence.pass.trim() !== '') ||
+    !['passed', 'failed', 'skipped'].includes(evidence.outcome) ||
+    !['controller', 'agent', 'synthetic'].includes(evidence.source)
+  )
+    throw new Error('Invalid evidence');
+}
+
+/**
+ * The completed-slice record for `delivery`, after proving it belongs to the current attempt, version
+ * and artifact of this task and to the next undelivered slice.
+ */
+function deliveredSlice(
+  task: Task,
+  delivery: Delivery,
+  execution: Execution,
+): { progress: NonNullable<Task['slice']>; record: CompletedSlice } {
+  const progress = task.slice;
+  const attempt = task.attempt;
+  const outcome = delivery.outcome;
+  if (
+    !progress ||
+    !attempt?.artifact ||
+    task.phase === 'complete' ||
+    delivery.phase !== 'delivered' ||
+    !delivery.request ||
+    execution.taskId !== task.id ||
+    execution.version !== task.version ||
+    execution.role !== 'implementation' ||
+    execution.attemptId !== attempt.id ||
+    delivery.spec.artifact !== attempt.artifact ||
+    (outcome !== 'committed' && outcome !== 'no_change') ||
+    (outcome === 'committed' && !delivery.commit) ||
+    progress.completed.length !== progress.index
+  )
+    throw new Error('Delivery does not match the current undelivered slice');
+  return {
+    progress,
+    record: {
+      index: progress.index,
+      attemptId: attempt.id,
+      artifact: attempt.artifact,
+      deliveryId: delivery.id,
+      outcome,
+      commit: delivery.commit,
+      head: delivery.commit ?? delivery.request.snapshot.head,
+    },
+  };
+}
+
+/**
+ * Trusted controller API over task records. Provider messages must be validated before calling it.
+ * Every change runs in one store transaction with its journal event, and refuses a deleted task.
+ */
 export class Workflow {
   constructor(private readonly store: Store) {}
 
+  /** The validated task record; throws as {@link Store.get} does when it is missing or malformed. */
   get(id: string): Task {
-    return this.store.get<Task>(id);
+    return this.store.get(id);
   }
+  /** Every task record, including deleted ones. */
   list(): Task[] {
-    return this.store.list<Task>();
+    return this.store.list();
   }
 
+  /**
+   * Reads, changes and saves one task inside a single store transaction, so the check against the
+   * current record and the write that depends on it cannot interleave with another writer. `action`
+   * mutates the task in place and journals its own events; throwing rolls back both.
+   */
   private change<T>(id: string, action: (task: Task) => T): T {
     return this.store.transaction(() => {
       const task = this.get(id);
@@ -193,9 +339,14 @@ export class Workflow {
     this.store.append(task.id, task.version, type, data);
   }
 
+  /**
+   * Throws unless no execution of the task holds a lease and its workspace (if any) has settled.
+   * `requireCurrent` also requires the workspace to exist for the current version, as starting an
+   * attempt does; a released workspace is otherwise acceptable.
+   */
   private workspaceSettled(task: Task, requireCurrent = false): void {
     assertTaskExecutionIdle(this.store, task.id);
-    const workspace = this.store.workspaces<Workspace>().find(item => item.taskId === task.id);
+    const workspace = this.store.workspaces().find(item => item.taskId === task.id);
     if (!workspace) return;
     if (workspace.phase === 'released' && !requireCurrent) return;
     if (workspace.phase !== 'ready') throw new Error('Settle or reconcile workspace creation first');
@@ -203,6 +354,7 @@ export class Workflow {
       throw new Error('Workspace belongs to an earlier task version');
   }
 
+  /** Creates a draft task at version 1. `synthetic` is fixed for the task's lifetime. */
   create(brief: Brief, synthetic = false): Task {
     validateBrief(brief);
     const task: Task = {
@@ -224,6 +376,10 @@ export class Workflow {
     return task;
   }
 
+  /**
+   * Replaces the brief as a new unapproved version, clearing the attempt, evidence and slice progress.
+   * Refused on a version conflict or while work may still be running.
+   */
   revise(id: string, expectedVersion: number, brief: Brief): void {
     validateBrief(brief);
     this.change(id, task => {
@@ -243,6 +399,7 @@ export class Workflow {
     });
   }
 
+  /** Approves exactly `version`; an outdated version is refused so approval never covers unseen changes. */
   approve(id: string, version: number): void {
     this.change(id, task => {
       if (version !== task.version) throw new Error('Cannot approve an outdated version');
@@ -253,6 +410,7 @@ export class Workflow {
     });
   }
 
+  /** Starts a fresh attempt on the approved version, clearing all evidence of earlier attempts. */
   start(id: string, agent: Agent): Attempt {
     validateAgent(agent);
     return this.change(id, task => {
@@ -275,6 +433,11 @@ export class Workflow {
     });
   }
 
+  /**
+   * Settles the running attempt. A result for any other attempt, version or phase is journaled as
+   * ignored and returns false rather than throwing, because late or duplicate results are expected
+   * after stops and restarts.
+   */
   finish(
     id: string,
     attemptId: string,
@@ -306,16 +469,14 @@ export class Workflow {
     });
   }
 
+  /**
+   * Records evidence for the current successful attempt and artifact. Stale or duplicate evidence is
+   * journaled as ignored and returns false. Throws when the evidence could never be valid: synthetic
+   * evidence on a real task, a review without an independent session, or agent-sourced validation or
+   * verification.
+   */
   record(id: string, evidence: Evidence): boolean {
-    nonempty(evidence.id, 'evidence id');
-    nonempty(evidence.summary, 'summary');
-    if (
-      !['quality', 'validation', 'review', 'verification'].includes(evidence.kind) ||
-      (evidence.kind === 'quality') !== (typeof evidence.pass === 'string' && evidence.pass.trim() !== '') ||
-      !['passed', 'failed', 'skipped'].includes(evidence.outcome) ||
-      !['controller', 'agent', 'synthetic'].includes(evidence.source)
-    )
-      throw new Error('Invalid evidence');
+    validateEvidenceShape(evidence);
     return this.change(id, task => {
       if (
         task.attempt?.id !== evidence.attemptId ||
@@ -334,22 +495,7 @@ export class Workflow {
       }
       if (evidence.source === 'synthetic' && !task.synthetic)
         throw new Error('Synthetic evidence cannot verify a real task');
-      if (evidence.kind === 'review') {
-        if (!evidence.agent) throw new Error('Review requires reviewer identity');
-        validateAgent(evidence.agent);
-        const implementer = task.attempt.agent;
-        if (evidence.agent.provider === implementer.provider && evidence.agent.sessionId === implementer.sessionId) {
-          throw new Error('Review must use an independent session');
-        }
-        if (evidence.agent.provider === implementer.provider) {
-          nonempty(evidence.fallbackReason ?? '', 'same-provider fallback reason');
-          this.event(task, 'review.same_provider_fallback', {
-            implementer,
-            reviewer: evidence.agent,
-            reason: evidence.fallbackReason,
-          });
-        }
-      }
+      if (evidence.kind === 'review') this.checkReviewer(task, task.attempt.agent, evidence);
       if (evidence.kind === 'validation' || evidence.kind === 'verification') {
         if (evidence.source === 'agent')
           throw new Error('Agent claims alone cannot establish validation or verification');
@@ -360,6 +506,27 @@ export class Workflow {
     });
   }
 
+  /**
+   * Review evidence needs a reviewer session independent of the implementer's. The same provider is
+   * allowed only with a recorded fallback reason, which is journaled so the weaker review is visible.
+   */
+  private checkReviewer(task: Task, implementer: Agent, evidence: Evidence): void {
+    if (!evidence.agent) throw new Error('Review requires reviewer identity');
+    validateAgent(evidence.agent);
+    if (evidence.agent.provider === implementer.provider && evidence.agent.sessionId === implementer.sessionId) {
+      throw new Error('Review must use an independent session');
+    }
+    if (evidence.agent.provider === implementer.provider) {
+      nonempty(evidence.fallbackReason ?? '', 'same-provider fallback reason');
+      this.event(task, 'review.same_provider_fallback', {
+        implementer,
+        reviewer: evidence.agent,
+        reason: evidence.fallbackReason,
+      });
+    }
+  }
+
+  /** Proposes a provisional decision; returns its id. A finished attempt then waits for its acceptance. */
   addDecision(id: string, rationale: string): string {
     nonempty(rationale, 'rationale');
     return this.change(id, task => {
@@ -372,6 +539,12 @@ export class Workflow {
     });
   }
 
+  /**
+   * Accepts one pending decision; `version` must be the task's current version, so acceptance never
+   * covers a revision the caller has not seen. Once none is pending, a task awaiting a
+   * decision moves on to awaiting verification. Throws on a version conflict or an unknown or already
+   * accepted decision.
+   */
   acceptDecision(id: string, decisionId: string, version: number): void {
     this.change(id, task => {
       if (version !== task.version) throw new Error('Version conflict');
@@ -384,14 +557,16 @@ export class Workflow {
     });
   }
 
+  /** Persists a stop request; the attempt stays unsettled until {@link confirmStopped} proves the exit. */
   requestStop(id: string): void {
     this.change(id, task => {
       if (task.phase !== 'running') throw new Error('No running attempt to stop');
       task.phase = 'stop_requested';
-      this.event(task, 'stop.requested', { attemptId: task.attempt!.id });
+      this.event(task, 'stop.requested', { attemptId: currentAttempt(task).id });
     });
   }
 
+  /** Settles a stop once `evidence` (a confirmed process exit) shows nothing is still running. */
   confirmStopped(id: string, attemptId: string, evidence: string): void {
     nonempty(evidence, 'stop confirmation');
     this.change(id, task => {
@@ -405,17 +580,23 @@ export class Workflow {
     });
   }
 
-  /** Call only after establishing the previous controller no longer owns these tasks. */
+  /**
+   * Marks every running or stopping task as requiring recovery with an `uncertain` attempt, because a
+   * process may still be working. Call only after establishing the previous controller no longer owns
+   * these tasks. Returns the recovered task ids. All tasks change in one transaction: if any of them
+   * still has a workspace lease, it throws and none is marked.
+   */
   recover(): string[] {
     return this.store.transaction(() => {
       const recovered: string[] = [];
       for (const task of this.list()) {
         if (!['running', 'stop_requested'].includes(task.phase)) continue;
         assertTaskExecutionIdle(this.store, task.id);
+        const attempt = currentAttempt(task);
         task.phase = 'recovery_required';
-        task.attempt!.outcome = 'uncertain';
+        attempt.outcome = 'uncertain';
         this.event(task, 'recovery.required', {
-          attemptId: task.attempt!.id,
+          attemptId: attempt.id,
           reason: 'Previous execution must be reconciled; process liveness unknown',
         });
         this.store.save(task.id, task);
@@ -425,12 +606,15 @@ export class Workflow {
     });
   }
 
+  /**
+   * Why the current slice cannot be delivered yet, as human-readable reasons; empty when it can. Each
+   * gate reads only the latest evidence of its kind (or lens), so an older pass never hides a newer
+   * failure.
+   */
   sliceBlockers(id: string): string[] {
     const task = this.get(id);
     const reasons: string[] = [];
-    if (
-      this.store.workspaces<Workspace>().some(workspace => workspace.taskId === id && this.store.lease(workspace.id))
-    ) {
+    if (this.store.workspaces().some(workspace => workspace.taskId === id && this.store.lease(workspace.id))) {
       reasons.push('Workspace execution is active or needs recovery');
     }
     if (task.approvedVersion !== task.version) reasons.push('Current plan is not approved');
@@ -458,80 +642,63 @@ export class Workflow {
     return reasons;
   }
 
+  /** {@link sliceBlockers}, plus undelivered slices: what still prevents completing the whole task. */
   blockers(id: string): string[] {
     const task = this.get(id);
     const reasons = this.sliceBlockers(id);
-    if (task.slice && task.slice.completed.length !== task.brief.slices!.length)
+    if (task.slice && task.slice.completed.length !== plannedSlices(task).length)
       reasons.push('Planned slices have not all been delivered');
     return reasons;
   }
 
-  /** Called only after supervised delivery verification, in the settlement transaction. */
+  /**
+   * Records a verified delivery of the current slice and advances to the next one (or completes the
+   * task after the final slice). Called only after supervised delivery verification, in the
+   * settlement transaction. Throws unless the delivery is exactly the current attempt's artifact for
+   * the next undelivered slice.
+   */
   acceptDelivery(id: string, deliveryId: string): void {
-    const task = this.get(id);
-    if (!task.slice) {
+    if (!this.get(id).slice) {
       this.complete(id);
       return;
     }
     this.change(id, task => {
-      const delivery = this.store.delivery<Delivery>(deliveryId);
-      const execution = this.store.execution<Execution>(delivery.executionId);
+      const delivery = this.store.delivery(deliveryId);
+      const execution = this.store.execution(delivery.executionId);
       const reasons = this.sliceBlockers(id);
       if (reasons.length) throw new Error(`Cannot deliver slice: ${reasons.join('; ')}`);
-      if (
-        task.phase === 'complete' ||
-        delivery.phase !== 'delivered' ||
-        !delivery.request ||
-        execution.taskId !== id ||
-        execution.version !== task.version ||
-        execution.role !== 'implementation' ||
-        execution.attemptId !== task.attempt?.id ||
-        delivery.spec.artifact !== task.attempt.artifact ||
-        !['committed', 'no_change'].includes(delivery.outcome ?? '') ||
-        (delivery.outcome === 'committed' && !delivery.commit) ||
-        task.slice!.completed.length !== task.slice!.index
-      )
-        throw new Error('Delivery does not match the current undelivered slice');
-      const completed = {
-        index: task.slice!.index,
-        attemptId: task.attempt.id,
-        artifact: task.attempt.artifact,
-        deliveryId,
-        outcome: delivery.outcome!,
-        commit: delivery.commit,
-        head: delivery.commit ?? delivery.request.snapshot.head,
-      };
-      task.slice!.completed.push(completed);
-      this.event(task, 'slice.delivered', completed);
-      if (task.slice!.index === task.brief.slices!.length - 1) {
+      const completed = deliveredSlice(task, delivery, execution);
+      const progress = completed.progress;
+      progress.completed.push(completed.record);
+      this.event(task, 'slice.delivered', completed.record);
+      if (progress.index === plannedSlices(task).length - 1) {
         task.phase = 'complete';
         this.event(task, 'task.completed', {
-          attemptId: task.attempt.id,
-          artifact: task.attempt.artifact,
+          attemptId: completed.record.attemptId,
+          artifact: completed.record.artifact,
           synthetic: task.synthetic,
         });
       } else {
-        task.slice!.index++;
+        progress.index++;
         task.attempt = null;
         task.evidence = [];
         task.phase = 'ready';
-        this.event(task, 'slice.ready', {
-          index: task.slice!.index,
-          title: task.brief.slices![task.slice!.index]!.title,
-        });
+        this.event(task, 'slice.ready', { index: progress.index, title: plannedSlice(task, progress.index).title });
       }
     });
   }
 
+  /** Completes the task once {@link blockers} is empty; throws with the reasons otherwise. */
   complete(id: string): void {
     this.change(id, task => {
       if (task.phase === 'complete') throw new Error('Task is already complete');
       const reasons = this.blockers(id);
       if (reasons.length) throw new Error(`Cannot complete: ${reasons.join('; ')}`);
+      const attempt = currentAttempt(task);
       task.phase = 'complete';
       this.event(task, 'task.completed', {
-        attemptId: task.attempt!.id,
-        artifact: task.attempt!.artifact,
+        attemptId: attempt.id,
+        artifact: attempt.artifact,
         synthetic: task.synthetic,
       });
     });

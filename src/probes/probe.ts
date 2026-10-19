@@ -1,11 +1,15 @@
+// Live subscription probe of one provider adapter through the CLI: questions and answers across a
+// controller restart, context retention, a structured review, interruption and resumption. Each turn
+// runs in a fresh controller process; nothing in this probe is used by the controller itself.
 import { execFile } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import type { Session } from '../execution/sessions.js';
-import type { TurnResult } from '../providers/types.js';
+import { z } from 'zod';
+import { sessionSchema } from '../persistence/records.js';
+import { turnResultSchema, type TurnResult } from '../providers/reply-schema.js';
 
 const provider = process.argv[2] ?? '';
 if (provider !== 'codex' && provider !== 'claude')
@@ -14,21 +18,23 @@ const directory = mkdtempSync(join(tmpdir(), `grampus-${provider}-probe-`));
 const database = join(directory, 'grampus.sqlite');
 const cli = fileURLToPath(new URL('../cli.js', import.meta.url));
 
-async function run(...args: string[]): Promise<any> {
+/** Runs one CLI command in a fresh controller process and validates its JSON output against `schema`. */
+async function run<S extends z.ZodType>(schema: S, ...args: string[]): Promise<z.output<S>> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       process.execPath,
       [cli, '--db', database, ...args],
       { timeout: 150_000, maxBuffer: 2 * 1024 * 1024, windowsHide: true },
       (error, stdout) => {
+        // 130 is the CLI's interrupted exit; an interrupted turn still prints its JSON result.
         if (error && error.code !== 130) {
           reject(new Error(`${args[0]} failed: ${stdout || error.message}`));
           return;
         }
         try {
-          resolve(JSON.parse(stdout));
+          resolve(schema.parse(JSON.parse(stdout)));
         } catch (error) {
-          reject(error);
+          reject(error instanceof Error ? error : new Error(String(error)));
         }
       },
     );
@@ -44,17 +50,18 @@ async function main(): Promise<void> {
       note: 'Live subscription probe; each turn runs in a fresh controller process',
     }),
   );
-  const session = (await run('session-new', provider, '--cwd', directory)) as Session;
+  const session = await run(sessionSchema, 'session-new', provider, '--cwd', directory);
   async function turn(prompt: string, interrupt = false): Promise<TurnResult> {
     const file = join(directory, 'prompt.txt');
     writeFileSync(file, prompt);
-    const response = (await run(
+    const response = await run(
+      z.object({ result: turnResultSchema, session: sessionSchema }),
       'session-send',
       session.id,
       '--prompt-file',
       file,
       ...(interrupt ? ['--interrupt-after-ms', '250'] : []),
-    )) as { result: TurnResult; session: Session };
+    );
     console.log(
       JSON.stringify({
         status: response.result.status,
@@ -72,8 +79,10 @@ async function main(): Promise<void> {
     throw new Error('Question probe failed');
   const label = `reef-${randomUUID().slice(0, 8)}`;
   const answers = join(directory, 'answers.json');
-  writeFileSync(answers, JSON.stringify({ [question.reply.questions[0]!.id]: label }));
-  const answered = (await run('session-answer', session.id, answers)) as { result: TurnResult };
+  const asked = question.reply.questions[0];
+  if (!asked) throw new Error('Question probe returned no question');
+  writeFileSync(answers, JSON.stringify({ [asked.id]: label }));
+  const answered = await run(z.object({ result: turnResultSchema }), 'session-answer', session.id, answers);
   if (answered.result.status !== 'completed') throw new Error(`Answer probe failed: ${answered.result.error}`);
   console.log(JSON.stringify({ check: 'question and answer across controller restart', passed: true }));
   const review = await turn(

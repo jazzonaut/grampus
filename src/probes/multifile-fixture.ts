@@ -1,5 +1,6 @@
-// A deliberately incomplete repository and an independent behavioral oracle.
+// A deliberately incomplete repository and an independent behavioural oracle.
 // Only the two implementation files are writable by the live provider.
+/** The committed baseline: stub implementation files and the repository instructions. */
 export const fixtureFiles: Record<string, string> = {
   'summary.cjs': 'exports.summarize = values => ({ count: values.length });\n',
   'cli.cjs': 'console.log(JSON.stringify(process.argv[2]));\n',
@@ -7,6 +8,7 @@ export const fixtureFiles: Record<string, string> = {
     'Use CommonJS and Node built-ins only. Keep calculation in summary.cjs and argument parsing/output in cli.cjs. Avoid unnecessary abstractions. Only the two named implementation files may change.\n',
 };
 
+/** The single-execution task brief; its criteria are what the oracles below check. */
 export const brief = {
   title: 'Multi-file summary command pilot',
   outcome:
@@ -42,6 +44,7 @@ for (const input of [null, {}, '3', 3, [null], [true], ['2'], [{}], [[]], [NaN],
 console.log('library: empty, single, mixed, negative, immutable, invalid');
 `;
 
+/** The library oracle plus the command contract, run against `cli.cjs` as a child process. */
 export const oracle =
   libraryOracle +
   String.raw`
@@ -69,12 +72,14 @@ for (const args of [[], ['[]', 'extra'], ['{'], ['null'], ['{}'], ['3'], ['"3"']
 console.log('command: argument count, JSON syntax, invalid values');
 `;
 
+/** The exact stdout of each oracle; acceptance compares it, so a partial run cannot pass. */
 export const libraryStdout = 'library: empty, single, mixed, negative, immutable, invalid\n';
 export const expectedStdout =
   libraryStdout +
   'command: empty, single, mixed, negative\n' +
   'command: argument count, JSON syntax, invalid values\n';
 
+/** The same task split into a library slice and a command slice, delivered in turn. */
 export const slicedBrief = {
   ...brief,
   title: 'Sequential summary library and command pilot',
@@ -93,6 +98,7 @@ export const slicedBrief = {
   ],
 };
 
+/** The deletion variant: a file the approved policy may only delete, and the oracle proving it is gone. */
 export const obsoleteFile = 'obsolete.cjs';
 export const obsoleteContent = 'exports.legacySummary = values => values.length;\n';
 export const deletionCriterion =

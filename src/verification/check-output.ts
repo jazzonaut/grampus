@@ -1,3 +1,6 @@
+// Owns reading and presenting retained check output: paging the durable logs, plain-text rendering,
+// excerpts and the feedback shown to agents and the dashboard. It never modifies the logs or the
+// journal's previews, which stay the original process evidence.
 import { stripVTControlCharacters } from 'node:util';
 import type { RepositoryCheck } from './checks.js';
 import { openSync, readSync, closeSync, readFileSync, statSync } from 'node:fs';
@@ -13,14 +16,75 @@ function strippedControl(character: string): boolean {
   return code <= 0x08 || code === 0x0b || code === 0x0c || (code >= 0x0e && code <= 0x1f) || code === 0x7f;
 }
 
-/** Page durable logs with bounded memory, even beyond the journal's preview (`commandLimits.previewBytes`). */
-export function readCheckLog(
-  check: RepositoryCheck,
-  stream: 'stdout' | 'stderr',
-  offset = 0,
-  limit: number = limits.pageCharacters,
-  raw = false,
-) {
+/**
+ * Streaming equivalent of {@link plainOutput} for paged logs: removes ANSI escape sequences (CSI and
+ * OSC, 7-bit and 8-bit introducers) and stray control characters, and turns CR and CRLF into LF. Its
+ * state carries across chunks, so a sequence split between two reads is still removed.
+ */
+class PlainTextFilter {
+  private state: 'text' | 'escape' | 'csi' | 'osc' | 'oscEscape' = 'text';
+  /** The previous character was a CR, so an immediately following LF belongs to it. */
+  private carriage = false;
+
+  /** Advances the escape-sequence state; true while `char` is part of a sequence. */
+  private inSequence(char: string): boolean {
+    switch (this.state) {
+      case 'escape':
+        this.state = char === '[' ? 'csi' : char === ']' ? 'osc' : 'text';
+        return true;
+      case 'csi':
+        if (/[@-~]/.test(char)) this.state = 'text';
+        return true;
+      case 'osc':
+        if (char === '\x07') this.state = 'text';
+        else if (char === '\x1b') this.state = 'oscEscape';
+        return true;
+      case 'oscEscape':
+        this.state = char === '\\' ? 'text' : 'osc';
+        return true;
+      case 'text':
+        if (char === '\x1b') this.state = 'escape';
+        else if (char === '\u009b') this.state = 'csi';
+        return this.state !== 'text';
+    }
+  }
+
+  filter(chunk: string): string {
+    const parts: string[] = [];
+    for (const char of chunk) {
+      if (this.inSequence(char)) continue;
+      if (char === '\r') {
+        parts.push('\n');
+        this.carriage = true;
+        continue;
+      }
+      if (char === '\n' && this.carriage) {
+        this.carriage = false;
+        continue;
+      }
+      this.carriage = false;
+      if (!strippedControl(char)) parts.push(char);
+    }
+    return parts.join('');
+  }
+}
+
+/**
+ * Where a page ending at `end` should stop so it never splits a surrogate pair: one character later
+ * for a single-character page (so it still advances), otherwise one character earlier.
+ */
+function pageEnd(text: string, begin: number, end: number): number {
+  if (
+    end > begin &&
+    end < text.length &&
+    /[\ud800-\udbff]/.test(text.charAt(end - 1)) &&
+    /[\udc00-\udfff]/.test(text.charAt(end))
+  )
+    return end + (end - begin === 1 ? 1 : -1);
+  return end;
+}
+
+function requirePage(offset: number, limit: number): void {
   if (
     !Number.isSafeInteger(offset) ||
     offset < 0 ||
@@ -29,64 +93,31 @@ export function readCheckLog(
     limit > limits.maxPageCharacters
   )
     throw new Error('Invalid check log page');
+}
+
+/**
+ * Page durable logs with bounded memory, even beyond the journal's preview (`commandLimits.previewBytes`).
+ * `offset` and `limit` count characters of the rendered text (plain unless `raw`), and pages never split a
+ * surrogate pair. Without a readable log it pages the journal preview and reports `incomplete` when that
+ * preview was truncated or the output was unavailable.
+ *
+ * @throws Error when `offset` or `limit` is outside the allowed page bounds.
+ */
+export function readCheckLog(
+  check: RepositoryCheck,
+  stream: 'stdout' | 'stderr',
+  offset = 0,
+  limit: number = limits.pageCharacters,
+  raw = false,
+) {
+  requirePage(offset, limit);
   let content = '',
-    totalCharacters = 0,
-    state: 'text' | 'escape' | 'csi' | 'osc' | 'oscEscape' = 'text',
-    carriage = false;
+    totalCharacters = 0;
+  const plain = raw ? null : new PlainTextFilter();
   const consume = (chunk: string) => {
-    let text = chunk;
-    if (!raw) {
-      const parts: string[] = [];
-      for (const char of chunk) {
-        if (state === 'escape') {
-          state = char === '[' ? 'csi' : char === ']' ? 'osc' : 'text';
-          continue;
-        }
-        if (state === 'csi') {
-          if (/[@-~]/.test(char)) state = 'text';
-          continue;
-        }
-        if (state === 'osc') {
-          if (char === '\x07') state = 'text';
-          else if (char === '\x1b') state = 'oscEscape';
-          continue;
-        }
-        if (state === 'oscEscape') {
-          state = char === '\\' ? 'text' : 'osc';
-          continue;
-        }
-        if (char === '\x1b') {
-          state = 'escape';
-          continue;
-        }
-        if (char === '\u009b') {
-          state = 'csi';
-          continue;
-        }
-        if (char === '\r') {
-          parts.push('\n');
-          carriage = true;
-          continue;
-        }
-        if (char === '\n' && carriage) {
-          carriage = false;
-          continue;
-        }
-        carriage = false;
-        if (!strippedControl(char)) parts.push(char);
-      }
-      text = parts.join('');
-    }
-    const begin = Math.max(0, offset - totalCharacters),
-      end = Math.min(text.length, offset + limit - totalCharacters);
-    let boundary = end;
-    if (
-      boundary > begin &&
-      boundary < text.length &&
-      /[\ud800-\udbff]/.test(text.charAt(boundary - 1)) &&
-      /[\udc00-\udfff]/.test(text.charAt(boundary))
-    )
-      boundary += boundary - begin === 1 ? 1 : -1;
+    const text = plain ? plain.filter(chunk) : chunk;
+    const begin = Math.max(0, offset - totalCharacters);
+    const boundary = pageEnd(text, begin, Math.min(text.length, offset + limit - totalCharacters));
     if (boundary > begin) content += text.slice(begin, boundary);
     totalCharacters += text.length;
   };
@@ -120,6 +151,11 @@ export function readCheckLog(
   };
 }
 
+/**
+ * Output used for summaries: the preview when it is complete, otherwise the whole log when small, or the
+ * preview's head plus the log's tail. The tail usually holds the failure summary that a truncated preview
+ * cut off. Falls back to the preview when the log cannot be read.
+ */
 function summaryStream(check: RepositoryCheck, stream: 'stdout' | 'stderr'): string {
   const preview = check.result?.[stream] ?? '';
   if (!check.result?.outputTruncated || !check.receipt) return preview;
@@ -131,6 +167,7 @@ function summaryStream(check: RepositoryCheck, stream: 'stdout' | 'stderr'): str
     fd = openSync(path, 'r');
     const bytes = Buffer.alloc(limits.summaryTailBytes),
       count = readSync(fd, bytes, 0, bytes.length, Math.max(0, size - bytes.length));
+    // Skip UTF-8 continuation bytes so the tail starts on a character boundary.
     let start = 0;
     while (start < count && ((bytes[start] ?? 0) & 0xc0) === 0x80) start++;
     return (
@@ -155,6 +192,11 @@ export function plainOutput(value: string): string {
     .join('');
 }
 
+/**
+ * Plain-text excerpt of at most `limit` characters: a quarter from the start and the rest from the end,
+ * around an omission marker, since failures are usually reported last. Lone surrogates at the cut are
+ * dropped.
+ */
 export function outputExcerpt(value: string, limit: number = limits.excerptCharacters): string {
   const text = plainOutput(value);
   if (text.length <= limit) return text;
@@ -203,6 +245,12 @@ export function timeoutSummary(check: RepositoryCheck): string {
   }; ${bytes ? `partial output retained (${bytes} bytes)` : 'it printed no output before it was stopped'}.`;
 }
 
+/**
+ * A short description of why a check failed, for stop notes, repair prompts and the dashboard. It picks
+ * error-looking lines from the error and output (compiler and assertion errors first), else the last
+ * non-empty lines, else the result reason and exit code. A heuristic for display only; it never decides
+ * a check's outcome.
+ */
 export function checkIssue(check: RepositoryCheck): string {
   const lines = plainOutput(
     `${check.error ?? ''}\n${summaryStream(check, 'stdout')}\n${summaryStream(check, 'stderr')}`,
@@ -228,6 +276,11 @@ export function checkIssue(check: RepositoryCheck): string {
   );
 }
 
+/**
+ * Bounded feedback about one check for agents: identity, outcome, the issue line and output excerpts,
+ * with a pointer to `grampus_read_check` for complete output. The `readMore` text is part of the
+ * provider contract.
+ */
 export function checkFeedback(check: RepositoryCheck) {
   return {
     checkId: check.id,

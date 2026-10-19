@@ -356,7 +356,7 @@ test('context expansion invalidates a proposal and explicitly resupplies pinned 
   f.store.transaction = <T>(action: () => T): T => {
     if (
       injectContext &&
-      f.store.session<{ phase: string }>(responseId).phase === 'idle' &&
+      f.store.session(responseId).phase === 'idle' &&
       f.store
         .sessionEvents(responseId)
         .some(event => event.type === 'kickoff.message' && (event.data as { role?: string }).role === 'assistant')
@@ -365,6 +365,7 @@ test('context expansion invalidates a proposal and explicitly resupplies pinned 
       f.store.appendSession(responseId, 'kickoff.context_changed', {
         files: expandedFiles.files,
         context: expandedFiles.summary,
+        references: [],
       });
     }
     return originalTransaction(action);
@@ -401,9 +402,9 @@ test('dashboard inspection is paginated and polling never serializes a 100k-file
     assert.equal(page.files.length, 100);
     assert.equal(page.matches, 220);
     const created = await post('/api/tasks', { plan: f.plan }),
-      task = f.store.get<any>(created.id);
+      task = f.store.get(created.id);
     // A read-only fixture inventory, never used as execution evidence. The state keeps only a reference.
-    task.guided.snapshot = keepSnapshot(f.store, {
+    task.guided!.snapshot = keepSnapshot(f.store, {
       artifact: 'sha256:fixture',
       instructionsDigest: 'fixture',
       head: f.base,
@@ -434,7 +435,7 @@ test('dashboard inspection is paginated and polling never serializes a 100k-file
     assert.equal(await get(`/api/tasks/${created.id}`), body);
     const list = await get('/api/state');
     assert.ok(Buffer.byteLength(list) < 4000);
-    task.guided.note = 'Updated by another connection';
+    task.guided!.note = 'Updated by another connection';
     f.store.save(created.id, task);
     assert.match(await get(`/api/tasks/${created.id}`), /Updated by another connection/);
   } finally {

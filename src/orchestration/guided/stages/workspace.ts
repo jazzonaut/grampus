@@ -1,5 +1,5 @@
 // Owns the `workspace` stage: creating the task worktree (Git or Orca) and adopting it only when it
-// matches the approved plan exactly.
+// matches the approved plan exactly. It never replays creation and never removes a worktree.
 import { GuidedStopError } from '../stop-reasons.js';
 import { adoptOne, mismatch, type StageHandler } from '../context.js';
 
@@ -8,6 +8,8 @@ import { adoptOne, mismatch, type StageHandler } from '../context.js';
  * stage stays at `workspace` for an explicit new attempt rather than replaying creation.
  */
 export const workspaceStage: StageHandler = {
+  // A released reservation is not known: creation after a release reuses its id, which must then count
+  // as this step's new result.
   known: ({ id, workspaces }) =>
     workspaces
       .list()
@@ -16,7 +18,10 @@ export const workspaceStage: StageHandler = {
   async perform({ id, state, workspaces }) {
     const config = state.plan.workspace;
     if (config.adapter === 'orca') await workspaces.createOrca(id, state.version, config.repo, config.base);
-    else await workspaces.create(id, state.version, config.repo, config.path!, config.base);
+    else {
+      if (!config.path) throw new Error('A Git workspace plan names its destination path');
+      await workspaces.create(id, state.version, config.repo, config.path, config.base);
+    }
     return null;
   },
   settle({ id, state, pending, workspaces }) {

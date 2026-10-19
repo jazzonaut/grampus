@@ -75,7 +75,7 @@ export function parseOrca<S extends z.ZodType>(
   return result.data;
 }
 
-/** Parse the JSON text of one Orca response. */
+/** Parse the JSON text of one Orca response; non-JSON output is a `BoundaryError` of kind `orca-output`. */
 export function orcaJson(command: string, output: string): unknown {
   return parseJson(output, { kind: 'orca-output', source: command });
 }

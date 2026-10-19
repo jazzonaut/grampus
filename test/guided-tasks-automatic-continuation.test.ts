@@ -47,8 +47,6 @@ test(
     assert.equal(implementations, 2);
     assert.equal(reviews, 2);
     assert.ok(f.store.events(task.id).some(event => event.type === 'guided.acceptance_repair_requested'));
-    assert.ok(
-      f.store.get<any>(task.id).evidence.every((e: any) => e.attemptId === f.store.get<any>(task.id).attempt.id),
-    );
+    assert.ok(f.store.get(task.id).evidence.every((e: any) => e.attemptId === f.store.get(task.id).attempt!.id));
   },
 );

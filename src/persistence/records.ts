@@ -1,12 +1,11 @@
-// Pins the journal record contracts for the tables owned by the execution layer: sessions, executions,
-// execution leases, workspaces, checks, implementation runs and deliveries. `Store` validates every row
-// it reads against these schemas, so a record that does not match (a corrupted file, or a bug that
-// wrote the wrong shape) is a `BoundaryError` of kind `journal-record` naming the table and fields, not
-// an undefined property discovered later. Validation is in place: the stored object is returned
-// unchanged, because fences compare these records by their serialised bytes.
-//
-// Task and guided state records are owned and validated by domain/ and orchestration/; the store keeps
-// a generic accessor for them.
+// Pins the journal record contracts: the task record (composed from the task fields owned by
+// domain/workflow.ts and the guided state owned by orchestration/guided/state.ts) and the tables owned
+// by the execution layer: sessions, executions, execution leases, workspaces, checks, implementation
+// runs and deliveries. `Store` validates every row it reads against these schemas, so a record that
+// does not match (a corrupted file, or a bug that wrote the wrong shape) is a `BoundaryError` of kind
+// `journal-record` naming the table and fields, not an undefined property discovered later. Validation
+// is in place: the stored object is returned unchanged, because fences and digests compare these
+// records by their serialised bytes.
 import { z } from 'zod';
 import { providerSchema } from '../providers/types.js';
 import { providerRuntimeSchema } from '../providers/executables.js';
@@ -15,14 +14,32 @@ import { repositorySnapshotSchema } from '../repository/snapshot-schema.js';
 import { checkProcessResultSchema } from '../process/check-process.js';
 import { checkReceiptSchema } from '../process/supervisor-protocol.js';
 import { editPolicySchema } from '../execution/edit-policy.js';
-import { validateExpectations, type AcceptanceExpectations } from '../domain/acceptance.js';
+import { acceptanceExpectationsSchema } from '../domain/acceptance.js';
+import { taskFieldsSchema, type Task } from '../domain/workflow.js';
+import { guidedStateSchema } from '../orchestration/guided/state.js';
+
+/**
+ * A stored task with its guided state. Composed here rather than in domain/workflow.ts because the
+ * guided plan schema depends on that module, and a schema cannot be built from a module that has not
+ * finished loading.
+ */
+export const taskSchema = taskFieldsSchema.extend({ guided: guidedStateSchema.exactOptional() }) satisfies z.ZodType<
+  Task,
+  Task
+>;
 
 const pid = z.number();
 /** Null when a creation time could not be observed; recovery then stays conservative. */
 const startedAt = z.string().nullable();
+/**
+ * The no-replay boundary of a process or provider connection. `requested` is saved before it may
+ * start, so after a crash recovery must reconcile what happened (from the supervisor's settlement
+ * receipt for a check, implementation run or delivery) and never starts it again.
+ */
 const dispatch = z.enum(['not_requested', 'requested']);
 
 export const sessionSchema = z.object({
+  /** The agent toolset the conversation was given; a Codex session with an older one starts fresh. */
   toolsetVersion: z.number().exactOptional(),
   deletedAt: z.string().exactOptional(),
   mode: z.literal('editing').exactOptional(),
@@ -97,12 +114,16 @@ export const executionLeaseSchema = z.object({
     'snapshot',
     'check',
     'submission',
-    'simplification',
+    'assessment',
     'verification',
     'completion',
     'delivery',
     'implementation',
   ]),
+  /**
+   * Set for operations that never dispatch a repository-writing tool (snapshot, submission, assessment,
+   * completion), whose lease may be released once the controller is proven dead.
+   */
   readOnlyRecovery: z.literal(true).exactOptional(),
 });
 /** The single current owner of a workspace, held until process exit is confirmed. */
@@ -143,16 +164,6 @@ export const workspaceSchema = z.object({
 /** A worktree reservation, its identity and its creation owner. */
 export type Workspace = z.infer<typeof workspaceSchema>;
 
-/** Acceptance expectations are validated by their owner, domain/acceptance.ts. */
-const acceptanceExpectationsSchema = z.custom<AcceptanceExpectations>(value => {
-  try {
-    validateExpectations(undefined, value);
-    return value !== undefined;
-  } catch {
-    return false;
-  }
-}, 'Invalid acceptance expectations');
-
 export const checkSpecSchema = z.object({
   name: z.string(),
   file: z.string(),
@@ -171,6 +182,7 @@ export const checkSpecSchema = z.object({
 export type CheckSpec = z.infer<typeof checkSpecSchema>;
 
 export const repositoryCheckSchema = z.object({
+  /** Set when a verification ran but its output did not meet the approved acceptance observations. */
   failureKind: z.literal('acceptance').exactOptional(),
   id: z.string(),
   executionId: z.string(),

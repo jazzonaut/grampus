@@ -15,6 +15,7 @@ import type { Brief } from './domain/workflow.js';
 import type { EditPolicy } from './execution/edit-policy.js';
 import type { Provider } from './providers/types.js';
 
+/** Parse one argument or file; a mismatch is a `cli-input` `BoundaryError` naming `source` and each issue. */
 function parseInput<S extends z.ZodType>(schema: S, value: unknown, source: string): z.output<S> {
   const result = schema.safeParse(value);
   if (result.success) return result.data;
@@ -24,14 +25,17 @@ function parseInput<S extends z.ZodType>(schema: S, value: unknown, source: stri
   });
 }
 
-/** Read a JSON file named on the command line. */
+/**
+ * Read a JSON file named on the command line. Invalid JSON is a `cli-input` `BoundaryError` naming the
+ * file; a file that cannot be read throws the file system error unchanged.
+ */
 export function readJsonFile(path: string): unknown {
   return parseJson(readFileSync(path, 'utf8'), { kind: 'cli-input', source: path });
 }
 
 const positive = z.coerce.number().int().min(1).max(Number.MAX_SAFE_INTEGER);
 
-/** A positive integer argument such as a task version. */
+/** A positive integer argument such as a task version. Throws a plain `Error` with `message` otherwise. */
 export function positiveInteger(value: string | undefined, message: string): number {
   const parsed = positive.safeParse(value);
   if (value === undefined || !parsed.success) throw new Error(message);
@@ -43,25 +47,29 @@ export function milliseconds(value: string, option: string): number {
   return parseInput(z.coerce.number().int(), value, `--${option}`);
 }
 
-/** `--port`: 0 lets the OS choose. */
+/** `--port`: 0 lets the OS choose. Throws a plain `Error` outside that range. */
 export function port(value: string): number {
   const parsed = z.coerce.number().int().min(0).max(65_535).safeParse(value);
   if (!parsed.success) throw new Error('Port must be 0–65535');
   return parsed.data;
 }
 
+/** `codex` or `claude`. */
 export function provider(value: string | undefined, source = 'provider argument'): Provider {
   return parseInput(providerSchema, value, source);
 }
 
+/** `--role`, defaulting to implementation. */
 export function executionRole(value: string | undefined): 'implementation' | 'review' {
   return parseInput(z.enum(['implementation', 'review']), value ?? 'implementation', '--role');
 }
 
+/** `--outcome` of a quality assessment; required, with no default, so an outcome is always stated. */
 export function assessmentOutcome(value: string | undefined): QualityAssessment['outcome'] {
   return parseInput(z.enum(['passed', 'failed', 'skipped']), value, '--outcome');
 }
 
+/** A required, non-empty text option such as `--summary`. */
 export function requiredText(value: string | undefined, option: string): string {
   return parseInput(z.string().min(1), value, `--${option}`);
 }
@@ -86,14 +94,17 @@ export function briefFile(path: string): Brief {
   return parseInput(briefSchema, readJsonFile(path), path);
 }
 
+/** An explicit native editing policy; its schema is owned by execution/edit-policy.ts. */
 export function editPolicyFile(path: string): EditPolicy {
   return parseInput(editPolicySchema, readJsonFile(path), path);
 }
 
+/** A delivery specification. Strict, so a misspelt field is refused rather than silently dropped. */
 export function deliverySpecFile(path: string): DeliverySpec {
   return parseInput(z.strictObject(deliverySpecSchema.shape), readJsonFile(path), path);
 }
 
+/** A check or verification specification. Strict, so a misspelt field is refused rather than dropped. */
 export function checkSpecFile(path: string): CheckSpec {
   return parseInput(z.strictObject(checkSpecSchema.shape), readJsonFile(path), path);
 }

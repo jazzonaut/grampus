@@ -1,13 +1,150 @@
+// Owns the live progress summary of an agent's current turn (planner, implementer or reviewer) for the
+// dashboard: a stage, a one-line activity and the last few tool actions. It reads only event types and
+// bounded excerpts of tool arguments with C0 control characters blanked; it never exposes prompts,
+// partial replies or tool results.
 import type { Session } from '../execution/sessions.js';
 import { serverLimits } from '../config/limits.js';
 
+/** The fields of a session event this module reads. */
 interface Event {
   at: string;
   type: string;
   data: unknown;
 }
 
-/** Current owned turn only; never expose partial replies, tool results or prompts. */
+type Stage = 'connecting' | 'working' | 'responding' | 'finishing' | 'stopping';
+
+/** The own enumerable fields of a plain object, or none for any other value. */
+function fields(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
+}
+
+/** A bounded excerpt of a text value with C0 control characters blanked; empty for anything else. */
+function brief(value: unknown): string {
+  return typeof value === 'string'
+    ? Array.from(value.slice(0, serverLimits.progressTextCharacters), character =>
+        character.charCodeAt(0) < 0x20 ? ' ' : character,
+      ).join('')
+    : '';
+}
+
+/** A human description of a repository tool call, in progress or complete. */
+function repositoryAction(tool: unknown, args: Record<string, unknown>, complete: boolean): string {
+  const prefix = args['root'] && args['root'] !== 'task' ? `${brief(args['root'])}/` : '';
+  switch (tool) {
+    case 'grampus_read_file':
+      return `${complete ? 'Read' : 'Reading'} ${prefix}${brief(args['path']) || 'repository file'}`;
+    case 'grampus_read_changes':
+      return `${complete ? 'Read' : 'Reading'} changes${args['path'] ? ` in ${prefix}${brief(args['path'])}` : ''}`;
+    case 'grampus_list_files':
+      return `${complete ? 'Listed' : 'Listing'} ${prefix || 'repository '}files${args['query'] ? ` matching “${brief(args['query'])}”` : ''}`;
+    case 'grampus_search':
+      return `${complete ? 'Searched' : 'Searching'} ${prefix || 'repository'}${args['query'] ? ` for “${brief(args['query'])}”` : ''}`;
+    default:
+      return complete ? 'Read repository context' : 'Reading repository context';
+  }
+}
+
+/** Folds the events of one run into its progress. */
+class Progress {
+  stage: Stage = 'connecting';
+  activity = 'Starting the agent and connecting integrations';
+  repositoryCalls = 0;
+  integrationCalls = 0;
+  fileRequests = 0;
+  /** The latest repository request, so its result can be described with the arguments that asked for it. */
+  private repositoryRequest: Record<string, unknown> = {};
+
+  constructor(private readonly purpose: 'planner' | 'implementation' | 'review') {}
+
+  /**
+   * Applies one event and returns the recent-activity label it adds; null when it adds none, and
+   * undefined when the event type is not progress at all.
+   */
+  apply(type: string, data: Record<string, unknown>): string | null | undefined {
+    switch (type) {
+      case 'session.connected':
+        this.activity = 'Connected to the agent';
+        return null;
+      case 'turn.started':
+        this.stage = 'working';
+        this.activity = 'Agent is working on your request';
+        return null;
+      case 'repository.tool_requested':
+        this.stage = 'working';
+        this.repositoryRequest = { ...fields(data['arguments']), ...(data['root'] ? { root: data['root'] } : {}) };
+        this.activity = repositoryAction(data['tool'], this.repositoryRequest, false);
+        return null;
+      case 'repository.tool_result':
+        return this.repositoryResult(data);
+      case 'integration.tool_authorized':
+        return this.integration(data);
+      case 'tool.authorized':
+        return this.fileTool(data);
+      case 'tool.deleted':
+        return this.working(`Deleted ${brief(data['path']) || 'authorized file'}`);
+      case 'output.delta':
+        this.stage = 'responding';
+        this.activity = `Writing the ${this.purpose} response`;
+        return null;
+      case 'turn.result':
+        this.stage = 'finishing';
+        this.activity = `Finishing the ${this.purpose} response`;
+        return null;
+      default:
+        return undefined;
+    }
+  }
+
+  /** A tool action that is itself the current activity. */
+  private working(label: string): string {
+    this.stage = 'working';
+    this.activity = label;
+    return label;
+  }
+
+  /**
+   * A completed repository call, labelled with the arguments of its request. Result fields are merged
+   * over them, but the label reads only `root`, `path` and `query`, so result contents never appear.
+   */
+  private repositoryResult(data: Record<string, unknown>): string {
+    this.stage = 'working';
+    this.repositoryCalls++;
+    const label = repositoryAction(
+      data['tool'],
+      { ...this.repositoryRequest, ...fields(data['result']), ...(data['root'] ? { root: data['root'] } : {}) },
+      true,
+    );
+    this.activity = 'Agent is working with the retrieved context';
+    return label;
+  }
+
+  private integration(data: Record<string, unknown>): string {
+    this.integrationCalls++;
+    return this.working(
+      `Requested ${
+        brief(data['tool'])
+          .replace(/^mcp__/, '')
+          .replaceAll('__', ' · ') || 'integration tool'
+      }`,
+    );
+  }
+
+  private fileTool(data: Record<string, unknown>): string {
+    const listed = data['paths'];
+    const paths = Array.isArray(listed)
+      ? listed.map(brief).filter(Boolean).slice(0, 3).join(', ')
+      : brief(data['path']);
+    const editing = ['apply_patch', 'Write', 'Edit', 'mcp__grampus_files__delete_file'].includes(String(data['tool']));
+    if (editing) this.fileRequests++;
+    return this.working(`${editing ? 'Requested file changes' : 'Requested file access'}${paths ? `: ${paths}` : ''}`);
+  }
+}
+
+/**
+ * Progress of the session's current owned turn only, or null when no turn is running. Agent events are
+ * journaled as `{ runId, data }`; only events of the current run count.
+ */
 export function agentProgress(
   events: Event[],
   session: Session,
@@ -15,124 +152,36 @@ export function agentProgress(
 ) {
   if (!session.run) return null;
   const runId = session.run.id;
-  const current = events.filter(event => (event.data as { runId?: string } | null)?.runId === runId);
+  const current = events.filter(event => fields(event.data)['runId'] === runId);
   const started = current.find(event => event.type === 'turn.requested');
   if (!started) return null;
-  let stage: 'connecting' | 'working' | 'responding' | 'finishing' | 'stopping' = 'connecting';
-  let activity = 'Starting the agent and connecting integrations';
-  let lastActivityAt = started.at,
-    repositoryCalls = 0,
-    integrationCalls = 0,
-    fileRequests = 0;
+  const progress = new Progress(purpose);
+  let lastActivityAt = started.at;
   const recent: { at: string; label: string }[] = [];
-  const brief = (value: unknown) =>
-    typeof value === 'string' ? value.replace(/[\x00-\x1f]/g, ' ').slice(0, serverLimits.progressTextCharacters) : '';
-  const repositoryAction = (tool: unknown, args: Record<string, unknown>, complete: boolean) => {
-    const prefix = args['root'] && args['root'] !== 'task' ? `${brief(args['root'])}/` : '';
-    switch (tool) {
-      case 'grampus_read_file':
-        return `${complete ? 'Read' : 'Reading'} ${prefix}${brief(args['path']) || 'repository file'}`;
-      case 'grampus_read_changes':
-        return `${complete ? 'Read' : 'Reading'} changes${args['path'] ? ` in ${prefix}${brief(args['path'])}` : ''}`;
-      case 'grampus_list_files':
-        return `${complete ? 'Listed' : 'Listing'} ${prefix || 'repository '}files${args['query'] ? ` matching “${brief(args['query'])}”` : ''}`;
-      case 'grampus_search':
-        return `${complete ? 'Searched' : 'Searching'} ${prefix || 'repository'}${args['query'] ? ` for “${brief(args['query'])}”` : ''}`;
-      default:
-        return complete ? 'Read repository context' : 'Reading repository context';
-    }
-  };
-  let repositoryRequest: Record<string, unknown> = {};
   for (const event of current) {
-    const data = (event.data as { data?: Record<string, unknown> }).data ?? {};
-    let label: string | null = null;
-    switch (event.type) {
-      case 'session.connected':
-        activity = 'Connected to the agent';
-        break;
-      case 'turn.started':
-        stage = 'working';
-        activity = 'Agent is working on your request';
-        break;
-      case 'repository.tool_requested':
-        stage = 'working';
-        repositoryRequest = {
-          ...((data['arguments'] as Record<string, unknown>) ?? {}),
-          ...(data['root'] ? { root: data['root'] } : {}),
-        };
-        activity = repositoryAction(data['tool'], repositoryRequest, false);
-        break;
-      case 'repository.tool_result': {
-        stage = 'working';
-        repositoryCalls++;
-        const result = (data['result'] as Record<string, unknown>) ?? {};
-        label = repositoryAction(
-          data['tool'],
-          { ...repositoryRequest, ...result, ...(data['root'] ? { root: data['root'] } : {}) },
-          true,
-        );
-        activity = 'Agent is working with the retrieved context';
-        break;
-      }
-      case 'integration.tool_authorized':
-        stage = 'working';
-        integrationCalls++;
-        label = `Requested ${
-          brief(data['tool'])
-            .replace(/^mcp__/, '')
-            .replaceAll('__', ' · ') || 'integration tool'
-        }`;
-        activity = label;
-        break;
-      case 'tool.authorized': {
-        stage = 'working';
-        const paths = Array.isArray(data['paths'])
-          ? data['paths'].map(brief).filter(Boolean).slice(0, 3).join(', ')
-          : brief(data['path']);
-        const editing = ['apply_patch', 'Write', 'Edit', 'mcp__grampus_files__delete_file'].includes(
-          String(data['tool']),
-        );
-        if (editing) fileRequests++;
-        label = `${editing ? 'Requested file changes' : 'Requested file access'}${paths ? `: ${paths}` : ''}`;
-        activity = label;
-        break;
-      }
-      case 'tool.deleted':
-        stage = 'working';
-        label = `Deleted ${brief(data['path']) || 'authorized file'}`;
-        activity = label;
-        break;
-      case 'output.delta':
-        stage = 'responding';
-        activity = `Writing the ${purpose} response`;
-        break;
-      case 'turn.result':
-        stage = 'finishing';
-        activity = `Finishing the ${purpose} response`;
-        break;
-      default:
-        continue;
-    }
+    const label = progress.apply(event.type, fields(fields(event.data)['data']));
+    if (label === undefined) continue;
     lastActivityAt = event.at;
     if (label) recent.push({ at: event.at, label });
   }
   if (session.phase === 'stop_requested') {
-    stage = 'stopping';
-    activity = 'Waiting for the agent to stop safely';
+    progress.stage = 'stopping';
+    progress.activity = 'Waiting for the agent to stop safely';
   }
   return {
     runId,
     startedAt: started.at,
     lastActivityAt,
-    stage,
-    activity,
-    repositoryCalls,
-    integrationCalls,
-    fileRequests,
+    stage: progress.stage,
+    activity: progress.activity,
+    repositoryCalls: progress.repositoryCalls,
+    integrationCalls: progress.integrationCalls,
+    fileRequests: progress.fileRequests,
     recent: recent.slice(-4),
   };
 }
 
+/** {@link agentProgress} of a planning turn. */
 export function plannerProgress(events: Event[], session: Session) {
   return agentProgress(events, session, 'planner');
 }

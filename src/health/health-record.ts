@@ -39,6 +39,7 @@ export const capabilityNameSchema = z.enum([
 ]);
 export type CapabilityName = z.infer<typeof capabilityNameSchema>;
 
+/** One checked capability of an integration. */
 export const capabilitySchema = z.object({
   name: capabilityNameSchema,
   status: healthStatusSchema,
@@ -47,6 +48,7 @@ export const capabilitySchema = z.object({
 });
 export type Capability = z.infer<typeof capabilitySchema>;
 
+/** What one integration looked like when checked: the program found, its version and its capability rows. */
 export const integrationHealthSchema = z.object({
   id: integrationIdSchema,
   /** Required integrations make the overall health need attention when they are not healthy. */
@@ -64,6 +66,7 @@ export const integrationHealthSchema = z.object({
 });
 export type IntegrationHealth = z.infer<typeof integrationHealthSchema>;
 
+/** The stored `health` row: one complete `doctor` result. */
 export const healthReportSchema = z.object({
   checkedAt: z.string(),
   durationMs: z.number(),

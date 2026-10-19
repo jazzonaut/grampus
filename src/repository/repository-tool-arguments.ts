@@ -25,11 +25,13 @@ const count = z
 
 const optional = <T extends z.ZodType>(schema: T) => schema.optional();
 
+/** `grampus_list_files`. */
 export const listFilesArguments = z.strictObject({
   root: optional(text),
   query: optional(text),
   offset: optional(count),
 });
+/** `grampus_read_file`; `mode` is checked by the tool (lines or characters). */
 export const readFileArguments = z.strictObject({
   root: optional(text),
   path: optional(text),
@@ -37,12 +39,14 @@ export const readFileArguments = z.strictObject({
   offset: optional(count),
   limit: optional(count),
 });
+/** `grampus_search`. */
 export const searchArguments = z.strictObject({
   root: optional(text),
   query: optional(text),
   path: optional(text),
   offset: optional(count),
 });
+/** `grampus_read_changes`; `side` is checked by the tool (before or after). */
 export const readChangesArguments = z.strictObject({
   root: optional(text),
   path: optional(text),
@@ -50,7 +54,9 @@ export const readChangesArguments = z.strictObject({
   offset: optional(count),
   limit: optional(count),
 });
+/** `grampus_suggest_reference_folder`; the tool requires an absolute path and a reason. */
 export const suggestReferenceArguments = z.strictObject({ path: optional(text), reason: optional(text) });
+/** `grampus_read_check`; `stream` is checked by the tool (stdout, stderr or spec). */
 export const readCheckArguments = z.strictObject({
   checkId: optional(text),
   stream: optional(text),

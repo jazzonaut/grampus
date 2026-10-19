@@ -18,6 +18,11 @@ import {
 import { KiB, MiB, commandLimits, qualityLimits, workflowPolicyBounds } from './limits.js';
 import { defaultDashboardPort } from './runtime.js';
 
+/**
+ * The effective operational settings of one process. None of them is bound into an approval: values
+ * that a plan depends on (default timeout, workflow policy, quality passes) are copied into the plan
+ * when it is normalised.
+ */
 export interface Settings {
   /** Loopback port of the dashboard server; `--port` still overrides it for one launch. */
   dashboardPort: number;
@@ -109,7 +114,8 @@ function describeIssue(issue: z.core.$ZodIssue): string {
 
 /**
  * Validate settings overrides from `source` (a file path or a description used in errors) and merge
- * them over the built-in defaults. Unknown keys and out-of-range values are refused, never ignored.
+ * them over the built-in defaults. Unknown keys and out-of-range values are refused, never ignored:
+ * throws one error listing the problems found.
  */
 export function parseSettings(value: unknown, source: string): Settings {
   const parsed = overridesSchema.safeParse(value);
@@ -124,7 +130,10 @@ export function parseSettings(value: unknown, source: string): Settings {
   return merged;
 }
 
-/** Read `<dataDirectory>/config.json` if it exists. The directory is never created or written. */
+/**
+ * Read `<dataDirectory>/config.json` if it exists. The directory is never created or written. Throws
+ * when the file is not valid JSON or fails {@link parseSettings}.
+ */
 export function loadSettings(dataDirectory: string): Settings {
   const path = join(dataDirectory, settingsFileName);
   if (!existsSync(path)) return defaultSettings();
@@ -139,6 +148,7 @@ export function loadSettings(dataDirectory: string): Settings {
   return parseSettings(value, path);
 }
 
+// Installed settings are frozen so library code that reads them can never change them for the process.
 const freeze = (settings: Settings): Settings =>
   Object.freeze({
     ...settings,

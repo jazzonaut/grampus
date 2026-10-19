@@ -3,7 +3,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import { Workflow } from '../src/domain/workflow.js';
-import type { ImplementationRun } from '../src/execution/implementations.js';
 import { windows, git, fixture, crashProgram } from './helpers/guided-tasks.js';
 
 test(
@@ -17,7 +16,7 @@ test(
     const before = f.tasks.get(id);
     assert.equal(before.pending!.stage, 'implementation');
     assert.ok(before.owner);
-    const runs = f.store.implementations<ImplementationRun>(before.executionId!);
+    const runs = f.store.implementations(before.executionId!);
     assert.equal(runs.length, 1);
     assert.equal(runs[0]!.phase, 'completed');
     await assert.rejects(f.tasks.run(id), /running|uncertain/);

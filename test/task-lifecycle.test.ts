@@ -9,8 +9,6 @@ import { Kickoffs } from '../src/orchestration/kickoff.js';
 import { TaskLifecycle } from '../src/orchestration/task-lifecycle.js';
 import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedDecisionKey } from '../src/orchestration/guided/keys.js';
-import type { Task } from '../src/domain/workflow.js';
-import type { Session } from '../src/execution/sessions.js';
 
 function fixture(t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-lifecycle-')),
@@ -56,7 +54,7 @@ test('deleting a settled planning conversation removes it durably and rejects st
     id = f.planners.create({ repo: f.repo, request: 'Implement the original request' });
   const initial = f.planners.view(id);
   assert.throws(() => f.lifecycle.delete('kickoffs', id, 'stale'), /changed/);
-  const session = f.store.session<Session>(id);
+  const session = f.store.session(id);
   session.run = {
     id: 'fixture-run',
     controllerPid: process.pid,
@@ -77,7 +75,7 @@ test('deleting a settled planning conversation removes it durably and rejects st
   const reopened = new Store(f.db);
   try {
     assert.deepEqual(new Kickoffs(reopened).list(), []);
-    assert.ok(reopened.session<Session>(id).deletedAt);
+    assert.ok(reopened.session(id).deletedAt);
   } finally {
     reopened.close();
   }
@@ -120,8 +118,8 @@ test('delete/reset at a file checkpoint preserve the worktree and journal, revok
   assert.equal(f.planners.view(result.id).session.providerSessionId, null);
   assert.equal(existsSync(join(f.plan.workspace.path, 'retained.txt')), true);
   assert.equal(f.git('rev-parse', 'HEAD'), before);
-  assert.equal(f.store.get<Task>(task.id).approvedVersion, null);
-  assert.ok(f.store.get<Task>(task.id).deletedAt);
+  assert.equal(f.store.get(task.id).approvedVersion, null);
+  assert.ok(f.store.get(task.id).deletedAt);
   assert.equal(f.store.guidedSummaries().length, 0);
   assert.ok(f.store.events(task.id).some(event => event.type === 'task.reset'));
   await assert.rejects(f.tasks.authorize(task.id), /deleted/);
@@ -130,7 +128,7 @@ test('delete/reset at a file checkpoint preserve the worktree and journal, revok
 test('management refuses a live controller or uncertain workspace and rolls back reset failures', t => {
   const f = fixture(t),
     task = f.tasks.create(f.plan),
-    saved = f.store.get<Task>(task.id);
+    saved = f.store.get(task.id);
   saved.guided!.owner = { token: 'fixture', host: 'fixture', controllerPid: process.pid, controllerStartedAt: null };
   f.store.save(task.id, saved);
   assert.throws(() => f.lifecycle.delete('tasks', task.id, guidedDecisionKey(saved.guided!)), /settlement/);
@@ -138,15 +136,14 @@ test('management refuses a live controller or uncertain workspace and rolls back
   f.store.save(task.id, saved);
   const id = f.planners.create({ repo: f.repo, request: 'Original' });
   // A reset failure must not hide the original item or leave a new partial conversation.
-  const original = Kickoffs.prototype.create;
-  Kickoffs.prototype.create = () => {
+  const failing = t.mock.method(Kickoffs.prototype, 'create', () => {
     throw new Error('Source unavailable');
-  };
+  });
   try {
     assert.throws(() => f.lifecycle.reset('kickoffs', id, f.planners.view(id).turnKey), /Source unavailable/);
   } finally {
-    Kickoffs.prototype.create = original;
+    failing.mock.restore();
   }
-  assert.equal(f.store.session<Session>(id).deletedAt, undefined);
+  assert.equal(f.store.session(id).deletedAt, undefined);
   assert.equal(f.planners.view(id).config.request, 'Original');
 });

@@ -8,8 +8,6 @@ import { join } from 'node:path';
 import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { builtInQualityPasses } from '../src/domain/quality-passes.js';
 import { runCheckProcess, type CheckProcessOptions } from '../src/process/check-process.js';
-import type { ImplementationRun } from '../src/execution/implementations.js';
-import type { Execution } from '../src/execution/execution-state.js';
 import type { Reply, TurnResult } from '../src/providers/types.js';
 import { windows, message, services, fixture } from './helpers/guided-tasks.js';
 
@@ -95,9 +93,9 @@ test(
     );
     // Both passes resumed the first attempt's implementation conversation, and validation ran only after them.
     const first = f.store
-      .executions<Execution>()
+      .executions()
       .find(execution => execution.taskId === task.id && execution.role === 'implementation')!;
-    const runs = f.store.implementations<ImplementationRun>(first.id);
+    const runs = f.store.implementations(first.id);
     assert.equal(runs.length, 3);
     assert.equal(new Set(runs.map(run => run.policy.files.join())).size, 1);
     assert.deepEqual(

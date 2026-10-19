@@ -39,7 +39,7 @@ async function verified(f: Fixture, execution: Execution, final: boolean) {
     outcome: 'passed',
     summary: 'Fixture library exports one string; CLI reuses it without duplication',
   });
-  const review = await f.executions.create(f.workspace.id, 1, 'claude', 'review');
+  const review = await f.executions.create(f.workspace.id, 1, 'claude', { role: 'review' });
   const reviewed = await runSession(
     f.store,
     review.sessionId,
@@ -150,7 +150,7 @@ test(
       () => new Sessions(f.store).claim(f.execution.sessionId, 'Old implementation'),
       /outdated task attempt/,
     );
-    const oldReview = f.store.executions<Execution>().find(item => item.role === 'review')!;
+    const oldReview = f.store.executions().find(item => item.role === 'review')!;
     assert.throws(() => new Sessions(f.store).claim(oldReview.sessionId, 'Old review'), /outdated task attempt/);
     await assert.rejects(f.deliveries.run(f.execution.id, firstSpec), /every gate/);
     const second = JSON.parse(invoke(f.db, 'execution-new', f.workspace.id, '1', 'codex')) as Execution;

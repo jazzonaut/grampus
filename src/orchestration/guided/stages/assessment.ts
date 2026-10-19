@@ -1,10 +1,12 @@
 // Owns the `assessment` stage: recording quality lens assessments as evidence on the current
 // artifact, one lens per step. Supervised mode records the human's assessment; automatic mode records
-// the reviewer's own verdict for each selected lens.
+// the reviewer's own verdict for each selected lens. It never infers an assessment from checks or
+// findings: only an explicitly queued assessment is recorded.
 import { deepEqual } from '../../../domain/deep-equal.js';
 import { GuidedStopError } from '../stop-reasons.js';
 import { adoptOne, evidenceIds, requireOrigin, type StageHandler } from '../context.js';
 import { automatic } from '../specs.js';
+import { required } from '../state.js';
 
 /**
  * Each step records the head of `assessments`, the queue fixed when the review or the person supplied
@@ -14,15 +16,20 @@ import { automatic } from '../specs.js';
 export const assessmentStage: StageHandler = {
   known: evidenceIds,
   async perform({ state, checks }) {
-    await checks.assess(state.executionId!, state.pending!.assessment!);
+    const assessment = required(state, 'pending').assessment;
+    if (!assessment) throw new Error('The assessment step has no queued assessment');
+    await checks.assess(required(state, 'executionId'), assessment);
     return null;
   },
   settle(context) {
     const { id, state, pending, workflow } = context;
+    // `<runId>:requested` is the pending marker `Checks.assess` records before it claims the lease; it
+    // is not an assessment, so only the settled evidence under the run id itself can be adopted.
     const result = adoptOne(
       workflow.get(id).evidence.filter(item => item.kind === 'quality' && !item.id.endsWith(':requested')),
       pending,
     );
+    // Assessment writes nothing to the repository, so a missing result is safe to ask for again.
     if (!result)
       return {
         kind: 'wait',
@@ -36,7 +43,7 @@ export const assessmentStage: StageHandler = {
           current.assessments = [];
         },
       };
-    requireOrigin(context, state.executionId!, result.id, pending);
+    requireOrigin(context, required(state, 'executionId'), result.id, pending);
     const expected = pending.assessment;
     if (
       !expected ||

@@ -56,7 +56,7 @@ function crash(f: Fixture, spec: unknown): Delivery {
     ],
     { windowsHide: true, stdio: 'pipe' },
   );
-  return f.store.deliveries<Delivery>(f.execution.id).at(-1)!;
+  return f.store.deliveries(f.execution.id).at(-1)!;
 }
 
 test(

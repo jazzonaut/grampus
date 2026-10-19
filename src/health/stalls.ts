@@ -68,7 +68,8 @@ export class StallWatchdog {
 
   /**
    * Recompute every stall at `now()` and journal each new one. Returns the stalls by task id. A task
-   * with several silent items reports the one silent the longest.
+   * with several silent items reports the one silent the longest. Work with no known activity time is
+   * never reported, since its silence cannot be measured.
    */
   scan(thresholdMs: number = currentSettings().stallWarningMs): ReadonlyMap<string, Stall> {
     const now = this.now();
@@ -94,7 +95,10 @@ export class StallWatchdog {
     return this.current.get(taskId) ?? null;
   }
 
-  /** Append the stall event unless the latest one already describes this same silence. */
+  /**
+   * Append the stall event unless the latest one already describes this same silence. The check and the
+   * append share one transaction, so two scanners on the same journal cannot both record it.
+   */
   private record(taskId: string, stall: Stall, now: number): void {
     this.store.transaction(() => {
       const previous = stallEventSchema.safeParse(this.store.events(taskId, [stallEventType]).at(-1)?.data);

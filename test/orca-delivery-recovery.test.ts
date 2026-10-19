@@ -3,7 +3,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import type { CheckProcessResult } from '../src/process/check-process.js';
-import type { ExecutionLease } from '../src/execution/execution-state.js';
 import { git, windows, deliveryFixture, supervisedOrcaWriter } from './helpers/orca.js';
 
 test('Orca lost-reply delivery recovery needs a receipt and the original workspace identity', windows, async t => {
@@ -22,7 +21,7 @@ test('Orca lost-reply delivery recovery needs a receipt and the original workspa
       const pid = Number(
         execFileSync(process.execPath, ['-e', 'console.log(process.pid)'], { encoding: 'utf8', windowsHide: true }),
       );
-      const lease = f.store.lease<ExecutionLease>(f.workspace.id)!;
+      const lease = f.store.lease(f.workspace.id)!;
       f.store.transaction(() => {
         f.store.releaseLease(f.workspace.id, f.execution.id, lease.runId);
         f.store.acquireLease(f.workspace.id, f.execution.id, lease.runId, { ...lease, controllerPid: pid });

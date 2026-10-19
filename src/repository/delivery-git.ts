@@ -1,3 +1,6 @@
+// Owns raw synchronous Git plumbing for delivery and reconciliation, and the byte-level checks that a tree,
+// index or commit holds exactly the checked artifact. It compares raw blobs, never Git's filtered diff or
+// status, and it must never reset, amend or push.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import type { RepositorySnapshot } from './artifacts.js';
@@ -5,10 +8,19 @@ import type { DeliveryRequest } from '../persistence/records.js';
 import { blobCheckLine, indexEntry, lsTreeEntry } from './git-output.js';
 import { processLimits, repositoryLimits } from '../config/limits.js';
 
-/** Used inside the supervised writer, and for read-only delivery reconciliation. */
+/**
+ * Used inside the supervised writer, and for read-only delivery reconciliation; other modules also use it
+ * for read-only plumbing such as `rev-parse`, `ls-tree` and `cat-file`. Inherited `GIT_*` variables are
+ * dropped so the explicit `cwd` decides the repository, replace refs are ignored so objects read as stored,
+ * and optional locks and fsmonitor are off. Hooks and repository configuration still apply to writes.
+ *
+ * @throws Error naming only the subcommand on any failure, timeout or oversized output; Git's own output
+ *   is never echoed.
+ */
 export function deliveryGit(cwd: string, ...args: string[]): Buffer {
   return invokeGit(cwd, args);
 }
+/** `deliveryGit` with `input` on stdin, for batch plumbing such as `cat-file --batch`. */
 export function deliveryGitInput(cwd: string, input: Buffer, ...args: string[]): Buffer {
   return invokeGit(cwd, args, input);
 }
@@ -30,13 +42,23 @@ function invokeGit(cwd: string, args: string[], input?: Buffer): Buffer {
     throw new Error(`Delivery Git ${args[0]} failed; inspect retained repository state before retrying`);
   }
 }
+/** `deliveryGit` output as trimmed UTF-8 text; throws as `deliveryGit` does. */
 export function gitText(cwd: string, ...args: string[]): string {
   return deliveryGit(cwd, ...args)
     .toString('utf8')
     .trim();
 }
 
-/** Compare raw blobs, paths and modes, not Git's filtered diff/status interpretation. */
+/**
+ * Compare raw blobs, paths and modes, not Git's filtered diff/status interpretation.
+ *
+ * With `tree` the commit or tree is checked, otherwise the index (which must hold only stage 0 entries).
+ * The paths must be exactly the snapshot's present files, each a regular file with the expected mode, and
+ * each blob's SHA-256 must equal the snapshot's hash of the working file bytes, so a clean filter or
+ * line-ending conversion applied while staging is caught here.
+ *
+ * @throws Error on any difference in paths, modes, sizes or bytes, or on a malformed Git response.
+ */
 export function verifyTree(cwd: string, snapshot: RepositorySnapshot, tree?: string): void {
   const oldModes = new Map(
     snapshot.index
@@ -58,6 +80,8 @@ export function verifyTree(cwd: string, snapshot: RepositorySnapshot, tree?: str
   for (const entry of entries) {
     const { mode, oid, path, stage } = tree ? { ...lsTreeEntry(entry), stage: '0' } : indexEntry(entry);
     const file = expected.get(path);
+    // Windows working files carry no executable bit, so the mode must stay as the checked index had it
+    // (new paths are 100644); elsewhere it follows the file's executable bit in the snapshot.
     const wantedMode =
       process.platform === 'win32' ? (oldModes.get(path) ?? '100644') : file?.executable ? '100755' : '100644';
     if (!file || !['100644', '100755'].includes(mode) || mode !== wantedMode || stage !== '0') {
@@ -86,6 +110,8 @@ export function verifyTree(cwd: string, snapshot: RepositorySnapshot, tree?: str
   });
   let batch: typeof metadata = [],
     bytes = 0;
+  // `cat-file --batch` prints `<oid> blob <size>\n<raw bytes>\n` per object, unfiltered, so each frame is
+  // parsed strictly and the whole response must be consumed.
   const verify = () => {
     if (!batch.length) return;
     const data = deliveryGitInput(cwd, Buffer.from(batch.map(blob => `${blob.oid}\n`).join('')), 'cat-file', '--batch');
@@ -119,7 +145,14 @@ export function verifyTree(cwd: string, snapshot: RepositorySnapshot, tree?: str
 }
 
 export type { DeliveryRequest } from '../persistence/records.js';
-/** No-change delivery proves raw HEAD/index/worktree equality without staging. */
+/**
+ * No-change delivery proves raw HEAD/index/worktree equality without staging.
+ *
+ * This function checks the branch, HEAD, the HEAD tree and the index against the snapshot; working file
+ * equality comes from the caller comparing a fresh snapshot with the same one.
+ *
+ * @throws Error when the branch or HEAD moved, or the HEAD tree or index differs from the snapshot.
+ */
 export function verifyNoChange(request: DeliveryRequest): void {
   if (
     gitText(request.cwd, 'symbolic-ref', 'HEAD') !== request.branch ||
@@ -129,9 +162,19 @@ export function verifyNoChange(request: DeliveryRequest): void {
   verifyTree(request.cwd, request.snapshot, request.snapshot.head);
   verifyTree(request.cwd, request.snapshot);
 }
+/**
+ * The exact commit message: the approved message plus a `Grampus-Delivery: <id>` trailer, which is how
+ * `verifyCommit` ties a commit to one delivery operation.
+ */
 export function deliveryMessage(request: DeliveryRequest): string {
   return `${request.message.trim()}\n\nGrampus-Delivery: ${request.id}\n`;
 }
+/**
+ * Verify the delivered commit at HEAD on the delivery branch: exactly one parent (the checked HEAD), the
+ * exact message and marker, and a tree and index holding the checked artifact. Returns the commit id.
+ *
+ * @throws Error when the branch changed, the parent or message differs, or the tree or index differs.
+ */
 export function verifyCommit(request: DeliveryRequest): string {
   const { cwd, snapshot } = request;
   if (gitText(cwd, 'symbolic-ref', 'HEAD') !== request.branch) throw new Error('Delivery branch changed');

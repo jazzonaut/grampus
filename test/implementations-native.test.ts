@@ -4,9 +4,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Sessions, runSession } from '../src/execution/sessions.js';
-import type { ImplementationRun } from '../src/execution/implementations.js';
 import { runCheckProcess } from '../src/process/check-process.js';
-import type { ExecutionLease } from '../src/execution/execution-state.js';
 import { windows, fixture, fakeResult } from './helpers/implementations.js';
 
 test('native implementation defaults to an unlimited supervised turn', windows, async t => {
@@ -51,8 +49,8 @@ test(
   async t => {
     const f = await fixture(t);
     const run = await f.implementations.run(f.execution.id, f.policy, undefined, {}, async options => {
-      assert.equal(f.store.lease<ExecutionLease>(f.workspace.id)?.kind, 'implementation');
-      assert.equal(f.store.implementations<ImplementationRun>(f.execution.id).at(-1)?.dispatch, 'requested');
+      assert.equal(f.store.lease(f.workspace.id)?.kind, 'implementation');
+      assert.equal(f.store.implementations(f.execution.id).at(-1)?.dispatch, 'requested');
       writeFileSync(join(f.workspace.path, 'greeting.js'), "console.log('hello world');\n");
       return fakeResult(options);
     });
@@ -101,7 +99,7 @@ test('fresh Codex implementation uses the shared supervised editing lease and se
   const f = await fixture(t, 'codex');
   const run = await f.implementations.run(f.execution.id, f.policy, undefined, {}, async options => {
     assert.equal(new Sessions(f.store).get(f.execution.sessionId).mode, 'editing');
-    assert.equal(f.store.lease<ExecutionLease>(f.workspace.id)?.kind, 'implementation');
+    assert.equal(f.store.lease(f.workspace.id)?.kind, 'implementation');
     writeFileSync(join(f.workspace.path, 'greeting.js'), "console.log('hello world');\n");
     return fakeResult(options);
   });

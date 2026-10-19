@@ -9,7 +9,6 @@ import { Workflow } from '../../src/domain/workflow.js';
 import { Workspaces } from '../../src/repository/workspaces.js';
 import { Executions } from '../../src/execution/executions.js';
 import { Checks, type CheckSpec } from '../../src/verification/checks.js';
-import type { ExecutionLease } from '../../src/execution/execution-state.js';
 
 export const windows = { skip: process.platform !== 'win32' };
 
@@ -86,7 +85,7 @@ export function deadController(f: Awaited<ReturnType<typeof fixture>>): void {
   );
   assert.equal(alive(pid), false);
   f.store.transaction(() => {
-    const lease = f.store.lease<ExecutionLease>(f.workspace.id)!;
+    const lease = f.store.lease(f.workspace.id)!;
     f.store.releaseLease(f.workspace.id, lease.executionId, lease.runId);
     f.store.acquireLease(f.workspace.id, lease.executionId, lease.runId, { ...lease, controllerPid: pid });
   });

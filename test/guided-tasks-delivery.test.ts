@@ -1,6 +1,4 @@
 // Guided task tests: acceptance, workspace creation, selected context and no-change delivery.
-import type { Workspace } from '../src/repository/workspaces.js';
-import type { Execution } from '../src/execution/execution-state.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -60,7 +58,7 @@ test(
     assert.equal(released.stopReason, null);
     assert.equal(released.pending, null);
     assert.equal(released.owner, null);
-    assert.equal(f.store.workspaces<Workspace>()[0]!.phase, 'released');
+    assert.equal(f.store.workspaces()[0]!.phase, 'released');
     assert.equal(f.store.executions().length, 0);
     const continued = await f.tasks.run(id);
     assert.equal(continued.status, 'awaiting_scope', continued.note);
@@ -83,7 +81,7 @@ test('a failed quality assessment is retained and cannot start independent revie
       .get(id)
       .evidence.some(item => item.kind === 'quality' && item.pass === 'simplification' && item.outcome === 'skipped'),
   );
-  assert.equal(f.store.executions<Execution>().filter(item => item.role === 'review').length, 0);
+  assert.equal(f.store.executions().filter(item => item.role === 'review').length, 0);
   assert.equal(f.store.deliveries(failed.executionId!).length, 0);
   await assert.rejects(f.tasks.run(id), /blocked/);
 });
@@ -139,7 +137,7 @@ test('stale scopes stop before dispatch while repository size is independent of 
   const id = f.create();
   await tasks.run(id);
   const state = tasks.get(id),
-    workspace = f.store.workspace<Workspace>(state.workspaceId!);
+    workspace = f.store.workspace(state.workspaceId!);
   writeFileSync(join(workspace.path!, 'greeting.js'), "console.log('external change');\n");
   const stopped = await tasks.authorize(id);
   assert.equal(stopped.status, 'blocked', stopped.note);

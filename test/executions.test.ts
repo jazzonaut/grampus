@@ -10,7 +10,6 @@ import { Workflow } from '../src/domain/workflow.js';
 import { Workspaces } from '../src/repository/workspaces.js';
 import { Sessions, runSession } from '../src/execution/sessions.js';
 import { Executions } from '../src/execution/executions.js';
-import type { Execution, ExecutionLease } from '../src/execution/execution-state.js';
 import type { AgentSession, Connector, Reply, TurnResult } from '../src/providers/types.js';
 
 const brief = { title: 'Greeting', outcome: 'Say hello', criteria: ['Print hello'], plan: 'Implement and verify' };
@@ -59,7 +58,7 @@ test('execution preparation atomically links an approved attempt, workspace and 
   assert.equal(sessions.get(execution.sessionId).cwd, workspace.path);
   assert.equal(sessions.get(execution.sessionId).providerSessionId, null);
   assert.equal(store.lease(workspace.id), null);
-  assert.equal(store.executionForSession<Execution>(execution.sessionId)?.id, execution.id);
+  assert.equal(store.executionForSession(execution.sessionId)?.id, execution.id);
   assert.equal(workflow.get(task.id).phase, 'running');
 });
 
@@ -134,8 +133,8 @@ test('different review sessions share one workspace lease and late results canno
   const { db, store, workflow, task, workspace, executions, sessions } = await fixture(t);
   const implementation = await executions.create(workspace.id, 1, 'codex');
   workflow.finish(task.id, implementation.attemptId, 1, 'succeeded', 'fixture-artifact', 'Trusted fixture result');
-  const first = await executions.create(workspace.id, 1, 'claude', 'review');
-  const second = await executions.create(workspace.id, 1, 'claude', 'review');
+  const first = await executions.create(workspace.id, 1, 'claude', { role: 'review' });
+  const second = await executions.create(workspace.id, 1, 'claude', { role: 'review' });
   const claim = sessions.claim(first.sessionId, 'Review');
   const otherStore = new Store(db);
   try {
@@ -163,7 +162,7 @@ test('different review sessions share one workspace lease and late results canno
     sessions.settle(first.sessionId, claim.runId, result(), true);
     const next = other.claim(second.sessionId, 'Next');
     sessions.settle(first.sessionId, claim.runId, result(), true);
-    assert.equal(store.lease<ExecutionLease>(workspace.id)?.runId, next.runId);
+    assert.equal(store.lease(workspace.id)?.runId, next.runId);
     other.settle(second.sessionId, next.runId, result(), true);
   } finally {
     otherStore.close();
@@ -304,10 +303,13 @@ test('malformed replies fail the attempt but do not retain a lease after confirm
 test('review requires a successful artifact and a fresh session with explicit same-provider fallback', async t => {
   const { workflow, task, workspace, executions, sessions } = await fixture(t);
   const implementation = await executions.create(workspace.id, 1, 'codex');
-  await assert.rejects(executions.create(workspace.id, 1, 'claude', 'review'), /successful current attempt/);
+  await assert.rejects(executions.create(workspace.id, 1, 'claude', { role: 'review' }), /successful current attempt/);
   workflow.finish(task.id, implementation.attemptId, 1, 'succeeded', 'fixture-artifact', 'Fixture');
-  await assert.rejects(executions.create(workspace.id, 1, 'codex', 'review'), /fallback reason/);
-  const review = await executions.create(workspace.id, 1, 'codex', 'review', null, 'Other provider unavailable');
+  await assert.rejects(executions.create(workspace.id, 1, 'codex', { role: 'review' }), /fallback reason/);
+  const review = await executions.create(workspace.id, 1, 'codex', {
+    role: 'review',
+    fallbackReason: 'Other provider unavailable',
+  });
   assert.notEqual(review.sessionId, implementation.sessionId);
   assert.equal(review.artifact, 'fixture-artifact');
   assert.equal(sessions.get(review.sessionId).providerSessionId, null);

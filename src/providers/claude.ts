@@ -47,6 +47,7 @@ import {
   type Usage,
 } from './types.js';
 
+/** The SDK's streaming input: one query stays open and each turn pushes its prompt here once. */
 class InputQueue implements AsyncIterable<SDKUserMessage> {
   private values: SDKUserMessage[] = [];
   private wake: (() => void) | null = null;
@@ -78,6 +79,11 @@ function zeroCounters(usage: Usage): boolean {
   );
 }
 
+/**
+ * True only for a first-party Claude subscription login (Pro, Max, Team or Enterprise) with no API key in
+ * use. Anything else is refused before a turn is sent, so a turn never runs on API billing or through
+ * another backend.
+ */
 export function hasClaudeSubscription(account: ClaudeAccount): boolean {
   // Current native SDK builds omit tokenSource even for authenticated Team accounts.
   const plan = /^(claude\s+)?(pro|max|team|enterprise)$/i.test(account.subscriptionType ?? '');
@@ -89,7 +95,12 @@ export function hasClaudeSubscription(account: ClaudeAccount): boolean {
   );
 }
 
-/** Connect a Claude session. `createQuery` is the SDK's `query`; replay tests substitute a recorded stream. */
+/**
+ * Connect a Claude session. `createQuery` is the SDK's `query`; replay tests substitute a recorded stream.
+ * Rejects when the account report is malformed or not a subscription login, or the signal aborts; the
+ * process is then closed and its exit journaled as confirmed. If that close cannot confirm the exit, its
+ * error is thrown instead.
+ */
 export async function connectClaude(options: ConnectOptions, createQuery: typeof query = query): Promise<AgentSession> {
   options.signal.throwIfAborted();
   const session = new ClaudeSession(options, createQuery);
@@ -114,6 +125,7 @@ export async function connectClaude(options: ConnectOptions, createQuery: typeof
 function editingHook(options: ConnectOptions, editing: EditingContext): HookCallback {
   return input => {
     if (input.hook_event_name !== 'PreToolUse') return Promise.resolve({});
+    // No decision here: canUseTool decides repository, external MCP and ToolSearch calls.
     if (options.repository && isRepositoryTool(input.tool_name)) return Promise.resolve({});
     if (isExternalMcpTool(input.tool_name) || input.tool_name === 'ToolSearch') return Promise.resolve({});
     const decision = authorizeEditTool(editing, input.tool_name, input.tool_input, options.emit);
@@ -127,6 +139,12 @@ function editingHook(options: ConnectOptions, editing: EditingContext): HookCall
   };
 }
 
+/**
+ * One Agent SDK query driven as a Grampus session. The query owns the Claude process; tool permission is
+ * decided by `canUseTool` and, for editing turns, the PreToolUse hook, so file and external MCP tool
+ * decisions are journaled before the tool can run. `doctor` constructs it directly to ask control
+ * requests without a turn.
+ */
 export class ClaudeSession implements AgentSession {
   private readonly input = new InputQueue();
   private readonly sessionId: string;
@@ -147,7 +165,9 @@ export class ClaudeSession implements AgentSession {
     private readonly options: ConnectOptions,
     createQuery: typeof query = query,
   ) {
+    // A new conversation gets an id chosen here, so `system/init` can prove which session actually started.
     this.sessionId = options.providerSessionId ?? randomUUID();
+    // Tools may act only for an active turn that is not stopping or closing.
     const owned = () => !!this.active && !this.stopRequested && !this.stopped && !this.closing;
     const editing = options.editing;
     const fileServer = editing?.policy.delete?.length
@@ -164,6 +184,7 @@ export class ClaudeSession implements AgentSession {
       prompt: this.input,
       options: {
         cwd: options.cwd,
+        // The only built-in tools; Claude never gets a shell. Deletion goes through grampus_files.
         tools: editing ? ['Read', 'Edit', 'Write', 'ToolSearch'] : ['ToolSearch'],
         permissionMode: 'default',
         mcpServers: {
@@ -173,12 +194,14 @@ export class ClaudeSession implements AgentSession {
             ? { grampus_repository: claudeRepository(options.repository, options.emit, owned) }
             : {}),
         },
+        // The user's own MCP configuration still loads natively alongside the servers passed here.
         strictMcpConfig: false,
         systemPrompt: `${editing ? editingInstructions : instructions}\n${mcpInstructions}${options.repository ? `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}` : ''}`,
         outputFormat: { type: 'json_schema', schema: replyOutputSchema },
         maxTurns: providerLimits.claudeMaxTurns,
         includePartialMessages: true,
         ...(editing ? { hooks: { PreToolUse: [{ hooks: [editingHook(options, editing)] }] } } : {}),
+        // Subscription login only; background tasks are off so no agent work runs outside the turn.
         env: { ...subscriptionEnvironment(), CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' },
         canUseTool: this.canUseTool(owned),
         ...(options.providerSessionId ? { resume: options.providerSessionId } : { sessionId: this.sessionId }),
@@ -188,6 +211,7 @@ export class ClaudeSession implements AgentSession {
         ...(executable.path || executable.source === 'environment'
           ? { pathToClaudeCodeExecutable: executable.command }
           : {}),
+        // Grampus spawns the process itself (no shell) so it holds the child and can confirm its exit.
         spawnClaudeCodeProcess: config => {
           const child = spawn(config.command, config.args, {
             cwd: config.cwd,
@@ -196,6 +220,7 @@ export class ClaudeSession implements AgentSession {
             stdio: 'pipe',
             shell: false,
           });
+          // Drained so a chatty stderr cannot fill the pipe and stall the child.
           child.stderr.resume();
           this.child = child;
           this.exited = new Promise(resolve => child.once('close', () => resolve()));
@@ -207,6 +232,11 @@ export class ClaudeSession implements AgentSession {
     this.consumption = this.consume();
   }
 
+  /**
+   * The permission callback the SDK consults when no hook has decided. External MCP tools and ToolSearch are
+   * allowed only within an owned turn and are journaled first; repository tools check turn ownership
+   * themselves; file tools go through the editing policy. Anything else is denied.
+   */
   private canUseTool(owned: () => boolean): CanUseTool {
     const options = this.options;
     return (name, input) => {
@@ -234,6 +264,11 @@ export class ClaudeSession implements AgentSession {
     return claudeMcpStatusSchema.parse(await this.query.mcpServerStatus());
   }
 
+  /**
+   * Refuse anything but a subscription login before any turn is sent.
+   *
+   * @throws Error when the executable reports another kind of account.
+   */
   async authenticate(): Promise<void> {
     const account = await this.accountInfo();
     if (!hasClaudeSubscription(account)) {
@@ -245,6 +280,7 @@ export class ClaudeSession implements AgentSession {
     });
   }
 
+  /** Reads the whole message stream; any error or an early end fails the active turn. */
   private async consume(): Promise<void> {
     try {
       for await (const message of this.query) this.message(message);
@@ -322,6 +358,7 @@ export class ClaudeSession implements AgentSession {
 
   private initialised(message: SDKMessage): void {
     const init = parseClaudeMessage('system/init', claudeInitSchema, message);
+    // This id is recorded as the provider conversation, so a different one (new or resumed) is refused.
     if (init.session_id !== this.sessionId) throw new Error('Claude resumed a different session');
     this.options.emit({
       type: 'session.connected',
@@ -343,6 +380,7 @@ export class ClaudeSession implements AgentSession {
       );
       return;
     }
+    // Messages inside a nested tool use do not describe the main conversation's context size.
     if (parsed.data.parent_tool_use_id) return;
     const usage = parsed.data.message.usage;
     const inputTokens = numeric(usage.input_tokens),
@@ -357,6 +395,7 @@ export class ClaudeSession implements AgentSession {
 
   private message(message: SDKMessage): void {
     const type: string = message.type;
+    // Unknown types are reported once per type, only while a turn is active, and otherwise ignored.
     if (!isKnownClaudeMessageType(type)) {
       if (this.active && this.unrecognized.report(type))
         this.options.emit(
@@ -406,6 +445,10 @@ export class ClaudeSession implements AgentSession {
     }
   }
 
+  /**
+   * Push one prompt into the open query. It is sent exactly once; a failure is reported, never resent.
+   * Rejects at once when the stream has ended or a turn is already active.
+   */
   turn(prompt: string): Promise<TurnResult> {
     if (this.stopped || this.active) return Promise.reject(new Error('Claude session is unavailable or busy'));
     this.stopRequested = false;
@@ -432,17 +475,23 @@ export class ClaudeSession implements AgentSession {
     });
   }
 
+  /** Ask the SDK to interrupt; the result that follows is reported as interrupted whatever it says. */
   async interrupt(): Promise<void> {
     if (!this.active) return;
     this.stopRequested = true;
     await this.query.interrupt();
   }
 
+  /** Idempotent: every caller waits for the same shutdown. */
   close(): Promise<void> {
     this.closing ??= this.shutdown();
     return this.closing;
   }
 
+  /**
+   * Ends the input and the query, kills the child after `claudeKillMs` and waits for it to close.
+   * Rejects with `Claude process shutdown unconfirmed` when no close is seen within `claudeShutdownMs`.
+   */
   private async shutdown(): Promise<void> {
     clearInterval(this.usageTimer);
     this.input.close();

@@ -87,7 +87,8 @@ test('failed checks start collapsed and load bounded plain-text output on demand
   assert.match(html, /AssertionError: MarkInfo/);
   assert.match(html, /Read stderr/);
   assert.match(html, /Read stdout/);
-  assert.doesNotMatch(html, /<details[^>]*open|DO_NOT_RENDER_RAW_OUTPUT|\x1b|\[31m/);
+  assert.doesNotMatch(html, /<details[^>]*open|DO_NOT_RENDER_RAW_OUTPUT|\[31m/);
+  assert.ok(!html.includes('\u001b'), 'no raw escape sequences');
   runInContext(
     "selected='task-a';loadedCheck={taskId:selected,checkId:'check-a',stream:'stderr',offset:0,content:'safe page',nextOffset:16000,totalCharacters:40000}",
     context,

@@ -1,3 +1,6 @@
+// Owns task workspace reservations and the Git and Orca worktree lifecycle: reserve in the journal, create
+// once, verify identity and clean base, recover or release. It must never replay a creation, remove files,
+// branches or worktrees, or apply raw Git lifecycle writes to an Orca worktree.
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { lstatSync, realpathSync, statSync } from 'node:fs';
@@ -33,6 +36,10 @@ function orcaReservation(workspace: Workspace): NonNullable<Workspace['orca']> {
   return workspace.orca;
 }
 
+/**
+ * The journal's unique `path_key` for a reservation. A released reservation gives its destination up under
+ * a per-id key so the path can be reserved again; an Orca reservation has no path until Orca reports one.
+ */
 function reservationKey(workspace: Workspace): string {
   if (workspace.phase === 'released') return `released:${workspace.id}`;
   if (workspace.path) return pathKey(workspace.path);
@@ -47,6 +54,7 @@ interface Worktree {
   locked?: string;
 }
 
+/** Windows paths compare case-insensitively, so destinations are keyed in lower case there. */
 function pathKey(path: string): string {
   const absolute = resolve(path);
   return process.platform === 'win32' ? absolute.toLowerCase() : absolute;
@@ -70,7 +78,11 @@ function exists(path: string): boolean {
   }
 }
 
-/** Never let an inherited Git directory/index override the explicitly chosen repository. */
+/**
+ * Never let an inherited Git directory/index override the explicitly chosen repository. `started` is called
+ * with the PID straight after spawn; if it throws (for example the journal write failed) Git is killed and
+ * the call rejects with that error. A failure names only the subcommand and exit code, never Git's output.
+ */
 function git(cwd: string, args: string[], started?: (pid: number | null) => void): Promise<string> {
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
   for (const key of Object.keys(env)) if (key.startsWith('GIT_') && key !== 'GIT_TERMINAL_PROMPT') delete env[key];
@@ -78,6 +90,7 @@ function git(cwd: string, args: string[], started?: (pid: number | null) => void
     let startupError: unknown;
     const creating = args[0] === 'worktree' && args[1] === 'add';
     const timeout = creating ? processLimits.worktreeCreateTimeoutMs : processLimits.gitTimeoutMs;
+    // fsmonitor is off so no monitor hook or daemon runs; creation also turns off `core.autocrlf` conversion.
     const child = execFile(
       'git',
       ['-c', 'core.fsmonitor=false', ...(creating ? ['-c', 'core.autocrlf=false'] : []), '-C', cwd, ...args],
@@ -116,7 +129,28 @@ async function worktrees(repository: string): Promise<Worktree[]> {
   }));
 }
 
-/** Journal intent before asking Git or Orca to create a worktree; never replay creation. */
+/**
+ * Git must still list the worktree at its recorded path on its branch, and a Git workspace must still
+ * carry the `grampus:<id>` lock, which is what marks it as owned by this reservation.
+ */
+async function requireRegistration(workspace: Workspace, path: string, branch: string): Promise<void> {
+  const entry = (await worktrees(workspace.repository)).find(item => pathKey(item.path) === pathKey(path));
+  if (
+    !entry ||
+    entry.branch !== `refs/heads/${branch}` ||
+    (workspace.adapter === 'git' && entry.locked !== `grampus:${workspace.id}`)
+  ) {
+    throw new Error('Workspace registration, branch or ownership lock does not match');
+  }
+}
+
+/**
+ * Journal intent before asking Git or Orca to create a worktree; never replay creation.
+ *
+ * Every state change and its workspace event are written in one transaction. A creation that fails or
+ * cannot be verified leaves the reservation in `recovery_required` with its files untouched; only an
+ * explicit `recover` (which adopts what exists) or `release` (metadata only) moves it on.
+ */
 export class Workspaces {
   constructor(
     private readonly store: Store,
@@ -125,7 +159,11 @@ export class Workspaces {
   get(id: string): Workspace {
     return this.store.workspace(id);
   }
-  /** The checked-out path of a workspace; a reservation that has none cannot run work. */
+  /**
+   * The checked-out path of a workspace; a reservation that has none cannot run work.
+   *
+   * @throws Error when the workspace has no path yet (an Orca reservation before its identity is bound).
+   */
   path(id: string): string {
     const { path } = this.get(id);
     if (!path) throw new Error('Workspace has no checked-out path');
@@ -135,10 +173,15 @@ export class Workspaces {
     return this.store.workspaces();
   }
 
-  /** Metadata only: a reviewed revision keeps the original base, branch and files. */
+  /**
+   * Metadata only: a reviewed revision keeps the original base, branch and files.
+   *
+   * @throws Error unless the workspace is ready, unowned and unleased, and its guided task is a draft
+   *   revision of exactly `previousVersion` that has not been approved yet.
+   */
   rebind(id: string, previousVersion: number): Workspace {
     return this.change(id, 'workspace.version_rebound', workspace => {
-      const task = this.store.get<Task>(workspace.taskId);
+      const task = this.store.get(workspace.taskId);
       if (
         workspace.phase !== 'ready' ||
         workspace.owner ||
@@ -168,7 +211,7 @@ export class Workspaces {
   }
 
   private approved(taskId: string, version: number): Task {
-    const task = this.store.get<Task>(taskId);
+    const task = this.store.get(taskId);
     if (task.version !== version || task.approvedVersion !== version || task.phase !== 'ready') {
       throw new Error('Workspace creation requires the exact approved version of a ready task');
     }
@@ -176,6 +219,19 @@ export class Workspaces {
     return task;
   }
 
+  /**
+   * Create a standalone Git worktree for the approved version of a ready task, on branch
+   * `grampus/<task-id>` at `destination`, locked with `grampus:<workspace-id>` and pinned to `base`'s commit.
+   *
+   * The reservation, with this controller as owner, is committed before `git worktree add` runs, and Git's
+   * PID and creation time are journaled as it starts, so a crash leaves enough to prove later whether Git
+   * is still running. Creation is attempted once and never replayed.
+   *
+   * @throws Error before reserving when the task is not the exact approved version, the destination exists or
+   *   lies inside a worktree or Git metadata, or the task or path is already reserved; after reserving, any
+   *   Git failure or a worktree that does not verify (registration, lock, clean base, approved version) moves
+   *   the reservation to `recovery_required` and throws `Workspace <id> needs recovery`.
+   */
   async create(
     taskId: string,
     version: number,
@@ -198,6 +254,8 @@ export class Workspaces {
       throw new Error('Workspace destination must be outside existing worktrees and Git metadata');
     }
     const baseCommit = (await git(root, ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`])).trim();
+    // The journal keeps one workspace row per task, so a released reservation's id is reused. Release never
+    // deletes branches, so a fresh branch name avoids colliding with the one the released attempt may have made.
     const released = this.list().find(item => item.taskId === taskId && item.phase === 'released');
     const workspace: LocatedWorkspace = {
       id: released?.id ?? randomUUID(),
@@ -219,6 +277,7 @@ export class Workspaces {
         exitConfirmed: false,
       },
     };
+    // Re-check approval and uniqueness inside the write transaction: the checks above ran across awaits.
     this.store.transaction(() => {
       this.approved(taskId, version);
       if (
@@ -262,6 +321,7 @@ export class Workspaces {
           },
         );
       } finally {
+        // execFile reports once the child has closed (success, failure or timeout) or could not be spawned.
         this.change(workspace.id, 'git.exited', current => {
           creationOwner(current).exitConfirmed = true;
         });
@@ -285,7 +345,18 @@ export class Workspaces {
     }
   }
 
-  /** Release only a proved-unused standalone reservation. Never remove files, branches or worktrees. */
+  /**
+   * Release only a proved-unused standalone reservation. Never remove files, branches or worktrees.
+   *
+   * Ownership is taken in the journal first (phase `creating`, this controller as owner), then the
+   * destination must be absent on disk and in Git's worktree list, and is checked again inside the final
+   * transaction.
+   *
+   * @throws Error when the reservation is not a Git `recovery_required` one with confirmed Git exit on this
+   *   host, has a lease or any execution, its previous controller is alive or unverifiable, or a guided
+   *   controller still owns the task; when files or a registration exist, the reservation goes back to
+   *   `recovery_required` and the error is rethrown.
+   */
   async release(id: string): Promise<Workspace> {
     const workspace = this.change(id, 'workspace.release_requested', current => {
       if (
@@ -303,7 +374,7 @@ export class Workspaces {
         processAlive(current.owner.controllerPid, current.owner.controllerStartedAt)
       )
         throw new Error('Previous workspace controller is alive or unverifiable');
-      const task = this.store.get<Task>(current.taskId);
+      const task = this.store.get(current.taskId);
       if (task.guided?.owner && (task.guided.owner.controllerPid !== process.pid || task.guided.stage !== 'workspace'))
         throw new Error('Reconcile the guided controller before releasing its reservation');
       current.phase = 'creating';
@@ -344,6 +415,17 @@ export class Workspaces {
     }
   }
 
+  /**
+   * Create an Orca worktree for the approved version of a ready task through one Orca `worktree create`.
+   *
+   * The reservation carries a unique name and comment marker so that recovery can find the outcome of a
+   * creation that was interrupted. Orca's reported identity is bound and verified before the workspace is
+   * ready; Orca owns the worktree's path, branch and lifecycle.
+   *
+   * @throws Error before reserving when the base ref is empty, Orca's repository is not the requested Git
+   *   repository, or the task already has a reservation; after reserving, any Orca failure or mismatch moves
+   *   the reservation to `recovery_required` and throws, because Orca creation must not be replayed.
+   */
   async createOrca(taskId: string, version: number, repository: string, base: string): Promise<LocatedWorkspace> {
     this.approved(taskId, version);
     if (!base.trim()) throw new Error('Orca creation requires an explicit base ref');
@@ -425,6 +507,11 @@ export class Workspaces {
     }
   }
 
+  /**
+   * Record the identity Orca reported for this reservation. The result must echo the requested repository,
+   * name, marker and base, and once an identity is recorded a different instance is refused: a worktree
+   * recreated under the same name is not the one Grampus reserved.
+   */
   private bindOrca(id: string, result: OrcaWorktree): void {
     this.change(id, 'orca.identity_recorded', current => {
       const orca = orcaReservation(current);
@@ -457,6 +544,15 @@ export class Workspaces {
     });
   }
 
+  /**
+   * Re-verify a workspace on its host and report its HEAD, whether it is dirty and whether it still belongs
+   * to the task's approved version. For Orca the recorded instance identity is checked first; for both
+   * adapters Git must list it at its path and branch, and its top level and common directory must match.
+   * `includeStatus: false` skips the working tree status (`dirty` is then `null`).
+   *
+   * @throws Error for a released reservation, the wrong host, an unknown destination or any identity,
+   *   registration or lock mismatch.
+   */
   async inspect(
     id: string,
     includeStatus = true,
@@ -467,32 +563,8 @@ export class Workspaces {
     if (workspace.host !== hostname()) throw new Error('Inspect this workspace on its execution host');
     if (!workspace.path || !workspace.branch)
       throw new Error('Workspace destination is unknown; recover its Orca identity first');
-    if (workspace.adapter === 'orca') {
-      const orca = workspace.orca;
-      if (!orca?.identityKey) throw new Error('Orca workspace identity is unknown');
-      const result = await this.orca.show(workspace.repository, orca.identityKey);
-      if (
-        result.identityKey !== orca.identityKey ||
-        result.instanceId !== orca.instanceId ||
-        result.id !== orca.worktreeId ||
-        result.repoId !== orca.repoId ||
-        result.isMain ||
-        result.archived ||
-        pathKey(realpathSync.native(result.path)) !== pathKey(workspace.path) ||
-        result.branch !== `refs/heads/${workspace.branch}`
-      ) {
-        throw new Error('Orca workspace instance, repository or branch changed');
-      }
-    }
-    const workspacePath = workspace.path;
-    const entry = (await worktrees(workspace.repository)).find(item => pathKey(item.path) === pathKey(workspacePath));
-    if (
-      !entry ||
-      entry.branch !== `refs/heads/${workspace.branch}` ||
-      (workspace.adapter === 'git' && entry.locked !== `grampus:${id}`)
-    ) {
-      throw new Error('Workspace registration, branch or ownership lock does not match');
-    }
+    if (workspace.adapter === 'orca') await this.requireOrcaIdentity(workspace, workspace.path, workspace.branch);
+    await requireRegistration(workspace, workspace.path, workspace.branch);
     const top = realpathSync.native((await git(workspace.path, ['rev-parse', '--show-toplevel'])).trim());
     const common = realpathSync.native(
       (await git(workspace.path, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim(),
@@ -504,13 +576,35 @@ export class Workspaces {
     const dirty = includeStatus
       ? (await git(workspace.path, ['status', '--porcelain=v1', '--untracked-files=all'])).length !== 0
       : null;
-    const task = this.store.get<Task>(workspace.taskId);
+    const task = this.store.get(workspace.taskId);
     return {
       workspace,
       head,
       dirty,
       taskCurrent: task.version === workspace.version && task.approvedVersion === workspace.version,
     };
+  }
+
+  /**
+   * Orca must still report the exact recorded worktree instance: identity, instance, worktree and
+   * repository ids, the same path and branch, and neither the main worktree nor archived.
+   */
+  private async requireOrcaIdentity(workspace: Workspace, path: string, branch: string): Promise<void> {
+    const orca = workspace.orca;
+    if (!orca?.identityKey) throw new Error('Orca workspace identity is unknown');
+    const result = await this.orca.show(workspace.repository, orca.identityKey);
+    if (
+      result.identityKey !== orca.identityKey ||
+      result.instanceId !== orca.instanceId ||
+      result.id !== orca.worktreeId ||
+      result.repoId !== orca.repoId ||
+      result.isMain ||
+      result.archived ||
+      pathKey(realpathSync.native(result.path)) !== pathKey(path) ||
+      result.branch !== `refs/heads/${branch}`
+    ) {
+      throw new Error('Orca workspace instance, repository or branch changed');
+    }
   }
 
   private async verifyCreation(workspace: Workspace): Promise<void> {
@@ -520,6 +614,17 @@ export class Workspaces {
     }
   }
 
+  /**
+   * Adopt the outcome of an interrupted or failed creation without replaying it. The previous controller
+   * must be gone (or be this process with no creation in flight), and for Git the `worktree add` process
+   * must have exited or be provably gone. An Orca reservation without a recorded identity is bound only when exactly
+   * one Orca worktree carries its name and marker. The adopted worktree must then verify as a clean,
+   * approved-version checkout of the pinned base.
+   *
+   * @throws Error, with the reservation unchanged, when no recovery is needed, on the wrong host or while an
+   *   owner may still be running; when the Orca outcome is missing or ambiguous or verification fails, the
+   *   reservation is put back in `recovery_required` and the error is rethrown.
+   */
   async recover(id: string): Promise<Workspace> {
     // Acquire ownership before any asynchronous inspection so a second reconciler cannot race.
     const workspace = this.change(id, 'recovery.requested', current => {

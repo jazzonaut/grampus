@@ -11,7 +11,6 @@ import { runSession } from '../src/execution/sessions.js';
 import type { Connector } from '../src/providers/types.js';
 import { Sessions } from '../src/execution/sessions.js';
 import type { CheckProcessOptions } from '../src/process/check-process.js';
-import type { ExecutionLease } from '../src/execution/execution-state.js';
 import { git, fixture, windows, implementationFixture } from './helpers/orca.js';
 
 function editedResult(options: CheckProcessOptions) {
@@ -199,7 +198,7 @@ test(
     for (const provider of ['claude', 'codex'] as const) {
       const f = await implementationFixture(t, provider);
       const run = await f.implementations.run(f.execution.id, f.policy, undefined, {}, async options => {
-        assert.equal(f.store.lease<ExecutionLease>(f.workspace.id)?.kind, 'implementation');
+        assert.equal(f.store.lease(f.workspace.id)?.kind, 'implementation');
         return editedResult(options);
       });
       assert.equal(run.phase, 'completed', run.error ?? undefined);

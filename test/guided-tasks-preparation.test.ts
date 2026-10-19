@@ -5,7 +5,6 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
-import type { RepositoryCheck } from '../src/verification/checks.js';
 import { windows, preparation, git, services, fixture } from './helpers/guided-tasks.js';
 
 test('fresh worktrees prepare before implementation and refresh prerequisites before checks', windows, async t => {
@@ -125,7 +124,7 @@ test(
     assert.equal(retried.status, 'awaiting_scope', retried.note);
     assert.equal(retried.executionId, executionId);
     assert.equal(f.store.implementations(executionId).length, 0);
-    const checks = f.store.checks<RepositoryCheck>(executionId);
+    const checks = f.store.checks(executionId);
     assert.equal(checks[0]!.result!.exitCode, 17);
     assert.equal(checks[1]!.phase, 'passed');
   },

@@ -1,7 +1,8 @@
-// Owns the typed reason codes recorded whenever the guided controller stops making progress:
-// waiting for a person, blocked on a settled failure, or requiring explicit recovery.
-// The human-readable note stays the primary text for people; the code is for the dashboard,
-// reports and tests, so they never have to parse note wording.
+// Owns the typed reason codes recorded whenever the guided controller stops making progress: waiting
+// for a person, blocked on a settled failure, or requiring explicit recovery. The note stays the primary
+// text for people; the code is for the rerun-checks rule, the dashboard, reports and tests, so none of
+// them parses note wording. This module only names and records reasons; it never decides when to stop.
+import { z } from 'zod';
 
 /**
  * Every reason the guided controller can record for a stop. Each code names one decision point in
@@ -116,13 +117,14 @@ export type StopReasonCode = (typeof StopReasonCode)[keyof typeof StopReasonCode
  * Why the guided task is not progressing. Present exactly while the status is a stop status
  * (draft, awaiting_*, blocked or recovery_required); cleared whenever work resumes.
  */
-export interface StopReason {
-  code: StopReasonCode;
+export const stopReasonSchema = z.object({
+  code: z.enum(StopReasonCode),
   /** The human-readable explanation recorded with the stop; usually the task note. */
-  message: string;
+  message: z.string(),
   /** ISO timestamp of the stop. */
-  at: string;
-}
+  at: z.string(),
+});
+export type StopReason = z.infer<typeof stopReasonSchema>;
 
 /** Records a stop reason now. */
 export function stopReason(code: StopReasonCode, message: string): StopReason {

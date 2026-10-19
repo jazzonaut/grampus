@@ -230,7 +230,10 @@ export function classifyCodexNotification(method: string, params: unknown): Code
   return { kind: 'unrecognized', method, excerpt: boundedExcerpt(params) };
 }
 
-/** A file change item as it appears in `item/started` and `item/completed`, or null for other items. */
+/**
+ * A file change item as it appears in `item/started` and `item/completed`, or null for other items.
+ * Throws `ProtocolError` for a malformed file change item, because patch approval depends on it.
+ */
 export function fileChangeItem(item: z.output<typeof itemSchema>): z.output<typeof fileChangeItemSchema> | null {
   if (item.type !== 'fileChange') return null;
   const result = fileChangeItemSchema.safeParse(item);
@@ -239,7 +242,10 @@ export function fileChangeItem(item: z.output<typeof itemSchema>): z.output<type
   return result.data;
 }
 
-/** The final agent message text of an `item/completed`, or null for other items. */
+/**
+ * The final agent message text of an `item/completed`, or null for other items. Throws `ProtocolError`
+ * for a malformed agent message, because the structured reply is read from it.
+ */
 export function agentMessageText(item: z.output<typeof itemSchema>): string | null {
   if (item.type !== 'agentMessage') return null;
   const result = agentMessageItemSchema.safeParse(item);

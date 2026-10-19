@@ -1,5 +1,6 @@
 // Owns the `validation` and `verification` (acceptance) stages: running the approved checks on the
-// current artifact and deciding whether a failure returns to the implementer or stops.
+// current artifact and deciding whether a failure returns to the implementer or stops. A failure
+// that is not trustworthy evidence about the implementation never spends a repair.
 import { activeCriteria } from '../../../domain/workflow.js';
 import { deepEqual } from '../../../domain/deep-equal.js';
 import type { RepositoryCheck } from '../../../verification/checks.js';
@@ -15,14 +16,15 @@ import {
   type StageHandler,
   type StageOutcome,
 } from '../context.js';
-import type { GuidedState } from '../state.js';
+import { required, type GuidedState } from '../state.js';
 import { acceptanceSpec, automatic, currentSlice, validationSpec } from '../specs.js';
 
 /** Every check of the current execution, including preparation runs. */
 export function checkIds({ store }: GuidedContext, state: GuidedState): string[] {
-  return store.checks<RepositoryCheck>(state.executionId!).map(item => item.id);
+  return store.checks(required(state, 'executionId')).map(item => item.id);
 }
 
+/** The exact approved request for `stage`, rebuilt at settlement to compare with the stored check. */
 function expectedSpec({ id, workflow }: GuidedContext, state: GuidedState, stage: string) {
   return stage === 'validation' ? validationSpec(state) : acceptanceSpec(state, activeCriteria(workflow.get(id)));
 }
@@ -76,12 +78,13 @@ function settleFailure(context: SettleContext, result: RepositoryCheck): StageOu
   );
   const allowance = state.plan.workflowPolicy.repairRounds;
   const ineligible = repairIneligibility(state, result);
+  // Retained whatever follows, so a stop can offer rerun checks and a repair can quote the failure.
   change('guided.check_failed', current => {
     current.failedCheckId = result.id;
   });
   if (!ineligible && !noProgress && cycle.used < allowance) {
     cycle.used++;
-    cycle.failures.push({ purpose: pending.stage, artifact: state.snapshot!.artifact, issue });
+    cycle.failures.push({ purpose: pending.stage, artifact: required(state, 'snapshot').artifact, issue });
     change('guided.repair_budget_used', current => {
       current.repairCycle = cycle;
     });
@@ -106,11 +109,16 @@ function settleFailure(context: SettleContext, result: RepositoryCheck): StageOu
   };
 }
 
+/**
+ * Adopts the one new check of this step, only if it ran under this controller with exactly the approved
+ * request. A pass on validation becomes the evidence submitted with the implementation.
+ */
 function settleCheck(context: SettleContext): StageOutcome {
   const { state, pending, store } = context;
-  const result = adoptOne(store.checks<RepositoryCheck>(state.executionId!), pending);
+  const executionId = required(state, 'executionId');
+  const result = adoptOne(store.checks(executionId), pending);
   if (!result) return { kind: 'missing' };
-  requireOrigin(context, state.executionId!, result.id, pending);
+  requireOrigin(context, executionId, result.id, pending);
   if (!deepEqual(result.spec, expectedSpec(context, state, pending.stage)))
     throw mismatch('Check result differs from the approved command or acceptance expectation');
   requireSettled(result, 'Check');
@@ -129,7 +137,7 @@ function settleCheck(context: SettleContext): StageOutcome {
 export const validationStage: StageHandler = {
   known: checkIds,
   async perform({ state, checks, signal }) {
-    await checks.run(state.executionId!, validationSpec(state), signal);
+    await checks.run(required(state, 'executionId'), validationSpec(state), signal);
     return null;
   },
   settle: settleCheck,
@@ -139,7 +147,7 @@ export const validationStage: StageHandler = {
 export const verificationStage: StageHandler = {
   known: checkIds,
   async perform({ id, state, checks, workflow, signal }) {
-    await checks.run(state.executionId!, acceptanceSpec(state, activeCriteria(workflow.get(id))), signal);
+    await checks.run(required(state, 'executionId'), acceptanceSpec(state, activeCriteria(workflow.get(id))), signal);
     return null;
   },
   settle: settleCheck,

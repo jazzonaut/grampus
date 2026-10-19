@@ -26,12 +26,7 @@ test(
     const done = await tasks.assess(task.id, 'passed', 'One direct statement with a precise name');
     assert.equal(done.status, 'complete', done.note);
     assert.deepEqual(
-      recorded(f.store.get<{ evidence: Evidence[] }>(task.id).evidence).map(item => [
-        item.pass,
-        item.outcome,
-        item.source,
-        item.summary,
-      ]),
+      recorded(f.store.get(task.id).evidence).map(item => [item.pass, item.outcome, item.source, item.summary]),
       [
         ['simplification', 'passed', 'controller', 'One direct statement with a precise name'],
         ['naming', 'passed', 'controller', 'One direct statement with a precise name'],
@@ -50,7 +45,7 @@ test(
     assert.ok(
       !f.store.events(none.id).some(event => (event.data as { status?: string })?.status === 'awaiting_assessment'),
     );
-    assert.deepEqual(recorded(f.store.get<{ evidence: Evidence[] }>(none.id).evidence), []);
+    assert.deepEqual(recorded(f.store.get(none.id).evidence), []);
     await assert.rejects(tasks.assess(none.id, 'passed', 'Nothing to assess'), /No quality assessment/);
   },
 );

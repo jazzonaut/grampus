@@ -8,7 +8,7 @@ import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import { Workflow } from '../src/domain/workflow.js';
 import { runCheckProcess } from '../src/process/check-process.js';
-import { Checks, type RepositoryCheck } from '../src/verification/checks.js';
+import { Checks } from '../src/verification/checks.js';
 import { windows, preparation, git, services, fixture } from './helpers/guided-tasks.js';
 
 for (const stage of ['initial', 'slice'] as const)
@@ -26,7 +26,7 @@ for (const stage of ['initial', 'slice'] as const)
     assert.equal(result.status, 'blocked', result.note);
     assert.equal(result.stopReason?.code, 'PREPARATION_FAILED');
     assert.match(result.note, /changed repository inputs|Git state or repository instructions/);
-    const checks = f.store.checks<RepositoryCheck>(result.executionId!);
+    const checks = f.store.checks(result.executionId!);
     assert.equal(checks.length, 1);
     assert.equal(checks[0]!.purpose, 'preparation');
     await assert.rejects(f.tasks.retry(task.id), /changed repository inputs|Git state or repository instructions/);
@@ -39,7 +39,7 @@ test('a passing preparation cannot replace validation evidence', windows, async 
     task = f.tasks.create({ ...f.plan, preparation: preparation("console.log('ready')") });
   f.tasks.approve(task.id, 1, task.guided!.digest);
   const scope = await f.tasks.run(task.id);
-  const check = f.store.checks<RepositoryCheck>(scope.executionId!)[0]!;
+  const check = f.store.checks(scope.executionId!)[0]!;
   await assert.rejects(new Checks(f.store).finish(scope.executionId!, check.id), /preparation is not validation/);
   assert.equal(
     new Workflow(f.store)
@@ -109,7 +109,7 @@ test('interrupted preparation remains retryable without starting a new attempt',
   assert.equal(interrupted.status, 'blocked', interrupted.note);
   assert.equal(interrupted.stopReason?.code, 'PREPARATION_INTERRUPTED');
   assert.equal(interrupted.owner, null);
-  assert.equal(f.store.checks<RepositoryCheck>(interrupted.executionId!)[0]!.phase, 'interrupted');
+  assert.equal(f.store.checks(interrupted.executionId!)[0]!.phase, 'interrupted');
   const retried = await tasks.retry(task.id);
   assert.equal(retried.status, 'awaiting_scope', retried.note);
   assert.equal(retried.executionId, interrupted.executionId);

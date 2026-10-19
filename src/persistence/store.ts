@@ -1,5 +1,6 @@
 // Owns the SQLite journal: the single current schema, transactions and record access. Rows are parsed
 // with zod at this boundary; execution-layer records are validated against persistence/records.ts.
+// It stores and returns records but never decides workflow: callers own every state transition.
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -16,6 +17,7 @@ import {
   implementationRunSchema,
   repositoryCheckSchema,
   sessionSchema,
+  taskSchema,
   workspaceSchema,
   type Delivery,
   type Execution,
@@ -25,6 +27,7 @@ import {
   type Session,
   type Workspace,
 } from './records.js';
+import type { Task } from '../domain/workflow.js';
 import { healthReportSchema, type HealthReport } from '../health/health-record.js';
 
 /** The default journal for this installed or development copy. */
@@ -32,6 +35,7 @@ export function defaultDatabasePath(): string {
   return join(defaultDataDirectory(), 'grampus.sqlite');
 }
 
+/** An event of a task's journal, in the order it was appended (`sequence`). */
 export interface JournalEvent {
   sequence: number;
   taskId: string;
@@ -160,6 +164,10 @@ export interface ActiveWork {
 }
 
 type SchemaState = 'empty' | 'current' | 'foreign';
+/**
+ * `empty` only for a fresh file (no tables, `user_version` 0); anything that is not exactly the current
+ * version with every expected table is `foreign` and refused, never migrated.
+ */
 function schemaState(db: DatabaseSync): SchemaState {
   const version = z.object({ user_version: z.number() }).safeParse(db.prepare('PRAGMA user_version').get());
   const tables = new Set(
@@ -203,18 +211,20 @@ const text = (value: unknown): string => (typeof value === 'string' ? value : St
  * There is one schema version and no migration. A journal from any other version is
  * refused before this connection writes anything to it, so its bytes stay unchanged.
  *
- * Execution-layer records (sessions, executions, leases, workspaces, checks, implementations and
- * deliveries) are validated on every read against persistence/records.ts and returned with their
- * schema type. Their accessors keep an unused type parameter only so call sites written against the
- * earlier generic API still compile; it has no effect on the result. Task records (including guided
- * state) belong to domain/ and orchestration/: `get` and `list` return them unvalidated, and those
- * modules validate the fields they read.
+ * Every record (tasks with their guided state, sessions, executions, leases, workspaces, checks,
+ * implementations, deliveries, snapshots and health) is validated on every read against its schema in
+ * persistence/records.ts or the owning module, and returned with that schema's type. Event payloads
+ * stay `unknown`: each reader validates the fields it uses.
  */
 export class Store {
   private readonly db: DatabaseSync;
   readonly path: string;
   private transactionDepth = 0;
 
+  /**
+   * Opens (or creates) the journal at `path`, or an in-memory journal for `':memory:'`. Throws when the
+   * file holds any other schema version, without writing to it.
+   */
   constructor(path: string) {
     this.path = path === ':memory:' ? path : resolve(path);
     if (path !== ':memory:' && existsSync(path) && statSync(path).size > 0) {
@@ -249,6 +259,13 @@ export class Store {
     }
   }
 
+  /**
+   * Runs `action` in one transaction and returns its result. The outermost call uses `BEGIN IMMEDIATE`,
+   * taking the write lock before anything is read, so a check of the current record and the write that
+   * depends on it cannot interleave with another controller connection. Nested calls use savepoints:
+   * an inner failure rolls back only its own changes and rethrows. Any thrown error rolls back and is
+   * rethrown. `action` must be synchronous; work after an `await` would run outside the transaction.
+   */
   transaction<T>(action: () => T): T {
     const depth = this.transactionDepth;
     const savepoint = `nested_${depth}`;
@@ -267,34 +284,42 @@ export class Store {
   }
 
   /**
-   * A task record. Not validated here: the task and guided state contracts are owned by domain/ and
-   * orchestration/, which validate what they read. `T` is the caller's view of that record.
+   * The task record `id`, validated with its guided state. Throws `RecordNotFoundError` when absent
+   * and `BoundaryError` when the stored record does not match `taskSchema`.
+   *
+   * The type parameter has no effect. It remains only because server/ui-server.ts still writes
+   * `store.get(id)`; remove it together with those type arguments.
    */
-  get<T>(id: string): T {
+  get<_Unused = Task>(id: string): Task {
     const row = this.db.prepare('SELECT state FROM tasks WHERE id = ?').get(id);
     if (!row) throw new RecordNotFoundError('Task', id);
-    // The owning module states the record type; see the class comment.
-    return document('tasks', row) as T;
+    return record(taskSchema, 'tasks', row);
   }
 
-  /** Every task record, in creation order. Not validated here; see `get`. */
-  list<T>(): T[] {
-    return (
-      this.db
-        .prepare('SELECT state FROM tasks ORDER BY rowid')
-        .all()
-        // The owning module states the record type; see the class comment.
-        .map(row => document('tasks', row) as T)
-    );
+  /** Every task record, validated, in creation order (including deleted tasks, which keep a tombstone). */
+  list(): Task[] {
+    return this.db
+      .prepare('SELECT state FROM tasks ORDER BY rowid')
+      .all()
+      .map(row => record(taskSchema, 'tasks', row));
   }
 
-  /** Includes commits from other controller connections and writes on this one. */
+  /**
+   * A cheap change token for caching reads (the dashboard compares it between polls). Includes commits
+   * from other controller connections and writes on this one; it only says whether something may have
+   * changed, never what.
+   */
   revision(): string {
     const data = z.object({ data_version: z.number() }).parse(this.db.prepare('PRAGMA data_version').get());
     const changes = z.object({ changes: z.number() }).parse(this.db.prepare('SELECT total_changes() AS changes').get());
     return `${data.data_version}:${changes.changes}`;
   }
 
+  /**
+   * Title, status and stage of every guided task that is not deleted, in creation order, read with
+   * `json_extract` so the sidebar never parses whole task records. Only the selected columns are
+   * validated, not the task record; non-string values are stringified.
+   */
   guidedSummaries(): { id: string; title: string; status: string; stage: string }[] {
     return this.db
       .prepare(
@@ -336,7 +361,10 @@ export class Store {
       .run(snapshot.artifact, JSON.stringify(snapshot));
   }
 
-  /** The stored snapshot of `artifact`, validated, or null when none was stored. */
+  /**
+   * The stored snapshot of `artifact`, validated, or null when none was stored. Throws `BoundaryError`
+   * when the row is malformed or its content names a different artifact digest.
+   */
   snapshot(artifact: string): RepositorySnapshot | null {
     const row = this.db.prepare('SELECT state FROM snapshots WHERE artifact = ?').get(artifact);
     if (!row) return null;
@@ -346,18 +374,24 @@ export class Store {
     return snapshot;
   }
 
-  save(id: string, state: unknown): void {
+  /** Inserts or replaces a task record. Call inside `transaction` together with the change's events. */
+  save(id: string, state: Task): void {
     this.db
       .prepare('INSERT INTO tasks(id, state) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state')
       .run(id, JSON.stringify(state));
   }
 
+  /** Appends a task journal event; call inside the `transaction` that makes the change it records. */
   append(taskId: string, version: number, type: string, data: unknown): void {
     this.db
       .prepare('INSERT INTO events(task_id, version, at, type, data) VALUES (?, ?, ?, ?, ?)')
       .run(taskId, version, new Date().toISOString(), type, JSON.stringify(data));
   }
 
+  /**
+   * The task's journal events in sequence order, optionally only those of `types` (an empty list
+   * returns none). Throws as {@link get} does when the task is missing or malformed.
+   */
   events(taskId: string, types?: readonly string[]): JournalEvent[] {
     this.get(taskId);
     if (types?.length === 0) return [];
@@ -378,35 +412,41 @@ export class Store {
       });
   }
 
+  /** Closes the connection; the store cannot be used afterwards. */
   close(): void {
     this.db.close();
   }
 
-  session<_Compatible = Session>(id: string): Session {
+  /** The validated session `id`; throws `RecordNotFoundError` when absent, `BoundaryError` when malformed. */
+  session(id: string): Session {
     const row = this.db.prepare('SELECT state FROM sessions WHERE id = ?').get(id);
     if (!row) throw new RecordNotFoundError('Session', id);
     return record(sessionSchema, 'sessions', row);
   }
 
-  sessions<_Compatible = Session>(): Session[] {
+  /** Every session, validated (`BoundaryError` on a malformed row), in creation order. */
+  sessions(): Session[] {
     return this.db
       .prepare('SELECT state FROM sessions ORDER BY rowid')
       .all()
       .map(row => record(sessionSchema, 'sessions', row));
   }
 
+  /** Inserts or replaces a session record. */
   saveSession(id: string, state: Session): void {
     this.db
       .prepare('INSERT INTO sessions(id, state) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state')
       .run(id, JSON.stringify(state));
   }
 
+  /** Appends a session journal event. */
   appendSession(id: string, type: string, data: unknown): void {
     this.db
       .prepare('INSERT INTO session_events(session_id, at, type, data) VALUES (?, ?, ?, ?)')
       .run(id, new Date().toISOString(), type, JSON.stringify(data));
   }
 
+  /** The session's events, optionally filtered by `types`; throws as {@link session} does. */
   sessionEvents(id: string, types?: readonly string[]): RecordEvent[] {
     this.session(id);
     if (types?.length === 0) return [];
@@ -417,19 +457,25 @@ export class Store {
       .map(row => recordEvent('session_events', row));
   }
 
-  workspace<_Compatible = Workspace>(id: string): Workspace {
+  /** The validated workspace `id`; throws `RecordNotFoundError` when absent, `BoundaryError` when malformed. */
+  workspace(id: string): Workspace {
     const row = this.db.prepare('SELECT state FROM workspaces WHERE id = ?').get(id);
     if (!row) throw new RecordNotFoundError('Workspace', id);
     return record(workspaceSchema, 'workspaces', row);
   }
 
-  workspaces<_Compatible = Workspace>(): Workspace[] {
+  /** Every workspace, validated (`BoundaryError` on a malformed row), in creation order. */
+  workspaces(): Workspace[] {
     return this.db
       .prepare('SELECT state FROM workspaces ORDER BY rowid')
       .all()
       .map(row => record(workspaceSchema, 'workspaces', row));
   }
 
+  /**
+   * Inserts or replaces a workspace record. The `task_id` and `path_key` columns are unique, so a second
+   * workspace for the same task or destination fails with a SQLite constraint error.
+   */
   saveWorkspace(id: string, taskId: string, pathKey: string, state: Workspace): void {
     this.db
       .prepare(
@@ -438,12 +484,14 @@ export class Store {
       .run(id, taskId, pathKey, JSON.stringify(state));
   }
 
+  /** Appends a workspace journal event. */
   appendWorkspace(id: string, type: string, data: unknown): void {
     this.db
       .prepare('INSERT INTO workspace_events(workspace_id, at, type, data) VALUES (?, ?, ?, ?)')
       .run(id, new Date().toISOString(), type, JSON.stringify(data));
   }
 
+  /** The workspace's events in sequence order; throws as {@link workspace} does. */
   workspaceEvents(id: string): RecordEvent[] {
     this.workspace(id);
     return this.db
@@ -452,24 +500,31 @@ export class Store {
       .map(row => recordEvent('workspace_events', row));
   }
 
-  execution<_Compatible = Execution>(id: string): Execution {
+  /** The validated execution `id`; throws `RecordNotFoundError` when absent, `BoundaryError` when malformed. */
+  execution(id: string): Execution {
     const row = this.db.prepare('SELECT state FROM executions WHERE id = ?').get(id);
     if (!row) throw new RecordNotFoundError('Execution', id);
     return record(executionSchema, 'executions', row);
   }
 
-  executionForSession<_Compatible = Execution>(id: string): Execution | null {
+  /** The execution bound to session `id` (at most one; the column is unique), or null when there is none. */
+  executionForSession(id: string): Execution | null {
     const row = this.db.prepare('SELECT state FROM executions WHERE session_id = ?').get(id);
     return row ? record(executionSchema, 'executions', row) : null;
   }
 
-  executions<_Compatible = Execution>(): Execution[] {
+  /** Every execution, validated (`BoundaryError` on a malformed row), in creation order. */
+  executions(): Execution[] {
     return this.db
       .prepare('SELECT state FROM executions ORDER BY rowid')
       .all()
       .map(row => record(executionSchema, 'executions', row));
   }
 
+  /**
+   * Inserts or replaces an execution record. Only `state` is updated on conflict: the task, workspace
+   * and session an execution is bound to are fixed when it is first saved.
+   */
   saveExecution(id: string, taskId: string, workspaceId: string, sessionId: string, state: Execution): void {
     this.db
       .prepare(
@@ -478,12 +533,14 @@ export class Store {
       .run(id, taskId, workspaceId, sessionId, JSON.stringify(state));
   }
 
+  /** Appends an execution journal event. */
   appendExecution(id: string, type: string, data: unknown): void {
     this.db
       .prepare('INSERT INTO execution_events(execution_id, at, type, data) VALUES (?, ?, ?, ?)')
       .run(id, new Date().toISOString(), type, JSON.stringify(data));
   }
 
+  /** The execution's events in sequence order; throws as {@link execution} does. */
   executionEvents(id: string): RecordEvent[] {
     this.execution(id);
     return this.db
@@ -492,24 +549,28 @@ export class Store {
       .map(row => recordEvent('execution_events', row));
   }
 
-  lease<_Compatible = ExecutionLease>(workspaceId: string): ExecutionLease | null {
+  /** The validated lease currently held on the workspace, or null when no operation owns it. */
+  lease(workspaceId: string): ExecutionLease | null {
     const row = this.db.prepare('SELECT state FROM execution_leases WHERE workspace_id = ?').get(workspaceId);
     return row ? record(executionLeaseSchema, 'execution_leases', row) : null;
   }
 
-  check<_Compatible = RepositoryCheck>(id: string): RepositoryCheck {
+  /** The validated check `id`; throws `RecordNotFoundError` when absent, `BoundaryError` when malformed. */
+  check(id: string): RepositoryCheck {
     const row = this.db.prepare('SELECT state FROM checks WHERE id = ?').get(id);
     if (!row) throw new RecordNotFoundError('Check', id);
     return record(repositoryCheckSchema, 'checks', row);
   }
 
-  checks<_Compatible = RepositoryCheck>(executionId: string): RepositoryCheck[] {
+  /** The execution's checks, validated, in creation order. */
+  checks(executionId: string): RepositoryCheck[] {
     return this.db
       .prepare('SELECT state FROM checks WHERE execution_id = ? ORDER BY rowid')
       .all(executionId)
       .map(row => record(repositoryCheckSchema, 'checks', row));
   }
 
+  /** Inserts or replaces a check record. */
   saveCheck(id: string, executionId: string, state: RepositoryCheck): void {
     this.db
       .prepare(
@@ -518,31 +579,44 @@ export class Store {
       .run(id, executionId, JSON.stringify(state));
   }
 
+  /**
+   * Takes the workspace lease for one run. A plain insert, not an upsert: the workspace, execution and
+   * run columns are unique, so while any lease is held a second acquisition fails with a SQLite
+   * constraint error instead of silently taking over. That is the fence giving each workspace a single
+   * owner.
+   */
   acquireLease(workspaceId: string, executionId: string, runId: string, state: ExecutionLease): void {
     this.db
       .prepare('INSERT INTO execution_leases(workspace_id, execution_id, run_id, state) VALUES (?, ?, ?, ?)')
       .run(workspaceId, executionId, runId, JSON.stringify(state));
   }
 
-  delivery<_Compatible = Delivery>(id: string): Delivery {
+  /** The validated delivery `id`; throws `RecordNotFoundError` when absent, `BoundaryError` when malformed. */
+  delivery(id: string): Delivery {
     const row = this.db.prepare('SELECT state FROM deliveries WHERE id = ?').get(id);
     if (!row) throw new RecordNotFoundError('Delivery', id);
     return record(deliverySchema, 'deliveries', row);
   }
 
-  implementation<_Compatible = ImplementationRun>(id: string): ImplementationRun {
+  /**
+   * The validated implementation run `id`; throws `RecordNotFoundError` when absent, `BoundaryError`
+   * when malformed.
+   */
+  implementation(id: string): ImplementationRun {
     const row = this.db.prepare('SELECT state FROM implementations WHERE id = ?').get(id);
     if (!row) throw new RecordNotFoundError('Implementation run', id);
     return record(implementationRunSchema, 'implementations', row);
   }
 
-  implementations<_Compatible = ImplementationRun>(executionId: string): ImplementationRun[] {
+  /** The execution's implementation runs, validated, in creation order. */
+  implementations(executionId: string): ImplementationRun[] {
     return this.db
       .prepare('SELECT state FROM implementations WHERE execution_id = ? ORDER BY rowid')
       .all(executionId)
       .map(row => record(implementationRunSchema, 'implementations', row));
   }
 
+  /** Inserts or replaces an implementation run record. */
   saveImplementation(id: string, executionId: string, state: ImplementationRun): void {
     this.db
       .prepare(
@@ -551,13 +625,15 @@ export class Store {
       .run(id, executionId, JSON.stringify(state));
   }
 
-  deliveries<_Compatible = Delivery>(executionId: string): Delivery[] {
+  /** The execution's deliveries, validated, in creation order. */
+  deliveries(executionId: string): Delivery[] {
     return this.db
       .prepare('SELECT state FROM deliveries WHERE execution_id = ? ORDER BY rowid')
       .all(executionId)
       .map(row => record(deliverySchema, 'deliveries', row));
   }
 
+  /** Inserts or replaces a delivery record. */
   saveDelivery(id: string, executionId: string, state: Delivery): void {
     this.db
       .prepare(
@@ -604,9 +680,10 @@ export class Store {
   }
 
   /**
-   * Running provider sessions and checks of live guided tasks whose status is `running`, with the time
-   * of the latest event in their own journal (session events for a session, execution events for a
-   * check). Stall detection reads this; it is an observation, not ownership.
+   * Running or stopping provider sessions and running checks of live (not deleted) guided tasks whose
+   * status is `running`, with the time of the latest event in their own journal (session events for a
+   * session, execution events for a check). Stall detection reads this; it is an observation, not
+   * ownership.
    */
   activeGuidedWork(): ActiveWork[] {
     const live = `json_type(tasks.state, '$.guided') = 'object' AND json_extract(tasks.state, '$.deletedAt') IS NULL
@@ -643,6 +720,11 @@ export class Store {
     return [...sessions.map(read('session')), ...checks.map(read('check'))];
   }
 
+  /**
+   * Releases the lease only if it is still held by exactly this workspace, execution and run. Throws
+   * otherwise, so a caller whose lease was taken over (for example by recovery) cannot release the
+   * new owner's lease.
+   */
   releaseLease(workspaceId: string, executionId: string, runId: string): void {
     const result = this.db
       .prepare('DELETE FROM execution_leases WHERE workspace_id = ? AND execution_id = ? AND run_id = ?')

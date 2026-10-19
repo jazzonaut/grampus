@@ -167,7 +167,7 @@ test(
         return false;
       }
     });
-    const check = f.store.checks<RepositoryCheck>(f.execution.id).at(-1)!;
+    const check = f.store.checks(f.execution.id).at(-1)!;
     const childPid = Number(readFileSync(childFile, 'utf8'));
     controller.kill();
     await closed;
@@ -272,7 +272,7 @@ test('a crash before dispatch is recoverable from durable intent without inventi
     f,
     `await checks.run(${JSON.stringify(f.execution.id)}, ${JSON.stringify(spec)}, undefined, async () => { throw new Error('Unexpected dispatch'); });`,
   );
-  const check = f.store.checks<RepositoryCheck>(f.execution.id).at(-1)!;
+  const check = f.store.checks(f.execution.id).at(-1)!;
   assert.equal(check.dispatch, 'not_requested');
   assert.equal(check.receipt, undefined);
   assert.equal(f.checks.recover(check.id).phase, 'interrupted');

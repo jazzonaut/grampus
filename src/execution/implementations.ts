@@ -1,3 +1,6 @@
+// Owns native implementation runs: one editing turn executed by the supervised implementation worker,
+// its after-snapshot verified against the edit policy, and recovery from the supervisor's receipt. A
+// dispatched worker is never started again, and a recovered run's result is never accepted.
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +40,10 @@ export interface ImplementationRequest {
   settings: Settings;
 }
 
+/**
+ * Native editing turns of an implementation execution. A run's id is the session turn's run id and the
+ * run id of its `implementation` lease, so the controller and the worker fence on the same value.
+ */
 export class Implementations {
   constructor(
     private readonly store: Store,
@@ -45,6 +52,7 @@ export class Implementations {
   get(id: string): ImplementationRun {
     return this.store.implementation(id);
   }
+  /** Throws unless this run still holds the workspace's implementation lease. */
   private fence(run: ImplementationRun): Execution {
     const execution = this.store.execution(run.executionId);
     const lease = this.store.lease(execution.workspaceId);
@@ -52,6 +60,7 @@ export class Implementations {
       throw new Error('Implementation no longer owns its workspace');
     return execution;
   }
+  /** Saves the record and journals `type` on the execution and the task, fenced on the lease. */
   private save(run: ImplementationRun, type: string): void {
     const execution = this.fence(run);
     this.store.saveImplementation(run.id, execution.id, run);
@@ -69,14 +78,13 @@ export class Implementations {
     this.store.appendExecution(execution.id, type, event);
     this.store.append(execution.taskId, execution.version, type, event);
   }
-  private async settle(run: ImplementationRun, recovered = false): Promise<void> {
-    const execution = this.fence(run);
-    const sessions = new Sessions(this.store);
-    const interrupted =
-      sessions.get(execution.sessionId).phase === 'stop_requested' ||
-      run.process?.reason === 'interrupted' ||
-      recovered;
-    let result: TurnResult = {
+  /**
+   * The worker's turn result, read from its result file only after a confirmed clean exit of an
+   * uninterrupted run; otherwise a failed or interrupted result explaining why none is trusted. A
+   * malformed or foreign result file is recorded as the run's error.
+   */
+  private workerResult(run: ImplementationRun, interrupted: boolean): TurnResult {
+    const fallback: TurnResult = {
       status: interrupted ? 'interrupted' : 'failed',
       reply: null,
       usage: null,
@@ -85,27 +93,47 @@ export class Implementations {
         (run.process?.stderr.trim() ||
           `Implementation did not return a confirmed result (${run.process?.reason ?? 'not dispatched'})`),
     };
-    if (!interrupted && run.process?.reason === 'exited' && run.process.exitCode === 0 && run.receipt) {
-      try {
-        const response = readImplementationResult(join(run.receipt.directory, 'result.json'));
-        if (response.id !== run.id) throw new Error('Invalid implementation result');
-        result = response.result;
-        if (result.status === 'completed') result.reply = parseReply(result.reply);
-      } catch (error) {
-        run.error = error instanceof Error ? error.message : String(error);
-      }
+    if (interrupted || run.process?.reason !== 'exited' || run.process.exitCode !== 0 || !run.receipt) return fallback;
+    try {
+      const response = readImplementationResult(join(run.receipt.directory, 'result.json'));
+      if (response.id !== run.id) throw new Error('Invalid implementation result');
+      const result = response.result;
+      if (result.status === 'completed') result.reply = parseReply(result.reply);
+      return result;
+    } catch (error) {
+      run.error = error instanceof Error ? error.message : String(error);
+      return fallback;
     }
-    if (run.before) {
-      try {
-        run.after = await captureRepository(this.workspaces, execution);
-        verifyEditingScope(
-          { cwd: this.workspaces.path(execution.workspaceId), policy: run.policy, snapshot: run.before },
-          run.after,
-        );
-      } catch (error) {
-        run.error = error instanceof Error ? error.message : String(error);
-      }
+  }
+
+  /** Snapshots the workspace after the turn and records any edit outside the policy as the run's error. */
+  private async verifyScope(run: ImplementationRun, execution: Execution): Promise<void> {
+    if (!run.before) return;
+    try {
+      run.after = await captureRepository(this.workspaces, execution);
+      verifyEditingScope(
+        { cwd: this.workspaces.path(execution.workspaceId), policy: run.policy, snapshot: run.before },
+        run.after,
+      );
+    } catch (error) {
+      run.error = error instanceof Error ? error.message : String(error);
     }
+  }
+
+  /**
+   * Settles a finished (or recovered) run: its result, its after-snapshot verified against the policy,
+   * and the session turn, in one transaction. Any error fails the run unless it was interrupted,
+   * because an interruption is reported as such whatever state it left.
+   */
+  private async settle(run: ImplementationRun, recovered = false): Promise<void> {
+    const execution = this.fence(run);
+    const sessions = new Sessions(this.store);
+    const interrupted =
+      sessions.get(execution.sessionId).phase === 'stop_requested' ||
+      run.process?.reason === 'interrupted' ||
+      recovered;
+    let result = this.workerResult(run, interrupted);
+    await this.verifyScope(run, execution);
     if (run.error && !interrupted) result = { ...result, status: 'failed', reply: null, error: run.error };
     run.result = result;
     run.phase = result.status;
@@ -114,6 +142,14 @@ export class Implementations {
       sessions.settle(execution.sessionId, run.id, result, true);
     });
   }
+  /**
+   * Runs one native editing turn under `policy` in the supervised worker. The policy is checked against a
+   * fresh snapshot before dispatch, and after a confirmed exit the changes must stay within it or the run
+   * fails. Without a confirmed exit after dispatch, the run and its session stay `recovery_required`.
+   *
+   * @throws Error when the policy or timeout is invalid, the host is not Windows with a durable journal,
+   *   or the turn cannot be claimed. Later failures are recorded on the returned run instead.
+   */
   async run(
     executionId: string,
     policy: EditPolicy,
@@ -169,6 +205,8 @@ export class Implementations {
       };
       prepareEditing(context);
       if (options.signal?.aborted) throw new Error('Interrupted before native implementation dispatch');
+      // The request file is written before the dispatch boundary below; from that commit on the worker may
+      // have started a provider turn and is never started again.
       run.receipt = allocateReceipt(this.store, run.id);
       const requestFile = join(run.receipt.directory, 'implementation.json');
       writeFileSync(
@@ -203,6 +241,8 @@ export class Implementations {
     } finally {
       options.signal?.removeEventListener('abort', stop);
     }
+    // Settle only when nothing was dispatched or the job's exit is confirmed; otherwise the worker may
+    // still be editing, so the lease and the session run are kept for explicit recovery.
     if (run.dispatch === 'not_requested' || run.process?.exitConfirmed) await this.settle(run);
     else
       this.store.transaction(() => {
@@ -217,6 +257,15 @@ export class Implementations {
       });
     return this.get(run.id);
   }
+  /**
+   * Recovers a run whose controller died or whose worker exit was unconfirmed. A dispatched run needs the
+   * supervisor's matching terminal receipt; the lease is then taken over by this process and the run
+   * settles interrupted, so a lost success is never accepted, though its edits are still checked against
+   * the policy. The worker is never started again.
+   *
+   * @throws Error when the run does not need recovery or lost its lease, the controller is alive or on
+   *   another host, the receipt is missing or does not match, or the session's run changed.
+   */
   async recover(id: string): Promise<ImplementationRun> {
     const run = this.get(id);
     this.store.transaction(() => {
@@ -233,6 +282,7 @@ export class Implementations {
           ...retainedOutput(run.receipt.directory),
         };
       }
+      // Take the lease over under the same run id with this controller's identity, so settlement stays fenced.
       this.store.releaseLease(execution.workspaceId, execution.id, run.id);
       this.store.acquireLease(execution.workspaceId, execution.id, run.id, {
         ...lease,
@@ -241,6 +291,7 @@ export class Implementations {
       });
       const session = new Sessions(this.store).get(execution.sessionId);
       if (session.run?.id !== run.id) throw new Error('Implementation session ownership changed');
+      // `stop_requested` lets the session settle this run, as interrupted.
       session.run.controllerPid = process.pid;
       session.phase = 'stop_requested';
       this.store.saveSession(session.id, session);

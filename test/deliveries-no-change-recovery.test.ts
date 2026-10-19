@@ -14,7 +14,7 @@ test(
   async t => {
     const f = await noChangeFixture(t);
     crash(f, false);
-    const pending = f.store.deliveries<Delivery>(f.execution.id).at(-1)!;
+    const pending = f.store.deliveries(f.execution.id).at(-1)!;
     assert.equal(pending.phase, 'running');
     assert.equal(pending.outcome, null);
     assert.equal(f.workflow.get(f.task.id).phase, 'awaiting_verification');
@@ -64,7 +64,7 @@ test('no-change recovery refuses missing receipts, changed HEAD, index, files an
     const f = await noChangeFixture(t);
     crash(f, false);
     change(f);
-    const pending = f.store.deliveries<Delivery>(f.execution.id).at(-1)!;
+    const pending = f.store.deliveries(f.execution.id).at(-1)!;
     const result = await f.deliveries.recover(pending.id);
     assert.equal(result.phase, 'failed');
     assert.equal(result.outcome, null);

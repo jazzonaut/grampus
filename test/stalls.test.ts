@@ -7,12 +7,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Store } from '../src/persistence/store.js';
+import type { Status } from '../src/orchestration/guided/state.js';
+import { guidedRecord, taskRecord } from './helpers/task-records.js';
 import { StallWatchdog, stallEventType } from '../src/health/stalls.js';
 import type { Execution, RepositoryCheck, Session } from '../src/persistence/records.js';
 
 const threshold = 600_000;
 
-function fixture(t: { after: (fn: () => void) => void }, status = 'running') {
+function fixture(t: { after: (fn: () => void) => void }, status: Status = 'running') {
   const root = mkdtempSync(join(tmpdir(), 'grampus-stalls-'));
   const store = new Store(join(root, 'grampus.sqlite'));
   t.after(() => {
@@ -33,7 +35,7 @@ function fixture(t: { after: (fn: () => void) => void }, status = 'running') {
     lastReply: null,
     run: null,
   };
-  const task = { id: taskId, version: 2, brief: { title: 'Fixture' }, guided: { status, stage: 'implementation' } };
+  const task = taskRecord(taskId, { version: 2, guided: guidedRecord({ status, stage: 'implementation' }) });
   store.transaction(() => {
     store.save(taskId, task);
     store.saveWorkspace(workspaceId, taskId, workspaceId, { id: workspaceId } as never);
