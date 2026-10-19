@@ -1,8 +1,13 @@
 // Owns the home screen DTO (`OverviewV1`): health, the runner pool, the attention queue across tasks and
 // planning conversations (most urgent first, each with one human sentence and its resolving actions),
-// task and planning summaries, and recent verified deliveries.
+// task and planning summaries, and recent verified deliveries. A task whose journal records cannot be
+// read is listed with an unknown status and an attention item, so it never hides the others.
 import { viewModelLimits } from '../../config/limits.js';
 import type { HealthView } from '../../health/health.js';
+import type { GuidedState } from '../../orchestration/guided/state.js';
+import { RecordNotFoundError } from '../../persistence/errors.js';
+import type { Store } from '../../persistence/store.js';
+import { BoundaryError } from '../../process/boundary.js';
 import type {
   ActionView,
   AttentionItem,
@@ -22,12 +27,24 @@ import {
   type KickoffView,
 } from './kickoff-detail.js';
 import { folderName, providerLabel, taskPresentation, type TaskPresentation } from './status.js';
-import { taskActionFacts, taskWorkflow, type TaskFacts } from './task-detail.js';
+import { taskActionFacts, taskFacts, taskWorkflow, type TaskFacts } from './task-detail.js';
 import { usageHeadline, usageView } from './usage.js';
+
+/** A guided task whose facts could not be read from the journal. */
+export interface UnreadableTask {
+  id: string;
+  title: string;
+  /** The task's own guided state when that still reads, for its repository and agents; otherwise null. */
+  state: GuidedState | null;
+  /** What failed, naming no content, e.g. `a missing snapshot record`. */
+  category: string;
+}
 
 /** Everything the overview is computed from. */
 export interface OverviewInputs {
   tasks: readonly TaskFacts[];
+  /** Guided tasks whose facts could not be read; each is shown as unknown with an attention item. */
+  unreadable: readonly UnreadableTask[];
   /** Planning conversations that have not become a task. */
   kickoffs: readonly KickoffView[];
   health: HealthView;
@@ -170,6 +187,82 @@ function deliveries(tasks: readonly TaskFacts[]): RecentDeliveryV1[] {
     .slice(0, viewModelLimits.recentDeliveries);
 }
 
+/** What kind of read failure `error` is, in words that name no record content. */
+export function readFailureCategory(error: unknown): string {
+  if (error instanceof RecordNotFoundError) return `a missing ${error.record.toLowerCase()} record`;
+  if (error instanceof BoundaryError) return `an invalid ${error.kind.replaceAll('-', ' ')} (${error.source})`;
+  return 'an unexpected read error';
+}
+
+/**
+ * The facts of every guided task, in creation order. A task whose facts cannot be read is returned as
+ * unreadable, with its error for the caller to log, instead of failing the whole overview.
+ */
+export function overviewTasks(store: Store): {
+  tasks: TaskFacts[];
+  unreadable: (UnreadableTask & { error: unknown })[];
+} {
+  const tasks: TaskFacts[] = [],
+    unreadable: (UnreadableTask & { error: unknown })[] = [];
+  for (const summary of store.guidedSummaries())
+    try {
+      tasks.push(taskFacts(store, summary.id));
+    } catch (error) {
+      let state: GuidedState | null = null;
+      try {
+        state = store.get(summary.id).guided ?? null;
+      } catch {
+        // The task record itself is unreadable; only its id and title are known.
+      }
+      unreadable.push({ id: summary.id, title: summary.title, state, category: readFailureCategory(error), error });
+    }
+  return { tasks, unreadable };
+}
+
+function unreadableAttention(task: UnreadableTask): AttentionItem {
+  return {
+    id: `task:${task.id}:blocked`,
+    kind: 'blocked',
+    taskId: task.id,
+    kickoffId: null,
+    title: task.title,
+    why: `This task's journal records could not be read (${task.category}), so its state is unknown; inspect the journal before acting on it.`,
+    status: 'unknown',
+    stopReason: null,
+    since: null,
+    actions: [],
+  };
+}
+
+/**
+ * An unreadable task in the task list. One whose own record does not read has no repository or agents to
+ * show, so it appears only as its attention item.
+ */
+function unreadableSummary(task: UnreadableTask): TaskSummaryV1 | null {
+  const { state } = task;
+  if (!state) return null;
+  const agent = (role: GuidedState['plan']['review']) => ({
+    id: role.provider,
+    label: providerLabel(role.provider),
+    model: role.model,
+  });
+  return {
+    id: task.id,
+    title: task.title,
+    repository: { name: folderName(state.plan.workspace.repo), path: state.plan.workspace.repo },
+    status: 'unknown',
+    statusLabel: 'Cannot be read',
+    stageLabel: 'Unknown',
+    slice: { index: state.sliceIndex + 1, count: state.plan.slices.length },
+    implementer: agent(state.plan.implementation),
+    reviewer: agent(state.plan.review),
+    lastActivityAt: null,
+    stalled: null,
+    usage: { tokens: null, estimatedCostUsd: null, completeness: 'none', turns: 0, interventions: 0 },
+    needsAttention: true,
+  };
+}
+
 function byUrgency(a: AttentionItem, b: AttentionItem): number {
   const rank = urgency.indexOf(a.kind) - urgency.indexOf(b.kind);
   if (rank) return rank;
@@ -198,9 +291,13 @@ export function overview(inputs: OverviewInputs, context: ViewContext, revision:
     pool: { running: context.pool.active, limit: context.pool.limit, owners: [...context.pool.owners] },
     attention: [
       ...presented.flatMap(({ facts, presentation }) => taskAttention(facts, context, presentation)),
+      ...inputs.unreadable.map(unreadableAttention),
       ...inputs.kickoffs.flatMap(kickoff => kickoffAttention(kickoff, context)),
     ].sort(byUrgency),
-    tasks: presented.map(({ facts, presentation }) => taskSummary(facts, context, presentation)),
+    tasks: [
+      ...presented.map(({ facts, presentation }) => taskSummary(facts, context, presentation)),
+      ...inputs.unreadable.flatMap(task => unreadableSummary(task) ?? []),
+    ],
     planning: inputs.kickoffs.map(kickoff => kickoffSummary(kickoff, context)),
     recentDeliveries: deliveries(inputs.tasks),
     qualityPasses: inputs.qualityPasses.map(pass => ({ id: pass.id, title: pass.title, kind: pass.kind })),

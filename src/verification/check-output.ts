@@ -126,7 +126,7 @@ export function readCheckLog(
     try {
       fd = openSync(join(check.receipt.directory, stream), 'r');
     } catch {
-      /* Old receipts may be unavailable; retain the journal preview. */
+      /* The retained log file is missing or unreadable; page the journal preview instead. */
     }
   }
   if (fd !== undefined) {

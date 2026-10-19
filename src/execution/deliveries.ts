@@ -12,7 +12,7 @@ import { Workflow } from '../domain/workflow.js';
 import { deepEqual } from '../domain/deep-equal.js';
 import { Sessions } from './sessions.js';
 import { Workspaces } from '../repository/workspaces.js';
-import { claimExecution, type Execution } from './execution-state.js';
+import { claimExecution, type Execution, type ExecutionLease } from './execution-state.js';
 import { captureRepository } from '../repository/repository-evidence.js';
 import type { RepositorySnapshot } from '../repository/artifacts.js';
 import { allocateReceipt, readReceipt, requireDeadController } from '../verification/check-recovery.js';
@@ -113,13 +113,17 @@ export class Deliveries {
     this.store.append(execution.taskId, execution.version, type, event);
   }
 
-  /** Throws unless this delivery still holds the workspace's delivery lease under its own run id. */
-  private fence(delivery: Delivery): Execution {
+  /** The delivery's execution and the delivery lease it still holds under its own run id; throws otherwise. */
+  private owned(delivery: Delivery): { execution: Execution; lease: ExecutionLease } {
     const execution = this.store.execution(delivery.executionId);
     const lease = this.store.lease(execution.workspaceId);
     if (lease?.kind !== 'delivery' || lease.executionId !== execution.id || lease.runId !== delivery.id)
       throw new Error('Delivery no longer owns the workspace');
-    return execution;
+    return { execution, lease };
+  }
+  /** Throws unless this delivery still holds the workspace's delivery lease under its own run id. */
+  private fence(delivery: Delivery): Execution {
+    return this.owned(delivery).execution;
   }
 
   /**
@@ -324,9 +328,7 @@ export class Deliveries {
     this.store.transaction(() => {
       if (!['running', 'recovery_required'].includes(delivery.phase))
         throw new Error('Delivery does not need recovery');
-      const execution = this.fence(delivery);
-      const lease = this.store.lease(execution.workspaceId);
-      if (!lease) throw new Error('Delivery no longer owns the workspace');
+      const { execution, lease } = this.owned(delivery);
       requireDeadController(lease);
       if (delivery.dispatch === 'requested') {
         if (!delivery.receipt) throw new Error('Dispatched delivery has no settlement receipt identity');

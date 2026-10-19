@@ -4,6 +4,7 @@
 // it. Evidence binding compares the same digests. A stored snapshot is never rewritten.
 import { z } from 'zod';
 import type { Store } from '../../persistence/store.js';
+import { RecordNotFoundError } from '../../persistence/errors.js';
 import type { RepositorySnapshot } from '../../repository/artifacts.js';
 import type { GuidedState } from './state.js';
 
@@ -37,13 +38,19 @@ export function keepSnapshot(store: Store, snapshot: RepositorySnapshot): Snapsh
 }
 
 /**
- * The full snapshot the guided state refers to, or null when it refers to none. Throws when the state
- * names an artifact the journal does not hold, since evidence bound to it could no longer be checked.
+ * The full snapshot the guided state refers to, or null when it refers to none. Throws
+ * `RecordNotFoundError` when the state names an artifact the journal does not hold, since evidence bound
+ * to it could no longer be checked.
  */
 export function guidedSnapshot(store: Store, state: Pick<GuidedState, 'snapshot'>): RepositorySnapshot | null {
   if (!state.snapshot) return null;
   const snapshot = store.snapshot(state.snapshot.artifact);
-  if (!snapshot) throw new Error(`The retained snapshot ${state.snapshot.artifact} is missing from the journal`);
+  if (!snapshot)
+    throw new RecordNotFoundError(
+      'Snapshot',
+      state.snapshot.artifact,
+      `The retained snapshot ${state.snapshot.artifact} is missing from the journal`,
+    );
   return snapshot;
 }
 

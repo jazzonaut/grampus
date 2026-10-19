@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync, type ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir, hostname } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Store } from '../src/persistence/store.js';
 import { Workflow } from '../src/domain/workflow.js';
-import { Workspaces, type Workspace } from '../src/repository/workspaces.js';
+import { Workspaces, type GitExecutor, type Workspace } from '../src/repository/workspaces.js';
 import { currentProcessStartedAt } from '../src/process/process-identity.js';
 import { snapshotRepository } from '../src/repository/artifacts.js';
 
@@ -236,6 +237,34 @@ test('Git failure retains its reservation and prevents automatic replay or task 
   await assert.rejects(workspaces.recover(failed.id), /registration/);
   assert.equal(workspaces.get(failed.id).phase, 'recovery_required');
   assert.ok(store.workspaceEvents(failed.id).some(item => item.type === 'git.exited'));
+});
+
+test('a creation error without an observed Git exit stays unconfirmed, so recovery waits for Git', async t => {
+  const { repo, store, task, destination } = fixture(t);
+  // Node reports a failed kill after a timeout through the same callback, while Git may still be running.
+  const execute: GitExecutor = (file, args, options, callback) => {
+    if (!(args.includes('worktree') && args.includes('add'))) return execFile(file, args, options, callback);
+    const child = Object.assign(new EventEmitter(), {
+      pid: process.pid,
+      exitCode: null,
+      signalCode: null,
+      stdin: null,
+    }) as unknown as ChildProcess;
+    setImmediate(() => callback(Object.assign(new Error('kill EPERM'), { code: 'EPERM' }), '', ''));
+    return child;
+  };
+  const workspaces = new Workspaces(store, undefined, execute);
+  await assert.rejects(workspaces.create(task.id, 1, repo, destination), /needs recovery/);
+  const failed = workspaces.list()[0]!;
+  assert.equal(failed.phase, 'recovery_required');
+  assert.equal(failed.owner?.gitPid, process.pid);
+  assert.equal(failed.owner?.exitConfirmed, false);
+  assert.equal(
+    store.workspaceEvents(failed.id).some(item => item.type === 'git.exited'),
+    false,
+  );
+  await assert.rejects(workspaces.recover(failed.id), /Git exit is unconfirmed/);
+  await assert.rejects(workspaces.release(failed.id), /confirmed Git exit/);
 });
 
 test('recovery adopts a verified completed checkout after a lost controller response without replay', async t => {

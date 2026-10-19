@@ -149,9 +149,16 @@ stale, the page reloads the current state and explains calmly that nothing was d
 
 Refreshing or reopening the page starts no provider calls, checks or Git writes. Actions run in
 separate worker processes, so restarting the dashboard does not stop them and is not evidence
-that they stopped. A failed action is shown on the task and recorded in its timeline as
-`dashboard.action_failed`, so the reason survives a dashboard restart. After a restart, open the
-newly printed link.
+that they stopped. A failed action is shown on the task or planning conversation and recorded in
+its journal as `dashboard.action_failed`, so the reason survives a dashboard restart: until the
+task moves on, or the planning conversation has a later turn or change, the page still shows the
+latest failure. After a restart, open the newly printed link.
+
+A task whose journal records cannot be read (for example a retained snapshot missing from the
+journal) does not take the overview down. It is listed as **Cannot be read** with an unknown status
+and a **Needs your attention** item naming what failed (such as a missing snapshot record), and the
+dashboard logs a redacted line naming the task. Its own page stays unavailable until the journal is
+repaired; inspect the journal before acting on it.
 
 ## Integration health
 
@@ -195,7 +202,9 @@ server decides every status, label, explanation and available action; the client
 them ([ARCHITECTURE.md](ARCHITECTURE.md#dashboard-view-model-and-api-v1)).
 
 The dashboard and CLI share the same journal. Use `--db <path>`, `--port <number>` and
-`--no-open` to change the journal, port or browser behaviour. A development checkout needs its
+`--no-open` to change the journal, port or browser behaviour. Browsers refuse the Fetch
+standard's blocked ports (such as 6000 or 10080), so the dashboard refuses to start on one, and
+when it chooses a free port (`--port 0`) it takes another whenever the system offers a blocked one. A development checkout needs its
 `web/dist` (built by `npm run build`) and `src/process/native` folders alongside `dist`;
 without `web/dist` the page explains how to build it while the API keeps running. Up to
 `maxConcurrentTasks` guided tasks run at once per journal ([parallel tasks](#parallel-tasks)).

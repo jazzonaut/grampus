@@ -30,6 +30,7 @@ function home(f: ReturnType<typeof fixture>, id: string, view = context()) {
   return overview(
     {
       tasks: [taskFacts(f.store, id)],
+      unreadable: [],
       kickoffs: [],
       health: healthView(f.store),
       application: { version: '0.0.0', channel: 'development', build: null },

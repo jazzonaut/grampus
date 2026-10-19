@@ -105,6 +105,20 @@ test('invalid types, out-of-range values and malformed JSON are refused with the
   );
 });
 
+test('the output flush interval must be shorter than the stall warning, including against a default', t => {
+  for (const config of [
+    { outputFlushIntervalMs: 5000, stallWarningMs: 5000 },
+    { outputFlushIntervalMs: 20_000, stallWarningMs: 10_000 },
+    { stallWarningMs: 1000 },
+  ])
+    assert.throws(
+      () => loadSettings(dataDirectory(t, config)),
+      /"outputFlushIntervalMs": must be shorter than stallWarningMs/,
+      JSON.stringify(config),
+    );
+  assert.equal(loadSettings(dataDirectory(t, { stallWarningMs: 1001 })).stallWarningMs, 1001);
+});
+
 test('injected settings supply new-plan defaults and a worker round trip keeps them exact', t => {
   const injected = {
     ...defaultSettings(),

@@ -98,6 +98,17 @@ const overridesSchema = z
     healthCheckIntervalMs: integer(1000, 86_400_000).optional(),
   })
   .superRefine((value, context) => {
+    // Buffered output is journaled at most this often, so a stall threshold at or below it would warn
+    // about a turn that is streaming normally. Defaults count when only one of the two is set.
+    const defaults = defaultSettings();
+    const flush = value.outputFlushIntervalMs ?? defaults.outputFlushIntervalMs,
+      stall = value.stallWarningMs ?? defaults.stallWarningMs;
+    if (flush >= stall)
+      context.addIssue({
+        code: 'custom',
+        path: ['outputFlushIntervalMs'],
+        message: `must be shorter than stallWarningMs (${flush} is not below ${stall})`,
+      });
     for (const problem of qualitySettingsProblems(
       value.qualityPasses ?? [],
       value.defaultQualityPasses ?? defaultSettings().defaultQualityPasses,

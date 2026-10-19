@@ -291,6 +291,13 @@ interface ActiveTurn {
 
 const patchOwnershipSchema = z.looseObject({ threadId: z.string(), turnId: z.string(), itemId: z.string() });
 
+/** Server request methods Grampus answers; any other request is refused and reported as drift. */
+const knownServerRequests: ReadonlySet<string> = new Set([
+  'item/tool/call',
+  'item/fileChange/requestApproval',
+  'item/commandExecution/requestApproval',
+]);
+
 /**
  * One connected Codex thread on an owned app-server process. Server requests (repository tool calls and
  * patch approvals) are answered synchronously and only for the active, acknowledged, unstopped turn of
@@ -380,10 +387,14 @@ export class CodexSession implements AgentSession {
 
   /**
    * Answers a server request. Must stay synchronous: the transport writes the answer as soon as this
-   * returns, so any authorization is journaled first. Returning undefined refuses the request.
+   * returns, so any authorization is journaled first. Returning undefined refuses the request. Each known
+   * request is validated by its own schema; a request method Grampus does not know is refused and, during
+   * a turn, reported once as protocol drift.
    */
   private approve(message: RpcMessage): unknown {
     if (message.method === 'item/tool/call') return this.callTool(message.params);
+    if (message.method && !knownServerRequests.has(message.method))
+      this.unrecognizedMessage(message.method, message.params);
     if (!this.editing) return undefined;
     if (message.method === 'item/fileChange/requestApproval') return this.approvePatch(this.editing, message.params);
     this.emit({ type: 'tool.denied', data: { tool: message.method, reason: 'Only scoped file patches are enabled' } });
@@ -392,22 +403,28 @@ export class CodexSession implements AgentSession {
     return undefined;
   }
 
+  /** Journals a message type Grampus does not know, once per type, while a turn is active. */
+  private unrecognizedMessage(method: string, params: unknown): void {
+    if (this.active && this.unrecognized.report(method))
+      this.emit(
+        protocolDiagnostic('protocol.unrecognized', {
+          provider: 'codex',
+          messageType: method,
+          excerpt: boundedExcerpt(params),
+        }),
+      );
+  }
+
   private message(message: RpcMessage): void {
-    if (!message.method || !this.active) return;
+    // Server requests carry an id; approve() answers and validates them, so they are not notifications.
+    if (!message.method || message.id !== undefined || !this.active) return;
     const thread = notificationThread(message.params);
     // Thread-scoped messages for another thread, and known ones without a thread, are not ours.
     if (thread !== this.threadId && (thread !== null || isKnownCodexNotification(message.method))) return;
     const classified = classifyCodexNotification(message.method, message.params);
     if (classified.kind === 'ignored') return;
     if (classified.kind === 'unrecognized') {
-      if (this.unrecognized.report(classified.method))
-        this.emit(
-          protocolDiagnostic('protocol.unrecognized', {
-            provider: 'codex',
-            messageType: classified.method,
-            excerpt: classified.excerpt,
-          }),
-        );
+      this.unrecognizedMessage(classified.method, message.params);
       return;
     }
     if (classified.kind === 'malformed') {

@@ -249,7 +249,7 @@ function evidenceLines(view: GuidedTaskView): string[] {
   for (const edit of view.state.qualityEdits)
     lines.push(`Quality pass ${edit.pass}: ${edit.before === edit.after ? 'no changes' : 'applied changes'}`);
   for (const check of view.checks)
-    lines.push(`${check.purpose === 'preparation' ? 'Preparation' : 'Check'}: ${check.spec.name} — ${check.phase}`);
+    lines.push(`${check.purpose === 'preparation' ? 'Preparation' : 'Check'}: ${check.spec.name} (${check.phase})`);
   return lines;
 }
 

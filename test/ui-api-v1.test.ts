@@ -169,3 +169,48 @@ test('a full runner pool is shown, disables starting work, refuses it with pool_
   assert.match(refused.error.message, /1 of 1 guided tasks are already running/);
   assert.equal((await read()).header.statusLabel, 'Ready to continue');
 });
+
+test('one unreadable task degrades to an unknown entry with an attention item instead of failing the overview', async t => {
+  const api = await dashboard(t);
+  const readable = api.f.tasks.create(api.f.plan);
+  const broken = api.f.tasks.create({
+    ...api.f.plan,
+    brief: { ...api.f.plan.brief, title: 'Broken task' },
+    workspace: { ...api.f.plan.workspace, path: join(api.f.root, 'second') },
+  });
+  // The state refers to a snapshot the journal does not hold.
+  const record = api.f.store.get(broken.id);
+  record.guided!.snapshot = {
+    artifact: `sha256:${'0'.repeat(64)}`,
+    head: '0'.repeat(40),
+    instructionsDigest: '0'.repeat(64),
+    totalFiles: 0,
+    changedPaths: [],
+  };
+  api.f.store.save(broken.id, record);
+  const logged = t.mock.method(console, 'error', () => {});
+
+  const response = await api.get('/api/v1/overview');
+  assert.equal(response.status, 200, await response.clone().text());
+  const home = (await response.json()) as OverviewV1;
+  assert.deepEqual(
+    home.tasks.map(item => [item.id, item.status]),
+    [
+      [readable.id, 'awaiting_human'],
+      [broken.id, 'unknown'],
+    ],
+  );
+  const unreadable = home.tasks[1]!;
+  assert.equal(unreadable.title, 'Broken task');
+  assert.equal(unreadable.statusLabel, 'Cannot be read');
+  assert.equal(unreadable.needsAttention, true);
+  assert.equal(unreadable.usage.tokens, null);
+  const item = home.attention.find(entry => entry.taskId === broken.id)!;
+  assert.equal(item.kind, 'blocked');
+  assert.equal(item.status, 'unknown');
+  assert.match(item.why, /missing snapshot record/);
+  assert.ok(home.attention.some(entry => entry.taskId === readable.id && entry.kind === 'approval'));
+  assert.equal(logged.mock.callCount(), 1);
+  const line = String(logged.mock.calls[0]!.arguments[0]);
+  assert.match(line, new RegExp(`${broken.id}.*missing snapshot record`));
+});

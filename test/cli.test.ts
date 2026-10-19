@@ -24,6 +24,18 @@ test('CLI create, approve and show persist state across separate invocations', t
   const shown = JSON.parse(run('show', created.id)) as { task: { phase: string } };
   assert.equal(shown.task.phase, 'ready');
   assert.match(run('report', created.id), /plan.approved/);
+  const help = run('--help');
+  assert.match(help, /^Grampus - local agent controller/);
+  assert.doesNotMatch(help, /\u2014/, 'no em dashes in CLI help');
+  const usage = help.split('\n').map(line => line.trim().split(/\s+/)[0]);
+  const position = (command: string) => usage.indexOf(command);
+  assert.ok(position('grampus') < position('task-revise'), 'task commands follow the general ones');
+  assert.ok(position('task-recover') < position('task-revise'), 'task-revise is with the task commands');
+  assert.ok(position('task-recover') < position('task-release-workspace'));
+  assert.ok(
+    position('workspace-recover') < position('workspace-release'),
+    'workspace-release is with the workspace commands',
+  );
 });
 
 test('demo reaches completion with explicitly synthetic evidence and retained recovery history', t => {
@@ -39,6 +51,7 @@ test('demo reaches completion with explicitly synthetic evidence and retained re
     assert.ok(task.evidence.every(item => item.source === 'synthetic'));
     const report = renderReport(store, id);
     assert.match(report, /Synthetic demonstration/);
+    assert.doesNotMatch(report, /\u2014/, 'no em dashes in report text');
     assert.match(report, /recovery.required/);
     assert.match(report, /result.ignored/);
   } finally {

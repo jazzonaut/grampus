@@ -35,5 +35,8 @@ export const repositorySnapshotSchema = z.object({
   instructionsDigest: z.string(),
 });
 
-/** Content evidence for one repository state; its `artifact` digest covers head, index, files, diff and instructions. */
+/**
+ * Content evidence for one repository state; its `artifact` digest covers head, index, files, diff and
+ * instructions.
+ */
 export type RepositorySnapshot = z.infer<typeof repositorySnapshotSchema>;

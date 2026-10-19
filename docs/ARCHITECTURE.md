@@ -202,7 +202,10 @@ anything, pins the base ref to a commit and never replays creation.
 
 - **Git:** `git worktree add` on branch `grampus/<task-id>`, locked with the workspace id, at a
   destination outside existing worktrees. Inherited `GIT_*` variables are stripped and automatic
-  CRLF conversion is disabled for the checkout command only.
+  CRLF conversion is disabled for the checkout command only. Git's exit is recorded as confirmed
+  (`git.exited`) only when Node saw it end with an exit code or signal; an error alone, such as a
+  failed kill after the timeout, leaves it unconfirmed, so recovery first proves the recorded Git
+  process is gone.
 - **Orca** (`repository/orca.ts`): one `worktree create` call with `--no-parent --setup skip`, without
   launching an agent. Grampus records Orca's worktree id and stable instance identity, and every
   later operation re-verifies that identity. Orca owns the worktree lifecycle; Grampus never edits
@@ -255,7 +258,10 @@ provider protocol messages are validated.
   inference. Repository tools are app-server dynamic tools. File edits arrive as
   `item/fileChange/requestApproval`; the controller checks each patch against the active turn and
   the exact edit policy, journals the decision and grants single-use approval. Command execution
-  requests are declined. Codex is not version-pinned.
+  requests are declined. Server requests are answered only through the request handler and validated
+  by their own schemas; they are never treated as notifications, so they are not reported as protocol
+  drift, while a request method Grampus does not know is refused and journaled once as
+  `protocol.unrecognized`. Codex is not version-pinned.
 - **Claude** (`providers/claude.ts`) uses the pinned `@anthropic-ai/claude-agent-sdk` and its bundled
   executable, unless `GRAMPUS_CLAUDE_COMMAND` overrides it. `providers/executables.ts` resolves the
   bundled executable from the SDK's platform package the way the SDK does, and the adapter passes that
@@ -275,8 +281,11 @@ source-project connections into worktrees); external actions need explicit task 
 `grampus_list_files`, `grampus_read_file`, `grampus_search`, `grampus_read_changes`,
 `grampus_read_check`, `grampus_read_dependency` and `grampus_suggest_reference_folder`. Planning
 reads immutable Git blobs at the pinned commit; execution reads the captured workspace inventory and
-allows current bytes only for authorized paths; review reads the submitted snapshot. Handlers
-recheck turn ownership and journal bounded results. Reference folders (`repository/reference-folders.ts`, up to
+allows current bytes only for authorized paths; review reads the submitted snapshot. Every tool goes
+through one path: it needs an owned turn to start, journals `repository.tool_requested` and then
+`repository.tool_result` exactly as the model receives it, and checks ownership again before returning,
+so a turn that settled meanwhile gets no result. Only the list, read and search tools take a `root`;
+the advertised JSON Schemas and the enforced argument schemas list the same fields. Reference folders (`repository/reference-folders.ts`, up to
 16) are read-only roots, pinned Git subtrees or hashed plain-folder inventories. Read access never
 implies write scope. Budgets are in [REPOSITORY-CONTEXT.md](REPOSITORY-CONTEXT.md).
 
@@ -401,7 +410,9 @@ second workflow engine.
   Without a build, `/` answers 503 with a page saying how to build it, and the API keeps working.
 
 - Listens on `127.0.0.1` only, port 4317 installed or 4318 development unless `config.json` sets
-  `dashboardPort` ([CONFIGURATION.md](CONFIGURATION.md)).
+  `dashboardPort` ([CONFIGURATION.md](CONFIGURATION.md)). `server/browser-ports.ts` refuses a port on the
+  Fetch standard's blocked list, which browsers would not connect to, and for port 0 exchanges a blocked
+  ephemeral port for another (at most `serverLimits.ephemeralPortAttempts` tries).
 - A random 32-byte token per launch is passed in the URL fragment and required as a bearer token on
   every API call (constant-time comparison).
 - The `Host` header must match and any `Origin` must equal the local origin.
@@ -448,11 +459,11 @@ pool read once per request; `ViewContext`) to those DTOs; nothing there writes.
 
 | Route | DTO | Contents |
 | --- | --- | --- |
-| `GET /api/v1/overview` | `OverviewV1` | Application, health summary (`ready`, `degraded`, `blocked`, `unknown` with a reason naming the integration and capability), runner pool (guided runners owned, `maxConcurrentTasks` and the owning task ids), the attention queue across tasks and planning conversations (kind, one-sentence reason, stop reason code, resolving actions; most urgent first), task and planning summaries, recent verified deliveries with an evidence summary |
+| `GET /api/v1/overview` | `OverviewV1` | Application, health summary (`ready`, `degraded`, `blocked`, `unknown` with a reason naming the integration and capability), runner pool (guided runners owned, `maxConcurrentTasks` and the owning task ids), the attention queue across tasks and planning conversations (kind, one-sentence reason, stop reason code, resolving actions; most urgent first), task and planning summaries, recent verified deliveries with an evidence summary. A task whose facts cannot be read is listed with status `unknown` and a `blocked` attention item naming the error category (for example a missing snapshot record), and a redacted line is logged, so it never fails the whole overview |
 | `GET /api/v1/tasks/:id` | `TaskDetailV1` | Header (status, label, one-sentence explanation, note in UI language, next step: automatic, human with action ids, or none), workflow strip, current activity (no percentages), decisions, results (criteria coverage, checks with sizes for paging, findings, lens assessments, edit passes, commits, unresolved items), usage, details (approval digest, artifact, changed paths, plan, scope file contents only while authorization is pending, references, timeline head) |
 | `GET /api/v1/tasks/:id/timeline?cursor=&limit=` | `TimelinePageV1` | Journal events newest first: type, time, human summary, note, reason code; `cursor` is the journal sequence to page before |
 | `GET /api/v1/tasks/:id/changes?path=` | `ChangeV1` | One retained change, before and after |
-| `GET /api/v1/kickoffs/:id` | `KickoffDetailV1` | Discussion (answers as text, plan replies described), pending questions with suggestions, proposal and digest, context, references and suggestions, planner activity, actions |
+| `GET /api/v1/kickoffs/:id` | `KickoffDetailV1` | Discussion (answers as text, plan replies described), pending questions with suggestions, proposal and digest, context, references and suggestions, planner activity, actions, and the last failed dashboard action: this dashboard's settled worker, or else the latest journaled `dashboard.action_failed` that no later planning event or turn has superseded |
 
 - **One status vocabulary.** `working`, `awaiting_human`, `verified`, `failed`, `blocked`, `unknown`,
   `idle`, `complete` and `stopping` (`view-model/status.ts`). Every `StopReasonCode` has a label, a
@@ -575,8 +586,11 @@ still refuse what they cannot use when a turn starts.
   `experimentalApi`, `account/read`, then `mcpServerStatus/list` without a thread); for Claude it
   creates a real `ClaudeSession` with the adapter's options and asks only control requests
   (`accountInfo`, `mcpServerStatus`). No thread or turn is ever started, so inference is always
-  `untested`. Git, Node (`node:sqlite`, engine version), Windows PowerShell with the supervisor files,
-  and Orca (`worktree current` only with `--orca`) are checked too.
+  `untested`. Git (the executable found on PATH, which is the one run), Node (`node:sqlite`, engine
+  version), Windows PowerShell with the supervisor files, and Orca (`worktree current` only with
+  `--orca`) are checked too. Every failure, including one starting a provider (for example spawn
+  `EINVAL` for a script) or reading package metadata, becomes a failed row of its integration; the
+  report itself never rejects.
 - **Typed, stored result.** `health/health-record.ts` pins the report: per integration a status, the
   executable, version, SDK version and fingerprint, and capability rows (`executable`, `version`,
   `auth`, `handshake`, `mcp`, `inference`, `sqlite`, `supervisor`) with a sanitised, bounded detail.
@@ -668,7 +682,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | `health/` | `doctor.ts` | Inference-free checks of every integration, as a typed report |
 | | `health.ts`, `health-record.ts` | Stored health, staleness and version change warnings; the pinned health record |
 | | `stalls.ts` | Stall detection for running guided sessions and checks |
-| `server/` | `ui-server.ts`, `ui-worker.ts` | Loopback dashboard server and action workers |
+| `server/` | `ui-server.ts`, `ui-worker.ts`, `browser-ports.ts` | Loopback dashboard server, action workers and the port browsers accept |
 | | `static-client.ts` | Serving the built client from `web/dist` with a path guard and content types |
 | | `api-schemas.ts`, `errors.ts` | Request body and worker request schemas, error-to-status mapping with the typed envelope |
 | | `api-types.ts`, `api-v1.ts` | The typed DTOs of v1 and of the lookup and action routes (types only, shared with `web/`); the v1 read routes and their revision cache |

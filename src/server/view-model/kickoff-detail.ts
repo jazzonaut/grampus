@@ -122,10 +122,16 @@ function activity(kickoff: KickoffView, presentation: TaskPresentation): Activit
   };
 }
 
-/** The failure of this dashboard's last worker for the conversation, once it has settled. */
+/**
+ * The failure of this dashboard's last worker for the conversation once it has settled, or else the
+ * latest journaled failure nothing has superseded, which is all that remains after a dashboard restart.
+ */
 function actionError(kickoff: KickoffView, context: ViewContext): KickoffDetailV1['actionError'] {
   const job = context.job(kickoff.id);
-  return job && !job.running && job.error ? { action: job.action, message: job.error, at: job.settledAt } : null;
+  if (job?.running) return null;
+  if (job?.error) return { action: job.action, message: job.error, at: job.settledAt };
+  const failure = kickoff.actionFailure;
+  return failure ? { action: failure.action, message: failure.note, at: failure.at } : null;
 }
 
 /** `GET /api/v1/kickoffs/:id`. */

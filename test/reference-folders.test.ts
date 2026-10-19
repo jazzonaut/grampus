@@ -135,7 +135,10 @@ test('folder suggestions identify mentioned paths and agent suggestions never gr
       () => true,
     );
   invoke('grampus_suggest_reference_folder', { path, reason: 'Contains the existing PDF implementation' });
-  assert.equal((events[0] as { type: string }).type, 'reference.suggested');
+  assert.deepEqual(
+    events.map(event => (event as { type: string }).type),
+    ['repository.tool_requested', 'reference.suggested', 'repository.tool_result'],
+  );
   assert.throws(() => invoke('grampus_read_file', { root: 'reference-1', path: 'pdf.js' }), /Unknown reference/);
   assert.throws(() => normalizeReferences([path, path]), /distinct/);
 });

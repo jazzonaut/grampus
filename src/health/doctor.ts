@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { command } from '../process/process.js';
+import { command, type RpcProcess } from '../process/process.js';
 import { orcaExecutable } from '../repository/orca.js';
 import { applicationVersion, applicationRoot } from '../config/runtime.js';
 import { healthLimits } from '../config/limits.js';
@@ -137,8 +137,10 @@ async function codex(): Promise<IntegrationHealth> {
       ? row('version', 'healthy', `codex-cli ${runtime.version}`)
       : row('version', 'failed', 'codex --version reported no version'),
   ];
-  const rpc = startCodexAppServer(tmpdir());
+  let rpc: RpcProcess | null = null;
   try {
+    // Inside the try: starting can itself throw, for example spawn EINVAL for a script shim.
+    rpc = startCodexAppServer(tmpdir());
     const handshake = await codexHandshake(rpc);
     rows.push(row('handshake', 'healthy', 'app-server initialize (experimentalApi) and account/read succeeded'));
     rows.push(
@@ -161,7 +163,7 @@ async function codex(): Promise<IntegrationHealth> {
     rows.push(failedRow('handshake', error), row('auth', 'untested', 'Handshake did not complete'));
     rows.push(row('mcp', 'untested', 'Handshake did not complete'));
   } finally {
-    await rpc.close().catch(() => {});
+    await rpc?.close().catch(() => {});
   }
   rows.push(noInference);
   return integration('codex', true, facts, rows);
@@ -201,15 +203,16 @@ async function claude(): Promise<IntegrationHealth> {
       : row('version', 'failed', 'claude --version reported no version'),
   ];
   const abort = new AbortController();
-  // The adapter's own session: identical executable, options and environment. No turn is ever sent.
-  const session = new ClaudeSession({
-    cwd: tmpdir(),
-    providerSessionId: null,
-    model: null,
-    signal: abort.signal,
-    emit: () => {},
-  });
+  let session: ClaudeSession | null = null;
   try {
+    // The adapter's own session: identical executable, options and environment. No turn is ever sent.
+    session = new ClaudeSession({
+      cwd: tmpdir(),
+      providerSessionId: null,
+      model: null,
+      signal: abort.signal,
+      emit: () => {},
+    });
     const account = await bounded(session.accountInfo(), 'Claude accountInfo');
     rows.push(row('handshake', 'healthy', 'Agent SDK control handshake (accountInfo) succeeded'));
     rows.push(
@@ -236,18 +239,24 @@ async function claude(): Promise<IntegrationHealth> {
     rows.push(row('mcp', 'untested', 'Handshake did not complete'));
   } finally {
     abort.abort();
-    await session.close().catch(() => {});
+    await session?.close().catch(() => {});
   }
   rows.push(noInference);
   return integration('claude', true, facts, rows);
 }
 
+/** Git: the executable found on PATH, the one Grampus runs, and its version. */
 async function git(): Promise<IntegrationHealth> {
   const path = findExecutable('git');
+  if (!path)
+    return integration('git', true, { executable: null, version: null }, [
+      row('executable', 'failed', 'git was not found on PATH'),
+      notAttempted('version'),
+    ]);
   try {
-    const version = normaliseVersion(await neutral('git', ['--version']));
+    const version = normaliseVersion(await neutral(path, ['--version']));
     return integration('git', true, { executable: path, version }, [
-      row('executable', 'healthy', path ?? 'git'),
+      row('executable', 'healthy', path),
       row('version', version ? 'healthy' : 'failed', version ? `git ${version}` : 'git --version reported no version'),
     ]);
   } catch (error) {
@@ -260,13 +269,22 @@ async function git(): Promise<IntegrationHealth> {
 
 const enginesSchema = z.looseObject({ engines: z.looseObject({ node: z.string() }) });
 
-/** This Node: its major version against the first number of `engines.node`, and whether `node:sqlite` opens. */
+/** The Node version row: this major version against the first number of `engines.node`. */
+function nodeVersion(version: string): Capability {
+  try {
+    const required = enginesSchema.parse(JSON.parse(readFileSync(join(applicationRoot, 'package.json'), 'utf8')))
+      .engines.node;
+    const minimum = Number(/\d+/.exec(required)?.[0] ?? 0);
+    const major = Number(version.split('.')[0]);
+    return row('version', major >= minimum ? 'healthy' : 'failed', `Node ${version}; Grampus requires ${required}`);
+  } catch (error) {
+    return row('version', 'failed', `Node ${version}; the required version could not be read: ${message(error)}`);
+  }
+}
+
+/** This Node: its version against `engines.node`, and whether `node:sqlite` opens. */
 function node(): IntegrationHealth {
   const version = process.versions.node;
-  const required = enginesSchema.parse(JSON.parse(readFileSync(join(applicationRoot, 'package.json'), 'utf8'))).engines
-    .node;
-  const minimum = Number(/\d+/.exec(required)?.[0] ?? 0);
-  const major = Number(version.split('.')[0]);
   let sqlite: Capability;
   try {
     new DatabaseSync(':memory:').close();
@@ -276,7 +294,7 @@ function node(): IntegrationHealth {
   }
   return integration('node', true, { executable: process.execPath, version }, [
     row('executable', 'healthy', process.execPath),
-    row('version', major >= minimum ? 'healthy' : 'failed', `Node ${version}; Grampus requires ${required}`),
+    nodeVersion(version),
     sqlite,
   ]);
 }
@@ -369,18 +387,34 @@ async function orca(options: DoctorOptions): Promise<IntegrationHealth> {
 }
 
 /**
- * Check every integration without inference. Checks run concurrently and record handshake and command
- * failures as capability rows rather than throwing. PowerShell is checked on Windows only.
+ * One integration's check, so that an unexpected throw (resolving an executable, reading package
+ * metadata) becomes a failed row of that integration instead of rejecting the whole report.
+ */
+async function checked(
+  id: IntegrationId,
+  required: boolean,
+  check: () => Promise<IntegrationHealth> | IntegrationHealth,
+): Promise<IntegrationHealth> {
+  try {
+    return await check();
+  } catch (error) {
+    return integration(id, required, { executable: null, version: null }, [failedRow('executable', error)]);
+  }
+}
+
+/**
+ * Check every integration without inference. Checks run concurrently and record every failure, expected
+ * or not, as capability rows; the report itself never rejects. PowerShell is checked on Windows only.
  */
 export async function doctor(options: DoctorOptions = { orca: false }): Promise<HealthReport> {
   const started = Date.now();
   const integrations = await Promise.all([
-    codex(),
-    claude(),
-    git(),
-    Promise.resolve(node()),
-    ...(process.platform === 'win32' ? [powershell()] : []),
-    orca(options),
+    checked('codex', true, codex),
+    checked('claude', true, claude),
+    checked('git', true, git),
+    checked('node', true, node),
+    ...(process.platform === 'win32' ? [checked('powershell', true, powershell)] : []),
+    checked('orca', options.orca, () => orca(options)),
   ]);
   return {
     checkedAt: new Date().toISOString(),

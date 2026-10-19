@@ -10,7 +10,7 @@ import { agentTimeout } from './agent-timeout.js';
 import { Sessions, type RunOptions } from './sessions.js';
 import { Workspaces } from '../repository/workspaces.js';
 import { captureRepository } from '../repository/repository-evidence.js';
-import type { Execution } from './execution-state.js';
+import type { Execution, ExecutionLease } from './execution-state.js';
 import {
   prepareEditing,
   validateEditPolicy,
@@ -52,13 +52,17 @@ export class Implementations {
   get(id: string): ImplementationRun {
     return this.store.implementation(id);
   }
-  /** Throws unless this run still holds the workspace's implementation lease. */
-  private fence(run: ImplementationRun): Execution {
+  /** The run's execution and the implementation lease it still holds; throws when it holds none. */
+  private owned(run: ImplementationRun): { execution: Execution; lease: ExecutionLease } {
     const execution = this.store.execution(run.executionId);
     const lease = this.store.lease(execution.workspaceId);
     if (lease?.kind !== 'implementation' || lease.executionId !== execution.id || lease.runId !== run.id)
       throw new Error('Implementation no longer owns its workspace');
-    return execution;
+    return { execution, lease };
+  }
+  /** Throws unless this run still holds the workspace's implementation lease. */
+  private fence(run: ImplementationRun): Execution {
+    return this.owned(run).execution;
   }
   /** Saves the record and journals `type` on the execution and the task, fenced on the lease. */
   private save(run: ImplementationRun, type: string): void {
@@ -271,9 +275,7 @@ export class Implementations {
     this.store.transaction(() => {
       if (!['running', 'recovery_required'].includes(run.phase))
         throw new Error('Implementation run does not need recovery');
-      const execution = this.fence(run);
-      const lease = this.store.lease(execution.workspaceId);
-      if (!lease) throw new Error('Implementation no longer owns its workspace');
+      const { execution, lease } = this.owned(run);
       requireDeadController(lease);
       if (run.dispatch === 'requested') {
         if (!run.receipt) throw new Error('Implementation dispatch has no receipt identity');
@@ -291,8 +293,10 @@ export class Implementations {
       });
       const session = new Sessions(this.store).get(execution.sessionId);
       if (session.run?.id !== run.id) throw new Error('Implementation session ownership changed');
-      // `stop_requested` lets the session settle this run, as interrupted.
+      // `stop_requested` lets the session settle this run, as interrupted. The run gets this controller's
+      // full identity, so a later reconciler can tell whether the recovering controller is still alive.
       session.run.controllerPid = process.pid;
+      session.run.controllerStartedAt = currentProcessStartedAt();
       session.phase = 'stop_requested';
       this.store.saveSession(session.id, session);
       this.save(run, 'implementation.recovery_started');

@@ -145,11 +145,12 @@ export class Checks {
     return execution;
   }
 
-  /** Throws unless this run still holds the execution's workspace lease. */
-  private fenced(execution: Execution, runId: string): void {
+  /** The workspace lease this run still holds; throws when it holds none. */
+  private fenced(execution: Execution, runId: string): ExecutionLease {
     const lease = this.store.lease(execution.workspaceId);
     if (lease?.executionId !== execution.id || lease.runId !== runId)
       throw new Error('Check no longer owns the workspace lease');
+    return lease;
   }
 
   private release(execution: Execution, runId: string): void {
@@ -543,9 +544,7 @@ export class Checks {
     return this.store.transaction(() => {
       const check = this.get(id);
       const execution = this.store.execution(check.executionId);
-      this.fenced(execution, id);
-      const lease = this.store.lease(execution.workspaceId);
-      if (!lease) throw new Error('Check no longer owns its workspace');
+      const lease = this.fenced(execution, id);
       if (!['check', 'verification'].includes(lease.kind) || !['running', 'recovery_required'].includes(check.phase))
         throw new Error('Check does not need recovery');
       requireDeadController(lease);

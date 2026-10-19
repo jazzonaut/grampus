@@ -1,7 +1,7 @@
 // Owns the live progress summary of an agent's current turn (planner, implementer or reviewer) for the
 // dashboard: a stage, a one-line activity and the last few tool actions. It reads only event types and
-// bounded excerpts of tool arguments with C0 control characters blanked; it never exposes prompts,
-// partial replies or tool results.
+// bounded excerpts of tool arguments with control characters blanked; it never exposes prompts, partial
+// replies or tool results.
 import type { Session } from '../execution/sessions.js';
 import { serverLimits } from '../config/limits.js';
 
@@ -19,30 +19,65 @@ function fields(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
 }
 
-/** A bounded excerpt of a text value with C0 control characters blanked; empty for anything else. */
+/** C0 controls, DEL and C1 controls: a terminal or log viewer may act on any of them. */
+const control = (code: number) => code < 0x20 || (code >= 0x7f && code <= 0x9f);
+
+/** A bounded excerpt of a text value with control characters blanked; empty for anything else. */
 function brief(value: unknown): string {
   return typeof value === 'string'
     ? Array.from(value.slice(0, serverLimits.progressTextCharacters), character =>
-        character.charCodeAt(0) < 0x20 ? ' ' : character,
+        control(character.charCodeAt(0)) ? ' ' : character,
       ).join('')
     : '';
 }
 
+const reading = { active: 'Reading', complete: 'Read' } as const;
+
+/**
+ * How each repository tool call is described: its verb in progress and once complete, and what it acted on.
+ * `prefix` names a reference folder root (`reference-1/`), or is empty for the task repository.
+ */
+const repositoryActions: Readonly<
+  Record<
+    string,
+    {
+      verb: { active: string; complete: string };
+      subject: (args: Record<string, unknown>, prefix: string) => string;
+    }
+  >
+> = {
+  grampus_read_file: {
+    verb: reading,
+    subject: (args, prefix) => `${prefix}${brief(args['path']) || 'repository file'}`,
+  },
+  grampus_read_changes: {
+    verb: reading,
+    subject: (args, prefix) => `changes${args['path'] ? ` in ${prefix}${brief(args['path'])}` : ''}`,
+  },
+  grampus_list_files: {
+    verb: { active: 'Listing', complete: 'Listed' },
+    subject: (args, prefix) =>
+      `${prefix || 'repository '}files${args['query'] ? ` matching “${brief(args['query'])}”` : ''}`,
+  },
+  grampus_search: {
+    verb: { active: 'Searching', complete: 'Searched' },
+    subject: (args, prefix) => `${prefix || 'repository'}${args['query'] ? ` for “${brief(args['query'])}”` : ''}`,
+  },
+  grampus_read_check: { verb: reading, subject: () => 'check evidence' },
+  grampus_read_dependency: { verb: reading, subject: args => `dependency ${brief(args['package']) || 'source'}` },
+  grampus_suggest_reference_folder: {
+    verb: { active: 'Suggesting', complete: 'Suggested' },
+    subject: args => `reference folder${args['path'] ? ` ${brief(args['path'])}` : ''}`,
+  },
+};
+
 /** A human description of a repository tool call, in progress or complete. */
 function repositoryAction(tool: unknown, args: Record<string, unknown>, complete: boolean): string {
   const prefix = args['root'] && args['root'] !== 'task' ? `${brief(args['root'])}/` : '';
-  switch (tool) {
-    case 'grampus_read_file':
-      return `${complete ? 'Read' : 'Reading'} ${prefix}${brief(args['path']) || 'repository file'}`;
-    case 'grampus_read_changes':
-      return `${complete ? 'Read' : 'Reading'} changes${args['path'] ? ` in ${prefix}${brief(args['path'])}` : ''}`;
-    case 'grampus_list_files':
-      return `${complete ? 'Listed' : 'Listing'} ${prefix || 'repository '}files${args['query'] ? ` matching “${brief(args['query'])}”` : ''}`;
-    case 'grampus_search':
-      return `${complete ? 'Searched' : 'Searching'} ${prefix || 'repository'}${args['query'] ? ` for “${brief(args['query'])}”` : ''}`;
-    default:
-      return complete ? 'Read repository context' : 'Reading repository context';
-  }
+  const action =
+    typeof tool === 'string' && Object.hasOwn(repositoryActions, tool) ? repositoryActions[tool] : undefined;
+  if (!action) return complete ? 'Read repository context' : 'Reading repository context';
+  return `${complete ? action.verb.complete : action.verb.active} ${action.subject(args, prefix)}`;
 }
 
 /** Folds the events of one run into its progress. */

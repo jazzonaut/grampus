@@ -38,7 +38,7 @@ test('every stop reason code has a label, a one-sentence reason and an attention
     const stop = stopPresentation[code];
     assert.ok(stop.label && !stop.label.endsWith('.'), code);
     assert.match(stop.why, /^[A-Z].*\.$/, code);
-    assert.doesNotMatch(`${stop.label} ${stop.why}`, /—/, 'no em dashes in UI text');
+    assert.doesNotMatch(`${stop.label} ${stop.why}`, /\u2014/, 'no em dashes in UI text');
   }
   assert.equal(stopPresentation.CHECK_TIMEOUT.status, 'blocked');
   assert.equal(stopPresentation.CHECK_REPAIR_EXHAUSTED.status, 'failed');
@@ -169,6 +169,7 @@ test('a draft waits for approval of its exact version and digest', t => {
   const home = overview(
     {
       tasks: [facts],
+      unreadable: [],
       kickoffs: [],
       health: healthView(f.store),
       application: { version: '0.0.0', channel: 'development', build: null },
@@ -335,8 +336,26 @@ test('a planning conversation shows its questions, then a readable proposal read
     ['plan-answer', 'update-context', 'update-references', 'reset', 'delete'],
   );
 
+  // A failed planner worker is journaled; after a dashboard restart only the journal still knows it.
+  assert.equal(asked.actionError, null);
+  store.transaction(() =>
+    store.appendSession(id, 'dashboard.action_failed', {
+      action: 'plan',
+      note: 'Planner worker stopped unexpectedly',
+      reasonCode: null,
+      exitCode: 1,
+    }),
+  );
+  const failed = kickoffDetail(kickoffs.view(id), view, store.revision());
+  assert.deepEqual(failed.actionError && { action: failed.actionError.action, message: failed.actionError.message }, {
+    action: 'plan',
+    message: 'Planner worker stopped unexpectedly',
+  });
+  assert.ok(failed.actionError?.at);
+
   await kickoffs.send(id, undefined, { greeting: 'yes' });
   const proposed = kickoffDetail(kickoffs.view(id), view, store.revision());
+  assert.equal(proposed.actionError, null, 'a later planning turn resolves the failure');
   assert.equal(proposed.statusLabel, 'Plan proposed');
   assert.equal(proposed.title, 'Verify the greeting');
   assert.deepEqual(
@@ -357,6 +376,7 @@ test('a planning conversation shows its questions, then a readable proposal read
   const home = overview(
     {
       tasks: [],
+      unreadable: [],
       kickoffs: [kickoffs.view(id)],
       health: healthView(store),
       application: { version: '0.0.0', channel: 'development', build: null },

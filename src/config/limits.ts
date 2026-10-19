@@ -280,6 +280,8 @@ export const serverLimits = {
   requestTimeoutMs: 15_000,
   /** Node HTTP header timeout. */
   headersTimeoutMs: 10_000,
+  /** Ephemeral ports tried for a dashboard on port 0 while the system keeps assigning ones browsers refuse. */
+  ephemeralPortAttempts: 16,
 } as const;
 
 /** Process control. These bound startup, shutdown and IPC so that no wait is unbounded. */

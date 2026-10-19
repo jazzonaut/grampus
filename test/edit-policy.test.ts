@@ -10,8 +10,10 @@ import {
   editingFileContext,
   editingScopeFiles,
   prepareEditing,
+  verifyEditingScope,
   type EditingContext,
 } from '../src/execution/edit-policy.js';
+import { execFileSync } from 'node:child_process';
 
 function fixture(t: { after(fn: () => void): void }, contents: Record<string, string>) {
   const cwd = mkdtempSync(join(tmpdir(), 'grampus-text-policy-'));
@@ -112,3 +114,23 @@ test('per-file and total scope bounds stay enforced independently of prompt pagi
   prepareEditing(context);
   assert.ok(Buffer.byteLength(editingFileContext(context, true)) < 768 * 1024);
 });
+
+test(
+  'a creation matches the final snapshot without regard to case on Windows, like every other policy path',
+  { skip: process.platform !== 'win32' },
+  t => {
+    const context = fixture(t, { 'existing.txt': 'kept\n' });
+    execFileSync('git', ['init', '-q', context.cwd], { windowsHide: true, stdio: 'pipe' });
+    context.policy.create = ['Notes.txt'];
+    // The agent wrote the authorised creation with different letter case; Windows treats it as the same file.
+    writeFileSync(join(context.cwd, 'notes.txt'), 'created\n');
+    const after = {
+      ...context.snapshot,
+      files: [
+        ...context.snapshot.files,
+        { path: 'notes.txt', sha256: createHash('sha256').update('created\n').digest('hex'), executable: false },
+      ],
+    };
+    assert.doesNotThrow(() => verifyEditingScope(context, after));
+  },
+);

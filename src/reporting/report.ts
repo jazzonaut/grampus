@@ -36,9 +36,7 @@ export function renderReport(store: Store, id: string): string {
   return [
     `# ${prose(task.brief.title)}`,
     '',
-    ...(task.synthetic
-      ? ['**Synthetic demonstration — no real agent implementation or independent review.**', '']
-      : []),
+    ...(task.synthetic ? ['**Synthetic demonstration: no real agent implementation or independent review.**', ''] : []),
     `Task: ${task.id}  `,
     `State: ${task.phase}  `,
     `Requirements version: ${task.version}; approved version: ${task.approvedVersion ?? 'none'}  `,
@@ -70,10 +68,10 @@ export function renderReport(store: Store, id: string): string {
       ? [
           '## Slices',
           '',
-          `Current slice: ${slice.number}/${slice.total} — ${prose(slice.title)}. Delivered: ${progress.completed.length}/${slice.total}.`,
+          `Current slice: ${slice.number}/${slice.total} - ${prose(slice.title)}. Delivered: ${progress.completed.length}/${slice.total}.`,
           '',
           ...briefSlices.flatMap((item, index) => [
-            `${index + 1}. ${prose(item.title)} — ${progress.completed.some(done => done.index === index) ? 'delivered' : index === progress.index ? 'current' : 'pending'}`,
+            `${index + 1}. ${prose(item.title)} (${progress.completed.some(done => done.index === index) ? 'delivered' : index === progress.index ? 'current' : 'pending'})`,
             `   ${prose(item.plan)}`,
           ]),
           '',

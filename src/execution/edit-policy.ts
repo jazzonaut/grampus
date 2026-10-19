@@ -537,7 +537,7 @@ function requirePolicyFilesSettled(context: EditingContext, after: RepositorySna
   }
   for (const path of context.policy.create ?? []) {
     const file = checkedFile(context, path, true);
-    if (file.bytes !== null && !after.files.some(current => current.path === path && current.sha256 !== null))
+    if (file.bytes !== null && !after.files.some(current => key(current.path) === key(path) && current.sha256 !== null))
       throw new Error('Created file is missing from repository snapshot');
     requireVisibleCreation(context, path);
   }
@@ -571,7 +571,7 @@ export function verifyEditingScope(context: EditingContext, after: RepositorySna
   }
   for (const file of after.files) {
     if (beforeFiles.has(file.path)) continue;
-    if (file.sha256 === null || file.executable || !context.policy.create?.includes(file.path))
+    if (file.sha256 === null || file.executable || !context.policy.create?.some(path => key(path) === key(file.path)))
       throw new Error('Editing changed file membership outside the explicit creation policy');
   }
   requirePolicyFilesSettled(context, after);

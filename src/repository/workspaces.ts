@@ -1,7 +1,12 @@
 // Owns task workspace reservations and the Git and Orca worktree lifecycle: reserve in the journal, create
 // once, verify identity and clean base, recover or release. It must never replay a creation, remove files,
 // branches or worktrees, or apply raw Git lifecycle writes to an Orca worktree.
-import { execFile } from 'node:child_process';
+import {
+  execFile,
+  type ChildProcess,
+  type ExecFileException,
+  type ExecFileOptionsWithStringEncoding,
+} from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { lstatSync, realpathSync, statSync } from 'node:fs';
 import { hostname } from 'node:os';
@@ -79,11 +84,35 @@ function exists(path: string): boolean {
 }
 
 /**
- * Never let an inherited Git directory/index override the explicitly chosen repository. `started` is called
- * with the PID straight after spawn; if it throws (for example the journal write failed) Git is killed and
- * the call rejects with that error. A failure names only the subcommand and exit code, never Git's output.
+ * Starts Git: `execFile` in production. Tests replace it for worktree creation to produce process outcomes
+ * a real Git cannot be made to show on demand, such as an error reported while Git may still be running.
  */
-function git(cwd: string, args: string[], started?: (pid: number | null) => void): Promise<string> {
+export type GitExecutor = (
+  file: string,
+  args: readonly string[],
+  options: ExecFileOptionsWithStringEncoding,
+  callback: (error: ExecFileException | null, stdout: string, stderr: string) => void,
+) => ChildProcess;
+
+/** What a caller learns about one Git process beyond its output. */
+interface GitRun {
+  /** Called with the PID straight after spawn; if it throws, Git is killed and the call rejects with that error. */
+  started?: (pid: number | null) => void;
+  /**
+   * Set to true when Git is known to have ended, with an exit code or a signal, by the time the call
+   * settles. Node also settles on an `error` event (for example a failed kill after the timeout), when
+   * Git may still be running; then it stays false.
+   */
+  exit?: { confirmed: boolean };
+  execute?: GitExecutor;
+}
+
+/**
+ * Never let an inherited Git directory/index override the explicitly chosen repository. A failure names
+ * only the subcommand and exit code, never Git's output.
+ */
+function git(cwd: string, args: string[], run: GitRun = {}): Promise<string> {
+  const { started, exit, execute = execFile } = run;
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
   for (const key of Object.keys(env)) if (key.startsWith('GIT_') && key !== 'GIT_TERMINAL_PROMPT') delete env[key];
   return new Promise((resolveResult, reject) => {
@@ -91,11 +120,12 @@ function git(cwd: string, args: string[], started?: (pid: number | null) => void
     const creating = args[0] === 'worktree' && args[1] === 'add';
     const timeout = creating ? processLimits.worktreeCreateTimeoutMs : processLimits.gitTimeoutMs;
     // fsmonitor is off so no monitor hook or daemon runs; creation also turns off `core.autocrlf` conversion.
-    const child = execFile(
+    const child = execute(
       'git',
       ['-c', 'core.fsmonitor=false', ...(creating ? ['-c', 'core.autocrlf=false'] : []), '-C', cwd, ...args],
       { env, windowsHide: true, encoding: 'utf8', timeout, maxBuffer: processLimits.toolOutputBytes },
       (error, stdout) => {
+        if (exit) exit.confirmed = child.exitCode !== null || child.signalCode !== null;
         if (startupError)
           reject(
             startupError instanceof Error ? startupError : new Error('Git could not start', { cause: startupError }),
@@ -152,9 +182,14 @@ async function requireRegistration(workspace: Workspace, path: string, branch: s
  * explicit `recover` (which adopts what exists) or `release` (metadata only) moves it on.
  */
 export class Workspaces {
+  /**
+   * @param executeCreation starts `git worktree add`; only tests replace it, to observe how an
+   *   uncertain Git exit is recorded.
+   */
   constructor(
     private readonly store: Store,
     private readonly orca: OrcaWorkspaceClient = new OrcaCli(),
+    private readonly executeCreation: GitExecutor = execFile,
   ) {}
   get(id: string): Workspace {
     return this.store.workspace(id);
@@ -293,6 +328,7 @@ export class Workspaces {
       this.store.saveWorkspace(workspace.id, taskId, pathKey(path), workspace);
       this.store.appendWorkspace(workspace.id, 'workspace.requested', workspace);
     });
+    const exit = { confirmed: false };
     try {
       try {
         await git(
@@ -309,22 +345,28 @@ export class Workspaces {
             path,
             baseCommit,
           ],
-          pid => {
-            // Observed before the write lock: the query starts PowerShell, which would hold up other tasks.
-            const observed = pid === null ? null : inspectProcess(pid);
-            this.change(workspace.id, 'git.started', current => {
-              const owner = creationOwner(current);
-              owner.gitPid = pid;
-              owner.gitStartedAt = observed?.state === 'present' ? observed.startedAt : null;
-              return { pid, startedAt: owner.gitStartedAt };
-            });
+          {
+            started: pid => {
+              // Observed before the write lock: the query starts PowerShell, which would hold up other tasks.
+              const observed = pid === null ? null : inspectProcess(pid);
+              this.change(workspace.id, 'git.started', current => {
+                const owner = creationOwner(current);
+                owner.gitPid = pid;
+                owner.gitStartedAt = observed?.state === 'present' ? observed.startedAt : null;
+                return { pid, startedAt: owner.gitStartedAt };
+              });
+            },
+            exit,
+            execute: this.executeCreation,
           },
         );
       } finally {
-        // execFile reports once the child has closed (success, failure or timeout) or could not be spawned.
-        this.change(workspace.id, 'git.exited', current => {
-          creationOwner(current).exitConfirmed = true;
-        });
+        // Only an observed exit code or signal proves Git ended. An error alone (a failed kill after the
+        // timeout) leaves the exit unconfirmed, so recovery must first see that Git is gone.
+        if (exit.confirmed)
+          this.change(workspace.id, 'git.exited', current => {
+            creationOwner(current).exitConfirmed = true;
+          });
       }
       await this.verifyCreation(workspace);
       return located(

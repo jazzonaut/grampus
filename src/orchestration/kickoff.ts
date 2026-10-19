@@ -49,6 +49,8 @@ const candidateSchema = z.object({ plan: guidedPlanSchema });
 const messageSchema = z.object({ role: z.string(), text: z.string() });
 const errorSchema = z.object({ error: z.string().nullable() });
 const convertedSchema = z.object({ taskId: z.string() });
+/** A failed dashboard worker for the conversation, journaled by the dashboard server. */
+const actionFailedSchema = z.object({ action: z.string(), note: z.string() });
 /** A planner tool's suggestion, journaled as the agent event `{ runId, data }`. */
 const suggestedSchema = z.object({ data: z.object({ path: z.string(), reason: z.string() }) });
 
@@ -61,6 +63,20 @@ function payload<T>(event: RecordEvent, schema: z.ZodType<T, T>): T {
 function last<T>(events: RecordEvent[], type: string, schema: z.ZodType<T, T>): T | null {
   const event = events.findLast(item => item.type === type);
   return event ? payload(event, schema) : null;
+}
+
+/**
+ * The latest failed dashboard worker that nothing has superseded: a later planning event or turn means
+ * the conversation moved on. Journaled, so it survives a dashboard restart that loses the in-memory job.
+ */
+function unresolvedActionFailure(events: RecordEvent[]): { action: string; note: string; at: string } | null {
+  const latest = events.findLast(
+    event =>
+      event.type.startsWith('kickoff.') || event.type === 'turn.requested' || event.type === 'dashboard.action_failed',
+  );
+  if (latest?.type !== 'dashboard.action_failed') return null;
+  const { action, note } = payload(latest, actionFailedSchema);
+  return { action, note, at: latest.at };
 }
 
 /** Whether `event` is a message the user (not the planner) sent. */
@@ -245,6 +261,7 @@ export class Kickoffs {
         candidate: plan,
         candidateDigest: plan ? guidedPlanDigest(plan) : null,
         error: last(events, 'kickoff.error', errorSchema)?.error ?? null,
+        actionFailure: unresolvedActionFailure(events),
         taskId: last(events, 'kickoff.converted', convertedSchema)?.taskId ?? null,
       };
     });

@@ -24,8 +24,9 @@ never a newer copy of the file.
 ## Format
 
 A JSON object with any subset of the keys below. Omitted keys keep their defaults. Unknown
-keys, wrong types and out-of-range values are refused at startup with an error naming the
-file and each offending key, for example:
+keys, wrong types, out-of-range values and inconsistent pairs (an `outputFlushIntervalMs` not
+shorter than the effective `stallWarningMs`, which would make every streaming turn look stalled)
+are refused at startup with an error naming the file and each offending key, for example:
 
 ```text
 Invalid settings in C:\Users\me\AppData\Local\Grampus\installed\config.json: unknown key "dashbordPort"
@@ -45,16 +46,16 @@ Example:
 
 | Key | Default | Allowed | Meaning |
 | --- | --- | --- | --- |
-| `dashboardPort` | `4317` installed, `4318` development | 1 to 65535 | Loopback port of the dashboard. `--port` still overrides it for one launch |
+| `dashboardPort` | `4317` installed, `4318` development | 1 to 65535 | Loopback port of the dashboard. `--port` still overrides it for one launch. A port browsers refuse (such as 6000 or 10080) stops the dashboard from starting |
 | `usagePollIntervalMs` | `15000` | 1000 to 600000 | How often Claude usage is sampled during a turn. The final result always replaces the samples |
-| `outputFlushIntervalMs` | `1000` | 100 to 60000 | Longest time streamed agent output is held in memory before it is journaled as one event. A crash loses at most this much display-only text |
+| `outputFlushIntervalMs` | `1000` | 100 to 60000, and shorter than `stallWarningMs` | Longest time streamed agent output is held in memory before it is journaled as one event. A crash loses at most this much display-only text |
 | `outputFlushBytes` | `8192` | 1024 to 1048576 | Buffered streamed output (UTF-8 bytes) that is journaled at once without waiting for the interval |
 | `defaultCheckTimeoutMs` | `120000` | 100 to 600000 | Timeout written into new plans for validation, acceptance and preparation commands that omit `timeoutMs` |
 | `defaultWorkflowPolicy` | see below | see below | Workflow policy for new plans that omit it, or omit some of its fields |
 | `qualityPasses` | `[]` | up to 16 definitions | Custom quality passes a plan may select by id, in addition to the built-ins (see below) |
 | `defaultQualityPasses` | `["simplification"]` | up to 6 distinct known ids, or `[]` | Quality passes selected for new plans that omit `quality` |
 | `maxConcurrentTasks` | `2` | 1 to 4 | Guided tasks that may run at once, each in its own worktree. While this many own a runner (tasks awaiting recovery included), starting work on another task is refused, never queued; recovery, revision and workspace release are not limited. Also bounds simultaneous guided agent turns, one per task ([parallel tasks](ARCHITECTURE.md#parallel-tasks-and-concurrency)) |
-| `stallWarningMs` | `600000` | 1000 to 86400000 | Silence after which a running agent turn or check of a guided task is shown as possibly stalled (a dashboard badge and one timeline entry per silence). Nothing is stopped. Read by the dashboard server |
+| `stallWarningMs` | `600000` | 1000 to 86400000, and longer than `outputFlushIntervalMs` | Silence after which a running agent turn or check of a guided task is shown as possibly stalled (a dashboard badge and one timeline entry per silence). Nothing is stopped. Read by the dashboard server |
 | `healthCheckIntervalMs` | `600000` | 1000 to 86400000 | Age after which the stored integration health is checked again automatically, when the dashboard starts and before a guided run it starts. `grampus doctor` and **Check again** always check |
 
 `defaultWorkflowPolicy` is an object with any of these fields:

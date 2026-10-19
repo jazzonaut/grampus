@@ -9,7 +9,7 @@ import { viewModelLimits } from '../config/limits.js';
 import { currentSettings } from '../config/settings.js';
 import { versionInformation } from '../config/runtime.js';
 import { availableQualityPasses } from '../domain/quality-passes.js';
-import { healthView } from '../health/health.js';
+import { healthView, sanitiseDetail } from '../health/health.js';
 import type { StallWatchdog } from '../health/stalls.js';
 import { RecordNotFoundError } from '../persistence/errors.js';
 import type { Store } from '../persistence/store.js';
@@ -21,7 +21,7 @@ import type { ChangeV1, KickoffDetailV1, OverviewV1, TaskDetailV1, TimelinePageV
 import { HttpError } from './errors.js';
 import type { JobView, ViewContext } from './view-model/context.js';
 import { kickoffDetail, type KickoffView } from './view-model/kickoff-detail.js';
-import { overview } from './view-model/overview.js';
+import { overview, overviewTasks, type UnreadableTask } from './view-model/overview.js';
 import { taskDetail, taskFacts, type TaskFacts } from './view-model/task-detail.js';
 import { timelinePage } from './view-model/timeline.js';
 
@@ -93,7 +93,11 @@ class RevisionCache<T> {
 /** The v1 read routes of one dashboard, with their revision caches. */
 export function createApiV1(dashboard: ApiV1Dashboard) {
   const { store, kickoffs } = dashboard;
-  const overviews = new RevisionCache<{ tasks: TaskFacts[]; kickoffs: KickoffView[] }>(),
+  const overviews = new RevisionCache<{
+      tasks: TaskFacts[];
+      unreadable: UnreadableTask[];
+      kickoffs: KickoffView[];
+    }>(),
     tasks = new RevisionCache<TaskFacts>(),
     plans = new RevisionCache<KickoffView>();
   const qualityPasses = availableQualityPasses(currentSettings().qualityPasses);
@@ -111,10 +115,19 @@ export function createApiV1(dashboard: ApiV1Dashboard) {
   };
 
   function overviewRoute(context: ViewContext, revision: string): OverviewV1 {
-    const inputs = overviews.get('overview', revision, () => ({
-      tasks: store.guidedSummaries().map(summary => taskFacts(store, summary.id)),
-      kickoffs: kickoffs.list().filter(item => !item.taskId),
-    }));
+    const inputs = overviews.get('overview', revision, () => {
+      const { tasks, unreadable } = overviewTasks(store);
+      // Logged once per journal revision, since the result is cached; the error text is bounded and redacted.
+      for (const { id, category, error } of unreadable)
+        console.error(
+          `Overview: task ${id} could not be read (${category}): ${sanitiseDetail(error instanceof Error ? error.message : String(error))}`,
+        );
+      return {
+        tasks,
+        unreadable: unreadable.map(({ error: _error, ...task }) => task),
+        kickoffs: kickoffs.list().filter(item => !item.taskId),
+      };
+    });
     return overview(
       {
         ...inputs,

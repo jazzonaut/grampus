@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Executions } from '../src/execution/executions.js';
 import { Sessions } from '../src/execution/sessions.js';
+import { currentProcessStartedAt } from '../src/process/process-identity.js';
 import { windows, git, fixture } from './helpers/implementations.js';
 
 function crashCode(
@@ -105,7 +106,17 @@ test('native recovery before dispatch invokes no tools and marks the attempt sto
   });
   const pending = f.store.implementations(f.execution.id).at(-1)!;
   assert.equal(pending.dispatch, 'not_requested');
+  // The session run is taken over with this controller's full identity, so a later reconciler can tell
+  // whether the recovering controller is still alive.
+  const owners: unknown[] = [];
+  const save = f.store.saveImplementation.bind(f.store);
+  f.store.saveImplementation = (...args: Parameters<typeof save>) => {
+    const run = new Sessions(f.store).get(f.execution.sessionId).run;
+    owners.push(run && { pid: run.controllerPid, startedAt: run.controllerStartedAt });
+    save(...args);
+  };
   const recovered = await f.implementations.recover(pending.id);
+  assert.deepEqual(owners[0], { pid: process.pid, startedAt: currentProcessStartedAt() });
   assert.equal(recovered.phase, 'interrupted');
   assert.equal(f.workflow.get(f.task.id).phase, 'stopped');
 });

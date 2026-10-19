@@ -3,8 +3,9 @@
 // show which message Grampus no longer understands, instead of a live task failing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { codexAppServerArguments, codexHandshake, connectCodex, hasCodexSubscription } from '../src/providers/codex.js';
 import { connectClaude } from '../src/providers/claude.js';
@@ -91,6 +92,60 @@ test('a recorded Codex conversation turn replays to the typed events, usage and 
   const servers = ofType(events, 'integrations.updated').map(event => event.data);
   assert.equal(servers.length, 2, 'MCP status is reported after connecting and after the turn');
   assert.deepEqual(servers[0], { servers: [{ name: 'docs', status: 'connected', tools: 1, auth: 'unsupported' }] });
+  assert.equal(ofType(events, 'protocol.malformed').length, 0);
+});
+
+test('Codex server requests during a turn are answered and validated, never reported as protocol drift', async t => {
+  const recorded = JSON.parse(readFileSync(protocolFixture('codex-turn.json'), 'utf8')) as {
+    exchange: { server?: { id?: string; method?: string; params?: unknown }; client?: unknown }[];
+  };
+  const threadId = '019a0000-0000-7000-8000-000000000001',
+    turnId = '019a0000-0000-7000-8000-000000000002';
+  const started = recorded.exchange.findIndex(entry => entry.server?.method === 'turn/started');
+  assert.ok(started > 0);
+  // Without repository access or an editing scope, the tool call fails and both approvals are refused.
+  recorded.exchange.splice(
+    started + 1,
+    0,
+    {
+      server: {
+        id: 'request-tool',
+        method: 'item/tool/call',
+        params: { threadId, turnId, callId: 'call-1', tool: 'grampus_list_files', arguments: {} },
+      },
+    },
+    { client: { id: 'request-tool', result: { success: false } } },
+    {
+      server: {
+        id: 'request-patch',
+        method: 'item/fileChange/requestApproval',
+        params: { threadId, turnId, itemId: 'item-1' },
+      },
+    },
+    { client: { id: 'request-patch', error: { code: -32601 } } },
+    {
+      server: {
+        id: 'request-command',
+        method: 'item/commandExecution/requestApproval',
+        params: { threadId, turnId, itemId: 'item-2', command: 'whoami' },
+      },
+    },
+    { client: { id: 'request-command', error: { code: -32601 } } },
+  );
+  const directory = mkdtempSync(join(tmpdir(), 'grampus-replay-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const fixture = join(directory, 'codex-turn-requests.json');
+  writeFileSync(fixture, JSON.stringify(recorded));
+  const events: AgentEvent[] = [];
+  const session = await connectCodex(options(events), () => replayServer(fixture));
+  t.after(() => session.close());
+  const result = await session.turn('Is a change needed for empty input?');
+  assert.equal(result.status, 'completed', result.error ?? undefined);
+  assert.deepEqual(result.reply, expectedReply);
+  assert.deepEqual(
+    ofType(events, 'protocol.unrecognized').map(event => (event.data as { messageType: string }).messageType),
+    ['remoteControl/status/changed'],
+  );
   assert.equal(ofType(events, 'protocol.malformed').length, 0);
 });
 

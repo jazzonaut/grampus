@@ -1,8 +1,11 @@
 // Replays a recorded codex app-server exchange (test/fixtures/protocol/*.json) as a JSON-RPC server on
 // stdio. Each client message must match the next client entry: same method, and the recorded params a
-// subset of the sent ones. Server entries that follow are sent in order; a `result` answers the client
-// request just matched. A mismatch is answered with an RPC error naming the step, so the adapter call
-// that drifted fails with a readable message.
+// subset of the sent ones. A client entry without a method is the client's response to a server request:
+// its recorded `id`, `result` or `error` must be a subset of the response. Server entries that follow are
+// sent in order; a `result` answers the client request just matched, and an entry with both `id` and
+// `method` is a server request. A mismatch is answered with an RPC error naming the step, so the adapter
+// call that drifted fails with a readable message.
+import { isAbsolute } from 'node:path';
 import { RpcProcess } from '../../src/process/process.js';
 import { fileURLToPath } from 'node:url';
 
@@ -24,9 +27,14 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
   const message = JSON.parse(line);
   const entry = exchange[step];
   const expected = entry && entry.client;
-  if (!expected || expected.method !== message.method || !subset(expected.params ?? {}, message.params ?? {})) {
-    const problem = 'Replay step ' + step + ': expected ' + (expected ? expected.method + ' ' + JSON.stringify(expected.params ?? {}) : 'no further client message') + ', received ' + message.method;
-    if (message.id !== undefined) send({ id: message.id, error: { code: -32000, message: problem } });
+  const matches =
+    expected &&
+    expected.method === message.method &&
+    (message.method === undefined ? subset(expected, message) : subset(expected.params ?? {}, message.params ?? {}));
+  if (!matches) {
+    const received = message.method ?? 'a response to ' + JSON.stringify(message.id) + ' ' + JSON.stringify(message);
+    const problem = 'Replay step ' + step + ': expected ' + (expected ? (expected.method ?? 'a response') + ' ' + JSON.stringify(expected.params ?? expected) : 'no further client message') + ', received ' + received;
+    if (message.method && message.id !== undefined) send({ id: message.id, error: { code: -32000, message: problem } });
     else process.stderr.write(problem + '\\n');
     return;
   }
@@ -38,7 +46,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
 });
 `;
 
-/** Start a replay server for `fixture` (a file name under test/fixtures/protocol). */
+/** Start a replay server for `fixture`: a file name under test/fixtures/protocol, or an absolute path. */
 export function replayServer(fixture: string): RpcProcess {
-  return new RpcProcess(process.execPath, ['-e', script, protocolFixture(fixture)]);
+  return new RpcProcess(process.execPath, ['-e', script, isAbsolute(fixture) ? fixture : protocolFixture(fixture)]);
 }

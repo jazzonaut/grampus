@@ -15,6 +15,7 @@ import {
   claudeExecutable,
   claudeSdk,
   codexExecutable,
+  findExecutable,
   normaliseVersion,
   npmVendoredCodex,
   providerRuntime,
@@ -29,6 +30,7 @@ import {
   versionWarnings,
 } from '../src/health/health.js';
 import type { HealthReport, IntegrationHealth } from '../src/health/health-record.js';
+import { doctor } from '../src/health/doctor.js';
 import type { Session } from '../src/persistence/records.js';
 import { currentSettings } from '../src/config/settings.js';
 
@@ -49,16 +51,28 @@ function journal(t: { after: (fn: () => void) => void }): Store {
   return store;
 }
 
-/** Set environment variables for one test and restore them afterwards. */
+const applyEnvironment = (entries: Record<string, string | undefined>) => {
+  for (const [key, value] of Object.entries(entries))
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+};
+/** The values each test found before its first override of a variable. */
+const originalEnvironment = new WeakMap<object, Record<string, string | undefined>>();
+
+/**
+ * Set environment variables for one test and restore them afterwards. A variable set twice in one test
+ * is restored to the value before the first override, whatever order the `after` hooks run in.
+ */
 function environment(t: { after: (fn: () => void) => void }, values: Record<string, string | undefined>) {
-  const previous = Object.fromEntries(Object.keys(values).map(key => [key, process.env[key]]));
-  const apply = (entries: Record<string, string | undefined>) => {
-    for (const [key, value] of Object.entries(entries))
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-  };
-  apply(values);
-  t.after(() => apply(previous));
+  let original = originalEnvironment.get(t);
+  if (!original) {
+    const saved: Record<string, string | undefined> = {};
+    original = saved;
+    originalEnvironment.set(t, saved);
+    t.after(() => applyEnvironment(saved));
+  }
+  for (const key of Object.keys(values)) if (!Object.hasOwn(original, key)) original[key] = process.env[key];
+  applyEnvironment(values);
 }
 
 const integration = (overrides: Partial<IntegrationHealth> & Pick<IntegrationHealth, 'id'>): IntegrationHealth => ({
@@ -357,3 +371,37 @@ test('refreshHealth stores exactly what the check returned', async t => {
   assert.deepEqual(await refreshHealth(store, async () => result), result);
   assert.deepEqual(store.health(), result);
 });
+
+test(
+  'doctor records a provider that cannot be started as a failed row instead of rejecting',
+  { skip: process.platform !== 'win32' },
+  async t => {
+    const root = directory(t);
+    // Node refuses to start a batch file without a shell, synchronously, as spawn EINVAL.
+    const script = join(root, 'codex.cmd');
+    writeFileSync(script, '@echo off\r\necho codex-cli 1.0.0\r\n');
+    environment(t, {
+      GRAMPUS_CODEX_COMMAND: script,
+      GRAMPUS_CLAUDE_COMMAND: join(root, 'absent-claude.exe'),
+      ORCA_CLI_COMMAND: join(root, 'absent-orca.exe'),
+    });
+    const report = await doctor();
+    const codex = report.integrations.find(item => item.id === 'codex')!;
+    assert.equal(codex.status, 'failed');
+    assert.deepEqual(
+      codex.capabilities.map(row => [row.name, row.status]),
+      [
+        ['executable', 'healthy'],
+        ['version', 'failed'],
+        ['handshake', 'failed'],
+        ['auth', 'untested'],
+        ['mcp', 'untested'],
+        ['inference', 'untested'],
+      ],
+    );
+    assert.match(codex.capabilities.find(row => row.name === 'handshake')!.detail, /EINVAL/);
+    const git = report.integrations.find(item => item.id === 'git')!;
+    assert.equal(git.executable, findExecutable('git'));
+    assert.equal(git.capabilities[0]?.detail, findExecutable('git'));
+  },
+);

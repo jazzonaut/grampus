@@ -143,7 +143,8 @@ export const repositoryToolDefinitions: {
     },
   },
 ];
-// Only the three tools defined so far advertise `root`; the definitions pushed below do not.
+// Only the three tools defined so far advertise `root`; the definitions pushed below do not, and their
+// argument schemas refuse it, because reference folders have no changes, checks or dependencies.
 for (const definition of repositoryToolDefinitions)
   Object.assign(definition.inputSchema.properties, {
     root: {
@@ -350,8 +351,10 @@ class RepositoryTools {
   }
 
   /**
-   * Dispatches one tool call; it refuses to start unless the turn is still owned. Exploration tools
-   * also check ownership again before returning, so a turn that settled meanwhile gets no result.
+   * Dispatches one tool call, every tool the same way: it refuses to start unless the turn is still
+   * owned, journals the request and then the result exactly as the model receives it, and checks
+   * ownership again before returning, so a turn that settled meanwhile gets no result. A call naming a
+   * reference folder is passed whole to that folder's tools, which do the same with its label.
    */
   call(name: string, input: unknown): unknown {
     this.blobCache = new Map();
@@ -363,19 +366,44 @@ class RepositoryTools {
       Array.isArray(input)
     )
       throw new Error('Invalid repository tool');
-    if (name === 'grampus_read_dependency') return this.readDependency(input);
-    if (name === 'grampus_read_check') return this.readCheck(input);
-    if (name === 'grampus_suggest_reference_folder') return this.suggestReference(input);
-    const call = parseExplorationCall(name, input);
-    const selectedRoot = call.args.root ?? 'task';
-    if (selectedRoot !== 'task') return this.forward(selectedRoot, name, call.args);
-    const offset = integer(call.args.offset, 0, Number.MAX_SAFE_INTEGER);
+    const request = this.request(name, input);
+    if ('forward' in request) return request.forward();
     this.emit({ type: 'repository.tool_requested', data: { tool: name, source: this.source, arguments: input } });
-    const result = this.explore(call, offset);
+    const result = request.run();
     // Journal exactly what the model received, including read hashes and omission cursors.
-    this.emit({ type: 'repository.tool_result', data: { tool: name, result } });
+    this.emit({ type: 'repository.tool_result', data: { tool: name, source: this.source, result } });
     if (!this.ownsTurn()) throw new Error('Repository tool ownership changed');
     return result;
+  }
+
+  /**
+   * Validates the arguments of one call and returns the read to run, or the forwarding to a reference
+   * folder's tools. Invalid arguments throw here, before anything is journaled.
+   */
+  private request(name: string, input: object): { run: () => unknown } | { forward: () => unknown } {
+    switch (name) {
+      case 'grampus_read_dependency': {
+        if (this.tree) throw new Error('Installed dependencies are available in execution workspaces only');
+        const args = parseToolArguments(name, readDependencyArguments, input, 'Invalid dependency read request');
+        return { run: () => readInstalledDependency(this.root, args) };
+      }
+      case 'grampus_read_check': {
+        const args = parseToolArguments(name, readCheckArguments, input, 'Invalid check evidence request');
+        return { run: () => this.readCheck(args) };
+      }
+      case 'grampus_suggest_reference_folder': {
+        const args = parseToolArguments(name, suggestReferenceArguments, input, 'Invalid folder suggestion');
+        return { run: () => this.suggestReference(args) };
+      }
+    }
+    const call = parseExplorationCall(name, input);
+    // Reference folders have no bound changes: read_changes refuses `root`, so it always reads the task.
+    if (call.tool !== 'grampus_read_changes' && (call.args.root ?? 'task') !== 'task') {
+      const { root = 'task', ...rest } = call.args;
+      return { forward: () => this.forward(root, name, rest) };
+    }
+    const offset = integer(call.args.offset, 0, Number.MAX_SAFE_INTEGER);
+    return { run: () => this.explore(call, offset) };
   }
 
   private explore(call: ExplorationCall, offset: number): unknown {
@@ -392,34 +420,16 @@ class RepositoryTools {
   }
 
   /** Sends a call naming an approved reference folder to that folder's own tools. */
-  private forward(selectedRoot: string, name: string, args: { root?: string | undefined }): unknown {
+  private forward(selectedRoot: string, name: string, args: object): unknown {
     const match = /^reference-([1-9][0-9]*)$/.exec(selectedRoot),
       reference = match ? this.access.references?.[Number(match[1]) - 1] : null,
       tools = this.references.get(selectedRoot);
     if (!reference || !tools) throw new Error('Unknown reference folder; use a root from the approved reference list');
-    const { root: _root, ...rest } = args;
-    return tools(name, rest);
-  }
-
-  private readDependency(input: object): unknown {
-    if (this.tree) throw new Error('Installed dependencies are available in execution workspaces only');
-    const args = parseToolArguments(
-      'grampus_read_dependency',
-      readDependencyArguments,
-      input,
-      'Invalid dependency read request',
-    );
-    const result = readInstalledDependency(this.root, args);
-    this.emit({
-      type: 'repository.tool_result',
-      data: { tool: 'grampus_read_dependency', source: this.source, result },
-    });
-    return result;
+    return tools(name, args);
   }
 
   /** Lists the task's settled checks, or pages one check's stdout, stderr or spec. */
-  private readCheck(input: object): unknown {
-    const args = parseToolArguments('grampus_read_check', readCheckArguments, input, 'Invalid check evidence request');
+  private readCheck(args: z.output<typeof readCheckArguments>): unknown {
     const checks = this.access.checks ?? [],
       offset = integer(args.offset, 0, Number.MAX_SAFE_INTEGER);
     let result: unknown;
@@ -451,18 +461,11 @@ class RepositoryTools {
         };
       } else result = readCheckLog(check, stream, offset, limit);
     }
-    this.emit({ type: 'repository.tool_result', data: { tool: 'grampus_read_check', source: this.source, result } });
     return result;
   }
 
   /** Journals a reference folder suggestion; it grants no access until the user adds the folder. */
-  private suggestReference(input: object): unknown {
-    const args = parseToolArguments(
-      'grampus_suggest_reference_folder',
-      suggestReferenceArguments,
-      input,
-      'Invalid folder suggestion',
-    );
+  private suggestReference(args: z.output<typeof suggestReferenceArguments>): unknown {
     const path = args.path ?? '',
       reason = args.reason ?? '';
     if (!isAbsolute(path) || !reason) throw new Error('Folder suggestions require an absolute path and reason');
@@ -679,8 +682,8 @@ function fields(value: unknown): Record<string, unknown> {
 
 /**
  * The repository tools of one turn as a single dispatcher `(name, input) => result`, covering the task
- * repository and any approved reference folders. Every call first requires `ownsTurn`, so a stopped or
- * settled turn can never start a read.
+ * repository and any approved reference folders. Every call requires `ownsTurn` before it starts and again
+ * before it returns, so a stopped or settled turn can never start a read or receive one's result.
  */
 export function repositoryTools(
   access: RepositoryAccess,

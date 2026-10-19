@@ -5,8 +5,9 @@
 export class RecordNotFoundError extends Error {
   readonly record: string;
   readonly id: string;
-  constructor(record: string, id: string) {
-    super(`${record} not found: ${id}`);
+  /** `message` replaces the default `<record> not found: <id>` when the caller can say more. */
+  constructor(record: string, id: string, message = `${record} not found: ${id}`) {
+    super(message);
     this.name = 'RecordNotFoundError';
     this.record = record;
     this.id = id;

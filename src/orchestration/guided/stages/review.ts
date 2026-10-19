@@ -34,7 +34,7 @@ function reviewHistory({ store, executions }: GuidedContext, state: GuidedState)
   if (state.reviewCycle.history.length > reviewLimits.historyVerdicts)
     throw new GuidedStopError(
       'REVIEW_HISTORY_LIMIT',
-      'Review history exceeds eight verdicts for this slice; inspect the journal and prepare an approved revision',
+      `Review history exceeds ${reviewLimits.historyVerdicts} verdicts for this slice; inspect the journal and prepare an approved revision`,
     );
   const history = state.reviewCycle.history.map(item => ({
     ...item,

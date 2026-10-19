@@ -42,10 +42,7 @@ import {
   requiredText,
 } from './cli-input.js';
 
-const help = `Grampus — local agent controller
-  task-revise <id> <version> <file.json>  Revise a settled recipe; retain files and require fresh approval
-  task-release-workspace <id>     Release a proved-unused failed standalone reservation
-  workspace-release <id>          Release unused reservation metadata without deleting files or branches
+const help = `Grampus - local agent controller
 
   grampus                        Open the local dashboard
   --version, -v                  Show version and build
@@ -73,12 +70,15 @@ const help = `Grampus — local agent controller
                                   on the unchanged artifact; no agent turn or new attempt
   task-stop <id>                  Request a running guided controller to stop
   task-recover <id>               Reconcile saved results; never replay provider/Git work
+  task-revise <id> <version> <file.json>  Revise a settled recipe; retain files and require fresh approval
+  task-release-workspace <id>     Release a proved-unused failed standalone reservation
   workspace-new <task-id> <version>  Create a worktree (--repo, --path, optional --base)
                                   Orca mode: --orca --repo <path> --base <ref>; omit --path
   workspace-list                 List workspace reservations
   workspace-show <id>             Show saved workspace state and journal
   workspace-inspect <id>          Verify Git identity and show current HEAD/dirty state
   workspace-recover <id>          Reconcile interrupted creation without replaying Git
+  workspace-release <id>          Release unused reservation metadata without deleting files or branches
   execution-new <workspace-id> <version> <codex|claude>  Start a linked attempt (--role implementation|review)
   execution-list                 List linked task/session executions
   execution-show <id>            Show linked session, workspace lease and execution events

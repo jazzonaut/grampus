@@ -26,6 +26,7 @@ import { outputExcerpt, readCheckLog } from '../verification/check-output.js';
 import { describeIssues } from '../process/boundary.js';
 import { HttpError, errorResponse } from './errors.js';
 import { createApiV1 } from './api-v1.js';
+import { listenForBrowsers } from './browser-ports.js';
 import type {
   CheckOutputPage,
   CreatedResponse,
@@ -124,6 +125,10 @@ function pruneJobs(jobs: Map<string, Job>, now = Date.now()): void {
 }
 export interface UiOptions {
   db: string;
+  /**
+   * Loopback port; 0 lets the system choose one browsers accept. A port browsers refuse is rejected
+   * (see browser-ports.ts). Defaults to the `dashboardPort` setting.
+   */
   port?: number;
   /**
    * Integration checks (the CLI passes `doctor`). With it the dashboard checks stale health at start,
@@ -511,21 +516,12 @@ export async function startUi(options: UiOptions) {
   server.requestTimeout = serverLimits.requestTimeoutMs;
   server.headersTimeout = serverLimits.headersTimeoutMs;
   try {
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(options.port ?? currentSettings().dashboardPort, '127.0.0.1', () => {
-        server.off('error', reject);
-        resolve();
-      });
-    });
+    origin = `http://127.0.0.1:${await listenForBrowsers(server, options.port ?? currentSettings().dashboardPort)}`;
   } catch (error) {
     clearInterval(stallTimer);
     store.close();
     throw error;
   }
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('Dashboard address unavailable');
-  origin = `http://127.0.0.1:${address.port}`;
   // In the background: the dashboard is usable at once and shows the stored result until the check settles.
   void health?.refreshIfStale();
   return {

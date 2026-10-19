@@ -30,6 +30,12 @@ test('planner progress follows owned events, stays compact and never returns raw
     root: 'reference-1',
     result: { path: 'src/export.ts', lines: ['SECRET FILE CONTENT'] },
   });
+  // C0, DEL and C1 control characters in agent-chosen arguments are blanked before display.
+  emit('repository.tool_requested', {
+    tool: 'grampus_read_file',
+    arguments: { path: 'a\u0007b\u007fc\u0080d\u009be\u009ff g' },
+  });
+  assert.equal(progress().activity, 'Reading a b c d e f g');
   emit('integration.tool_authorized', { tool: 'mcp__linear__get_issue' });
   assert.equal(progress().repositoryCalls, 2);
   assert.equal(progress().integrationCalls, 1);

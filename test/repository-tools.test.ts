@@ -4,8 +4,18 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { repositoryTools } from '../src/repository/repository-tools.js';
-import { snapshotRepository } from '../src/repository/artifacts.js';
+import { repositoryToolDefinitions, repositoryTools } from '../src/repository/repository-tools.js';
+import {
+  listFilesArguments,
+  readChangesArguments,
+  readCheckArguments,
+  readDependencyArguments,
+  readFileArguments,
+  searchArguments,
+  suggestReferenceArguments,
+} from '../src/repository/repository-tool-arguments.js';
+import { snapshotRepository, type RepositorySnapshot } from '../src/repository/artifacts.js';
+import type { RepositoryCheck } from '../src/verification/checks.js';
 import { authorizeEditTool } from '../src/execution/edit-policy.js';
 import { Kickoffs } from '../src/orchestration/kickoff.js';
 import { Store } from '../src/persistence/store.js';
@@ -99,6 +109,79 @@ test('repository tools enforce input, output, ownership and durable journaling w
     () => true,
   );
   assert.throws(() => failedJournal('grampus_read_file', { path: 'src/dependency.js' }), /Journal unavailable/);
+});
+
+test('every repository tool journals its request and withholds its result once the turn is no longer owned', t => {
+  const root = mkdtempSync(join(tmpdir(), 'grampus-tool-fence-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const pkg = join(root, 'node_modules', 'fixture-package');
+  mkdirSync(pkg, { recursive: true });
+  writeFileSync(
+    join(pkg, 'package.json'),
+    JSON.stringify({ name: 'fixture-package', version: '1.0.0', main: 'index.js' }),
+  );
+  writeFileSync(join(pkg, 'index.js'), 'exports.value = 1;');
+  const check = {
+    id: 'owned',
+    spec: { name: 'Check' },
+    phase: 'failed',
+    result: { stdout: 'out', stderr: 'err' },
+  } as RepositoryCheck;
+  const snapshot = { artifact: 'sha256:fixture', files: [], diff: [] } as unknown as RepositorySnapshot;
+  const calls: [string, Record<string, unknown>][] = [
+    ['grampus_list_files', {}],
+    ['grampus_read_changes', {}],
+    ['grampus_read_check', {}],
+    ['grampus_read_check', { checkId: 'owned' }],
+    ['grampus_read_dependency', { package: 'fixture-package', path: 'index.js' }],
+    ['grampus_suggest_reference_folder', { path: root, reason: 'Shared helpers' }],
+  ];
+  for (const [name, input] of calls) {
+    const events: AgentEvent[] = [];
+    // Owned when the call starts, settled by the time it would return.
+    let checks = 0;
+    const invoke = repositoryTools(
+      { repo: root, snapshot, checks: [check] },
+      event => events.push(event),
+      () => checks++ === 0,
+    );
+    assert.throws(() => invoke(name, input), /ownership changed/, name);
+    const journaled = events.filter(event => event.type.startsWith('repository.'));
+    assert.deepEqual(
+      journaled.map(event => [event.type, (event.data as { tool: string }).tool]),
+      [
+        ['repository.tool_requested', name],
+        ['repository.tool_result', name],
+      ],
+      name,
+    );
+    assert.deepEqual((journaled[0]!.data as { arguments: unknown }).arguments, input, name);
+  }
+});
+
+test('advertised tool schemas list exactly the arguments the controller accepts', () => {
+  const enforced: Record<string, { shape: Record<string, unknown> }> = {
+    grampus_list_files: listFilesArguments,
+    grampus_read_file: readFileArguments,
+    grampus_search: searchArguments,
+    grampus_read_changes: readChangesArguments,
+    grampus_suggest_reference_folder: suggestReferenceArguments,
+    grampus_read_check: readCheckArguments,
+    grampus_read_dependency: readDependencyArguments,
+  };
+  for (const definition of repositoryToolDefinitions)
+    assert.deepEqual(
+      Object.keys(definition.inputSchema.properties).sort(),
+      Object.keys(enforced[definition.name]!.shape).sort(),
+      definition.name,
+    );
+  // Reference folders have no bound changes, so read_changes takes no root.
+  const invoke = repositoryTools(
+    { repo: tmpdir(), snapshot: { artifact: 'sha256:fixture', files: [], diff: [] } as unknown as RepositorySnapshot },
+    () => {},
+    () => true,
+  );
+  assert.throws(() => invoke('grampus_read_changes', { root: 'reference-1' }), /Unknown repository tool argument/);
 });
 
 test('Git ignore rules exclude untracked outputs while tracked files remain discoverable and verified', async t => {

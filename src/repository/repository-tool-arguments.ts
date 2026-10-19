@@ -46,9 +46,11 @@ export const searchArguments = z.strictObject({
   path: optional(text),
   offset: optional(count),
 });
-/** `grampus_read_changes`; `side` is checked by the tool (before or after). */
+/**
+ * `grampus_read_changes`; `side` is checked by the tool (before or after). It takes no `root`: reference
+ * folders are pinned trees without bound changes.
+ */
 export const readChangesArguments = z.strictObject({
-  root: optional(text),
   path: optional(text),
   side: optional(text),
   offset: optional(count),
