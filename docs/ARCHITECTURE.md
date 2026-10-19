@@ -435,8 +435,8 @@ second workflow engine.
   `?refresh=1` runs the checks first (the Health screen's **Check again**, which then rereads the
   overview). Besides `/api/v1/`, the client reads only `GET /api/tasks/:id/report` and the paged
   `GET /api/tasks/:id/check-output`, and posts lookups (`/api/repositories/inspect`,
-  `/api/repositories/files`, `/api/references/suggest`), creation (`/api/kickoffs`, `/api/tasks`) and
-  the action routes; their response shapes are typed in `server/api-types.ts` too. The legacy polls
+  `/api/repositories/files`, `/api/references/suggest`), creation (`/api/kickoffs`, `/api/tasks`),
+  `/api/settings` and the action routes; their response shapes are typed in `server/api-types.ts` too. The legacy polls
   (`/api/state`, `GET /api/tasks/:id`, `/api/tasks/:id/events`) were removed with the legacy client.
 - Every route parses its body with its own schema (`server/api-schemas.ts`); unknown fields are ignored
   because the browser posts whole forms. Failures map to statuses by error class
@@ -463,6 +463,7 @@ pool read once per request; `ViewContext`) to those DTOs; nothing there writes.
 | `GET /api/v1/tasks/:id` | `TaskDetailV1` | Header (status, label, one-sentence explanation, note in UI language, next step: automatic, human with action ids, or none), workflow strip, current activity (no percentages), decisions, results (criteria coverage, checks with sizes for paging, findings, lens assessments, edit passes, commits, unresolved items), usage, details (approval digest, artifact, changed paths, plan, scope file contents only while authorization is pending, references, timeline head) |
 | `GET /api/v1/tasks/:id/timeline?cursor=&limit=` | `TimelinePageV1` | Journal events newest first: type, time, human summary, note, reason code; `cursor` is the journal sequence to page before |
 | `GET /api/v1/tasks/:id/changes?path=` | `ChangeV1` | One retained change, before and after |
+| `GET /api/v1/settings` | `SettingsV1` | The `config.json` path, whether the saved file differs from the settings this dashboard started with (a restart applies it), why the saved file would be refused at the next start, and the save action: one field per setting holding the stored value (empty keeps the default), bound to the file's revision |
 | `GET /api/v1/kickoffs/:id` | `KickoffDetailV1` | Discussion (answers as text, plan replies described), pending questions with suggestions, proposal and digest, context, references and suggestions, planner activity, actions, and the last failed dashboard action: this dashboard's settled worker, or else the latest journaled `dashboard.action_failed` that no later planning event or turn has superseded |
 
 - **One status vocabulary.** `working`, `awaiting_human`, `verified`, `failed`, `blocked`, `unknown`,
@@ -522,7 +523,11 @@ shortened, secret-looking keys redacted, nesting and entries capped and control 
 Fixed bounds live in `config/limits.ts`, each documented with what it bounds. Operational values
 (dashboard port, usage polling, streamed output batching, defaults for new plans) live in `config/settings.ts`; an optional
 `config.json` in the data directory overrides them and is validated strictly. The CLI loads it once at
-startup and passes the loaded values to dashboard and implementation workers in their requests.
+startup and passes the loaded values to dashboard and implementation workers in their requests. The
+dashboard's Settings screen is the only writer of the file: `POST /api/settings` validates the
+overrides, refuses them with 409 if the file changed since it was shown (its SHA-256 revision) and
+replaces the file through a temporary file and a rename. A running process never reloads it; the
+saved values apply at the next start.
 Defaults are copied into a plan when it is created, so settings never change an approved plan or
 recorded evidence. Details are in [CONFIGURATION.md](CONFIGURATION.md).
 
@@ -633,7 +638,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `cli-input.ts` | Validated CLI option values and input files |
 | `config/` | `runtime.ts` | Application root, version, installed or development channel, data directory, update |
 | | `limits.ts` | Fixed, documented bounds bound into approval, evidence or recovery; not configurable |
-| | `settings.ts` | Operational settings, their defaults and the validated optional `<data directory>/config.json` |
+| | `settings.ts` | Operational settings, their defaults and the validated optional `<data directory>/config.json`, which the Settings screen saves |
 | | `environment.d.ts` | Typed declarations of the environment variables Grampus reads |
 | `persistence/` | `store.ts` | SQLite schema, version check, transactions and journal access |
 | | `records.ts` | Schemas of the execution-layer journal records, validated on every read |
@@ -689,6 +694,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | `server/view-model/` | `overview.ts`, `task-detail.ts`, `kickoff-detail.ts` | Overview with the attention queue; task facts and the task page; the planning page |
 | | `actions.ts`, `status.ts`, `workflow.ts` | Which actions exist and why one is disabled; status vocabulary, stop descriptions and UI language; the workflow strip |
 | | `usage.ts`, `health.ts`, `plan.ts`, `timeline.ts`, `scope.ts`, `context.ts` | Usage with completeness; the health card; the plan for approval; timeline summaries and paging; scope file contents; the dashboard state the view model reads (workers, stalls, runner pool) |
+| | `settings.ts` | The Settings screen: one field per setting over `config.json` and whether a restart is needed |
 | `probes/` | `*-probe.ts`, `multifile-fixture.ts`, `probe-interruption.ts` | Opt-in live and scale probes and their fixtures |
 | | `demo.ts` | Synthetic demo |
 
@@ -697,12 +703,12 @@ The dashboard client is its own npm project in `web/` (paths under `web/src/`), 
 
 | Folder | Files | Responsibility |
 | --- | --- | --- |
-| `/` | `main.ts`, `App.vue`, `router.ts` | Entry point (token first, then routing), the shell with the overview poll, fragment routes (`#/`, `#/new`, `#/tasks/<id>`, `#/planning/<id>`, `#/health`) |
+| `/` | `main.ts`, `App.vue`, `router.ts` | Entry point (token first, then routing), the shell with the overview poll, fragment routes (`#/`, `#/new`, `#/tasks/<id>`, `#/planning/<id>`, `#/health`, `#/settings`) |
 | | `announcer.ts`, `settings.ts`, `markdown.ts` | Live-region announcements and the shared clock; client timing constants; sanitised Markdown |
 | | `mock.ts`, `testing.ts` | Typed DTO fixtures and the fake server for Vitest |
 | `api/` | `client.ts`, `usePolled.ts` | Access token, typed requests and `ApiError` (401, stale 409, `pool_full` 409); polling one request at a time, paused while hidden |
 | | `actions.ts`, `useActions.ts`, `report.ts` | `ActionView` plus typed drafts to the exact request body (JSON pointer targets); sending actions with requested, stale, waiting for a runner slot and refused states; the report download |
-| `pages/` | `HomePage`, `NewTaskPage`, `PlanningPage`, `TaskPage`, `HealthPage` | One screen each |
+| `pages/` | `HomePage`, `NewTaskPage`, `PlanningPage`, `TaskPage`, `HealthPage`, `SettingsPage` | One screen each |
 | `components/` | `ActionButton`, `ActionForm`, `FormFieldInput`, `MultiSelectField`, `DecisionCard`, `DecisionQueue`, `AttentionPanel` | Actions and server-described forms |
 | | `TaskHeader`, `WorkflowStrip`, `ActivityCard`, `ResultsPanel`, `CheckItem`, `CheckOutput`, `FindingList`, `UsagePanel`, `UsageSummary`, `TaskDetails`, `TimelinePanel`, `ChangesPanel`, `ReportPanel`, `ScopeReview`, `PlanCard`, `PlanSlice`, `CommandDetails` | Task and plan presentation |
 | | `DiscussionThread`, `PlanningContext`, `FileSearch`, `StartingFileHints`, `ReferenceFolders`, `ImportPlan` | Planning and new-task pieces |

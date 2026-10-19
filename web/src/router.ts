@@ -1,4 +1,4 @@
-// Screen selection through the URL fragment: `#/`, `#/new`, `#/health`, `#/tasks/<id>` and
+// Screen selection through the URL fragment: `#/`, `#/new`, `#/health`, `#/settings`, `#/tasks/<id>` and
 // `#/planning/<id>`. The startup link also uses the fragment, for the access token; api/client.ts moves a
 // token into session storage and clears the fragment before routing reads it, so the two never mix (a
 // route always starts with `/`, which a token never contains). Back and forward work, and a reload keeps
@@ -10,6 +10,7 @@ export type Route =
   | { name: 'home' }
   | { name: 'new' }
   | { name: 'health' }
+  | { name: 'settings' }
   | { name: 'task'; id: string }
   | { name: 'planning'; id: string }
   | { name: 'not-found'; path: string };
@@ -23,6 +24,7 @@ export function parseRoute(hash: string): Route {
   if (path === '/' || path === '') return { name: 'home' };
   if (path === '/new') return { name: 'new' };
   if (path === '/health') return { name: 'health' };
+  if (path === '/settings') return { name: 'settings' };
   const [, kind, value] = /^\/(tasks|planning)\/([^/]+)$/.exec(path) ?? [];
   if (kind && value && id.test(value))
     return kind === 'tasks' ? { name: 'task', id: value } : { name: 'planning', id: value };
@@ -38,6 +40,8 @@ export function href(route: Exclude<Route, { name: 'not-found' }>): string {
       return '#/new';
     case 'health':
       return '#/health';
+    case 'settings':
+      return '#/settings';
     case 'task':
       return `#/tasks/${route.id}`;
     case 'planning':

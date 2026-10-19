@@ -98,7 +98,8 @@ export type ActionId =
   | 'update-context'
   | 'update-references'
   | 'stop-planning'
-  | 'recover-planning';
+  | 'recover-planning'
+  | 'save-settings';
 
 /** Visual weight: one `primary` per decision at most; `danger` hides or discards work. */
 export type ActionKind = 'primary' | 'secondary' | 'danger';
@@ -169,7 +170,7 @@ export interface FormField {
 
 /** The input an action needs before it can be sent. */
 export interface ActionForm {
-  kind: 'answers' | 'assessment' | 'revision' | 'message' | 'context' | 'references';
+  kind: 'answers' | 'assessment' | 'revision' | 'message' | 'context' | 'references' | 'settings';
   /** Introductory text shown above the fields; Markdown. */
   intro: string | null;
   fields: FormField[];
@@ -196,6 +197,26 @@ export interface ActionView {
   /** Why the action is unavailable; null when it is enabled. */
   disabledReason: string | null;
   request: ActionRequest;
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Settings
+
+/** `GET /api/v1/settings`: the settings file of this installation and the form that saves it. */
+export interface SettingsV1 {
+  apiVersion: ApiVersion;
+  /** The `config.json` this dashboard reads and writes, or null when it was started without one. */
+  file: string | null;
+  /** The saved file differs from the settings this dashboard started with: a restart applies it. */
+  restartRequired: boolean;
+  /** Why the saved file would be refused at the next start, or null when it is absent or valid. */
+  problem: string | null;
+  /**
+   * Saves the form as `config.json` (`POST /api/settings`). Each field holds the stored value; an
+   * empty field is left out of the file and keeps the built-in default. `expected` is the file's
+   * revision, so a change made meanwhile is refused with 409 instead of being overwritten.
+   */
+  save: ActionView;
 }
 
 // ---------------------------------------------------------------------------------------------------

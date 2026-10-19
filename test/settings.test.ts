@@ -1,8 +1,8 @@
-// Settings tests: config.json defaults, overrides, strict validation and per-process injection.
+// Settings tests: config.json defaults, overrides, strict validation, per-process injection and saving.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,11 +11,14 @@ import {
   defaultSettings,
   loadSettings,
   parseSettings,
+  readSettingsFile,
+  saveSettingsFile,
   settingsFileName,
   useSettings,
 } from '../src/config/settings.js';
 import { defaultDashboardPort } from '../src/config/runtime.js';
 import { normalizeWorkflowPolicy } from '../src/domain/workflow-policy.js';
+import { StaleStateError } from '../src/persistence/errors.js';
 
 const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
 
@@ -175,4 +178,49 @@ test('the CLI loads config.json from the data directory once and refuses an inva
   assert.equal(JSON.parse(run(dataDirectory(t, { dashboardPort: 4999 }))).dashboardPort, 4999);
   assert.equal(JSON.parse(run(dataDirectory(t))).dashboardPort, defaultDashboardPort);
   assert.throws(() => run(dataDirectory(t, { surprise: true })), /unknown key "surprise"/);
+});
+
+test('saving writes exactly the given overrides, which the next load merges over the defaults', t => {
+  const root = join(dataDirectory(t), 'created');
+  const absent = readSettingsFile(root);
+  assert.equal(absent.revision, 'absent');
+  assert.deepEqual(absent.settings, defaultSettings());
+  saveSettingsFile(root, { maxConcurrentTasks: 3, defaultWorkflowPolicy: { mode: 'supervised' } }, absent.revision);
+  assert.deepEqual(JSON.parse(readFileSync(join(root, settingsFileName), 'utf8')), {
+    maxConcurrentTasks: 3,
+    defaultWorkflowPolicy: { mode: 'supervised' },
+  });
+  assert.deepEqual(readdirSync(root), [settingsFileName], 'no temporary file is left behind');
+  const saved = readSettingsFile(root);
+  assert.notEqual(saved.revision, 'absent');
+  assert.equal(saved.problem, null);
+  assert.deepEqual(loadSettings(root), {
+    ...defaultSettings(),
+    maxConcurrentTasks: 3,
+    defaultWorkflowPolicy: { ...defaultSettings().defaultWorkflowPolicy, mode: 'supervised' },
+  });
+  saveSettingsFile(root, {}, saved.revision);
+  assert.deepEqual(loadSettings(root), defaultSettings());
+});
+
+test('saving refuses invalid overrides and a file changed since it was read, leaving the file alone', t => {
+  const root = dataDirectory(t, { dashboardPort: 4400 });
+  const path = join(root, settingsFileName);
+  const shown = readSettingsFile(root).revision;
+  assert.throws(() => saveSettingsFile(root, { maxConcurrentTasks: 9 }, shown), /"maxConcurrentTasks"/);
+  assert.throws(() => saveSettingsFile(root, { dashbordPort: 1 }, shown), /unknown key "dashbordPort"/);
+  writeFileSync(path, JSON.stringify({ dashboardPort: 4401 }));
+  assert.throws(() => saveSettingsFile(root, { dashboardPort: 4402 }, shown), StaleStateError);
+  assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { dashboardPort: 4401 });
+});
+
+test('reading reports an invalid file instead of throwing, so it can be shown and replaced', t => {
+  const broken = readSettingsFile(dataDirectory(t, '{ not json'));
+  assert.equal(broken.settings, null);
+  assert.equal(broken.stored, undefined);
+  assert.match(broken.problem ?? '', /Invalid settings in .*config\.json/);
+  const refused = readSettingsFile(dataDirectory(t, { maxConcurrentTasks: 9 }));
+  assert.equal(refused.settings, null);
+  assert.deepEqual(refused.stored, { maxConcurrentTasks: 9 });
+  assert.match(refused.problem ?? '', /"maxConcurrentTasks"/);
 });

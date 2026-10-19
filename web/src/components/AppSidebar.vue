@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * AppSidebar: New task, then every task and planning conversation with its status in words and a stall
- * badge, and the Health screen. The open item is marked `aria-current="page"`.
+ * badge, and the Health and Settings screens. The open item is marked `aria-current="page"`.
  *
  * Props:
  * - `overview`: the latest overview, or undefined while it loads.
@@ -79,6 +79,9 @@ const item =
     </div>
     <a :href="href({ name: 'health' })" :aria-current="current.name === 'health' ? 'page' : undefined" :class="item"
       >Integration health</a
+    >
+    <a :href="href({ name: 'settings' })" :aria-current="current.name === 'settings' ? 'page' : undefined" :class="item"
+      >Settings</a
     >
   </div>
 </template>

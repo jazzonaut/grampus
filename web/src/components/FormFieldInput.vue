@@ -29,8 +29,9 @@ const describedBy = computed(
 
 const text = computed({
   get: () => (draft.value.kind === 'text' ? draft.value.text : ''),
-  set: (value: string) => {
-    draft.value = { kind: 'text', text: value };
+  // `v-model` on `type="number"` hands over a number; drafts stay text until `fieldValue` converts them.
+  set: (value: string | number) => {
+    draft.value = { kind: 'text', text: String(value) };
   },
 });
 

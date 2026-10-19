@@ -221,7 +221,12 @@ async function uiCommand(invocation: Invocation): Promise<void> {
   const { values } = invocation;
   const listen = port(values.port ?? String(currentSettings().dashboardPort));
   const { startUi } = await import('./server/ui-server.js');
-  const ui = await startUi({ db: values.db ?? defaultDatabasePath(), port: listen, health: () => doctor() });
+  const ui = await startUi({
+    db: values.db ?? defaultDatabasePath(),
+    port: listen,
+    health: () => doctor(),
+    settingsDirectory: defaultDataDirectory(),
+  });
   console.log(
     `${versionLabel()}\nGrampus dashboard: ${ui.url}\nJournal: ${ui.store.path}\nKeep this terminal open. Ctrl+C closes the dashboard after active actions settle.`,
   );

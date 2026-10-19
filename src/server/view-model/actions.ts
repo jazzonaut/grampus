@@ -73,7 +73,8 @@ export interface TaskActionFacts extends TaskStatusFacts {
   availablePasses: readonly QualityPassDefinition[];
 }
 
-interface ActionSpec {
+/** What {@link action} needs to build an `ActionView`; omitted fields take their usual defaults. */
+export interface ActionSpec {
   id: ActionId;
   label: string;
   kind: ActionKind;
@@ -87,7 +88,8 @@ interface ActionSpec {
   disabledReason?: string | null;
 }
 
-function action(spec: ActionSpec): ActionView {
+/** An `ActionView`: a POST unless `method` says otherwise, enabled unless it has a `disabledReason`. */
+export function action(spec: ActionSpec): ActionView {
   const method = spec.method ?? 'POST';
   const expected = spec.expected ?? null;
   return {
@@ -113,7 +115,8 @@ function pointer(...segments: string[]): string {
   return segments.map(segment => `/${segment.replaceAll('~', '~0').replaceAll('/', '~1')}`).join('');
 }
 
-function field(spec: Partial<FormField> & Pick<FormField, 'name' | 'label' | 'input' | 'target'>): FormField {
+/** A form field with empty defaults for everything `spec` leaves out. */
+export function field(spec: Partial<FormField> & Pick<FormField, 'name' | 'label' | 'input' | 'target'>): FormField {
   return {
     value: null,
     required: false,
@@ -128,7 +131,8 @@ function field(spec: Partial<FormField> & Pick<FormField, 'name' | 'label' | 'in
   };
 }
 
-function option(value: JsonValue, label: string, description: string | null = null): FormOption {
+/** A choice of a select or multiselect field. */
+export function option(value: JsonValue, label: string, description: string | null = null): FormOption {
   return { value, label, description };
 }
 

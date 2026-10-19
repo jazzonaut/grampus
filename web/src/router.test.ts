@@ -7,6 +7,7 @@ describe('routes', () => {
     expect(parseRoute('#/')).toEqual({ name: 'home' });
     expect(parseRoute('#/new')).toEqual({ name: 'new' });
     expect(parseRoute('#/health')).toEqual({ name: 'health' });
+    expect(parseRoute('#/settings')).toEqual({ name: 'settings' });
     expect(parseRoute('#/tasks/0f1e-aa')).toEqual({ name: 'task', id: '0f1e-aa' });
     expect(parseRoute('#/planning/abc')).toEqual({ name: 'planning', id: 'abc' });
   });

@@ -1,7 +1,8 @@
 # Configuration
 
 Grampus works without any configuration. An optional `config.json` in the data directory
-overrides a small set of operational settings. Limits that are part of approval, evidence
+overrides a small set of operational settings. Edit it on the dashboard's **Settings** screen or by
+hand. Limits that are part of approval, evidence
 or recovery are fixed in code and cannot be configured.
 
 ## Where the file lives
@@ -15,11 +16,26 @@ or recovery are fixed in code and cannot be configured.
 | `GRAMPUS_HOME` set | `%GRAMPUS_HOME%\config.json` |
 
 `grampus version` prints the data directory. `--db` chooses another journal but does not
-move the settings file. Grampus only reads `config.json`; it never creates or rewrites it.
+move the settings file. Only the Settings screen writes `config.json`; nothing else creates or
+rewrites it.
 
 The file is read once when the CLI or dashboard starts (`grampus update` does not read it, so
-an invalid file cannot block an update). Restart the dashboard after editing it. Dashboard actions and supervised implementation turns use the values loaded at startup,
+an invalid file cannot block an update). Restart the dashboard after editing it, including after
+saving on the Settings screen. Dashboard actions and supervised implementation turns use the values loaded at startup,
 never a newer copy of the file.
+
+## The Settings screen
+
+**Settings** in the dashboard sidebar shows one field per setting with the value stored in the
+file. An empty field is left out of the file and keeps the built-in default, so a later change of
+a default still applies. The two quality pass settings are edited as JSON.
+
+Saving validates the values with the same rules as startup and writes only the keys that have a
+value. If the file changed since the screen was shown (by hand or from another tab), the save is
+refused and the screen shows the current file. The screen also says when the saved file differs
+from the settings the dashboard started with, and when the saved file would be refused at the next
+start; saving a valid form replaces such a file. A running dashboard never applies saved settings:
+close it and start it again.
 
 ## Format
 

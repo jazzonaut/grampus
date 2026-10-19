@@ -1,12 +1,15 @@
 // Operational settings: values an installation may tune without changing what an approval, a piece of
 // evidence or a recovery comparison means. Built-in defaults apply when `<data directory>/config.json`
 // is absent; the file may override any subset and is validated strictly. Fixed bounds are in limits.ts.
+// The dashboard's Settings screen is the only writer of the file (`saveSettingsFile`); the change applies
+// when Grampus next starts.
 //
 // Each process installs its settings once at startup (`useSettings`): the CLI loads the file, and the
 // workers it starts receive the already loaded values in their request rather than reading the file
 // again. Library code reads `currentSettings()`, which falls back to the built-in defaults, so tests and
 // probes are unaffected by a developer's own config.json unless they inject settings themselves.
-import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { WorkflowPolicy } from '../domain/workflow-policy.js';
@@ -15,6 +18,7 @@ import {
   qualitySettingsProblems,
   type QualityPassDefinition,
 } from '../domain/quality-passes.js';
+import { StaleStateError } from '../persistence/errors.js';
 import { KiB, MiB, commandLimits, qualityLimits, workflowPolicyBounds } from './limits.js';
 import { defaultDashboardPort } from './runtime.js';
 
@@ -74,15 +78,29 @@ export function defaultSettings(): Settings {
   };
 }
 
-const integer = (min: number, max: number) => z.number().int().min(min).max(max);
-const bounded = (range: { min: number; max: number }) => integer(range.min, range.max);
+/** Allowed range of each top-level integer setting; the schema enforces it and the Settings screen shows it. */
+export const settingRanges = {
+  dashboardPort: { min: 1, max: 65_535 },
+  usagePollIntervalMs: { min: 1000, max: 600_000 },
+  outputFlushIntervalMs: { min: 100, max: 60_000 },
+  outputFlushBytes: { min: 1 * KiB, max: 1 * MiB },
+  defaultCheckTimeoutMs: { min: commandLimits.minTimeoutMs, max: commandLimits.maxTimeoutMs },
+  maxConcurrentTasks: { min: 1, max: 4 },
+  stallWarningMs: { min: 1000, max: 86_400_000 },
+  healthCheckIntervalMs: { min: 1000, max: 86_400_000 },
+} as const;
+
+/** A top-level setting whose value is an integer. */
+export type IntegerSetting = keyof typeof settingRanges;
+
+const bounded = (range: { min: number; max: number }) => z.number().int().min(range.min).max(range.max);
 const overridesSchema = z
   .strictObject({
-    dashboardPort: integer(1, 65_535).optional(),
-    usagePollIntervalMs: integer(1000, 600_000).optional(),
-    outputFlushIntervalMs: integer(100, 60_000).optional(),
-    outputFlushBytes: integer(1 * KiB, 1 * MiB).optional(),
-    defaultCheckTimeoutMs: integer(commandLimits.minTimeoutMs, commandLimits.maxTimeoutMs).optional(),
+    dashboardPort: bounded(settingRanges.dashboardPort).optional(),
+    usagePollIntervalMs: bounded(settingRanges.usagePollIntervalMs).optional(),
+    outputFlushIntervalMs: bounded(settingRanges.outputFlushIntervalMs).optional(),
+    outputFlushBytes: bounded(settingRanges.outputFlushBytes).optional(),
+    defaultCheckTimeoutMs: bounded(settingRanges.defaultCheckTimeoutMs).optional(),
     defaultWorkflowPolicy: z
       .strictObject({
         mode: z.enum(['automatic', 'supervised']).optional(),
@@ -93,9 +111,9 @@ const overridesSchema = z
       .optional(),
     qualityPasses: z.array(qualityPassDefinitionSchema).max(qualityLimits.customPasses).optional(),
     defaultQualityPasses: z.array(z.string()).max(qualityLimits.passes).optional(),
-    maxConcurrentTasks: integer(1, 4).optional(),
-    stallWarningMs: integer(1000, 86_400_000).optional(),
-    healthCheckIntervalMs: integer(1000, 86_400_000).optional(),
+    maxConcurrentTasks: bounded(settingRanges.maxConcurrentTasks).optional(),
+    stallWarningMs: bounded(settingRanges.stallWarningMs).optional(),
+    healthCheckIntervalMs: bounded(settingRanges.healthCheckIntervalMs).optional(),
   })
   .superRefine((value, context) => {
     // Buffered output is journaled at most this often, so a stall threshold at or below it would warn
@@ -141,22 +159,86 @@ export function parseSettings(value: unknown, source: string): Settings {
   return merged;
 }
 
+/** The settings file of a data directory as it is stored now. */
+export interface SettingsFile {
+  path: string;
+  /**
+   * `absent`, or a SHA-256 digest of the file's bytes. A save names the revision it was edited from, so
+   * a change made meanwhile (by hand or in another tab) is never overwritten unseen.
+   */
+  revision: string;
+  /** The parsed JSON, or undefined when the file is absent or is not JSON. */
+  stored: unknown;
+  /** The settings the file gives (the defaults when it is absent), or null when it is invalid. */
+  settings: Settings | null;
+  /** Why the file is refused, naming the file and each offending key; null when it is absent or valid. */
+  problem: string | null;
+}
+
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const digest = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
+
+/** Read `<dataDirectory>/config.json` without refusing an invalid file. The directory is never created. */
+export function readSettingsFile(dataDirectory: string): SettingsFile {
+  const path = join(dataDirectory, settingsFileName);
+  if (!existsSync(path))
+    return { path, revision: 'absent', stored: undefined, settings: defaultSettings(), problem: null };
+  const bytes = readFileSync(path);
+  const revision = digest(bytes);
+  let stored: unknown;
+  try {
+    stored = JSON.parse(bytes.toString('utf8'));
+  } catch (error) {
+    return {
+      path,
+      revision,
+      stored: undefined,
+      settings: null,
+      problem: `Invalid settings in ${path}: ${errorText(error)}`,
+    };
+  }
+  try {
+    return { path, revision, stored, settings: parseSettings(stored, path), problem: null };
+  } catch (error) {
+    return { path, revision, stored, settings: null, problem: errorText(error) };
+  }
+}
+
 /**
  * Read `<dataDirectory>/config.json` if it exists. The directory is never created or written. Throws
  * when the file is not valid JSON or fails {@link parseSettings}.
  */
 export function loadSettings(dataDirectory: string): Settings {
-  const path = join(dataDirectory, settingsFileName);
-  if (!existsSync(path)) return defaultSettings();
-  let value: unknown;
+  const file = readSettingsFile(dataDirectory);
+  if (!file.settings) throw new Error(file.problem ?? `Invalid settings in ${file.path}`);
+  return file.settings;
+}
+
+/**
+ * Validate `overrides` and store exactly them as `<dataDirectory>/config.json`, provided the file is
+ * still at revision `expected` (otherwise {@link StaleStateError}). Omitted keys keep following the
+ * built-in defaults, so a later change of a default still applies. The text is written to a temporary
+ * file and renamed over the old one, so a reader never sees half a file. Nothing changes in a running
+ * process: the new values apply when Grampus next starts.
+ */
+export function saveSettingsFile(dataDirectory: string, overrides: unknown, expected: string): void {
+  parseSettings(overrides, 'the settings form');
+  const { path, revision } = readSettingsFile(dataDirectory);
+  if (revision !== expected)
+    throw new StaleStateError(`${path} changed since the settings were shown; check the current values and save again`);
+  mkdirSync(dataDirectory, { recursive: true });
+  const temporary = `${path}.${process.pid}.tmp`;
   try {
-    value = JSON.parse(readFileSync(path, 'utf8'));
+    writeFileSync(
+      temporary,
+      `${JSON.stringify(overrides, null, 2)}
+`,
+    );
+    renameSync(temporary, path);
   } catch (error) {
-    throw new Error(`Invalid settings in ${path}: ${error instanceof Error ? error.message : String(error)}`, {
-      cause: error,
-    });
+    rmSync(temporary, { force: true });
+    throw error;
   }
-  return parseSettings(value, path);
 }
 
 // Installed settings are frozen so library code that reads them can never change them for the process.

@@ -18,7 +18,7 @@ import { renderReport } from '../reporting/report.js';
 import { Kickoffs } from '../orchestration/kickoff.js';
 import { Sessions } from '../execution/sessions.js';
 import { checkOutputLimits, formatBytes, serverLimits, stallLimits } from '../config/limits.js';
-import { currentSettings } from '../config/settings.js';
+import { currentSettings, saveSettingsFile } from '../config/settings.js';
 import { TaskLifecycle } from '../orchestration/task-lifecycle.js';
 import { suggestReferenceFolders } from '../repository/reference-folders.js';
 import type { Task } from '../domain/workflow.js';
@@ -48,6 +48,7 @@ import {
   kickoffReferencesBody,
   lifecycleBody,
   prepareKickoffBody,
+  saveSettingsBody,
   searchFilesBody,
   suggestReferencesBody,
   taskWorkerActions,
@@ -140,6 +141,11 @@ export interface UiOptions {
   now?: () => number;
   /** The built client folder; defaults to `web/dist` of this installation. Tests pass a fixture. */
   client?: string;
+  /**
+   * The data directory whose `config.json` the Settings screen reads and saves (the CLI passes its
+   * own). Without it the screen shows a disabled form, so tests never touch a developer's settings.
+   */
+  settingsDirectory?: string;
 }
 
 const itemRoute = /^\/api\/(?<kind>tasks|kickoffs)\/(?<id>[a-f0-9-]+)(?:\/(?<action>[a-z-]+))?$/;
@@ -198,6 +204,8 @@ interface Dashboard {
   /** Null when the dashboard was started without integration checks. */
   health: HealthMonitor | null;
   now: () => number;
+  /** Null when the dashboard was started without a settings file to edit. */
+  settingsDirectory: string | null;
 }
 
 /** The built client: index.html, the favicon and hashed assets; a short explanation while it is unbuilt. */
@@ -269,6 +277,13 @@ function postRoot(dashboard: Dashboard, path: string, payload: unknown): [number
       return [201, { id: kickoffs.create(parseRequest(createKickoffBody, payload)) } satisfies CreatedResponse];
     case '/api/tasks':
       return [201, { id: tasks.create(parseRequest(createTaskBody, payload).plan).id } satisfies CreatedResponse];
+    case '/api/settings': {
+      if (dashboard.settingsDirectory === null)
+        throw new HttpError(409, 'This dashboard was started without a settings file, so it cannot save one');
+      const body = parseRequest(saveSettingsBody, payload);
+      saveSettingsFile(dashboard.settingsDirectory, body.overrides, body.expected);
+      return [200, { ok: true }];
+    }
     default:
       throw new HttpError(404, 'Not found');
   }
@@ -466,8 +481,9 @@ export async function startUi(options: UiOptions) {
   const health = options.health ? new HealthMonitor(store, options.health, now) : null;
   const stallTimer = watchStalls(stalls);
   const launch = (id: string, work: WorkerAction) => launchWorker(store, jobs, health !== null, id, work);
-  const dashboard: Dashboard = { store, tasks, kickoffs, jobs, launch, stalls, health, now };
-  const apiV1 = createApiV1({ store, kickoffs, jobs, stalls, now });
+  const settingsDirectory = options.settingsDirectory ?? null;
+  const dashboard: Dashboard = { store, tasks, kickoffs, jobs, launch, stalls, health, now, settingsDirectory };
+  const apiV1 = createApiV1({ store, kickoffs, jobs, stalls, now, settingsDirectory });
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     securityHeaders(response);
     if (

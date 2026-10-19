@@ -45,6 +45,11 @@ export const prepareKickoffBody = z.object({
 });
 export const approveTaskBody = z.object({ expected, version: z.number().int().min(1), digest: text });
 export const decisionBody = z.object({ expected });
+/** `expected` is the revision of `config.json` the form was shown with; `overrides` is checked by config/settings.ts. */
+export const saveSettingsBody = z.object({
+  expected: z.string({ error: 'Send the settings revision you edited' }),
+  overrides: delegated('overrides'),
+});
 
 /** Payloads of the actions that run in a worker, by action. Each carries the key it was decided on. */
 export const workerActionSchema = z.discriminatedUnion('action', [

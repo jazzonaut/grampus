@@ -1,12 +1,12 @@
 // Owns the versioned read API the Vue client consumes: `GET /api/v1/overview`, `/api/v1/tasks/:id`,
-// `/api/v1/tasks/:id/timeline`, `/api/v1/tasks/:id/changes` and `/api/v1/kickoffs/:id`. The server's
+// `/api/v1/tasks/:id/timeline`, `/api/v1/tasks/:id/changes`, `/api/v1/kickoffs/:id` and `/api/v1/settings`. The server's
 // usual guards (loopback, origin, bearer token) run before these routes. Journal facts are cached by
 // journal revision; the DTOs are rebuilt from them on each request because workers and stalls change
 // without a journal write; the runner pool is read once per request. Responses never carry file inventories, snapshots or raw check output.
 // Actions reuse the existing POST routes (see `view-model/actions.ts`).
 import { z } from 'zod';
 import { viewModelLimits } from '../config/limits.js';
-import { currentSettings } from '../config/settings.js';
+import { currentSettings, readSettingsFile } from '../config/settings.js';
 import { versionInformation } from '../config/runtime.js';
 import { availableQualityPasses } from '../domain/quality-passes.js';
 import { healthView, sanitiseDetail } from '../health/health.js';
@@ -17,11 +17,12 @@ import type { Kickoffs } from '../orchestration/kickoff.js';
 import { guidedSnapshot } from '../orchestration/guided/snapshots.js';
 import { runnerPool } from '../orchestration/guided/runner-pool.js';
 import { describeIssues } from '../process/boundary.js';
-import type { ChangeV1, KickoffDetailV1, OverviewV1, TaskDetailV1, TimelinePageV1 } from './api-types.js';
+import type { ChangeV1, KickoffDetailV1, OverviewV1, SettingsV1, TaskDetailV1, TimelinePageV1 } from './api-types.js';
 import { HttpError } from './errors.js';
 import type { JobView, ViewContext } from './view-model/context.js';
 import { kickoffDetail, type KickoffView } from './view-model/kickoff-detail.js';
 import { overview, overviewTasks, type UnreadableTask } from './view-model/overview.js';
+import { settingsView } from './view-model/settings.js';
 import { taskDetail, taskFacts, type TaskFacts } from './view-model/task-detail.js';
 import { timelinePage } from './view-model/timeline.js';
 
@@ -32,12 +33,15 @@ export interface ApiV1Dashboard {
   jobs: ReadonlyMap<string, JobView>;
   stalls: Pick<StallWatchdog, 'stall'>;
   now: () => number;
+  /** The data directory whose `config.json` the Settings screen edits, or null when there is none. */
+  settingsDirectory: string | null;
 }
 
 const route =
-  /^\/api\/v1\/(?:(?<overview>overview)|(?<kind>tasks|kickoffs)\/(?<id>[a-f0-9-]+)(?:\/(?<sub>timeline|changes))?)$/;
+  /^\/api\/v1\/(?:(?<overview>overview)|(?<settings>settings)|(?<kind>tasks|kickoffs)\/(?<id>[a-f0-9-]+)(?:\/(?<sub>timeline|changes))?)$/;
 const routeSchema = z.object({
   overview: z.literal('overview').optional(),
+  settings: z.literal('settings').optional(),
   kind: z.enum(['tasks', 'kickoffs']).optional(),
   id: z.string().optional(),
   sub: z.enum(['timeline', 'changes']).optional(),
@@ -173,6 +177,13 @@ export function createApiV1(dashboard: ApiV1Dashboard) {
       const groups = route.exec(path)?.groups;
       if (!groups) throw new HttpError(404, 'Not found');
       const matched = routeSchema.parse(groups);
+      if (matched.settings) {
+        const directory = dashboard.settingsDirectory;
+        return settingsView({
+          file: directory === null ? null : readSettingsFile(directory),
+          active: currentSettings(),
+        }) satisfies SettingsV1;
+      }
       const revision = store.revision();
       const context = requestContext();
       if (matched.overview) return overviewRoute(context, revision);
