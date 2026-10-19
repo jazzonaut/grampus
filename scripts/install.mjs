@@ -465,7 +465,8 @@ async function main() {
     console.log(
       `\n${previous ? 'Update' : 'Install'} Grampus ${readJson(join(sourceRoot, 'package.json')).version}\nSource: ${sourceRoot}\nDestination: ${root}\nCurrent build: ${previous ?? 'none'}\nAdd command to user PATH: ${addToPath ? 'yes' : 'no'}\nOrca plugin package: ${join(root, 'orca-plugin')}\nInstalled dashboard: port 4317; development: port 4318\nTask data is separate from development. Existing task data is preserved.\nThis copies the current checkout, including local changes; it does not fetch or pull.`,
     );
-    if (prompt && !/^y(es)?$/i.test((await prompt.question('\nContinue? [y/N]: ')).trim())) {
+    // Enter accepts the plan shown above; any answer other than yes cancels.
+    if (prompt && !/^(y(es)?)?$/i.test((await prompt.question('\nContinue? [Y/n]: ')).trim())) {
       console.log('Cancelled.');
       return;
     }

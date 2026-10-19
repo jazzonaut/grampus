@@ -91,7 +91,8 @@ grampus update --source C:\Projects\Grampus
 ```
 
 The command runs the installer from the recorded source checkout and shows the
-current build and destination before asking for confirmation. Change the checkout
+current build and destination before asking for confirmation (`Continue? [Y/n]`;
+Enter accepts, any other answer than yes cancels). Change the checkout
 to the code you want first. Updates never fetch, pull, reset or commit source, and
 never happen automatically. A build id, source digest, commit and local-change flag
 distinguish snapshots even when their package version is the same.

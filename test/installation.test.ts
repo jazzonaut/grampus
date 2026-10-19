@@ -237,7 +237,7 @@ test('version commands expose development identity and isolate default data with
   assert.equal(info.build, null);
   assert.match(info.dataDirectory, /development/);
   assert.equal(existsSync(info.dataDirectory), false);
-  assert.match(run(['--version']), /Grampus 0\.1\.0 \(development\)/);
+  assert.match(run(['--version']), /Grampus 0\.2\.0 \(development\)/);
   assert.equal(run(['-v']), run(['--version']));
   assert.match(run(['--help']), /update.*checkout/);
   const overridden = JSON.parse(run(['version', '--json'], { ...environment, GRAMPUS_HOME: join(root, 'explicit') }));
@@ -358,7 +358,7 @@ test('bare CLI opens the dashboard from an unrelated directory and retains expli
   const overview = await response.json();
   assert.equal(overview.application.journal, db);
   assert.equal(overview.application.channel, 'development');
-  assert.equal(overview.application.version, '0.1.0');
+  assert.equal(overview.application.version, '0.2.0');
 });
 
 test(
@@ -472,6 +472,8 @@ test(
     });
     assert.equal(await closed, 0, errors);
     assert.match(output, /Task data is separate/);
+    // Enter accepts by default, so cancelling needs an explicit answer.
+    assert.match(output, /Continue\? \[Y\/n\]/);
     assert.match(output, /Cancelled/);
     assert.equal(answered, true);
     assert.equal(existsSync(destination), false);
