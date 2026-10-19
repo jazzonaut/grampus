@@ -140,7 +140,9 @@ stops before inference rather than dropping findings. See [repair policy](WORKFL
 
 ## Acceptance observations
 
-`acceptance.expectedStdout` checks exact stdout. Alternatively or additionally:
+`acceptance.expectedStdout` checks exact stdout. Exit status alone never accepts, so every acceptance
+command needs `expectedStdout`, `expectations` or both; an error names the slice
+whose command lacks them. Alternatively or additionally:
 
 ```json
 "expectations": {

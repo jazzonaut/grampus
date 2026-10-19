@@ -362,7 +362,19 @@ function sliceScope(value: unknown, mode: GuidedSlice['mode']): GuidedSlice['sco
   return validated;
 }
 
-function normalizeSlice(raw: unknown, simulation: FileSimulation): GuidedSlice {
+/**
+ * Runs `normalize`, prefixing any error with `label`. A plan has one command of each kind per slice,
+ * so an unlabelled error would leave the planner and the person unable to tell which one to fix.
+ */
+function labelled<T>(label: string, normalize: () => T): T {
+  try {
+    return normalize();
+  } catch (error) {
+    throw new Error(`${label}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
+}
+
+function normalizeSlice(raw: unknown, simulation: FileSimulation, number: number): GuidedSlice {
   const item = object(
     raw,
     ['scope', 'validation', 'acceptance', 'message', 'mode', 'preparation'],
@@ -381,15 +393,17 @@ function normalizeSlice(raw: unknown, simulation: FileSimulation): GuidedSlice {
     ...(item.preparation === undefined
       ? {}
       : {
-          preparation: command(
-            item.preparation,
-            false,
-            'Preparation after implementation',
-            currentSettings().defaultPreparationTimeoutMs,
+          preparation: labelled(`Slice ${number} preparation`, () =>
+            command(
+              item.preparation,
+              false,
+              'Preparation after implementation',
+              currentSettings().defaultPreparationTimeoutMs,
+            ),
           ),
         }),
-    validation: command(item.validation, false),
-    acceptance: command(item.acceptance, true),
+    validation: labelled(`Slice ${number} validation`, () => command(item.validation, false)),
+    acceptance: labelled(`Slice ${number} acceptance`, () => command(item.acceptance, true)),
     message,
   };
 }
@@ -449,7 +463,7 @@ export function normalizeGuidedPlan(
     throw new Error('Supply one execution configuration for each approved slice (one for an unsliced brief)');
   const simulation = new FileSimulation(repo, base, context.exploration, context.files);
   const rawSlices: unknown[] = value.slices;
-  const slices = rawSlices.map(raw => normalizeSlice(raw, simulation));
+  const slices = rawSlices.map((raw, index) => normalizeSlice(raw, simulation, index + 1));
   return {
     brief,
     workspace: { repo, base, adapter, ...(path ? { path } : {}) },

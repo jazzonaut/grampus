@@ -1012,6 +1012,39 @@ test('generated inline checks with broken newline escaping are rejected before a
   assert.equal(store.workspaces().length, 0);
 });
 
+test('a planned acceptance check without observations is refused naming its slice, and the prompt requires them', async t => {
+  const f = fixture(t),
+    store = new Store(join(f.root, 'grampus.sqlite'));
+  t.after(() => {
+    store.close();
+    f.cleanup();
+  });
+  const { expectedStdout: _omitted, ...unobserved } = f.plan.slices[0]!.acceptance;
+  const plan = { ...f.plan, slices: [{ ...f.plan.slices[0]!, acceptance: unobserved }] };
+  let prompt = '';
+  const connector: Connector = async () => ({
+    turn: async sent => {
+      prompt = sent;
+      return {
+        status: 'completed',
+        reply: { kind: 'message', text: JSON.stringify(plan), questions: [], findings: [] },
+        usage: null,
+        error: null,
+      };
+    },
+    close: async () => {},
+    interrupt: async () => {},
+  });
+  const kickoffs = new Kickoffs(store, connector),
+    id = kickoffs.create({ repo: f.repo, request: 'Verify the greeting' });
+  const view = await kickoffs.send(id);
+  assert.match(view.error!, /^Slice 1 acceptance: Acceptance requires expectedStdout or expectations/);
+  assert.equal(view.candidate, null);
+  // Exit status alone never accepts, so the planner is told both ways to state what acceptance observes.
+  assert.match(prompt, /Every acceptance command must state what it observes/);
+  assert.match(prompt, /expectations: \{stderr, stdoutJson, files/);
+});
+
 test('a revision request invalidates an older proposal even if its worker exits before turn claim', async t => {
   const f = fixture(t),
     store = new Store(join(f.root, 'grampus.sqlite'));
