@@ -42,7 +42,7 @@ test('fresh worktrees prepare before implementation and refresh prerequisites be
   assert.ok(preparations.every(check => check.phase === 'passed' && check.result?.stdout === 'prerequisites ready\n'));
   assert.equal(readFileSync(join(view.workspace!.path!, 'prepared/count'), 'utf8'), '2');
   assert.equal(
-    checkpoint.snapshot!.diff.some(file => file.path.startsWith('prepared/')),
+    checkpoint.snapshot!.changedPaths.some(path => path.startsWith('prepared/')),
     false,
   );
   const done = await tasks.assess(task.id, 'passed', 'Inspected the implementation with restored prerequisites');
@@ -92,7 +92,7 @@ test('slice preparation generates an authorized lockfile and validates the resul
   assert.notEqual(refresh.before!.artifact, refresh.after!.artifact);
   assert.equal(checkpoint.snapshot!.artifact, refresh.after!.artifact);
   assert.equal(view.checks.at(-1)!.before!.artifact, refresh.after!.artifact);
-  assert.ok(checkpoint.snapshot!.diff.some(file => file.path === 'deps.lock'));
+  assert.ok(checkpoint.snapshot!.changedPaths.includes('deps.lock'));
   const done = await tasks.assess(task.id, 'passed', 'The manifest and generated lockfile agree');
   assert.equal(done.status, 'complete', done.note);
   assert.equal(git(view.workspace!.path!, 'show', 'HEAD:deps.lock'), 'new');
@@ -163,6 +163,6 @@ test(
     assert.equal(retried.status, 'awaiting_assessment', retried.note);
     assert.equal(retried.executionId, executionId);
     assert.equal(f.store.implementations(executionId).length, 1);
-    assert.ok(retried.snapshot!.diff.some(file => file.path === 'deps.lock'));
+    assert.ok(retried.snapshot!.changedPaths.includes('deps.lock'));
   },
 );

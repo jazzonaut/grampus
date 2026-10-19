@@ -165,6 +165,44 @@ export function outputExcerpt(value: string, limit: number = limits.excerptChara
   return beginning + marker + ending;
 }
 
+/**
+ * Bytes a check retained in its durable stdout and stderr logs. Without readable logs it falls back to
+ * the journal previews, which are a lower bound.
+ */
+export function retainedOutputBytes(check: RepositoryCheck): number {
+  return (['stdout', 'stderr'] as const).reduce((total, stream) => {
+    try {
+      if (check.receipt) return total + statSync(join(check.receipt.directory, stream)).size;
+    } catch {
+      /* The log is unavailable; use the preview. */
+    }
+    return total + Buffer.byteLength(check.result?.[stream] ?? '');
+  }, 0);
+}
+
+const millisecondsPerSecond = 1000;
+
+/** Seconds for a stop message: whole seconds as `120 s`, otherwise one decimal as `120.4 s`. */
+function seconds(milliseconds: number): string {
+  const value = milliseconds / millisecondsPerSecond;
+  return `${Number.isInteger(value) ? value : value.toFixed(1)} s`;
+}
+
+/**
+ * The first line of a `CHECK_TIMEOUT` stop: which check exceeded which limit, how long the supervisor
+ * measured it running, and how much output it retained. Output is written to the durable logs while
+ * the tool runs, so everything it printed before the kill is kept.
+ */
+export function timeoutSummary(check: RepositoryCheck): string {
+  const label =
+    check.purpose === 'verification' ? 'Acceptance' : check.purpose === 'preparation' ? 'Preparation' : 'Validation';
+  const elapsed = check.result?.elapsedMs;
+  const bytes = retainedOutputBytes(check);
+  return `${label} '${check.spec.name}' exceeded its ${seconds(check.spec.timeoutMs)} limit after ${
+    elapsed === undefined ? 'an unmeasured time' : seconds(elapsed)
+  }; ${bytes ? `partial output retained (${bytes} bytes)` : 'it printed no output before it was stopped'}.`;
+}
+
 export function checkIssue(check: RepositoryCheck): string {
   const lines = plainOutput(
     `${check.error ?? ''}\n${summaryStream(check, 'stdout')}\n${summaryStream(check, 'stderr')}`,

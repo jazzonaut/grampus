@@ -102,6 +102,7 @@ const tokenCountsSchema = z
     inputTokens: z.number().nullish(),
     outputTokens: z.number().nullish(),
     cachedInputTokens: z.number().nullish(),
+    cacheWriteInputTokens: z.number().nullish(),
   })
   .nullish();
 

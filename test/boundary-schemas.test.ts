@@ -113,9 +113,17 @@ test('supervisor messages and completion receipts are pinned; extra fields pass,
     reason: 'timed_out',
     exitCode: 1,
     exitConfirmed: true,
+    elapsedMs: 120_412,
     future: 'field',
   };
   assert.equal(completionReceiptSchema.parse(receipt).reason, 'timed_out');
+  assert.equal(completionReceiptSchema.parse({ ...receipt, elapsedMs: null }).elapsedMs, null);
+  assert.equal(completionReceiptSchema.safeParse({ ...receipt, elapsedMs: -1 }).success, false);
+  assert.equal(
+    supervisorMessageSchema.safeParse({ type: 'result', reason: 'exited', exitCode: 0, exitConfirmed: true }).success,
+    false,
+    'a result without its elapsed time is a protocol failure',
+  );
   assert.equal(completionReceiptSchema.safeParse({ ...receipt, reason: 'crashed' }).success, false);
   const root = directory(t);
   writeFileSync(join(root, 'completion.json'), '{"protocol":1,');

@@ -336,7 +336,7 @@ test('Codex handles notifications arriving before turn/start acknowledgement and
       note('item/completed', { threadId: 'other', item: { type: 'agentMessage', text: 'invalid' } });
       note('item/completed', { turnId: 'turn-1', item: { type: 'agentMessage', text: JSON.stringify(reply) } });
       note('thread/tokenUsage/updated', { turnId: 'turn-1', tokenUsage: { total: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 50 } } });
-      note('thread/tokenUsage/updated', { turnId: 'turn-1', tokenUsage: { total: { inputTokens: 150, outputTokens: 30, cachedInputTokens: 70 } } });
+      note('thread/tokenUsage/updated', { turnId: 'turn-1', tokenUsage: { total: { inputTokens: 150, outputTokens: 30, cachedInputTokens: 70, cacheWriteInputTokens: 9 } } });
       note('turn/completed', { turn: { id: 'turn-1', status: 'completed' } });
       send({ id: r.id, result: { turn: { id: 'turn-1' } } });
     }
@@ -347,6 +347,7 @@ test('Codex handles notifications arriving before turn/start acknowledgement and
     const output = await agent.turn('Hello');
     assert.deepEqual(output.reply, reply);
     assert.equal(output.usage?.inputTokens, 150);
+    assert.equal(output.usage?.cacheWriteInputTokens, 9);
     assert.equal(output.usage?.billedCostUsd, null);
     assert.ok(events.some(e => e.type === 'turn.started'));
   } finally {

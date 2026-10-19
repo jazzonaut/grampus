@@ -59,7 +59,15 @@ const result = {
   type: 'result',
   subtype: 'success',
   is_error: false,
-  modelUsage: { 'claude-opus': { inputTokens: 10, outputTokens: 5, cacheReadInputTokens: 2, costUSD: 0.01 } },
+  modelUsage: {
+    'claude-opus': {
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadInputTokens: 2,
+      cacheCreationInputTokens: 4,
+      costUSD: 0.01,
+    },
+  },
   total_cost_usd: 0.01,
   structured_output: { kind: 'message', text: 'Done', questions: [], findings: [], extra: 'ignored' },
   duration_ms: 12,

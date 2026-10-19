@@ -8,7 +8,8 @@ import { Sessions } from '../execution/sessions.js';
 import { processLimits, serverLimits } from '../config/limits.js';
 import { parseSettings, useSettings } from '../config/settings.js';
 import { parseBoundary, parseJson } from '../process/boundary.js';
-import { workerRequestSchema, type WorkerAction } from './api-schemas.js';
+import { workerRequestSchema, type WorkerAction, type WorkerFailure } from './api-schemas.js';
+import { GuidedStopError } from '../orchestration/guided/stop-reasons.js';
 
 async function perform(
   tasks: GuidedTasks,
@@ -93,6 +94,10 @@ async function main() {
   }
 }
 main().catch(error => {
-  console.error(error instanceof Error ? error.message : String(error));
+  const failure: WorkerFailure = {
+    error: error instanceof Error ? error.message : String(error),
+    reasonCode: error instanceof GuidedStopError ? error.code : null,
+  };
+  console.error(JSON.stringify(failure));
   process.exitCode = 1;
 });

@@ -89,6 +89,7 @@ test('a terminal receipt permits a recycled supervisor PID but rejects its origi
     toolPid: 123,
     exitCode: 1,
     reason: 'interrupted',
+    elapsedMs: 42,
   };
   const save = (changes: Record<string, unknown>) =>
     writeFileSync(join(directory, 'completion.json'), JSON.stringify({ ...value, ...changes }));
@@ -96,6 +97,7 @@ test('a terminal receipt permits a recycled supervisor PID but rejects its origi
   assert.throws(() => readReceipt(receipt, process.pid, 123), /Supervisor is still alive/);
   save({ supervisorStartedAt: (BigInt(current) - 1n).toString() });
   assert.equal(readReceipt(receipt, process.pid, 123).reason, 'interrupted');
+  assert.equal(readReceipt(receipt, process.pid, 123).elapsedMs, 42);
   for (const changes of [
     { token: 'foreign' },
     { toolPid: 456 },

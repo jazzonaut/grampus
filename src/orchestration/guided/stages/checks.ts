@@ -3,7 +3,7 @@
 import { activeCriteria } from '../../../domain/workflow.js';
 import { deepEqual } from '../../../domain/deep-equal.js';
 import type { RepositoryCheck } from '../../../verification/checks.js';
-import { checkIssue } from '../../../verification/check-output.js';
+import { checkIssue, timeoutSummary } from '../../../verification/check-output.js';
 import type { StopReasonCode } from '../stop-reasons.js';
 import {
   adoptOne,
@@ -95,11 +95,13 @@ function settleFailure(context: SettleContext, result: RepositoryCheck): StageOu
     : noProgress
       ? 'Automatic repair made no content progress; inspect the issue or revise the plan.'
       : `Automatic repair allowance exhausted (${cycle.used}/${allowance}).`;
+  // A timeout says first what ran out and what was kept, so the log need not be opened to find out.
+  const timeout = ineligible === 'CHECK_TIMEOUT' ? `${timeoutSummary(result)}\n` : '';
   return {
     kind: 'stop',
     reason: {
       code: ineligible ?? (noProgress ? 'CHECK_NO_PROGRESS' : 'CHECK_REPAIR_EXHAUSTED'),
-      note: `${pending.stage === 'validation' ? 'Validation' : 'Acceptance'} failed: ${issue}\n${advice}\nRetained check: ${result.id}`,
+      note: `${timeout}${pending.stage === 'validation' ? 'Validation' : 'Acceptance'} failed: ${issue}\n${advice}\nRetained check: ${result.id}`,
     },
   };
 }

@@ -8,6 +8,8 @@ import { editingScopeFiles } from '../execution/edit-policy.js';
 import { serverLimits } from '../config/limits.js';
 import { checkIssue, outputExcerpt } from '../verification/check-output.js';
 import type { RepositoryCheck } from '../persistence/records.js';
+import type { RepositorySnapshot } from '../repository/artifacts.js';
+import { guidedSnapshot } from '../orchestration/guided/snapshots.js';
 
 const noteSchema = z.object({ note: z.string() });
 
@@ -25,14 +27,17 @@ export function eventSummary(event: JournalEvent) {
 
 type TaskView = ReturnType<typeof guidedTaskView>;
 
-function scopeFiles(view: TaskView): { files: { path: string; content: string | null }[]; error: string | null } {
+function scopeFiles(
+  view: TaskView,
+  snapshot: RepositorySnapshot | null,
+): { files: { path: string; content: string | null }[]; error: string | null } {
   const { state, workspace } = view;
-  if (state.status !== 'awaiting_scope' || !workspace?.path || !state.snapshot) return { files: [], error: null };
+  if (state.status !== 'awaiting_scope' || !workspace?.path || !snapshot) return { files: [], error: null };
   try {
     const slice = state.plan.slices[state.sliceIndex];
     if (!slice) throw new Error('The current slice is missing from the plan');
     const selection = [...new Set([...(state.policy?.files ?? slice.scope.files), ...(slice.scope.delete ?? [])])];
-    const current = { ...state.snapshot, diff: state.snapshot.diff.filter(change => selection.includes(change.path)) };
+    const current = { ...snapshot, diff: snapshot.diff.filter(change => selection.includes(change.path)) };
     return {
       files: state.policy
         ? editingScopeFiles({ cwd: workspace.path, snapshot: current, policy: state.policy })
@@ -72,7 +77,8 @@ function checkSummary(check: RepositoryCheck) {
 /** The compact polling view of a task, ready to serialise. Its shape follows `guidedTaskView`. */
 export function taskPoll(store: Store, id: string): object {
   const view = guidedTaskView(store, id);
-  const scope = scopeFiles(view);
+  const snapshot = guidedSnapshot(store, view.state);
+  const scope = scopeFiles(view, snapshot);
   const historyChecks = store
     .executions()
     .filter(
@@ -91,8 +97,13 @@ export function taskPoll(store: Store, id: string): object {
     ...view.state,
     note,
     feedback: '',
-    snapshot: view.state.snapshot
-      ? { ...view.state.snapshot, files: [], index: '', totalFiles: view.state.snapshot.files.length }
+    // The dashboard shows the retained changes and instructions, never the file inventory or index.
+    snapshot: snapshot
+      ? {
+          ...view.state.snapshot,
+          diff: snapshot.diff,
+          instructions: snapshot.instructions,
+        }
       : null,
   };
   const events = store.events(id);

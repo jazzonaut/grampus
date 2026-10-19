@@ -5,6 +5,7 @@ import { deepEqual } from '../../../domain/deep-equal.js';
 import { adoptOne, mismatch, requireOrigin, requireSettled, type StageHandler } from '../context.js';
 import { preparationSpec } from '../specs.js';
 import { checkIds } from './checks.js';
+import { guidedSnapshot, keepSnapshot } from '../snapshots.js';
 
 /**
  * Shared by both stages. A failed preparation stops with its output instead of returning to the
@@ -13,15 +14,20 @@ import { checkIds } from './checks.js';
  */
 export const preparationStage: StageHandler = {
   known: checkIds,
-  async perform({ state: initial, checks, services, signal, change }) {
+  async perform({ state: initial, store, checks, services, signal, change }) {
     let state = initial;
     if (!state.snapshot) {
       const snapshot = await checks.snapshot(state.executionId!);
       state = change('guided.preparation_snapshot', current => {
-        current.snapshot = snapshot;
+        current.snapshot = keepSnapshot(store, snapshot);
       });
     }
-    await checks.run(state.executionId!, preparationSpec(state), signal, services.preparationRunner);
+    await checks.run(
+      state.executionId!,
+      preparationSpec(state, guidedSnapshot(store, state)),
+      signal,
+      services.preparationRunner,
+    );
     return null;
   },
   settle(context) {
@@ -29,7 +35,10 @@ export const preparationStage: StageHandler = {
     const result = adoptOne(store.checks<RepositoryCheck>(state.executionId!), pending);
     if (!result) return { kind: 'missing' };
     requireOrigin(context, state.executionId!, result.id, pending);
-    if (!deepEqual(result.spec, preparationSpec(state)) || result.purpose !== 'preparation')
+    if (
+      !deepEqual(result.spec, preparationSpec(state, guidedSnapshot(store, state))) ||
+      result.purpose !== 'preparation'
+    )
       throw mismatch('Preparation result differs from the approved command or file scope');
     requireSettled(result, 'Preparation');
     if (result.phase !== 'passed' || !result.after)
@@ -45,7 +54,7 @@ export const preparationStage: StageHandler = {
       kind: 'advance',
       next: pending.stage === 'preparation' ? 'scope' : 'validation',
       update: current => {
-        current.snapshot = after;
+        current.snapshot = keepSnapshot(store, after);
       },
     };
   },

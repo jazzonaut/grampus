@@ -9,6 +9,7 @@ import type { DeliverySpec } from '../../execution/deliveries.js';
 import type { RepositorySnapshot } from '../../repository/artifacts.js';
 import type { CheckSpec } from '../../verification/checks.js';
 import type { GuidedState, Stage } from './state.js';
+import type { SnapshotRef } from './snapshots.js';
 
 /** Automatic mode authorizes scope at approval and repairs ordinary failures without a click. */
 export function automatic(state: GuidedState): boolean {
@@ -21,7 +22,7 @@ export function currentSlice(state: GuidedState): GuidedSlice {
 }
 
 /** The snapshot every check, review and delivery of the current attempt is bound to. */
-function requireSnapshot(state: GuidedState): RepositorySnapshot {
+function requireSnapshot(state: GuidedState): SnapshotRef {
   return state.snapshot!;
 }
 
@@ -49,17 +50,17 @@ export function editPolicy(state: GuidedState, snapshot: RepositorySnapshot): Ed
 /**
  * The preparation request for the `preparation` or `refresh` stage. Initial preparation may not
  * change repository inputs at all; a slice's own refresh may change only that slice's authorized
- * files, which is why its edit policy becomes the preparation scope.
+ * files, which is why its edit policy becomes the preparation scope. `snapshot` is the full current
+ * snapshot the state refers to (`guidedSnapshot`).
  */
-export function preparationSpec(state: GuidedState): CheckSpec {
+export function preparationSpec(state: GuidedState, snapshot: RepositorySnapshot | null): CheckSpec {
   const slice = currentSlice(state);
   const command =
     state.stage === 'preparation' ? state.plan.preparation : (slice.preparation ?? state.plan.preparation);
-  if (!command || !state.snapshot) throw new Error('Preparation requires an approved command and current snapshot');
+  if (!command || !state.snapshot || snapshot?.artifact !== state.snapshot.artifact)
+    throw new Error('Preparation requires an approved command and current snapshot');
   const policy =
-    state.stage === 'refresh' && slice.preparation && slice.mode !== 'no_change'
-      ? editPolicy(state, state.snapshot)
-      : null;
+    state.stage === 'refresh' && slice.preparation && slice.mode !== 'no_change' ? editPolicy(state, snapshot) : null;
   const scope =
     policy && (policy.files.length || policy.create?.length || policy.delete?.length)
       ? {

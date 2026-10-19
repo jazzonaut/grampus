@@ -16,7 +16,7 @@ const model = (tokens: number): ModelUsage => ({
   inputTokens: tokens,
   outputTokens: tokens * 2,
   cacheReadInputTokens: tokens * 10,
-  cacheCreationInputTokens: 0,
+  cacheCreationInputTokens: tokens * 3,
   webSearchRequests: 0,
   costUSD: tokens / 1000,
   contextWindow: 200000,
@@ -45,7 +45,7 @@ function fixture(sample: () => Promise<unknown>) {
     },
     factory,
   );
-  const finish = () =>
+  const finish = (message: Record<string, unknown> = {}) =>
     final.resolve({
       type: 'result',
       subtype: 'success',
@@ -53,6 +53,7 @@ function fixture(sample: () => Promise<unknown>) {
       modelUsage: { model: model(30) },
       total_cost_usd: 0.03,
       structured_output: { kind: 'message', text: 'Done', questions: [], findings: [] },
+      ...message,
     } as unknown as SDKMessage);
   const usages = () => events.filter(event => event.type === 'usage.updated').map(event => event.data as Usage);
   return { agent, events, finish, usages };
@@ -79,6 +80,8 @@ test('Claude publishes cumulative usage during a turn and the final snapshot rep
   const result = await turning;
   assert.equal(result.status, 'completed');
   assert.equal(result.usage?.inputTokens, 30);
+  assert.equal(result.usage?.cacheWriteInputTokens, 90, 'cache creation tokens are reported as cache writes');
+  assert.equal(result.usage?.cachedInputTokens, 300);
   assert.equal(result.usage?.complete, true);
   assert.equal(f.usages().at(-1)?.inputTokens, 30);
   assert.equal(result.usage?.billedCostUsd, null);
@@ -105,4 +108,25 @@ test('missing usage support does not interrupt Claude and late samples cannot ov
   await setImmediate();
   assert.equal(f.usages().at(-1)?.inputTokens, 30);
   assert.equal(f.usages().at(-1)?.complete, true);
+});
+
+test('a failed Claude result with zeroed counters reports unknown usage instead of zero', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const f = fixture(async () => ({ session: { model_usage: { model: model(12) }, total_cost_usd: 0.012 } }));
+  t.after(() => f.agent.close());
+  const turning = f.agent.turn('Implement');
+  t.mock.timers.tick(15_000);
+  await setImmediate();
+  f.finish({
+    subtype: 'error_during_execution',
+    is_error: true,
+    modelUsage: { model: { ...model(0), costUSD: 0 } },
+    total_cost_usd: 0,
+    errors: ['Process crashed'],
+  });
+  const result = await turning;
+  assert.equal(result.status, 'failed');
+  assert.equal(result.usage, null);
+  assert.equal(f.usages().at(-1)?.inputTokens, 12, 'the last real sample stays the latest observation');
+  assert.equal(f.usages().at(-1)?.complete, false);
 });

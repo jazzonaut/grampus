@@ -50,7 +50,12 @@ export const claudeInitSchema = z.object({
 
 const modelUsageSchema = z.record(
   z.string(),
-  z.looseObject({ inputTokens: z.unknown(), outputTokens: z.unknown(), cacheReadInputTokens: z.unknown() }),
+  z.looseObject({
+    inputTokens: z.unknown(),
+    outputTokens: z.unknown(),
+    cacheReadInputTokens: z.unknown(),
+    cacheCreationInputTokens: z.unknown(),
+  }),
 );
 /** Per-model cumulative usage; values that are not finite non-negative numbers make the total unknown. */
 export type ClaudeModelUsage = z.infer<typeof modelUsageSchema>;

@@ -15,7 +15,7 @@ import {
   qualitySettingsProblems,
   type QualityPassDefinition,
 } from '../domain/quality-passes.js';
-import { commandLimits, qualityLimits, workflowPolicyBounds } from './limits.js';
+import { KiB, MiB, commandLimits, qualityLimits, workflowPolicyBounds } from './limits.js';
 import { defaultDashboardPort } from './runtime.js';
 
 export interface Settings {
@@ -23,6 +23,13 @@ export interface Settings {
   dashboardPort: number;
   /** How often Claude usage is sampled during a turn; the final result always replaces the samples. */
   usagePollIntervalMs: number;
+  /**
+   * Longest time streamed provider output is held in memory before it is journaled as one
+   * `output.delta` event. Display-only text written in this interval is lost if the process dies.
+   */
+  outputFlushIntervalMs: number;
+  /** Buffered streamed output size, in UTF-8 bytes, that is journaled at once without waiting. */
+  outputFlushBytes: number;
   /** Check, preparation and acceptance timeout written into new plans that omit `timeoutMs`. */
   defaultCheckTimeoutMs: number;
   /** Workflow policy for new plans that omit it, or fields of it; approved plans keep their own copy. */
@@ -45,6 +52,8 @@ export function defaultSettings(): Settings {
   return {
     dashboardPort: defaultDashboardPort,
     usagePollIntervalMs: 15_000,
+    outputFlushIntervalMs: 1000,
+    outputFlushBytes: 8 * KiB,
     defaultCheckTimeoutMs: 120_000,
     defaultWorkflowPolicy: { mode: 'automatic', repairRounds: 2, maxSessionTurns: 6, maxContextTokens: 120_000 },
     qualityPasses: [],
@@ -60,6 +69,8 @@ const overridesSchema = z
   .strictObject({
     dashboardPort: integer(1, 65_535).optional(),
     usagePollIntervalMs: integer(1000, 600_000).optional(),
+    outputFlushIntervalMs: integer(100, 60_000).optional(),
+    outputFlushBytes: integer(1 * KiB, 1 * MiB).optional(),
     defaultCheckTimeoutMs: integer(commandLimits.minTimeoutMs, commandLimits.maxTimeoutMs).optional(),
     defaultWorkflowPolicy: z
       .strictObject({

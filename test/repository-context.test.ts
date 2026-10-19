@@ -1,3 +1,4 @@
+import { keepSnapshot } from '../src/orchestration/guided/snapshots.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -288,8 +289,7 @@ test('plan approval validates file existence across slices, including deletion a
 test('context expansion invalidates a proposal and explicitly resupplies pinned files on the next turn', async t => {
   const f = fixture(t);
   let lastPrompt = '';
-  const connector: Connector = async (_, options) => {
-    if (options.purpose === 'title') throw new Error('Naming unavailable in this planner fixture');
+  const connector: Connector = async () => {
     return {
       turn: async prompt => {
         lastPrompt = prompt;
@@ -402,8 +402,8 @@ test('dashboard inspection is paginated and polling never serializes a 100k-file
     assert.equal(page.matches, 220);
     const created = await post('/api/tasks', { plan: f.plan }),
       task = f.store.get<any>(created.id);
-    // A read-only fixture inventory, never used as execution evidence.
-    task.guided.snapshot = {
+    // A read-only fixture inventory, never used as execution evidence. The state keeps only a reference.
+    task.guided.snapshot = keepSnapshot(f.store, {
       artifact: 'sha256:fixture',
       instructionsDigest: 'fixture',
       head: f.base,
@@ -415,7 +415,8 @@ test('dashboard inspection is paginated and polling never serializes a 100k-file
       })),
       instructions: [],
       diff: [],
-    };
+    });
+    assert.ok(Buffer.byteLength(JSON.stringify(task)) < 24000, 'the saved state holds no inventory');
     f.store.save(created.id, task);
     const get = async (path: string) => {
       const response = await fetch(url.origin + path, { headers });
@@ -426,8 +427,9 @@ test('dashboard inspection is paginated and polling never serializes a 100k-file
       value = JSON.parse(body);
     assert.ok(Buffer.byteLength(body) < 24000);
     assert.equal(value.state.snapshot.totalFiles, 100000);
-    assert.deepEqual(value.state.snapshot.files, []);
-    assert.equal(value.state.snapshot.index, '');
+    assert.equal(value.state.snapshot.files, undefined);
+    assert.equal(value.state.snapshot.index, undefined);
+    assert.deepEqual(value.state.snapshot.diff, []);
     assert.equal(value.report, null);
     assert.equal(await get(`/api/tasks/${created.id}`), body);
     const list = await get('/api/state');

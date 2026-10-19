@@ -140,7 +140,7 @@
   },
   "src/orchestration/guided/stages/quality-pass.ts": {
     "@typescript-eslint/no-non-null-assertion": {
-      "count": 13
+      "count": 12
     }
   },
   "src/orchestration/guided/stages/review.ts": {
@@ -182,14 +182,6 @@
   "src/orchestration/task-lifecycle.ts": {
     "@typescript-eslint/no-non-null-assertion": {
       "count": 6
-    }
-  },
-  "src/orchestration/task-title.ts": {
-    "no-control-regex": {
-      "count": 1
-    },
-    "no-useless-escape": {
-      "count": 1
     }
   },
   "src/probes/mcp-probe.ts": {
@@ -246,16 +238,6 @@
   },
   "src/process/check-process.ts": {
     "max-lines-per-function": {
-      "count": 1
-    }
-  },
-  "src/providers/claude.ts": {
-    "complexity": {
-      "count": 1
-    }
-  },
-  "src/reporting/task-usage.ts": {
-    "complexity": {
       "count": 1
     }
   },
@@ -365,9 +347,6 @@
     }
   },
   "test/ui.test.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
     "no-control-regex": {
       "count": 1
     }

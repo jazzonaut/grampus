@@ -8,6 +8,7 @@ import { snapshotRepository, type RepositorySnapshot } from '../../repository/ar
 import type { GuidedContext } from './context.js';
 import { freshRepairCycle, freshReviewCycle, type GuidedState } from './state.js';
 import { stopReason } from './stop-reasons.js';
+import type { SnapshotRef } from './snapshots.js';
 
 /** Slice deliveries already recorded on the task. */
 export type CompletedSlices = NonNullable<Task['slice']>['completed'];
@@ -94,7 +95,12 @@ const revisionNote =
  * allowance, conversation and piece of evidence starts fresh, because none of it was produced under
  * the revised plan.
  */
-export function revisedState(state: GuidedState, draft: RevisionDraft, version: number): GuidedState {
+export function revisedState(
+  state: GuidedState,
+  draft: RevisionDraft,
+  version: number,
+  anchor: SnapshotRef | null,
+): GuidedState {
   return {
     ...state,
     version,
@@ -112,7 +118,7 @@ export function revisedState(state: GuidedState, draft: RevisionDraft, version: 
     executionId: null,
     reviewId: null,
     validationId: null,
-    snapshot: draft.anchor,
+    snapshot: anchor,
     policy: null,
     pending: null,
     assessments: [],

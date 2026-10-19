@@ -363,8 +363,48 @@ function reviewPolicyCard(plan) {
   const rounds = reviewRepairRounds(plan);
   return `<p class="hint">Review repair allowance: ${rounds} rounds. ${policy?.arbitrator ? `Fresh arbitration: ${esc(policy.arbitrator.provider)}, model ${esc(policy.arbitrator.model || 'provider default')}. No automatic agent time limit.` : 'Unresolved findings stop for your decision.'} ${plan.workflowPolicy.mode === 'automatic' ? 'Repairs continue within the approved scope with a fresh independent verdict.' : 'Each repair requires fresh file authorization and quality assessment.'}</p>`;
 }
+const usageStageLabels = {
+  planning: 'Planning',
+  implementation: 'Implementation',
+  quality_pass: 'Quality passes',
+  repair: 'Repair',
+  review: 'Review',
+  arbitration: 'Arbitration',
+};
+function usageNumber(row, field, money = false) {
+  const value = row[field];
+  if (value == null) return 'Unknown';
+  const text = money
+    ? new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 4,
+      }).format(value)
+    : new Intl.NumberFormat('en-US').format(value);
+  return row.incomplete.includes(field) ? `${text}+` : text;
+}
+function usageWallTime(row) {
+  if (row.wallMs == null) return 'Unknown';
+  const seconds = Math.round(row.wallMs / 1000);
+  const text =
+    seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} m ${String(seconds % 60).padStart(2, '0')} s`;
+  return row.wallPartial ? `${text}+` : text;
+}
+function usageStagesTable(usage) {
+  if (!usage?.stages?.length) return '';
+  const human = usage.interventions;
+  return `<section class="usage-stages" aria-label="Usage by stage"><h3>By stage</h3><div class="usage-table"><table><thead><tr><th>Stage</th><th>Turns</th><th>Wall time</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Est. cost</th></tr></thead><tbody>${usage.stages
+    .map(
+      row =>
+        `<tr><th scope="row">${esc(usageStageLabels[row.stage] || row.stage)}<small>${row.provider === 'claude' ? 'Claude' : 'Codex'}</small></th><td>${row.turns}${row.failedTurns || row.interruptedTurns ? `<small>${row.failedTurns} failed · ${row.interruptedTurns} stopped</small>` : ''}</td><td>${esc(usageWallTime(row))}</td><td>${esc(usageNumber(row, 'inputTokens'))}</td><td>${esc(usageNumber(row, 'outputTokens'))}</td><td>${esc(usageNumber(row, 'cachedInputTokens'))}</td><td>${esc(usageNumber(row, 'cacheWriteInputTokens'))}</td><td>${esc(usageNumber(row, 'estimatedCostUsd', true))}</td></tr>`,
+    )
+    .join(
+      '',
+    )}</tbody></table></div><p class="hint">${usage.turns} provider turns (${usage.failedTurns} failed, ${usage.interruptedTurns} stopped${usage.unsettledTurns ? `, ${usage.unsettledTurns} unsettled` : ''}) · ${usage.repairAttempts} repair ${usage.repairAttempts === 1 ? 'attempt' : 'attempts'} · ${human.total} human ${human.total === 1 ? 'intervention' : 'interventions'} after approval. A + marks a lower bound.</p></section>`;
+}
 function usageCard(view) {
-  const rows = view.usage ?? [];
+  const rows = view.usage?.providers ?? [];
   return `<section class="card usage-card"><h2>Measured usage</h2>${
     rows.length
       ? rows
@@ -385,11 +425,11 @@ function usageCard(view) {
                     : new Intl.NumberFormat('en-US').format(value);
               return `<div><dt>${label}${value != null && row.incomplete.includes(field) ? ' <span class="usage-partial">partial</span>' : ''}</dt><dd>${esc(formatted)}</dd></div>`;
             };
-            return `<section class="usage-provider" aria-label="${esc(row.provider)} usage"><div class="usage-heading"><h3>${row.provider === 'claude' ? 'Claude' : 'Codex'}</h3><span class="badge ${row.activeSessions ? 'running' : partial ? '' : 'complete'}">${row.activeSessions ? 'Live · partial' : partial ? 'Partial totals' : 'Complete'}</span></div><dl class="usage-metrics">${metric('inputTokens', 'Input tokens')}${metric('outputTokens', 'Output tokens')}${metric('cachedInputTokens', 'Cached input')}${metric('estimatedCostUsd', 'Estimated cost', true)}</dl><div class="usage-coverage"><span>${row.observedSessions} of ${row.sessions} sessions measured</span><span>Billed cost: unknown</span></div>${partial ? `<p class="hint">${row.activeSessions ? 'Updates during the active turn. ' : ''}${row.observedSessions < row.sessions ? 'Some sessions have no usage observations.' : 'Latest turn measurements are incomplete.'}</p>` : ''}${row.updatedAt ? `<p class="usage-updated">Last observation <time datetime="${esc(row.updatedAt)}" title="${esc(row.updatedAt)}">${esc(new Date(row.updatedAt).toLocaleTimeString())}</time></p>` : ''}</section>`;
+            return `<section class="usage-provider" aria-label="${esc(row.provider)} usage"><div class="usage-heading"><h3>${row.provider === 'claude' ? 'Claude' : 'Codex'}</h3><span class="badge ${row.activeSessions ? 'running' : partial ? '' : 'complete'}">${row.activeSessions ? 'Live · partial' : partial ? 'Partial totals' : 'Complete'}</span></div><dl class="usage-metrics">${metric('inputTokens', 'Input tokens')}${metric('outputTokens', 'Output tokens')}${metric('cachedInputTokens', 'Cache read input')}${metric('cacheWriteInputTokens', 'Cache write input')}${metric('estimatedCostUsd', 'Estimated cost', true)}</dl><div class="usage-coverage"><span>${row.observedSessions} of ${row.sessions} sessions measured</span><span>Billed cost: unknown</span></div>${partial ? `<p class="hint">${row.activeSessions ? 'Updates during the active turn. ' : ''}${row.observedSessions < row.sessions ? 'Some sessions have no usage observations.' : 'Latest turn measurements are incomplete.'}</p>` : ''}${row.updatedAt ? `<p class="usage-updated">Last observation <time datetime="${esc(row.updatedAt)}" title="${esc(row.updatedAt)}">${esc(new Date(row.updatedAt).toLocaleTimeString())}</time></p>` : ''}</section>`;
           })
           .join('')
       : '<p class="hint">Waiting for provider usage observations.</p>'
-  }<p class="hint usage-footnote">Provider token counts have different meanings. Estimated cost uses provider rates; subscription billing may differ.</p></section>`;
+  }${usageStagesTable(view.usage)}<p class="hint usage-footnote">Provider token counts have different meanings. Estimated cost uses provider rates; subscription billing may differ.</p></section>`;
 }
 function taskAction(view) {
   const s = view.state,

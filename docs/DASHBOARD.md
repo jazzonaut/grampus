@@ -25,9 +25,9 @@ build and whether this is an installed or development copy.
    References stay read-only throughout the task. **MCP connections** shows each
    provider's configured connections, such as Linear.
 
-Planning uses subscription usage only when you start or send a turn. A separate
-short turn names the task for the sidebar; if it fails, the sidebar uses the plan
-title or the start of the description.
+Planning uses subscription usage only when you start or send a turn. Naming costs
+nothing: the sidebar shows a short title from the first sentence of the description
+until the planner proposes a plan, then the plan's title.
 
 The planner covers the whole request and may split it into 1 to 64 ordered slices,
 each with its own file scope, checks and commit message. The final slice verifies
@@ -62,8 +62,12 @@ repair allowances and operational failures stop for attention with the reason sh
   timeline** expands the history.
 - **Evidence:** findings, quality lens assessments and edit passes, outputs, retained
   changes, local commits and a downloadable Markdown report built from the journal.
-- **Measured usage:** per-provider tokens and estimated cost, session coverage and the
-  last observation time. Partial or missing values are marked; estimates never imply
+- **Measured usage:** per-provider tokens (input, output, cache read and cache write)
+  and estimated cost, session coverage and the last observation time, then a table by
+  stage (planning, implementation, quality passes, repair, review, arbitration) with
+  turns, failed and stopped turns, wall time and tokens, and a line with total turns,
+  repair attempts and human interventions after approval. Unknown values show as
+  Unknown, never 0; a `+` or **partial** marks a lower bound. Estimates never imply
   billed cost.
 
 In supervised mode the task also stops for file authorization and a quality assessment,
@@ -91,7 +95,9 @@ question round.
 
 Refreshing or reopening the page starts no provider calls, checks or Git writes.
 Actions run in separate worker processes, so restarting the dashboard does not stop
-them and is not evidence that they stopped. After a restart, open the newly printed
+them and is not evidence that they stopped. A failed action is shown on the task and
+also recorded in its timeline as `dashboard.action_failed`, so the reason survives a
+dashboard restart. After a restart, open the newly printed
 link and select the task.
 
 ## Access and data

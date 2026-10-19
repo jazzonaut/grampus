@@ -5,6 +5,7 @@ import { boundedRepositoryFiles } from '../../../repository/repository-evidence.
 import { GuidedStopError, withReason } from '../stop-reasons.js';
 import { evidenceIds, type StageHandler, type StateUpdate } from '../context.js';
 import { afterImplementation, automatic, currentSlice, editPolicy } from '../specs.js';
+import { keepSnapshot } from '../snapshots.js';
 
 /**
  * Scope produces no durable leaf record: its evidence is the snapshot `perform` returns, so a
@@ -33,11 +34,11 @@ export const scopeStage: StageHandler = {
     });
     return snapshot;
   },
-  settle({ state, snapshot }) {
+  settle({ state, snapshot, store }) {
     if (!snapshot) return { kind: 'missing' };
     const policy = currentSlice(state).mode === 'no_change' ? null : editPolicy(state, snapshot);
     const update: StateUpdate = current => {
-      current.snapshot = snapshot;
+      current.snapshot = keepSnapshot(store, snapshot);
       current.policy = policy;
       current.retryAnchor = null;
     };

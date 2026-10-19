@@ -21,6 +21,8 @@ export const checkProcessResultSchema = z.object({
   stderr: z.string(),
   outputTruncated: z.boolean(),
   outputUnavailable: z.boolean().exactOptional(),
+  /** How long the supervised tool ran, as the supervisor measured it; absent when unknown. */
+  elapsedMs: z.number().exactOptional(),
 });
 export type CheckProcessResult = z.infer<typeof checkProcessResultSchema>;
 export interface CheckProcessOptions {
@@ -144,6 +146,7 @@ export async function runCheckProcess(options: CheckProcessOptions): Promise<Che
             reason: message.reason,
             exitCode: message.exitCode,
             exitConfirmed: message.exitConfirmed,
+            ...(message.elapsedMs === null ? {} : { elapsedMs: message.elapsedMs }),
           };
           clearTimeout(deadline);
           deadline = setTimeout(fail, processLimits.supervisorReportMs);

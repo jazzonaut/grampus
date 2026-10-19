@@ -114,9 +114,12 @@ export function fixture(t: { after(fn: () => void): void }) {
   return { root, repo, store, plan, tasks, create };
 }
 
-/** Validation that hangs past its timeout until `marker` exists, then checks the greeting. */
+/** The line slow validation prints before it hangs, so a timeout has partial output to retain. */
+export const slowValidationOutput = 'partial output before the hang';
+
+/** Validation that prints a line and hangs past its timeout until `marker` exists, then checks the greeting. */
 export function slowValidation(marker: string | null) {
-  const hang = 'setTimeout(() => {}, 60000)';
+  const hang = `console.log(${JSON.stringify(slowValidationOutput)});setTimeout(() => {}, 60000)`;
   const check =
     "const a=require('node:assert/strict');a.equal(require('node:child_process').execFileSync(process.execPath,['greeting.js'],{encoding:'utf8'}),'hello world\\n');";
   return {

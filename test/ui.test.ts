@@ -9,12 +9,13 @@ import { startUi } from '../src/server/ui-server.js';
 import { Kickoffs } from '../src/orchestration/kickoff.js';
 import { Store } from '../src/persistence/store.js';
 import { GuidedTasks } from '../src/orchestration/guided/controller.js';
+import { guidedSnapshot } from '../src/orchestration/guided/snapshots.js';
 import { Sessions } from '../src/execution/sessions.js';
 import type { Execution } from '../src/execution/execution-state.js';
 import type { Connector, Reply } from '../src/providers/types.js';
 import type { RepositoryCheck } from '../src/verification/checks.js';
 
-function fixture(t: { after(fn: () => void): void }) {
+function fixture(_t: { after(fn: () => void): void }) {
   const root = mkdtempSync(join(tmpdir(), 'grampus-ui-')),
     repo = join(root, 'repo');
   mkdirSync(repo);
@@ -87,8 +88,8 @@ test('dashboard polls show the actual failure without raw logs and page logs onl
       artifact: state.snapshot!.artifact,
       instructionsDigest: state.snapshot!.instructionsDigest,
     },
-    before: state.snapshot,
-    after: state.snapshot,
+    before: guidedSnapshot(ui.store, state),
+    after: guidedSnapshot(ui.store, state),
     supervisorPid: null,
     toolPid: null,
     error: null,
@@ -235,8 +236,7 @@ test('planning infers generic preparation on initial and resumed turns and retai
   };
   const plan = { ...f.plan, preparation: before, slices: [{ ...f.plan.slices[0], preparation: after }] };
   const prompts: string[] = [];
-  const kickoffs = new Kickoffs(store, async (_, options) => {
-    if (options.purpose === 'title') throw new Error('No title inference in fixture');
+  const kickoffs = new Kickoffs(store, async () => {
     return {
       turn: async prompt => {
         prompts.push(prompt);
@@ -298,8 +298,7 @@ for (const location of ['initial', 'slice'] as const)
       ...(location === 'initial' ? { preparation: invalid } : {}),
       slices: [{ ...f.plan.slices[0], ...(location === 'slice' ? { preparation: invalid } : {}) }],
     };
-    const kickoffs = new Kickoffs(store, async (_, options) => {
-      if (options.purpose === 'title') throw new Error('No title inference in fixture');
+    const kickoffs = new Kickoffs(store, async () => {
       return {
         turn: async () => ({
           status: 'completed',
@@ -317,6 +316,52 @@ for (const location of ['initial', 'slice'] as const)
     assert.equal(store.list().length, 0);
     assert.equal(store.workspaces().length, 0);
   });
+
+test('a failed dashboard action is journaled on its task and survives a dashboard restart', async t => {
+  const f = fixture(t),
+    database = join(f.root, 'grampus.sqlite');
+  let ui = await startUi({ db: database, port: 0 });
+  t.after(async () => {
+    await ui.close();
+    f.cleanup();
+  });
+  const { id } = new GuidedTasks(ui.store).create(f.plan);
+  const call = async (path: string, payload?: unknown) => {
+    const url = new URL(ui.url);
+    return fetch(url.origin + path, {
+      method: payload === undefined ? 'GET' : 'POST',
+      headers: { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' },
+      ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+    });
+  };
+  const draft = await (await call(`/api/tasks/${id}`)).json();
+  // Running an unapproved plan is refused by the controller inside the worker.
+  assert.equal((await call(`/api/tasks/${id}/run`, { expected: expected(draft) })).status, 202);
+  let state = await (await call('/api/state')).json();
+  for (const deadline = Date.now() + 30_000; state.jobs[id]?.running && Date.now() < deadline;) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    state = await (await call('/api/state')).json();
+  }
+  assert.equal(state.jobs[id].running, false);
+  assert.match(state.jobs[id].error, /Approve the exact guided plan/);
+  assert.doesNotMatch(state.jobs[id].error, /reasonCode/, 'the structured report is shown as its message');
+  const failure = ui.store.events(id).find(event => event.type === 'dashboard.action_failed');
+  assert.ok(failure, 'the failure is in the task journal');
+  assert.deepEqual(
+    { ...(failure.data as Record<string, unknown>), note: undefined },
+    { action: 'run', note: undefined, reasonCode: null, exitCode: 1 },
+  );
+  assert.match((failure.data as { note: string }).note, /Approve the exact guided plan/);
+  await ui.close();
+  ui = await startUi({ db: database, port: 0 });
+  const reopened = await (await call(`/api/tasks/${id}`)).json();
+  assert.ok(
+    reopened.events.some(
+      (event: any) => event.type === 'dashboard.action_failed' && /Approve the exact/.test(event.data.note),
+    ),
+  );
+  assert.equal((await (await call('/api/state')).json()).jobs[id], undefined);
+});
 
 test('task polling refreshes live usage written by another worker without changing approval decisions', async t => {
   const f = fixture(t),
@@ -337,7 +382,7 @@ test('task polling refreshes live usage written by another worker without changi
     headers = { Authorization: `Bearer ${url.hash.slice(1)}` };
   const get = async () => await (await fetch(`${url.origin}/api/tasks/${id}`, { headers })).json();
   const before = await get();
-  assert.equal(before.usage[0].observedSessions, 0);
+  assert.equal(before.usage.providers[0].observedSessions, 0);
   const observe = (inputTokens: number) =>
     sessions.event(session.id, claim.runId, {
       type: 'usage.updated',
@@ -347,23 +392,28 @@ test('task polling refreshes live usage written by another worker without changi
         inputTokens,
         outputTokens: 5,
         cachedInputTokens: 0,
+        cacheWriteInputTokens: 3,
         estimatedCostUsd: 0.01,
         billedCostUsd: null,
       },
     });
   observe(7);
   const first = await get();
-  assert.equal(first.usage[0].inputTokens, 7);
+  assert.equal(first.usage.providers[0].inputTokens, 7);
   observe(11);
   const next = await get();
-  assert.equal(next.usage[0].inputTokens, 11);
-  assert.equal(next.usage[0].observedSessions, 1);
-  assert.equal(next.usage[0].activeSessions, 1);
+  assert.equal(next.usage.providers[0].inputTokens, 11);
+  assert.equal(next.usage.providers[0].observedSessions, 1);
+  assert.equal(next.usage.providers[0].activeSessions, 1);
   assert.equal(expected(next), expected(before));
   sessions.settle(session.id, claim.runId, { status: 'interrupted', reply: null, usage: null, error: 'Stopped' }, true);
   const stopped = await get();
-  assert.equal(stopped.usage[0].inputTokens, 11);
-  assert.equal(stopped.usage[0].activeSessions, 0);
+  assert.equal(stopped.usage.providers[0].inputTokens, 11);
+  assert.equal(stopped.usage.providers[0].activeSessions, 0);
+  assert.equal(stopped.usage.providers[0].cacheWriteInputTokens, 3);
+  assert.equal(stopped.usage.stages[0].stage, 'planning');
+  assert.equal(stopped.usage.stages[0].interruptedTurns, 1);
+  assert.equal(stopped.usage.turns, 1);
 });
 
 test('task polls expose current execution activity and load complete sanitized history separately', async t => {
@@ -737,7 +787,6 @@ test('dashboard exposes live planner activity across polls without changing the 
   });
   let emit!: Parameters<Connector>[1]['emit'];
   const connector: Connector = async (_, options) => {
-    if (options.purpose === 'title') throw new Error('Naming unavailable in this planner fixture');
     emit = options.emit;
     emit({ type: 'session.connected', data: { providerSessionId: 'offline-progress', model: null } });
     return {
@@ -783,7 +832,12 @@ test('dashboard exposes live planner activity across polls without changing the 
     data: { tool: 'grampus_read_file', result: { path: 'greeting.js', lines: ['HIDDEN FILE CONTENT'] } },
   });
   emit({ type: 'output.delta', data: { text: 'HIDDEN PARTIAL RESPONSE' } });
-  const updated = await get();
+  // Streamed text is journaled in batches, within one flush interval.
+  let updated = await get();
+  for (const deadline = Date.now() + 10_000; updated.progress.stage !== 'responding' && Date.now() < deadline;) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    updated = await get();
+  }
   assert.equal(updated.turnKey, first.turnKey);
   assert.equal(updated.progress.stage, 'responding');
   assert.equal(updated.progress.repositoryCalls, 1);
@@ -818,7 +872,6 @@ test('kickoff clarifies consequential ambiguity, validates generated commands an
   ];
   let seen = '';
   const connector: Connector = async (_, options) => {
-    if (options.purpose === 'title') throw new Error('Naming unavailable in this planner fixture');
     return {
       turn: async prompt => {
         seen += prompt;
@@ -906,7 +959,6 @@ test('kickoff plans the full ticket across ordered slices on initial and resumed
   ];
   const prompts: string[] = [];
   const connector: Connector = async (_, options) => {
-    if (options.purpose === 'title') throw new Error('Naming unavailable in this planner fixture');
     return {
       turn: async prompt => {
         prompts.push(prompt);
@@ -1038,8 +1090,7 @@ test('an explicit continuation after first-turn connection failure resupplies pi
   });
   let connections = 0,
     supplied = '';
-  const connector: Connector = async (_, options) => {
-    if (options.purpose === 'title') throw new Error('Naming unavailable in this planner fixture');
+  const connector: Connector = async () => {
     if (++connections === 1) throw new Error('Offline first-connection failure');
     return {
       turn: async prompt => {
@@ -1148,8 +1199,7 @@ test('planner answers bind the displayed turn even when later questions reuse th
     f.cleanup();
   });
   let turns = 0;
-  const connector: Connector = async (_, options) => {
-    if (options.purpose === 'title') throw new Error('Naming unavailable in this planner fixture');
+  const connector: Connector = async () => {
     return {
       turn: async () => ({
         status: 'completed',

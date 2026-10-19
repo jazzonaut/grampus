@@ -69,5 +69,6 @@ export function readReceipt(
     stdout: '',
     stderr: '',
     outputTruncated: false,
+    ...(value.elapsedMs === null ? {} : { elapsedMs: value.elapsedMs }),
   };
 }

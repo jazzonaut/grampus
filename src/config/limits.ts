@@ -166,8 +166,6 @@ export const providerLimits = {
   mcpStatusTotal: 1000,
   /** Claude agent turns within one conversation turn. */
   claudeMaxTurns: 64,
-  /** Claude agent turns for the task naming call. */
-  claudeTitleMaxTurns: 3,
 } as const;
 
 /** Repository snapshots and reads. Snapshot bounds are part of what an artifact digest can cover. */
@@ -264,6 +262,12 @@ export const serverLimits = {
   requestBytes: 1 * MiB,
   /** Trailing characters of worker stderr kept as the job error. */
   workerErrorCharacters: 16_000,
+  /** Characters of a failed worker's message journaled as `dashboard.action_failed`. */
+  workerFailureCharacters: 2000,
+  /** Settled dashboard jobs are dropped from memory after this long; their failures stay in the journal. */
+  settledJobRetentionMs: 5 * 60_000,
+  /** Characters of the provisional task title derived from the request before a plan exists. */
+  provisionalTitleCharacters: 60,
   /** Characters of an event note in polling responses. */
   eventNoteCharacters: 1200,
   /** Characters of the task note in polling responses. */

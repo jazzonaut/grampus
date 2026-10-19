@@ -6,7 +6,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 import { defaultDataDirectory } from '../config/runtime.js';
 import { processLimits } from '../config/limits.js';
-import { parseBoundary, parseJson, validateInPlace } from '../process/boundary.js';
+import { BoundaryError, parseBoundary, parseJson, validateInPlace } from '../process/boundary.js';
+import { repositorySnapshotSchema, type RepositorySnapshot } from '../repository/snapshot-schema.js';
 import { RecordNotFoundError } from './errors.js';
 import {
   deliverySchema,
@@ -50,7 +51,13 @@ export interface RecordEvent {
 
 const schemaVersion = 1;
 const schema = `
-  CREATE TABLE tasks (id TEXT PRIMARY KEY, state TEXT NOT NULL);
+  CREATE TABLE tasks (
+    id TEXT PRIMARY KEY,
+    state TEXT NOT NULL,
+    runner TEXT GENERATED ALWAYS AS (json_extract(state, '$.guided.owner.token')) VIRTUAL
+  );
+  CREATE INDEX tasks_runner ON tasks(runner) WHERE runner IS NOT NULL;
+  CREATE TABLE snapshots (artifact TEXT PRIMARY KEY, state TEXT NOT NULL);
   CREATE TABLE events (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id TEXT NOT NULL REFERENCES tasks(id),
@@ -126,6 +133,7 @@ const eventRow = z.object({ sequence: z.number(), at: z.string(), type: z.string
 const taskEventRow = eventRow.extend({ task_id: z.string(), version: z.number() });
 const nameRow = z.object({ name: z.string() });
 const summaryRow = z.object({ id: z.string(), title: z.unknown(), status: z.unknown(), stage: z.unknown() });
+const idRow = z.object({ id: z.string() });
 
 type SchemaState = 'empty' | 'current' | 'foreign';
 function schemaState(db: DatabaseSync): SchemaState {
@@ -280,6 +288,37 @@ export class Store {
           stage: text(summary.stage),
         };
       });
+  }
+
+  /**
+   * Tasks other than `except` whose guided runner is owned. Answered from an indexed column computed
+   * when the task is saved, so claiming the runner never parses other tasks' state.
+   */
+  runnerOwners(except: string): string[] {
+    return this.db
+      .prepare('SELECT id FROM tasks WHERE runner IS NOT NULL AND id <> ? ORDER BY rowid')
+      .all(except)
+      .map(row => parseBoundary(idRow, row, journal('tasks')).id);
+  }
+
+  /**
+   * Stores a repository snapshot once under its artifact digest. The digest covers everything the
+   * snapshot records, so an existing row with the same key already holds identical content.
+   */
+  saveSnapshot(snapshot: RepositorySnapshot): void {
+    this.db
+      .prepare('INSERT INTO snapshots(artifact, state) VALUES (?, ?) ON CONFLICT(artifact) DO NOTHING')
+      .run(snapshot.artifact, JSON.stringify(snapshot));
+  }
+
+  /** The stored snapshot of `artifact`, validated, or null when none was stored. */
+  snapshot(artifact: string): RepositorySnapshot | null {
+    const row = this.db.prepare('SELECT state FROM snapshots WHERE artifact = ?').get(artifact);
+    if (!row) return null;
+    const snapshot = record(repositorySnapshotSchema, 'snapshots', row);
+    if (snapshot.artifact !== artifact)
+      throw new BoundaryError(journal('snapshots'), ['artifact'], 'Stored snapshot does not match its artifact digest');
+    return snapshot;
   }
 
   save(id: string, state: unknown): void {

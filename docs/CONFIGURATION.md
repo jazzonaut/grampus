@@ -47,6 +47,8 @@ Example:
 | --- | --- | --- | --- |
 | `dashboardPort` | `4317` installed, `4318` development | 1 to 65535 | Loopback port of the dashboard. `--port` still overrides it for one launch |
 | `usagePollIntervalMs` | `15000` | 1000 to 600000 | How often Claude usage is sampled during a turn. The final result always replaces the samples |
+| `outputFlushIntervalMs` | `1000` | 100 to 60000 | Longest time streamed agent output is held in memory before it is journaled as one event. A crash loses at most this much display-only text |
+| `outputFlushBytes` | `8192` | 1024 to 1048576 | Buffered streamed output (UTF-8 bytes) that is journaled at once without waiting for the interval |
 | `defaultCheckTimeoutMs` | `120000` | 100 to 600000 | Timeout written into new plans for validation, acceptance and preparation commands that omit `timeoutMs` |
 | `defaultWorkflowPolicy` | see below | see below | Workflow policy for new plans that omit it, or omit some of its fields |
 | `qualityPasses` | `[]` | up to 16 definitions | Custom quality passes a plan may select by id, in addition to the built-ins (see below) |

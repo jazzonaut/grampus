@@ -118,7 +118,10 @@ export class Implementations {
     executionId: string,
     policy: EditPolicy,
     prompt = 'Implement the approved task using the authorized files.',
-    options: Pick<RunOptions, 'signal' | 'answers' | 'timeoutMs'> = {},
+    options: Pick<RunOptions, 'signal' | 'answers' | 'timeoutMs'> & {
+      /** Set for an edit quality pass, so its usage is attributed to the pass rather than the implementation. */
+      stage?: 'quality_pass';
+    } = {},
     runner: (options: CheckProcessOptions) => Promise<CheckProcessResult> = runCheckProcess,
   ): Promise<ImplementationRun> {
     policy = structuredClone(policy);
@@ -132,7 +135,7 @@ export class Implementations {
       const execution = this.store.execution(executionId);
       if (execution.role !== 'implementation')
         throw new Error('Native implementation requires an implementation execution');
-      const claim = sessions.claim(execution.sessionId, prompt, options.answers, true);
+      const claim = sessions.claim(execution.sessionId, prompt, options.answers, true, false, options.stage);
       claimedPrompt = claim.prompt;
       const run: ImplementationRun = {
         id: claim.runId,

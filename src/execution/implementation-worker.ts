@@ -13,6 +13,7 @@ import { connectAgent } from '../providers/index.js';
 import type { AgentSession, TurnResult } from '../providers/types.js';
 import { taskCheckEvidence } from '../verification/check-evidence.js';
 import { parseSettings, useSettings } from '../config/settings.js';
+import { OutputBuffer, deltaText } from './output-buffer.js';
 
 async function main(): Promise<void> {
   const requestFile = process.argv[2];
@@ -53,6 +54,10 @@ async function main(): Promise<void> {
         artifact: snapshot.artifact,
         ...supplied.coverage,
       });
+    const lost = () => new Error('Native implementation no longer owns an active turn');
+    const output = new OutputBuffer(text => {
+      if (!sessions.delta(session.id, run.id, text)) throw lost();
+    });
     agent = await connectAgent(session.provider, {
       cwd: session.cwd,
       configurationCwd: workspaces.get(execution.workspaceId).repository,
@@ -72,14 +77,28 @@ async function main(): Promise<void> {
           }
         : {}),
       emit: event => {
+        const text = deltaText(event);
+        if (text !== null) {
+          output.add(text);
+          return;
+        }
+        output.flush();
         const current = sessions.get(session.id);
-        if (current.phase !== 'running' || !sessions.event(session.id, run.id, event))
-          throw new Error('Native implementation no longer owns an active turn');
+        if (current.phase !== 'running' || !sessions.event(session.id, run.id, event)) throw lost();
       },
     });
-    const result: TurnResult = await agent.turn(
+    const turning: Promise<TurnResult> = agent.turn(
       `${request.prompt}\n\nAuthorized existing editable files: ${JSON.stringify(run.policy.files)}\nAuthorized new files (existing parent directories only): ${JSON.stringify(run.policy.create ?? [])}\nAuthorized deletion-only files (unchanged snapshot bytes): ${JSON.stringify(run.policy.delete ?? [])}\n${supplied ? `Starting repository context (read-only supporting files; does not expand editing permission). ${context?.exploration ? 'Use repository exploration tools to inspect dependencies, callers and tests beyond these initial files.' : 'Omitted files have not been supplied; ask for missing dependencies instead of guessing.'}:\n${JSON.stringify(supplied)}` : `Current artifact: ${snapshot.artifact}. Snapshot file count: ${snapshot.files.length}. ${continuing ? 'Continue this slice. Read current files before editing; earlier file contents may be stale. Use grampus_read_changes and grampus_read_check instead of reconstructing old context.' : ''}`}\nRepository instructions (apply within the explicit tool policy):\n${JSON.stringify(snapshot.instructions)}${fileContext}`,
     );
+    // The last streamed text is journaled before the result exists, so it precedes settlement. A lost
+    // run's flush fails like its other events would; the controller's settlement decides what counts.
+    const result = await turning.finally(() => {
+      try {
+        output.flush();
+      } catch {
+        /* Display-only text. */
+      }
+    });
     await agent.close();
     agent = null;
     if (!run.receipt) throw new Error('Implementation run has no receipt directory');

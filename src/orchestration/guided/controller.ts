@@ -24,6 +24,7 @@ import { recoverLeafOperations } from './recovery.js';
 import { implementationRetrySnapshot, preparationRetrySnapshot, prepareRetry } from './retry.js';
 import { draftRevision, requireLinkedSessionsSettled, revisedState } from './revision.js';
 import { afterImplementation } from './specs.js';
+import { keepSnapshot } from './snapshots.js';
 import { stageHandlers } from './stages/index.js';
 import {
   freshRepairCycle,
@@ -195,9 +196,9 @@ export class GuidedTasks {
       this.requireExpected(state);
       if (expected && !(Array.isArray(expected) ? expected : [expected]).includes(state.status))
         throw new Error(`Task is ${state.status}; inspect task-show for its next action`);
-      for (const task of this.workflow.list())
-        if (task.id !== id && task.guided?.owner)
-          throw new Error(`Another guided task owns the runner: ${task.id}. Inspect or recover it first.`);
+      // An indexed column of the tasks table: no other task's state is parsed to find the owner.
+      const other = this.store.runnerOwners(id).at(0);
+      if (other) throw new Error(`Another guided task owns the runner: ${other}. Inspect or recover it first.`);
       if (state.owner) {
         if (!recover)
           throw new Error('This task has an active or uncertain guided controller; use task-recover after it exits');
@@ -238,7 +239,12 @@ export class GuidedTasks {
         this.workflow.revise(id, observed.version, draft.plan.brief);
         const revised = this.workflow.get(id);
         if (revised.slice) revised.slice = { index: draft.completed.length, completed: draft.completed };
-        revised.guided = revisedState(state, draft, revised.version);
+        revised.guided = revisedState(
+          state,
+          draft,
+          revised.version,
+          draft.anchor ? keepSnapshot(this.store, draft.anchor) : null,
+        );
         this.store.save(id, revised);
         if (draft.workspaceId) this.workspaces.rebind(draft.workspaceId, observed.version);
         this.store.append(id, revised.version, 'guided.revised', {
@@ -544,7 +550,7 @@ export class GuidedTasks {
         if (state.status === 'blocked' && (state.stage === 'preparation' || state.stage === 'refresh')) {
           const snapshot = await preparationRetrySnapshot(context, state);
           this.change(id, token, 'guided.preparation_retry_requested', current => {
-            current.snapshot = snapshot;
+            current.snapshot = keepSnapshot(this.store, snapshot);
             current.status = 'ready';
             current.note = '';
           });
@@ -612,6 +618,9 @@ export class GuidedTasks {
     return this.owned(
       id,
       async token => {
+        // Journals the person's request itself, so usage reports can count it as an intervention
+        // whichever outcome the reconciliation below records.
+        this.change(id, token, 'guided.recovery_requested', () => {});
         try {
           const state = this.get(id);
           await recoverLeafOperations(this.context(id, token));

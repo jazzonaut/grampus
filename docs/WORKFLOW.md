@@ -95,6 +95,15 @@ the workspace and refuses the rerun if the artifact or repository instructions c
 on the same bytes produces the same output again: revise the check. A check whose
 settlement is uncertain needs recovery, not a rerun.
 
+A check's stdout and stderr go to its durable logs while it runs, so a timed-out check
+keeps everything it printed before it was stopped. The stop note starts with the check,
+its limit, the run time the supervisor measured and the retained output, for example
+`Validation 'Tests' exceeded its 120 s limit after 120.4 s; partial output retained (5120
+bytes).` Output a command holds back itself is lost when it is stopped: an inline script
+that captures its children's output to print at the end leaves an empty log. The planner
+is therefore asked to keep each slice's single validation command focused on one tool and,
+when it must chain several, to stream their output and print a line before each step.
+
 Automatic mode never reruns a check on its own: a timeout is always surfaced for you to
 decide. Automatic repair treats only a genuine, confirmed, fully observed failure on the
 unchanged artifact as an implementation problem; infrastructure stops never spend the
@@ -165,7 +174,9 @@ summary. Every new verdict still applies to the current artifact.
 The defaults are configurable heuristics, not a measured universal optimum. Resetting
 too early causes repeated investigation; waiting too long grows input context and
 can retain obsolete assumptions. Usage stays visible, with resumed cumulative provider
-totals counted once. No claim of a particular percentage saving is made.
+totals counted once and each turn attributed to its stage (planning, implementation,
+quality pass, repair, review or arbitration;
+[usage accounting](ARCHITECTURE.md#usage-accounting)). No claim of a particular percentage saving is made.
 
 On the retained PDF-export task, the repeated task-context JSON measured 25,125 bytes;
 the resumed form measured 6,509 bytes. Another 146,660 bytes of automatically repeated

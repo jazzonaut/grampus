@@ -49,8 +49,10 @@ stored as a session with `kickoff.*` events.
 The planner receives the pinned base commit, approved reference folders and the repository-read
 tools; it cannot edit files or run commands. It asks structured questions for consequential
 ambiguity and finally returns a JSON guided plan. Planning answers bind to the displayed turn and
-questions. Changing hints or references invalidates an earlier proposal. A separate best-effort turn
-names the task for the sidebar (`orchestration/task-title.ts`).
+questions. Changing hints or references invalidates an earlier proposal. No provider call is spent on
+naming: until a plan exists the sidebar shows a short title derived from the request (its first
+sentence or line, without control characters or markup delimiters, at most 60 characters at a word
+boundary; `orchestration/task-title.ts`), and then the latest proposed plan's `brief.title`.
 
 Converting a proposal creates an unapproved guided task. `domain/guided-plan.ts` normalizes the plan once
 and hashes it into an approval digest covering the brief, slices, file scopes, preparation,
@@ -84,7 +86,11 @@ accepted only on tasks permanently marked synthetic (the demo).
 
 ## Guided state machine
 
-The guided state is saved in the task record. Each step journals its intent
+The guided state is saved in the task record. It refers to the current repository snapshot by its
+artifact digest with a small summary (head, instructions digest, file count, changed paths); the
+snapshot itself is written once to the content-addressed `snapshots` table and read through
+`orchestration/guided/snapshots.ts`, so a state change never re-serialises file inventories, diffs or
+the Git index. Evidence binding still compares the same digests. Each step journals its intent
 (`guided.step_requested`) with the known result ids and the controller identity before calling a
 leaf operation, then settles by adopting exactly one new result that matches that origin and
 request.
@@ -156,17 +162,18 @@ leaf.
 ## Persistence
 
 `persistence/store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a five-second
-busy timeout. There is one schema, version 1, with twelve tables and no migrations. A new or empty
+busy timeout. There is one schema, version 1, with thirteen tables and no migrations. A new or empty
 file gets the schema; any other version, or a version 1 file missing a table, is refused with a
 clear error after a read-only inspection, so the file is never modified. The default journal is
 `grampus.sqlite` in the data directory.
 
 | Table | Contents |
 | --- | --- |
-| `tasks`, `events` | Task JSON state (including guided state and slice progress) and its ordered journal |
-| `sessions`, `session_events` | Agent conversations, kickoffs and their events (prompts, tool calls, usage, replies) |
+| `tasks`, `events` | Task JSON state (including guided state and slice progress) and its ordered journal. An indexed generated column holds the guided runner's ownership token, so claiming the runner never parses other tasks |
+| `snapshots` | Repository snapshots referred to by guided state, keyed by artifact digest and written once |
+| `sessions`, `session_events` | Agent conversations, kickoffs and their events (prompts with their usage stage, tool calls, coalesced output, usage, replies) |
 | `workspaces`, `workspace_events` | Worktree reservations, identities and lifecycle events |
-| `executions`, `execution_events` | Immutable task/version/attempt/workspace/session bindings with a role |
+| `executions`, `execution_events` | Immutable task/version/attempt/workspace/session bindings with a role and a usage stage |
 | `execution_leases` | At most one current owner per workspace |
 | `checks` | Command, before/after snapshots, process identities and result |
 | `implementations` | Edit policy, dispatch boundary, process proof and snapshots per editing turn |
@@ -176,6 +183,14 @@ State is loaded from snapshots rather than rebuilt from events. History is appen
 application interface. Deletion writes a tombstone (`orchestration/task-lifecycle.ts`); it never removes
 workspaces or history. Full check output and supervisor receipts live beside the journal in
 `<journal>.checks/`.
+
+Streamed provider text is display-only and is not journaled chunk by chunk.
+`execution/output-buffer.ts` holds a run's `output.delta` text in memory and appends it as one
+`output.delta` session event at most every `outputFlushIntervalMs` (1 s) or `outputFlushBytes`
+(8 KiB), whichever comes first, and always before any other event of that run, before a stop request
+and before the run's result, so journal order is unchanged. A flush is a single insert that never
+rewrites the session record. A crash loses at most one interval of streamed text; results, usage,
+tool decisions and every other event are journaled as they happen.
 
 ## Workspaces
 
@@ -198,7 +213,9 @@ is not automated.
 ## Executions, sessions and leases
 
 An **execution** (`execution/executions.ts`) binds one attempt to a workspace and a fresh Grampus session in a
-given role. Every turn or operation claims the workspace lease (`execution/execution-state.ts`) under a run id
+given role, with a usage stage fixed at creation: `implementation` for the first implementation of a
+slice, `repair` for any later implementation attempt in the same slice (automatic repairs and
+explicit retries), `review`, or `arbitration` for a fresh arbitrator. Every turn or operation claims the workspace lease (`execution/execution-state.ts`) under a run id
 and lease kind (`conversation`, `snapshot`, `check`, `submission`, `simplification` (used by every
 quality lens assessment), `verification`, `completion`, `implementation` or `delivery`). The lease is held until process exit is confirmed.
 Session state, task outcome, journal events and lease release settle in one transaction, fenced on
@@ -206,7 +223,9 @@ the exact run id. There is no expiry or heartbeat takeover. Leases coordinate Gr
 sharing one journal; they do not lock out editors or other tools.
 
 A session (`execution/sessions.ts`) records its provider, provider conversation id, model, phase and the
-active run's controller and provider process identities. Each turn starts an owned provider process,
+active run's controller and provider process identities. Each `turn.requested` event names the turn's
+stage: its execution's stage, `quality_pass` for an edit quality pass in the implementation
+conversation, or `planning` for a turn outside any execution. Each turn starts an owned provider process,
 runs one turn and waits for exit. Within a slice, retries create new execution and evidence records
 but may resume the same provider conversation; `execution/session-context.ts` starts a fresh one at the
 configured turn or context-size threshold, or when the Codex toolset changed. Implementation and
@@ -262,8 +281,14 @@ no shell. The request and before-snapshot are durable before dispatch. On Window
 Node host (`process/check-host.ts`) runs PowerShell, which compiles `process/native/check.cs` and starts the tool
 directly inside a Job Object (kill-on-close, no breakaway). After the root exits the supervisor
 waits up to 100 ms for the job to drain, terminates any remaining descendants and confirms zero
-active processes before writing a flushed receipt. A check passes only with exit code zero, a
-settled job and unchanged repository inputs. Timeouts are 100 to 600000 ms; output above 2 MiB
+active processes before writing a flushed receipt. The tool's stdout and stderr are inherited file
+handles on the durable logs in the receipt directory, so output reaches the logs as the tool writes it
+and a check stopped by its timeout keeps everything it printed until then (a tool that buffers its
+own output, for example a script that captures child output to print at the end, loses that buffer).
+The supervisor reports the tool's elapsed time in its result and receipt (`elapsedMs`). A check passes
+only with exit code zero, a settled job and unchanged repository inputs. A timed-out check stops with
+`CHECK_TIMEOUT` and a note such as `Validation 'Tests' exceeded its 120 s limit after 120.4 s; partial
+output retained (5120 bytes).` Timeouts are 100 to 600000 ms; output above 2 MiB
 combined stops the job; the journal keeps a 64 KiB preview per stream and full logs stay on disk
 (`verification/check-output.ts`). Acceptance (`domain/acceptance.ts`) also compares approved stdout, JSON, stderr and
 file observations against retained output and the after-snapshot. Preparation reuses the same runner
@@ -321,7 +346,11 @@ workflow engine.
   exact turn and questions. Commands that need one take its SHA-256 digest (`task-rerun-checks`). The
   controller rechecks it, so a stale tab cannot approve a changed plan or authorize different bytes.
 - Actions run in separate Node worker processes (`server/ui-worker.ts`) using the same controller, so
-  restarting the server is never evidence that work stopped. Polling responses are cached by journal
+  restarting the server is never evidence that work stopped. A worker that fails reports its message
+  and, for a typed stop, its reason code as a JSON line on stderr; the server journals it as
+  `dashboard.action_failed` (action, bounded plain-text note, reason code, exit code) on the task or
+  planning conversation, so the failure survives a restart. Settled jobs are dropped from the
+  in-memory job list after five minutes (`serverLimits.settledJobRetentionMs`). Polling responses are cached by journal
   revision and exclude large snapshots (`server/task-poll.ts`).
 - Every route parses its body with its own schema (`server/api-schemas.ts`); unknown fields are ignored
   because the browser posts whole forms. Failures map to statuses by error class
@@ -360,7 +389,7 @@ shortened, secret-looking keys redacted, nesting and entries capped and control 
 ## Configuration
 
 Fixed bounds live in `config/limits.ts`, each documented with what it bounds. Operational values
-(dashboard port, usage polling, defaults for new plans) live in `config/settings.ts`; an optional
+(dashboard port, usage polling, streamed output batching, defaults for new plans) live in `config/settings.ts`; an optional
 `config.json` in the data directory overrides them and is validated strictly. The CLI loads it once at
 startup and passes the loaded values to dashboard and implementation workers in their requests.
 Defaults are copied into a plan when it is created, so settings never change an approved plan or
@@ -368,18 +397,58 @@ recorded evidence. Details are in [CONFIGURATION.md](CONFIGURATION.md).
 
 ## Usage accounting
 
-Providers report cumulative usage per provider session. `reporting/task-usage.ts` keeps the latest snapshot
-for each distinct session linked to a task (planning, naming, implementation, review) and sums
-sessions once, separately per provider. Claude usage is sampled every 15 seconds (`usagePollIntervalMs`) during a turn and
-replaced by the final result; interim snapshots are marked incomplete. Missing values stay unknown
-and mark totals partial. Claude's estimated USD never becomes billed cost, which is always unknown.
+Providers report cumulative usage per provider session: input, output, cache read
+(`cachedInputTokens`), cache write (`cacheWriteInputTokens`: Claude's cache creation tokens, Codex's
+`cacheWriteInputTokens`) and, for Claude only, estimated USD. Claude usage is sampled every 15 seconds
+(`usagePollIntervalMs`) during a turn and replaced by the final result; interim snapshots are marked
+incomplete. A failed Claude result whose counters are all zero (the SDK documents zeroed crash and
+startup-error results) reports no usage rather than zero. Claude's estimated USD never becomes billed
+cost, which is always unknown.
+
+**Counters across resumed sessions.** Grampus starts a new provider process for every turn and resumes
+the conversation. Both providers continue their counters across that resume rather than restarting
+them per process:
+
+- Claude Agent SDK 0.3.302: the `result` message's `modelUsage` and `total_cost_usd` are documented as
+  cumulative for the query and "a resumed or forked session continues from the totals its transcript
+  saved, when it has them (so the first result already carries the earlier turns)"; a mid-session
+  `/clear` resets them. A live check on 19 October 2026 (one turn, then two separate processes each
+  resuming the session for one turn) confirmed it: each process's usage sample before its turn already
+  showed the previous total, and each result continued from it. The usage endpoint polled during a
+  turn reports the same session totals.
+- Codex app-server 0.163.0: `thread/tokenUsage/updated` `total` is per thread. A live check (a turn,
+  then `thread/resume` in a new app-server process and a second turn) showed the restored total
+  reported straight after the resume and the next turn continuing from it; none of 494 local Codex
+  rollout files showed a thread total decreasing.
+
+`reporting/task-usage.ts` therefore turns each provider session's snapshots into per-turn usage: a
+turn adds its latest values minus the session's previous known totals. When a turn's first
+observation is below the previous total in any field, its counters restarted (a transcript without
+saved totals, or a reset), and its own values are its usage instead, so both behaviours count every
+token once. A turn without observations has unknown usage and marks the totals partial; the next
+observed turn of the same provider session also carries its spend, so provider totals stay right
+while that stage's figure absorbs it. A restarted turn whose first observation already exceeds the
+previous totals in every field cannot be told apart from a continuing one and would be undercounted;
+neither pinned provider restarts its counters on resume.
+
+**Stages and counters.** Each turn is attributed to the stage recorded on its `turn.requested` event
+(`planning`, `implementation`, `quality_pass`, `repair`, `review`, `arbitration`). Per stage and
+provider the report, `task-show` and the task poll show turns, failed and interrupted turns, unsettled
+turns, wall time (turn request to recorded result, settled turns only) and the usage fields; per task
+they show the provider totals, total turns, repair attempts (implementation executions with stage
+`repair`) and human interventions after approval. Interventions count these guided events after the
+first `guided.approved`: `guided.answers_supplied`, `guided.scope_authorized`,
+`guided.assessment_supplied`, `guided.retry_requested`, `guided.preparation_retry_requested`,
+`guided.checks_rerun_requested`, `guided.recovery_requested`, `guided.workspace_released`,
+`guided.revised`, `guided.stop_requested` and later `guided.approved` (approvals of revised plans).
+Continuing a stopped task with `task-run` and low-level CLI commands are not counted. Unknown values
+stay null and never count as zero; a total that misses some turn's measurement is marked partial.
 
 ## Limits
 
 - Windows only. macOS and Linux supervision and installers are **Planned**.
 - One guided task at a time per journal. A small parallel limit is **Planned**.
-- Per-stage usage, turn and retry counters, health records and a server-side view model for the
-  dashboard are **Planned** ([PLAN.md](PLAN.md)).
+- Health records and a server-side view model for the dashboard are **Planned** ([PLAN.md](PLAN.md)).
 - No background scheduler, retention cleanup, push or pull request delivery.
 
 ## Module map
@@ -407,11 +476,13 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `context.ts`, `specs.ts`, `prompts.ts` | Stage handler contract and result adoption; exact leaf requests; agent prompts |
 | | `retry.ts`, `recovery.ts`, `revision.ts` | New attempts and explicit retry checks; leaf recovery; plan revision |
 | | `rerun.ts` | Which stopped checks may be rerun without a new attempt |
+| | `snapshots.ts` | Snapshot references in guided state and access to the stored snapshots |
 | | `stages/*.ts` | One handler per stage (see [Guided state machine](#guided-state-machine)) |
 | `orchestration/` | `guided-status.ts` | Task views and next actions |
-| | `kickoff.ts`, `prompts/planner.ts`, `planner-progress.ts`, `task-title.ts` | Planning conversations and planner prompts, live planner progress and task naming |
+| | `kickoff.ts`, `prompts/planner.ts`, `planner-progress.ts`, `task-title.ts` | Planning conversations and planner prompts, live planner progress and the provisional title from the request |
 | | `task-lifecycle.ts` | Reset and delete with tombstones |
 | `execution/` | `sessions.ts`, `session-context.ts` | Conversation turns, recovery and resume-or-fresh decisions |
+| | `output-buffer.ts` | Coalescing streamed provider output per run |
 | | `executions.ts`, `execution-state.ts` | Execution bindings, leases and settlement |
 | | `edit-policy.ts`, `implementations.ts`, `implementation-worker.ts` | Edit scope, patch authorization and supervised editing |
 | | `deliveries.ts`, `delivery-worker.ts`, `delivery-operation.ts` | Local commit delivery and verification |
@@ -433,7 +504,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `check-process.ts`, `check-host.ts`, `supervisor-protocol.ts` | Supervisor control, its detached host and the pinned supervisor and receipt formats |
 | | `native/check.cs`, `native/check.ps1`, `native/process.ps1` | Job Object helper and process identity queries |
 | `verification/` | `checks.ts`, `check-evidence.ts`, `check-output.ts`, `check-recovery.ts` | Checks and submission, check feedback, log paging, receipts |
-| `reporting/` | `report.ts`, `task-usage.ts` | Markdown report; per-task usage aggregation |
+| `reporting/` | `report.ts`, `task-usage.ts` | Markdown report; per-task usage, per-stage counters and interventions |
 | `health/` | `doctor.ts` | Readiness checks |
 | `server/` | `ui-server.ts`, `ui-worker.ts` | Loopback dashboard server and action workers |
 | | `api-schemas.ts`, `errors.ts`, `task-poll.ts` | Request body and worker request schemas, error-to-status mapping, the compact task poll |

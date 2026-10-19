@@ -10,6 +10,7 @@ import { checkFeedback, checkIssue, outputExcerpt } from '../../verification/che
 import type { GuidedContext } from './context.js';
 import type { GuidedState } from './state.js';
 import { automatic, preparationSpec } from './specs.js';
+import { guidedSnapshot, requireGuidedSnapshot } from './snapshots.js';
 
 /** What a retry needs: everything in the handler context except retry itself. */
 export type RetryContext = Omit<GuidedContext, 'prepareRetry'>;
@@ -96,8 +97,9 @@ export async function implementationRetrySnapshot(
   assertTaskExecutionIdle(store, workspace.taskId);
   // An explicit retry accepts the user's staging, while preserving HEAD,
   // instruction and file-scope guards. Automatic repairs keep their old anchor.
+  const anchor = requireGuidedSnapshot(store, state);
   verifyEditingScope(
-    { cwd: workspace.path!, policy: state.policy, snapshot: { ...state.snapshot, index: snapshot.index } },
+    { cwd: workspace.path!, policy: state.policy, snapshot: { ...anchor, index: snapshot.index } },
     snapshot,
   );
   return snapshot;
@@ -109,17 +111,18 @@ export async function implementationRetrySnapshot(
  * have changed repository inputs at all, so the retry would otherwise adopt unapproved bytes.
  */
 export async function preparationRetrySnapshot(
-  { checks, workspaces }: RetryContext,
+  { checks, store, workspaces }: RetryContext,
   state: GuidedState,
 ): Promise<RepositorySnapshot> {
   const snapshot = await checks.snapshot(state.executionId!);
-  if (!state.snapshot) return snapshot;
-  const spec = preparationSpec(state);
+  const current = guidedSnapshot(store, state);
+  if (!state.snapshot || !current) return snapshot;
+  const spec = preparationSpec(state, current);
   if (spec.preparation?.scope)
     verifyEditingScope(
       {
         cwd: workspaces.get(state.workspaceId!).path!,
-        snapshot: state.snapshot,
+        snapshot: current,
         policy: {
           ...spec.preparation.scope,
           artifact: state.snapshot.artifact,

@@ -10,6 +10,7 @@ import type { GuidedState, QualityEditRecord } from '../state.js';
 import { qualityPassPrompt } from '../prompts.js';
 import { afterEditing, currentSlice, editPolicy, pendingEditPass } from '../specs.js';
 import { failureCode } from './implementation.js';
+import { keepSnapshot, requireGuidedSnapshot } from '../snapshots.js';
 
 function requirePass(state: GuidedState) {
   const pass = pendingEditPass(state);
@@ -28,12 +29,13 @@ export const qualityPassStage: StageHandler = {
   async perform({ state, store, workspaces, services, signal }) {
     const pass = requirePass(state);
     const cwd = workspaces.get(state.workspaceId!).path!;
-    withReason('SCOPE_REJECTED', () => prepareEditing({ cwd, snapshot: state.snapshot!, policy: state.policy! }));
+    const snapshot = requireGuidedSnapshot(store, state);
+    withReason('SCOPE_REJECTED', () => prepareEditing({ cwd, snapshot, policy: state.policy! }));
     await new Implementations(store, workspaces).run(
       state.executionId!,
       state.policy!,
       qualityPassPrompt({ pass, slicePreparation: currentSlice(state).preparation }),
-      { signal, timeoutMs: 0, ...(state.answers ? { answers: state.answers } : {}) },
+      { signal, timeoutMs: 0, stage: 'quality_pass', ...(state.answers ? { answers: state.answers } : {}) },
       services.implementationRunner,
     );
     return null;
@@ -72,7 +74,7 @@ export const qualityPassStage: StageHandler = {
         reason: { code: 'AGENT_QUESTION', note: 'Answer the quality pass questions with task-answer.' },
         update: current => {
           current.answers = null;
-          current.snapshot = after;
+          current.snapshot = keepSnapshot(store, after);
           current.policy = editPolicy(current, after);
         },
       };
@@ -88,7 +90,7 @@ export const qualityPassStage: StageHandler = {
       next,
       update: current => {
         current.answers = null;
-        current.snapshot = after;
+        current.snapshot = keepSnapshot(store, after);
         current.qualityEdits.push(record);
         if (next === 'quality_pass') current.policy = editPolicy(current, after);
         // Recorded in the same transaction as the state change, so recovery cannot record it twice.

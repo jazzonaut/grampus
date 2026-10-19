@@ -7,6 +7,7 @@ import { withReason, type StopReasonCode } from '../stop-reasons.js';
 import { adoptOne, mismatch, requireOrigin, requireSettled, type StageHandler } from '../context.js';
 import { implementationPrompt } from '../prompts.js';
 import { afterEditing, currentSlice, editPolicy } from '../specs.js';
+import { keepSnapshot } from '../snapshots.js';
 
 /**
  * Why an implementation turn stopped. Staging is told apart from other failures by its snapshots
@@ -77,7 +78,7 @@ export const implementationStage: StageHandler = {
     );
     const update = (current: typeof state) => {
       current.answers = null;
-      current.snapshot = after;
+      current.snapshot = keepSnapshot(store, after);
     };
     if (result.result?.reply?.kind === 'question')
       return {

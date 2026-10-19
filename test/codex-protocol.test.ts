@@ -30,6 +30,7 @@ const recorded = {
         totalTokens: 1450,
         inputTokens: 1200,
         cachedInputTokens: 800,
+        cacheWriteInputTokens: 0,
         outputTokens: 250,
         reasoningOutputTokens: 40,
       },
@@ -63,6 +64,7 @@ test('recorded Codex notifications parse, and fields Grampus does not read are t
   const usage = classifyCodexNotification('thread/tokenUsage/updated', recorded.tokenUsage);
   assert.ok(usage.kind === 'notification' && usage.notification.method === 'thread/tokenUsage/updated');
   assert.equal(usage.notification.params.tokenUsage.total?.cachedInputTokens, 800);
+  assert.equal(usage.notification.params.tokenUsage.total?.cacheWriteInputTokens, 0);
   assert.equal(usage.notification.params.tokenUsage.modelContextWindow, 258400);
 
   const completed = classifyCodexNotification('turn/completed', recorded.turnCompleted);

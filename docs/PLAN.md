@@ -61,9 +61,18 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
 1. **Hygiene baseline.** Fix nested-repository reference bug, Prettier, typescript-eslint
    with a shrink-only baseline, `npm run check`, fast and full test scripts, `AGENTS.md`,
    current-state docs with history archived under `docs/history/`.
-2. **Measurement and journal fixes.** Per-stage usage and counters, no separate naming
-   call, Claude cache-write tokens, batched streamed output, snapshots out of task
-   state, journaled dashboard errors, typed stop reason codes.
+2. **Measurement and journal fixes.** Done 19 October 2026. Usage, turns, failed and
+   interrupted turns, wall time per stage (planning, implementation, quality passes, repair,
+   review, arbitration, tagged on executions and turn requests), repair attempts and human
+   interventions after approval, in the report, `task-show`, the task poll and the dashboard.
+   Claude cache-write tokens and Codex cache writes are counted. Resumed sessions were checked
+   live: both providers continue their counters across resume, and aggregation also handles a
+   counter that restarts ([usage accounting](ARCHITECTURE.md#usage-accounting)). The naming call
+   is gone (a title from the request until the plan names the task). Streamed output is
+   coalesced per run (`outputFlushIntervalMs`, `outputFlushBytes`), guided state keeps snapshot
+   references with the snapshots in a content-addressed table, the runner check reads an
+   indexed column, and failed dashboard actions are journaled as `dashboard.action_failed`.
+   Typed stop reason codes landed with step 6.
 3. **Health and stalls.** Doctor checks the executables actually used, results are
    stored and shown, provider versions recorded per session with a change warning,
    stall detection that surfaces silence without killing anything, a recorded protocol
@@ -82,12 +91,17 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
 
 ## Known issues from real use
 
-- **Check timeout loses output.** A combined validation command exceeded its 120 s limit and
-  left an empty log; the same checks run separately passed in about 55 s. Stream check output
-  to the durable log as it arrives, record `CHECK_TIMEOUT` with elapsed time and limit, and
-  have the planner prefer separate named checks. The default for new plans is now configurable
-  (`defaultCheckTimeoutMs` in `config.json`). Investigate the
-  slowdown (concurrent load, cold caches in a fresh worktree) with per-check timings.
+- **Check timeout loses output.** Fixed 19 October 2026. A combined validation command exceeded
+  its 120 s limit and left an empty log; the same checks run separately passed in about 55 s. The
+  supervisor already gives the tool file handles on the durable logs, so output reaches them as it
+  is written and a timed-out check keeps it (now covered by a test); an empty log means the command
+  held its own output back, typically an inline script capturing child output to print at the end.
+  The supervisor now reports the elapsed time, and `CHECK_TIMEOUT` notes name the check, limit,
+  measured time and retained bytes. The plan format allows one validation command per slice, so
+  the planner is asked to keep it focused on one tool and, when chaining is unavoidable, to stream
+  child output and size the timeout for every step. Several named validation checks per slice
+  would need a plan format change and is not done. The slowdown itself (concurrent load, cold
+  caches in a fresh worktree) can now be read from per-check elapsed times.
 - **Retrying validation starts a new implementation attempt.** Fixed 19 October 2026.
   Timeouts and other settled infrastructure failures on an unchanged artifact offer **Rerun
   checks** (`task-rerun-checks`): the same check, same artifact and attempt, no agent turn.

@@ -50,6 +50,11 @@ export class Executions {
     });
   }
 
+  /**
+   * Binds the current attempt to a fresh session in `role`. The execution's usage stage is fixed here:
+   * an implementation is `repair` when the task already has an implementation execution for this
+   * slice, and a review is `arbitration` when the caller says it arbitrates.
+   */
   async create(
     workspaceId: string,
     version: number,
@@ -58,6 +63,7 @@ export class Executions {
     model: string | null = null,
     fallbackReason: string | null = null,
     resumeFrom: string | null = null,
+    arbitration = false,
   ): Promise<Execution> {
     if (!['implementation', 'review'].includes(role))
       throw new Error('Execution role must be implementation or review');
@@ -185,12 +191,25 @@ export class Executions {
           ? workflow.start(task.id, { provider, model: model ?? 'provider-default', sessionId: session.id })
           : task.attempt;
       if (!attempt) throw new Error('Review requires an implementation attempt');
+      const sliceIndex = task.slice?.index ?? 0;
       const execution: Execution = {
+        stage:
+          role === 'review'
+            ? arbitration
+              ? 'arbitration'
+              : 'review'
+            : this.store
+                  .executions()
+                  .some(
+                    item => item.taskId === task.id && item.role === 'implementation' && item.sliceIndex === sliceIndex,
+                  )
+              ? 'repair'
+              : 'implementation',
         id: randomUUID(),
         taskId: task.id,
         version,
         attemptId: attempt.id,
-        sliceIndex: task.slice?.index ?? 0,
+        sliceIndex,
         workspaceId,
         sessionId: session.id,
         role,

@@ -1,7 +1,7 @@
 import type { Store } from '../persistence/store.js';
 import { Workflow, activeSlice } from '../domain/workflow.js';
 import { explorationSummary } from '../repository/repository-tools.js';
-import { taskUsage, usageLines } from './task-usage.js';
+import { taskUsage, usageLines, usageTable } from './task-usage.js';
 
 // Encode all user/provider prose, including newlines, so it cannot inject report structure.
 function prose(value: string): string {
@@ -15,6 +15,7 @@ export function renderReport(store: Store, id: string): string {
   const slice = activeSlice(task);
   const progress = task.slice,
     briefSlices = task.brief.slices;
+  const usage = taskUsage(store, id);
   const exploration = store
     .executions()
     .filter(execution => execution.taskId === id)
@@ -33,7 +34,7 @@ export function renderReport(store: Store, id: string): string {
     `Task: ${task.id}  `,
     `State: ${task.phase}  `,
     `Requirements version: ${task.version}; approved version: ${task.approvedVersion ?? 'none'}  `,
-    ...usageLines(taskUsage(store, id)),
+    ...usageLines(usage).slice(0, usage.providers.length + 2),
     '',
     prose(task.brief.outcome),
     '',
@@ -72,6 +73,16 @@ export function renderReport(store: Store, id: string): string {
           ),
           '',
           ...(slice.final ? ['Final slice verification covers every task criterion.', ''] : []),
+        ]
+      : []),
+    ...(usage.stages.length
+      ? [
+          '## Usage by stage',
+          '',
+          ...usageTable(usage),
+          '',
+          'Turns attribute to the stage recorded when they were requested. Unknown values are never counted as zero; partial values are lower bounds. Wall time is from turn request to recorded result.',
+          '',
         ]
       : []),
     '## Completion gates',

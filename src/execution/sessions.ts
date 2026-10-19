@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { statSync } from 'node:fs';
 import { z } from 'zod';
 import type { Store } from '../persistence/store.js';
-import type { Session } from '../persistence/records.js';
+import type { Session, TurnStage } from '../persistence/records.js';
 import { processLimits } from '../config/limits.js';
 import { agentTimeout } from './agent-timeout.js';
 import { connectAgent } from '../providers/index.js';
@@ -25,6 +25,7 @@ import {
   type TurnResult,
 } from '../providers/types.js';
 import { taskCheckEvidence, checkEvidenceSummary } from '../verification/check-evidence.js';
+import { OutputBuffer, deltaText } from './output-buffer.js';
 
 export type { Session } from '../persistence/records.js';
 
@@ -69,12 +70,18 @@ export class Sessions {
     });
   }
 
+  /**
+   * Claims the session for one turn and journals `turn.requested` with the turn's usage stage: the
+   * linked execution's stage, `planning` without one, or `stage` when the caller names a turn kind the
+   * execution does not imply (an edit quality pass in the implementation conversation).
+   */
   claim(
     id: string,
     prompt: string,
     answers?: Record<string, string>,
     editing = false,
     trackDispatch = false,
+    stage?: Extract<TurnStage, 'quality_pass'>,
   ): { session: Session; prompt: string; runId: string } {
     if (answers !== undefined && (!answers || typeof answers !== 'object' || Array.isArray(answers)))
       throw new Error('Answers must be a JSON object');
@@ -141,7 +148,12 @@ export class Sessions {
         )}\n\nUser turn:\n${prompt}`;
       }
       session.phase = 'running';
-      this.store.appendSession(id, 'turn.requested', { runId: session.run.id, prompt, autoRetries: 0 });
+      this.store.appendSession(id, 'turn.requested', {
+        runId: session.run.id,
+        stage: stage ?? execution?.stage ?? 'planning',
+        prompt,
+        autoRetries: 0,
+      });
       return { session: structuredClone(session), prompt, runId: session.run.id };
     });
   }
@@ -184,6 +196,23 @@ export class Sessions {
         }
       }
       this.store.appendSession(id, event.type, { runId, data: event.data });
+      return true;
+    });
+  }
+
+  /**
+   * Journals coalesced streamed text for the active run. Unlike {@link Sessions.event} it never
+   * rewrites the session record: output changes no session state, so a flush is one small insert.
+   */
+  delta(id: string, runId: string, text: string): boolean {
+    return this.store.transaction(() => {
+      const session = this.get(id);
+      if (session.run?.id !== runId || !['running', 'stop_requested'].includes(session.phase)) {
+        this.store.appendSession(id, 'event.ignored', { runId, eventType: 'output.delta' });
+        return false;
+      }
+      requireExecutionLease(this.store, session, runId);
+      this.store.appendSession(id, 'output.delta', { runId, data: { text } });
       return true;
     });
   }
@@ -266,7 +295,6 @@ export class Sessions {
 }
 
 export interface RunOptions {
-  purpose?: 'title';
   repository?: RepositoryAccess;
   timeoutMs?: number;
   interruptAfterMs?: number;
@@ -328,9 +356,17 @@ export async function runSession(
   const stopSignal = new Promise<void>(resolve => {
     stopNow = resolve;
   });
+  const output = new OutputBuffer(text => {
+    if (sessions.delta(id, claim.runId, text)) options.onEvent?.({ type: 'output.delta', data: { text } });
+  });
   const requestStop = (reason: string): void => {
     if (stopped) return;
     stopped = true;
+    try {
+      output.flush();
+    } catch {
+      /* Display-only text; the stop below is what must be journaled. */
+    }
     sessions.stop(id, claim.runId, reason);
     if (agent) void agent.interrupt().catch(() => {});
     else connectionAbort.abort();
@@ -338,8 +374,14 @@ export async function runSession(
   };
   const aborted = () => requestStop('user interrupt');
   const emit = (event: AgentEvent): void => {
+    const text = deltaText(event);
+    if (text !== null) {
+      output.add(text);
+      return;
+    }
     if (event.type === 'process.started') processStarted = true;
     if (event.type === 'process.exit_confirmed') connectorClosed = true;
+    output.flush();
     if (!sessions.event(id, claim.runId, event)) return;
     options.onEvent?.(event);
     if (event.type === 'turn.started' && options.interruptAfterMs && !interruptTimer) {
@@ -382,7 +424,6 @@ export async function runSession(
           configurationCwd,
           signal: connectionAbort.signal,
           emit,
-          ...(options.purpose ? { purpose: options.purpose } : {}),
           ...(repository ? { repository } : {}),
         });
       })
@@ -457,6 +498,11 @@ export async function runSession(
     }
     if (!connectorClosed && (connectionPending || (!connectionFinished && stopped && processStarted)))
       exitConfirmed = false;
+    try {
+      output.flush();
+    } catch {
+      /* Display-only text; settlement below records whether this run still owned the session. */
+    }
     store.transaction(() => {
       const owned = sessions.get(id).run?.id === claim.runId;
       sessions.settle(id, claim.runId, result, exitConfirmed);

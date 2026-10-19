@@ -131,6 +131,7 @@ export const reviewExecutionStage: StageHandler = {
         ? arbitrationApproval
         : null,
       automatic(state) && !state.reviewCycle.arbitrating ? continuation : null,
+      state.reviewCycle.arbitrating,
     );
     return null;
   },

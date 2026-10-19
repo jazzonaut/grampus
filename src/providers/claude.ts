@@ -36,7 +36,6 @@ import {
 } from './claude-protocol.js';
 import {
   instructions,
-  titleInstructions,
   replyOutputSchema,
   parseReply,
   subscriptionEnvironment,
@@ -69,6 +68,13 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
         });
     }
   }
+}
+
+/** Whether every token counter of a snapshot is zero or unknown, so it carries no measurement. */
+function zeroCounters(usage: Usage): boolean {
+  return [usage.inputTokens, usage.outputTokens, usage.cachedInputTokens, usage.cacheWriteInputTokens].every(
+    value => !value,
+  );
 }
 
 export function hasClaudeSubscription(account: ClaudeAccount): boolean {
@@ -151,28 +157,23 @@ export class ClaudeSession implements AgentSession {
           tools: [claudeDeleteTool(editing, options.emit, owned)],
         })
       : null;
-    const title = options.purpose === 'title';
     this.query = createQuery({
       prompt: this.input,
       options: {
         cwd: options.cwd,
-        tools: title ? [] : editing ? ['Read', 'Edit', 'Write', 'ToolSearch'] : ['ToolSearch'],
+        tools: editing ? ['Read', 'Edit', 'Write', 'ToolSearch'] : ['ToolSearch'],
         permissionMode: 'default',
-        mcpServers: title
-          ? {}
-          : {
-              ...projectMcpServers(options.configurationCwd ?? options.cwd, options.cwd),
-              ...(fileServer ? { grampus_files: fileServer } : {}),
-              ...(options.repository
-                ? { grampus_repository: claudeRepository(options.repository, options.emit, owned) }
-                : {}),
-            },
-        strictMcpConfig: title,
-        systemPrompt: title
-          ? titleInstructions
-          : `${editing ? editingInstructions : instructions}\n${mcpInstructions}${options.repository ? `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}` : ''}`,
+        mcpServers: {
+          ...projectMcpServers(options.configurationCwd ?? options.cwd, options.cwd),
+          ...(fileServer ? { grampus_files: fileServer } : {}),
+          ...(options.repository
+            ? { grampus_repository: claudeRepository(options.repository, options.emit, owned) }
+            : {}),
+        },
+        strictMcpConfig: false,
+        systemPrompt: `${editing ? editingInstructions : instructions}\n${mcpInstructions}${options.repository ? `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}` : ''}`,
         outputFormat: { type: 'json_schema', schema: replyOutputSchema },
-        maxTurns: title ? providerLimits.claudeTitleMaxTurns : providerLimits.claudeMaxTurns,
+        maxTurns: providerLimits.claudeMaxTurns,
         includePartialMessages: true,
         ...(editing ? { hooks: { PreToolUse: [{ hooks: [editingHook(options, editing)] }] } } : {}),
         env: { ...subscriptionEnvironment(), CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' },
@@ -205,7 +206,6 @@ export class ClaudeSession implements AgentSession {
     const options = this.options;
     return (name, input) => {
       const decide = (): PermissionResult => {
-        if (options.purpose === 'title') return { behavior: 'deny', message: 'Task naming does not use tools' };
         if (allowMcpTool(name, options.emit, owned())) return { behavior: 'allow', updatedInput: input };
         if (options.repository && isRepositoryTool(name)) return { behavior: 'allow', updatedInput: input };
         if (options.editing) {
@@ -243,21 +243,32 @@ export class ClaudeSession implements AgentSession {
     }
   }
 
-  private publishUsage(models: ClaudeModelUsage, cost: unknown, complete: boolean): Usage {
+  /**
+   * Sums the SDK's per-model cumulative counters into one snapshot. A model whose counter is missing
+   * makes that total unknown rather than smaller.
+   */
+  private usageSnapshot(models: ClaudeModelUsage, cost: unknown, complete: boolean): Usage {
     const values = Object.values(models);
-    const sum = (key: 'inputTokens' | 'outputTokens' | 'cacheReadInputTokens'): number | null =>
+    const sum = (
+      key: 'inputTokens' | 'outputTokens' | 'cacheReadInputTokens' | 'cacheCreationInputTokens',
+    ): number | null =>
       values.length && values.every(value => numeric(value[key]) !== null)
         ? values.reduce((total, value) => total + (numeric(value[key]) ?? 0), 0)
         : null;
-    const usage: Usage = {
+    return {
       scope: 'provider-session-cumulative',
       complete,
       inputTokens: sum('inputTokens'),
       outputTokens: sum('outputTokens'),
       cachedInputTokens: sum('cacheReadInputTokens'),
+      cacheWriteInputTokens: sum('cacheCreationInputTokens'),
       estimatedCostUsd: numeric(cost),
       billedCostUsd: null,
     };
+  }
+
+  private publishUsage(models: ClaudeModelUsage, cost: unknown, complete: boolean): Usage {
+    const usage = this.usageSnapshot(models, cost, complete);
     const serialized = JSON.stringify(usage);
     if (serialized !== this.lastUsage) {
       this.options.emit({ type: 'usage.updated', data: usage });
@@ -357,12 +368,17 @@ export class ClaudeSession implements AgentSession {
     clearInterval(this.usageTimer);
     try {
       const result = parseClaudeMessage('result', claudeResultSchema, message);
-      const usage = this.publishUsage(result.modelUsage, result.total_cost_usd, true);
       const status = this.stopRequested
         ? 'interrupted'
         : result.is_error || result.subtype !== 'success'
           ? 'failed'
           : 'completed';
+      // The SDK documents that crash and startup-error results may carry zeroed counters. Zero is not
+      // a measurement there, so the result reports no usage and earlier samples stay partial.
+      const zeroed =
+        (result.is_error || result.subtype !== 'success') &&
+        zeroCounters(this.usageSnapshot(result.modelUsage, result.total_cost_usd, true));
+      const usage = zeroed ? null : this.publishUsage(result.modelUsage, result.total_cost_usd, true);
       active.resolve({
         status,
         reply: status === 'completed' ? parseReply(result.structured_output ?? result.result) : null,

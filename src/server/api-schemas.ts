@@ -92,3 +92,10 @@ export const workerRequestSchema = z.intersection(
   workerActionSchema,
 );
 export type WorkerRequest = z.infer<typeof workerRequestSchema>;
+
+/**
+ * The last stderr line of a failed action worker: the message and, when the controller raised a typed
+ * stop, its reason code. Anything else on stderr (runtime warnings, a crash trace) is kept as plain text.
+ */
+export const workerFailureSchema = z.object({ error: text, reasonCode: text.nullable() });
+export type WorkerFailure = z.infer<typeof workerFailureSchema>;

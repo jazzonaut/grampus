@@ -926,6 +926,44 @@ a {
   color: var(--muted);
   margin: 8px 0 0;
 }
+.usage-stages {
+  border-top: 1px solid var(--border);
+  margin-top: 18px;
+  padding-top: 14px;
+}
+.usage-stages h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.usage-table {
+  overflow-x: auto;
+}
+.usage-table table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.usage-table th,
+.usage-table td {
+  text-align: right;
+  padding: 4px 6px;
+  border-bottom: 1px solid #edf0f2;
+  white-space: nowrap;
+}
+.usage-table th[scope='row'],
+.usage-table thead th:first-child {
+  text-align: left;
+}
+.usage-table thead th {
+  color: var(--muted);
+  font-weight: 500;
+}
+.usage-table small {
+  display: block;
+  color: var(--muted);
+  font-weight: 400;
+}
 .usage-footnote {
   border-top: 1px solid var(--border);
   padding-top: 12px;

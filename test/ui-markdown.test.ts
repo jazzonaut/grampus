@@ -178,7 +178,7 @@ test('plan revisions, repair budgets and structured acceptance remain reviewable
     },
   };
   const html = runInContext(
-    'revisionCard(view) + reviewPolicyCard(view.state.plan) + usageCard({usage: [{provider:"codex",inputTokens:240,incomplete:["inputTokens"],observedSessions:1,sessions:2}]})',
+    'revisionCard(view) + reviewPolicyCard(view.state.plan) + usageCard({usage: {providers: [{provider:"codex",inputTokens:240,incomplete:["inputTokens"],observedSessions:1,sessions:2}], stages: []}})',
     context,
   ) as string;
   assert.match(html, /revision-form/);
@@ -240,21 +240,48 @@ test('quality passes show at approval, in the assessment form and as results; re
 test('usage cards separate metrics, format costs, distinguish missing measurements and refresh values', () => {
   const { context } = dashboard();
   context['view'] = {
-    usage: [
-      {
-        provider: 'claude',
-        inputTokens: 9341,
-        outputTokens: 102290,
-        cachedInputTokens: 8133513,
-        estimatedCostUsd: 5.829425780000001,
-        billedCostUsd: null,
-        incomplete: ['inputTokens', 'outputTokens', 'cachedInputTokens', 'estimatedCostUsd'],
-        sessions: 3,
-        observedSessions: 2,
-        activeSessions: 1,
-        updatedAt: '2026-10-18T18:04:00.000Z',
-      },
-    ],
+    usage: {
+      providers: [
+        {
+          provider: 'claude',
+          inputTokens: 9341,
+          outputTokens: 102290,
+          cachedInputTokens: 8133513,
+          cacheWriteInputTokens: 412337,
+          estimatedCostUsd: 5.829425780000001,
+          billedCostUsd: null,
+          incomplete: ['inputTokens', 'outputTokens', 'cachedInputTokens', 'estimatedCostUsd'],
+          sessions: 3,
+          observedSessions: 2,
+          activeSessions: 1,
+          updatedAt: '2026-10-18T18:04:00.000Z',
+        },
+      ],
+      stages: [
+        {
+          stage: 'quality_pass',
+          provider: 'claude',
+          turns: 2,
+          failedTurns: 1,
+          interruptedTurns: 0,
+          unsettledTurns: 0,
+          wallMs: 125_400,
+          wallPartial: false,
+          inputTokens: 300,
+          outputTokens: null,
+          cachedInputTokens: 1200,
+          cacheWriteInputTokens: 50,
+          estimatedCostUsd: 0.5,
+          incomplete: ['inputTokens'],
+        },
+      ],
+      turns: 2,
+      failedTurns: 1,
+      interruptedTurns: 0,
+      unsettledTurns: 0,
+      repairAttempts: 1,
+      interventions: { total: 3 },
+    },
   };
   const html = runInContext('usageCard(view)', context) as string;
   assert.match(html, /<dl class="usage-metrics">/);
@@ -267,7 +294,16 @@ test('usage cards separate metrics, format costs, distinguish missing measuremen
   assert.match(html, /Billed cost: unknown/);
   assert.match(html, /Last observation/);
   assert.match(html, /datetime="2026-10-18T18:04:00.000Z"/);
-  runInContext('view.usage[0].inputTokens = 10000; view.usage[0].outputTokens = null;', context);
+  assert.match(html, /<dd>412,337<\/dd>/, 'cache writes are shown beside cache reads');
+  assert.match(
+    html,
+    /<th scope="row">Quality passes<small>Claude<\/small><\/th><td>2<small>1 failed · 0 stopped<\/small><\/td><td>2 m 05 s<\/td><td>300\+<\/td><td>Unknown<\/td><td>1,200<\/td><td>50<\/td><td>\$0\.50<\/td>/,
+  );
+  assert.match(
+    html,
+    /2 provider turns \(1 failed, 0 stopped\) · 1 repair attempt · 3 human interventions after approval/,
+  );
+  runInContext('view.usage.providers[0].inputTokens = 10000; view.usage.providers[0].outputTokens = null;', context);
   const updated = runInContext('usageCard(view)', context) as string;
   assert.match(updated, /<dd>10,000<\/dd>/);
   assert.match(updated, /<dd>Unknown<\/dd>/);

@@ -22,7 +22,7 @@ import { TaskLifecycle } from '../orchestration/task-lifecycle.js';
 import { suggestReferenceFolders } from '../repository/reference-folders.js';
 import type { Task } from '../domain/workflow.js';
 import { availableQualityPasses } from '../domain/quality-passes.js';
-import { readCheckLog } from '../verification/check-output.js';
+import { outputExcerpt, readCheckLog } from '../verification/check-output.js';
 import { describeIssues } from '../process/boundary.js';
 import { HttpError, errorResponse } from './errors.js';
 import { eventSummary, taskPoll } from './task-poll.js';
@@ -40,7 +40,10 @@ import {
   suggestReferencesBody,
   taskWorkerActions,
   workerActionSchema,
+  workerFailureSchema,
   type WorkerAction,
+  type WorkerActionName,
+  type WorkerFailure,
 } from './api-schemas.js';
 
 interface Job {
@@ -48,6 +51,52 @@ interface Job {
   error: string | null;
   action: string;
   startedAt: string;
+  /** When the worker settled. Settled jobs are dropped after `serverLimits.settledJobRetentionMs`. */
+  settledAt: string | null;
+}
+
+/** Worker actions that act on a planning conversation rather than a task. */
+const kickoffWorkerActions: readonly WorkerActionName[] = ['plan', 'planner-recover'];
+
+/** The failure a worker reported on its last stderr line, or its raw stderr tail when it reported none. */
+function workerFailure(output: string, fallback: string): WorkerFailure {
+  const text = output.trim();
+  try {
+    const reported = workerFailureSchema.safeParse(JSON.parse(text.split('\n').at(-1)?.trim() ?? ''));
+    if (reported.success) return reported.data;
+  } catch {
+    /* Not a structured report: a crash trace or runtime output. */
+  }
+  return { error: text || fallback, reasonCode: null };
+}
+
+/**
+ * Journals a failed dashboard action as `dashboard.action_failed` on its task or planning
+ * conversation, so the failure survives a dashboard restart. The message is a bounded plain-text
+ * excerpt. Journaling is best effort: the in-memory job error still reports it.
+ */
+function journalFailure(store: Store, id: string, work: WorkerAction, failure: WorkerFailure, exitCode: number | null) {
+  const event = {
+    action: work.action,
+    note: outputExcerpt(failure.error, serverLimits.workerFailureCharacters),
+    reasonCode: failure.reasonCode,
+    exitCode,
+  };
+  try {
+    store.transaction(() => {
+      if (kickoffWorkerActions.includes(work.action)) store.appendSession(id, 'dashboard.action_failed', event);
+      else store.append(id, store.get<Task>(id).version, 'dashboard.action_failed', event);
+    });
+  } catch {
+    /* The record may be gone or the journal busy; the job error below is still shown. */
+  }
+}
+
+/** Drops settled jobs older than the retention period; their failures are already in the journal. */
+function pruneJobs(jobs: Map<string, Job>, now = Date.now()): void {
+  for (const [id, job] of jobs)
+    if (!job.running && job.settledAt && now - Date.parse(job.settledAt) > serverLimits.settledJobRetentionMs)
+      jobs.delete(id);
 }
 export interface UiOptions {
   db: string;
@@ -282,6 +331,50 @@ function securityHeaders(response: ServerResponse): void {
   );
 }
 
+/** Starts one action worker for `id` and tracks it in `jobs`; a failure is journaled once. */
+function launchWorker(store: Store, jobs: Map<string, Job>, id: string, work: WorkerAction): void {
+  if (jobs.get(id)?.running) throw new HttpError(409, 'An action is already running for this item');
+  pruneJobs(jobs);
+  const job: Job = {
+    running: true,
+    error: null,
+    action: work.action,
+    startedAt: new Date().toISOString(),
+    settledAt: null,
+  };
+  jobs.set(id, job);
+  let journaled = false;
+  const failed = (failure: WorkerFailure, exitCode: number | null) => {
+    job.error = failure.error;
+    if (journaled) return;
+    journaled = true;
+    journalFailure(store, id, work, failure, exitCode);
+  };
+  const child = spawn(process.execPath, [fileURLToPath(new URL('./ui-worker.js', import.meta.url))], {
+    windowsHide: true,
+    stdio: ['pipe', 'ignore', 'pipe'],
+  });
+  let output = '';
+  child.stderr.on('data', (chunk: Buffer) => {
+    output = (output + chunk.toString('utf8')).slice(-serverLimits.workerErrorCharacters);
+  });
+  child.on('error', error => {
+    job.running = false;
+    job.settledAt ??= new Date().toISOString();
+    if (!child.pid) failed({ error: error.message, reasonCode: null }, null);
+    else job.error = error.message;
+  });
+  child.stdin.on('error', error => {
+    job.error = error.message;
+  });
+  child.on('close', code => {
+    job.running = false;
+    job.settledAt = new Date().toISOString();
+    if (code !== 0) failed(workerFailure(output, job.error ?? `Worker exited (${code})`), code);
+  });
+  child.stdin.end(JSON.stringify({ db: store.path, id, ...work, settings: currentSettings() }));
+}
+
 /** Loopback dashboard. Workers use the same durable controller as the CLI. */
 export async function startUi(options: UiOptions) {
   const store = new Store(options.db),
@@ -291,31 +384,7 @@ export async function startUi(options: UiOptions) {
     jobs = new Map<string, Job>();
   let cachedState: { revision: string; value: { tasks: unknown; kickoffs: unknown } } | null = null;
   let origin = '';
-  const launch = (id: string, work: WorkerAction) => {
-    if (jobs.get(id)?.running) throw new HttpError(409, 'An action is already running for this item');
-    const job: Job = { running: true, error: null, action: work.action, startedAt: new Date().toISOString() };
-    jobs.set(id, job);
-    const child = spawn(process.execPath, [fileURLToPath(new URL('./ui-worker.js', import.meta.url))], {
-      windowsHide: true,
-      stdio: ['pipe', 'ignore', 'pipe'],
-    });
-    let output = '';
-    child.stderr.on('data', (chunk: Buffer) => {
-      output = (output + chunk.toString('utf8')).slice(-serverLimits.workerErrorCharacters);
-    });
-    child.on('error', error => {
-      job.running = false;
-      job.error = error.message;
-    });
-    child.stdin.on('error', error => {
-      job.error = error.message;
-    });
-    child.on('close', code => {
-      job.running = false;
-      if (code !== 0) job.error = output.trim() || job.error || `Worker exited (${code})`;
-    });
-    child.stdin.end(JSON.stringify({ db: store.path, id, ...work, settings: currentSettings() }));
-  };
+  const launch = (id: string, work: WorkerAction) => launchWorker(store, jobs, id, work);
   const dashboard: Dashboard = { store, tasks, kickoffs, jobs, cachedViews: new Map(), launch };
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     securityHeaders(response);
@@ -344,6 +413,7 @@ export async function startUi(options: UiOptions) {
     const route = groups ? routeSchema.parse(groups) : null;
     if (request.method === 'GET') {
       if (path === '/api/state') {
+        pruneJobs(jobs);
         const revision = store.revision();
         if (cachedState?.revision !== revision)
           cachedState = { revision, value: { tasks: store.guidedSummaries(), kickoffs: kickoffs.list() } };

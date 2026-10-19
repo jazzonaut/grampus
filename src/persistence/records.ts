@@ -48,7 +48,24 @@ export const sessionSchema = z.object({
 /** An agent conversation: provider identity, phase, last validated reply and the active run's owners. */
 export type Session = z.infer<typeof sessionSchema>;
 
+/**
+ * Why an execution exists, fixed when it is created so usage can be attributed without inference:
+ * the first implementation of a slice, a later implementation attempt in the same slice (`repair`,
+ * covering automatic repairs and explicit retries), an independent review, or a fresh arbitration.
+ */
+export const executionStageSchema = z.enum(['implementation', 'repair', 'review', 'arbitration']);
+export type ExecutionStage = z.infer<typeof executionStageSchema>;
+
+/**
+ * The workflow stage one provider turn belongs to, recorded on its `turn.requested` session event.
+ * Turns of an execution take its {@link ExecutionStage}, except edit quality passes, which run in the
+ * implementation conversation but are their own stage; turns outside any execution are planning.
+ */
+export const turnStageSchema = z.enum(['planning', 'quality_pass', ...executionStageSchema.options]);
+export type TurnStage = z.infer<typeof turnStageSchema>;
+
 export const executionSchema = z.object({
+  stage: executionStageSchema,
   sliceIndex: z.number(),
   id: z.string(),
   taskId: z.string(),

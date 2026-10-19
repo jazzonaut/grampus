@@ -80,6 +80,8 @@ public static class GrampusCheck {
         var process = new ProcessInfo(); bool initialized = false, confirmed = false;
         string reason = "failed"; uint exitCode = 1;
         string supervisorStartedAt = null;
+        // Measured from tool start; reported so a timeout records how long the tool actually ran.
+        Stopwatch clock = null; string elapsed = "null";
         try {
             using (var owner = Process.GetProcessById(supervisorPid))
                 supervisorStartedAt = owner.StartTime.ToFileTimeUtc().ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -109,7 +111,7 @@ public static class GrampusCheck {
             if (stop) { reason = "interrupted"; confirmed = true; return; }
             Check(CreateProcessW(file, command, IntPtr.Zero, IntPtr.Zero, true, 0x08080000, IntPtr.Zero, cwd, ref startup, out process));
             Emit("{\"type\":\"started\",\"pid\":" + process.Pid + "}");
-            var clock = Stopwatch.StartNew();
+            clock = Stopwatch.StartNew();
             while (true) {
                 if (stop) { reason = "interrupted"; break; }
                 if (timeoutMs > 0 && clock.ElapsedMilliseconds >= timeoutMs) { reason = "timed_out"; break; }
@@ -122,6 +124,7 @@ public static class GrampusCheck {
             }
         } catch { reason = "supervisor_error"; }
         finally {
+            if (clock != null) elapsed = clock.ElapsedMilliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
             try {
                 if (job != IntPtr.Zero) {
                     if (Active(job) != 0) Check(TerminateJobObject(job, 1));
@@ -135,7 +138,8 @@ public static class GrampusCheck {
             if (initialized) DeleteProcThreadAttributeList(list);
             foreach (var memory in new [] { list, jobs, handles }) if (memory != IntPtr.Zero) Marshal.FreeHGlobal(memory);
             foreach (var handle in new [] { input, output, error, job }) if (handle != IntPtr.Zero && handle != new IntPtr(-1)) CloseHandle(handle);
-            string result = "\"reason\":\"" + reason + "\",\"exitCode\":" + exitCode + ",\"exitConfirmed\":" + (confirmed ? "true" : "false");
+            string result = "\"reason\":\"" + reason + "\",\"exitCode\":" + exitCode + ",\"exitConfirmed\":" + (confirmed ? "true" : "false")
+                + ",\"elapsedMs\":" + elapsed;
             // Persist before touching the controller pipe: it may already be gone.
             // Names and tokens are controller-generated UUIDs, never tool output.
             if (!String.IsNullOrEmpty(receiptPath)) {

@@ -16,6 +16,7 @@ import { explorationSummary } from '../repository/repository-tools.js';
 import { integrationSummary } from '../providers/integrations.js';
 import { taskUsage, usageLines } from '../reporting/task-usage.js';
 import { agentProgress } from './planner-progress.js';
+import { guidedSnapshot } from './guided/snapshots.js';
 
 export function guidedTaskView(store: Store, id: string) {
   return store.transaction(() => {
@@ -212,9 +213,10 @@ export function renderGuidedTask(store: Store, id: string, details = false): str
   for (const check of view.checks)
     lines.push(`${check.purpose === 'preparation' ? 'Preparation' : 'Check'}: ${check.spec.name} — ${check.phase}`);
   if (details) {
-    for (const instruction of state.snapshot?.instructions ?? [])
+    const snapshot = guidedSnapshot(store, state);
+    for (const instruction of snapshot?.instructions ?? [])
       lines.push('', `Instructions: ${instruction.path}`, instruction.content);
-    for (const diff of state.snapshot?.diff ?? [])
+    for (const diff of snapshot?.diff ?? [])
       lines.push(
         '',
         `Change: ${diff.path}`,

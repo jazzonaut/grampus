@@ -1,48 +1,45 @@
-import type { Store } from '../persistence/store.js';
-import { Sessions, runSession } from '../execution/sessions.js';
-import type { Connector, Provider } from '../providers/types.js';
+// Owns the provisional name of a planning conversation: a deterministic short title derived from the
+// request, shown until the planner's plan supplies `brief.title`. No provider call is spent on naming.
+import { serverLimits } from '../config/limits.js';
 
-/** Invalid model output leaves the description fallback intact. */
-export function parseTaskTitle(value: string): string | null {
-  const title = value.trim();
-  if (!title || [...title].length > 70 || /[\x00-\x1f\x7f<>`{}\[\]]/.test(title)) return null;
-  return title;
+/** Markdown and markup delimiters that never appear in a displayed title. */
+const markupCharacters = '<>`{}[]';
+const firstPrintable = 0x20;
+const deleteCharacter = 0x7f;
+/** Leading Markdown heading, list or quote markers. */
+const leadingMarkers = /^(?:[#>*+-]+\s+|\d+[.)]\s+)+/;
+/** The end of the first sentence: terminal punctuation followed by whitespace. */
+const sentenceEnd = /[.!?](?=\s)/;
+
+/** Replaces control characters and markup delimiters with spaces. */
+function plain(text: string): string {
+  return [...text]
+    .map(char => {
+      const code = char.charCodeAt(0);
+      return code < firstPrintable || code === deleteCharacter || markupCharacters.includes(char) ? ' ' : char;
+    })
+    .join('');
 }
 
-/** One independent, best-effort naming turn per planning conversation. */
-export async function generateTaskTitle(
-  store: Store,
-  id: string,
-  config: { provider: Provider; repo: string; request: string },
-  signal: AbortSignal,
-  connector?: Connector,
-): Promise<void> {
-  try {
-    signal.throwIfAborted();
-    const session = store.transaction(() => {
-      if (store.sessionEvents(id).some(event => event.type === 'kickoff.title_started')) return null;
-      const created = new Sessions(store).create(config.provider, config.repo);
-      store.appendSession(id, 'kickoff.title_started', { sessionId: created.id });
-      return created;
-    });
-    if (!session) return;
-    const result = await runSession(
-      store,
-      session.id,
-      `Name this task from its description:\n${JSON.stringify(config.request)}`,
-      {
-        purpose: 'title',
-        signal,
-      },
-      connector,
-    );
-    const title =
-      result.status === 'completed' && result.reply?.kind === 'message' ? parseTaskTitle(result.reply.text) : null;
-    if (title && !signal.aborted)
-      store.transaction(() => {
-        if (!new Sessions(store).get(id).deletedAt) store.appendSession(id, 'kickoff.title_generated', { title });
-      });
-  } catch {
-    // Naming must never fail or change the planner's conversation.
-  }
+/**
+ * A short title for a request before a plan exists: its first non-empty line, up to the end of the
+ * first sentence, without control characters or markup delimiters, with whitespace collapsed, and
+ * shortened at a word boundary to `serverLimits.provisionalTitleCharacters`. Returns `null` for a
+ * request with no usable text.
+ */
+export function requestTitle(request: string): string | null {
+  const line = request.split(/\r?\n/).find(item => plain(item).trim()) ?? '';
+  const end = sentenceEnd.exec(line);
+  const text = plain(end ? line.slice(0, end.index) : line)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(leadingMarkers, '')
+    .replace(/[.!?:;,]+$/, '');
+  if (!text) return null;
+  const limit = serverLimits.provisionalTitleCharacters;
+  const characters = [...text];
+  if (characters.length <= limit) return text;
+  const cut = characters.slice(0, limit - 1).join('');
+  const boundary = cut.lastIndexOf(' ');
+  return `${(boundary > 0 ? cut.slice(0, boundary) : cut).replace(/[\s.,;:!?-]+$/, '')}…`;
 }

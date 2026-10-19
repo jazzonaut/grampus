@@ -14,7 +14,7 @@ import { explorationSummary } from '../repository/repository-tools.js';
 import { integrationSummary } from '../providers/integrations.js';
 import { plannerProgress } from './planner-progress.js';
 import { normalizeReferences, suggestReferenceFolders, type ReferenceFolder } from '../repository/reference-folders.js';
-import { generateTaskTitle } from './task-title.js';
+import { requestTitle } from './task-title.js';
 import { planLimits } from '../config/limits.js';
 import { plannerPrompt } from './prompts/planner.js';
 
@@ -86,12 +86,10 @@ function needsContext(events: { sequence: number; type: string; data: unknown }[
 /**
  * The guided plan in a planner reply. Paths, pinned base, providers, context, references and quality
  * passes are chosen by the user and controller, so the reply's values for them are replaced before
- * normalisation (quality passes by the configured default, changed through a revision); the
- * generated title, if any, replaces the planner's.
+ * normalisation (quality passes by the configured default, changed through a revision).
  */
-function planFromReply(reply: string, config: Kickoff, title: string | undefined): GuidedPlan {
+function planFromReply(reply: string, config: Kickoff): GuidedPlan {
   const raw = JSON.parse(reply) as PlannerReplyPlan;
-  if (title && raw.brief && typeof raw.brief === 'object') (raw.brief as { title?: unknown }).title = title;
   raw.workspace = {
     repo: config.repo,
     base: config.base,
@@ -196,10 +194,10 @@ export class Kickoffs {
           all.findIndex(item => item.path === suggestion.path) === index &&
           !config.references.some(item => item.path === suggestion.path),
       );
+      // The latest proposed plan names the task, even once a newer turn supersedes it; before one
+      // exists, a short title from the request.
       const title =
-        last<{ title: string }>(events, 'kickoff.title_generated')?.title ??
-        (candidate?.data as { plan: GuidedPlan } | undefined)?.plan.brief.title ??
-        null;
+        (candidate?.data as { plan: GuidedPlan } | undefined)?.plan.brief.title ?? requestTitle(config.request);
       return {
         id,
         title,
@@ -306,11 +304,6 @@ export class Kickoffs {
   async send(id: string, message?: string, answers?: Record<string, string>, signal?: AbortSignal, expected?: string) {
     const { config, needsContext, request, boundary } = this.prepareTurn(id, message, answers, expected);
     const prompt = plannerPrompt({ config, needsContext, request });
-    const namingAbort = new AbortController();
-    const stopNaming = () => namingAbort.abort();
-    signal?.addEventListener('abort', stopNaming, { once: true });
-    if (signal?.aborted) stopNaming();
-    // Start the planner first so naming can never claim or delay its session.
     const planning = runSession(
       this.store,
       id,
@@ -322,7 +315,6 @@ export class Kickoffs {
       },
       this.connector,
     );
-    const naming = generateTaskTitle(this.store, id, config, namingAbort.signal, this.connector);
     try {
       const result = await planning;
       if (result.reply) this.store.appendSession(id, 'kickoff.message', { role: 'assistant', text: result.reply.text });
@@ -331,15 +323,10 @@ export class Kickoffs {
         throw new Error('Planner shutdown is unconfirmed; recover before continuing');
       if (result.reply?.kind !== 'question') {
         if (result.reply?.kind !== 'message') throw new Error('Planner must ask questions or supply a plan');
-        const title = last<{ title: string }>(this.store.sessionEvents(id), 'kickoff.title_generated')?.title;
-        this.recordCandidate(id, boundary, planFromReply(result.reply.text, config, title));
+        this.recordCandidate(id, boundary, planFromReply(result.reply.text, config));
       }
     } catch (error) {
       this.store.appendSession(id, 'kickoff.error', { error: error instanceof Error ? error.message : String(error) });
-    } finally {
-      stopNaming();
-      await naming;
-      signal?.removeEventListener('abort', stopNaming);
     }
     return this.view(id);
   }

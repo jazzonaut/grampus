@@ -20,6 +20,7 @@ export function validProcessStartTime(value: unknown): value is string {
 
 const pid = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const startTime = z.string().refine(validProcessStartTime, 'Invalid process creation time');
+const elapsedMs = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 
 export const supervisorMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('started'), pid }),
@@ -28,6 +29,8 @@ export const supervisorMessageSchema = z.discriminatedUnion('type', [
     reason: z.string(),
     exitCode: z.number().int(),
     exitConfirmed: z.boolean(),
+    /** Milliseconds from tool start to the end of supervision; null when the tool never started. */
+    elapsedMs: elapsedMs.nullable(),
   }),
 ]);
 export type SupervisorMessage = z.infer<typeof supervisorMessageSchema>;
@@ -59,6 +62,7 @@ export const completionReceiptSchema = z.object({
   toolPid: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
   exitCode: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
   reason: z.enum(receiptReasons),
+  elapsedMs: elapsedMs.nullable(),
 });
 export type CompletionReceipt = z.infer<typeof completionReceiptSchema>;
 

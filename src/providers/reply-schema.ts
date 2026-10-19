@@ -90,13 +90,18 @@ export type Reply = z.infer<typeof agentReplySchema>;
 
 const count = z.number().nullable();
 
-/** Cumulative usage of one provider session. Unknown values stay null; billed cost is never known locally. */
+/**
+ * Cumulative usage of one provider session. Unknown values stay null; billed cost is never known locally.
+ * `cachedInputTokens` counts prompt-cache reads and `cacheWriteInputTokens` prompt-cache writes (Claude's
+ * cache creation tokens, Codex's cache write tokens), each as the provider reports them.
+ */
 export const usageSchema = z.object({
   scope: z.literal('provider-session-cumulative'),
   complete: z.boolean().exactOptional(),
   inputTokens: count,
   outputTokens: count,
   cachedInputTokens: count,
+  cacheWriteInputTokens: count,
   estimatedCostUsd: count,
   billedCostUsd: z.null(),
 });

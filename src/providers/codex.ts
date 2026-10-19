@@ -35,7 +35,6 @@ import {
 } from './codex-protocol.js';
 import {
   instructions,
-  titleInstructions,
   replyOutputSchema,
   parseReply,
   subscriptionEnvironment,
@@ -105,22 +104,20 @@ async function mcpOverrides(rpc: RpcProcess, options: ConnectOptions): Promise<R
     const configured = withoutNulls(server);
     overrides[`mcp_servers.${name}`] = {
       ...(configured && typeof configured === 'object' ? configured : {}),
-      enabled: options.purpose !== 'title' && mcpServerSchema.parse(server).enabled !== false,
+      enabled: mcpServerSchema.parse(server).enabled !== false,
     };
   }
   return overrides;
 }
 
 function developerInstructions(options: ConnectOptions): string {
-  let text =
-    options.purpose === 'title'
-      ? titleInstructions
-      : options.editing
-        ? implementationInstructions(
-            'Use only apply_patch to update approved existing files, add explicitly authorized new files or delete explicitly authorized unchanged files, using their supplied contents. Deferred entries must be read with grampus_read_file before editing; null without deferred means absent. Parent directories must already exist. Deletion paths cannot be updated or recreated. Do not move files or delete directories. Each patch requires controller approval.',
-          )
-        : instructions;
-  if (options.purpose !== 'title') text += `\n${mcpInstructions}`;
+  let text = `${
+    options.editing
+      ? implementationInstructions(
+          'Use only apply_patch to update approved existing files, add explicitly authorized new files or delete explicitly authorized unchanged files, using their supplied contents. Deferred entries must be read with grampus_read_file before editing; null without deferred means absent. Parent directories must already exist. Deletion paths cannot be updated or recreated. Do not move files or delete directories. Each patch requires controller approval.',
+        )
+      : instructions
+  }\n${mcpInstructions}`;
   if (options.repository)
     text += `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}`;
   return text;
@@ -205,7 +202,7 @@ export async function connectCodex(options: ConnectOptions): Promise<AgentSessio
       type: 'session.connected',
       data: { providerSessionId: thread.thread.id, model: thread.model, auth: 'subscription' },
     });
-    if (options.purpose !== 'title') await reportIntegrations(rpc, thread.thread.id, options.emit);
+    await reportIntegrations(rpc, thread.thread.id, options.emit);
     options.signal.throwIfAborted();
     return new CodexSession(rpc, thread.thread.id, options.emit, options.editing, options.repository);
   } catch (error) {
@@ -427,6 +424,7 @@ export class CodexSession implements AgentSession {
       inputTokens: numeric(total?.inputTokens),
       outputTokens: numeric(total?.outputTokens),
       cachedInputTokens: numeric(total?.cachedInputTokens),
+      cacheWriteInputTokens: numeric(total?.cacheWriteInputTokens),
       estimatedCostUsd: null,
       billedCostUsd: null,
     };

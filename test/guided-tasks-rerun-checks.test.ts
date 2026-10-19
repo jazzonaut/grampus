@@ -8,7 +8,8 @@ import { guidedDecisionDigest } from '../src/orchestration/guided/keys.js';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import type { RepositoryCheck } from '../src/verification/checks.js';
 import type { Execution } from '../src/execution/execution-state.js';
-import { windows, fixture, slowValidation, counted } from './helpers/guided-tasks.js';
+import { readCheckLog } from '../src/verification/check-output.js';
+import { windows, fixture, slowValidation, slowValidationOutput, counted } from './helpers/guided-tasks.js';
 
 test(
   'rerun after a timeout runs a new check on the same artifact without a new attempt or agent turn',
@@ -25,6 +26,19 @@ test(
     const stopped = await tasks.run(task.id);
     assert.equal(stopped.status, 'blocked', stopped.note);
     assert.equal(stopped.stopReason?.code, 'CHECK_TIMEOUT');
+    assert.match(
+      stopped.stopReason?.message ?? '',
+      /^Validation 'Validation' exceeded its 1 s limit after \d+(\.\d)? s; partial output retained \(\d+ bytes\)\./,
+    );
+    const timedOut = f.store
+      .checks<RepositoryCheck>(stopped.executionId!)
+      .find(check => check.purpose === 'validation')!;
+    assert.ok((timedOut.result?.elapsedMs ?? 0) >= 1000, 'the supervisor measured the run up to its limit');
+    assert.match(
+      readCheckLog(timedOut, 'stdout').content,
+      new RegExp(slowValidationOutput),
+      'output printed before the kill is kept in the durable log',
+    );
     assert.equal(stopped.repairCycle.used, 0, 'a timeout never spends the repair allowance');
     assert.equal(turns(), 1);
     const attempt = f.store.get<any>(task.id).attempt.id;

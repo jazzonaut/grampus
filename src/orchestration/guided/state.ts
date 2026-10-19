@@ -3,11 +3,11 @@
 import type { Workspaces } from '../../repository/workspaces.js';
 import type { QualityAssessment } from '../../domain/quality-passes.js';
 import type { EditPolicy } from '../../execution/edit-policy.js';
-import type { RepositorySnapshot } from '../../repository/artifacts.js';
 import type { Connector } from '../../providers/types.js';
 import type { GuidedPlan } from '../../domain/guided-plan.js';
 import type { CheckProcessOptions, CheckProcessResult } from '../../process/check-process.js';
 import type { StopReason } from './stop-reasons.js';
+import type { SnapshotRef } from './snapshots.js';
 
 /** The ordered guided steps; `complete` is terminal and has no handler. */
 export type Stage =
@@ -132,7 +132,8 @@ export interface GuidedState {
   executionId: string | null;
   reviewId: string | null;
   validationId: string | null;
-  snapshot: RepositorySnapshot | null;
+  /** The current snapshot by reference; the content is in the `snapshots` table (`guidedSnapshot`). */
+  snapshot: SnapshotRef | null;
   policy: EditPolicy | null;
   owner: Owner | null;
   pending: Pending | null;
