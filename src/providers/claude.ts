@@ -17,6 +17,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { UnrecognizedMessages, boundedExcerpt, describeIssues, protocolDiagnostic } from '../process/boundary.js';
 import { claudeDeleteTool } from './claude-files.js';
+import { claudeExecutable } from './executables.js';
 import { claudeRepository, isRepositoryTool } from './claude-repository.js';
 import { explorationInstructions } from '../repository/repository-tools.js';
 import { allowMcpTool, isExternalMcpTool, mcpInstructions, projectMcpServers } from './integrations.js';
@@ -88,9 +89,10 @@ export function hasClaudeSubscription(account: ClaudeAccount): boolean {
   );
 }
 
-export async function connectClaude(options: ConnectOptions): Promise<AgentSession> {
+/** Connect a Claude session. `createQuery` is the SDK's `query`; replay tests substitute a recorded stream. */
+export async function connectClaude(options: ConnectOptions, createQuery: typeof query = query): Promise<AgentSession> {
   options.signal.throwIfAborted();
-  const session = new ClaudeSession(options);
+  const session = new ClaudeSession(options, createQuery);
   const abort = () => {
     void session.close().catch(() => {});
   };
@@ -157,6 +159,7 @@ export class ClaudeSession implements AgentSession {
           tools: [claudeDeleteTool(editing, options.emit, owned)],
         })
       : null;
+    const executable = claudeExecutable();
     this.query = createQuery({
       prompt: this.input,
       options: {
@@ -180,8 +183,10 @@ export class ClaudeSession implements AgentSession {
         canUseTool: this.canUseTool(owned),
         ...(options.providerSessionId ? { resume: options.providerSessionId } : { sessionId: this.sessionId }),
         ...(options.model ? { model: options.model } : {}),
-        ...(process.env.GRAMPUS_CLAUDE_COMMAND
-          ? { pathToClaudeCodeExecutable: process.env.GRAMPUS_CLAUDE_COMMAND }
+        // The same resolution doctor reports. An unresolved override is still passed, so the SDK fails on
+        // it rather than silently using the bundled executable; a missing bundled one is the SDK's error.
+        ...(executable.path || executable.source === 'environment'
+          ? { pathToClaudeCodeExecutable: executable.command }
           : {}),
         spawnClaudeCodeProcess: config => {
           const child = spawn(config.command, config.args, {
@@ -219,8 +224,18 @@ export class ClaudeSession implements AgentSession {
     };
   }
 
+  /** The account the started executable reports. A control request: it never sends a turn. */
+  async accountInfo(): Promise<ClaudeAccount> {
+    return parseClaudeMessage('accountInfo', claudeAccountSchema, await this.query.accountInfo());
+  }
+
+  /** The MCP servers the executable loaded for this session, by name and status. */
+  async mcpStatus(): Promise<{ name: string; status: string }[]> {
+    return claudeMcpStatusSchema.parse(await this.query.mcpServerStatus());
+  }
+
   async authenticate(): Promise<void> {
-    const account = parseClaudeMessage('accountInfo', claudeAccountSchema, await this.query.accountInfo());
+    const account = await this.accountInfo();
     if (!hasClaudeSubscription(account)) {
       throw new Error('Claude requires an existing first-party Claude subscription login');
     }

@@ -178,6 +178,7 @@ clear error after a read-only inspection, so the file is never modified. The def
 | `checks` | Command, before/after snapshots, process identities and result |
 | `implementations` | Edit policy, dispatch boundary, process proof and snapshots per editing turn |
 | `deliveries` | Checked snapshot, commit request, dispatch boundary and accepted commit |
+| `health` | The latest integration health result (one row); informational, never evidence |
 
 State is loaded from snapshots rather than rebuilt from events. History is append-only through the
 application interface. Deletion writes a tombstone (`orchestration/task-lifecycle.ts`); it never removes
@@ -222,10 +223,11 @@ Session state, task outcome, journal events and lease release settle in one tran
 the exact run id. There is no expiry or heartbeat takeover. Leases coordinate Grampus processes
 sharing one journal; they do not lock out editors or other tools.
 
-A session (`execution/sessions.ts`) records its provider, provider conversation id, model, phase and the
-active run's controller and provider process identities. Each `turn.requested` event names the turn's
-stage: its execution's stage, `quality_pass` for an edit quality pass in the implementation
-conversation, or `planning` for a turn outside any execution. Each turn starts an owned provider process,
+A session (`execution/sessions.ts`) records its provider, the provider runtime it was created for
+(executable path, reported version and, for Claude, the pinned SDK version), provider conversation id,
+model, phase and the active run's controller and provider process identities. Each `turn.requested`
+event names the turn's stage: its execution's stage, `quality_pass` for an edit quality pass in the
+implementation conversation, or `planning` for a turn outside any execution. Each turn starts an owned provider process,
 runs one turn and waits for exit. Within a slice, retries create new execution and evidence records
 but may resume the same provider conversation; `execution/session-context.ts` starts a fresh one at the
 configured turn or context-size threshold, or when the Codex toolset changed. Implementation and
@@ -239,15 +241,23 @@ assessment per requested quality lens (`lenses`). Malformed replies fail the tur
 is pinned in `providers/reply-schema.ts`; see [External boundaries](#external-boundaries) for how
 provider protocol messages are validated.
 
-- **Codex** (`providers/codex.ts`) runs the installed `codex app-server` over stdio JSON-RPC
-  (`process/process.ts`), forcing ChatGPT login and refusing other authentication. Threads start or resume
+- **Codex** (`providers/codex.ts`) runs `codex app-server` over stdio JSON-RPC
+  (`process/process.ts`), forcing ChatGPT login and refusing other authentication. The executable is
+  the native `codex` on PATH or `GRAMPUS_CODEX_COMMAND`, resolved by `providers/executables.ts`; the
+  working directory is never searched and npm script shims are never run. When the first `codex` on PATH
+  is an npm shim (`codex.cmd`), the native `codex.exe` its package vendors for this architecture is used
+  (source `npm-vendored`), found by fixed paths under the shim's `node_modules/@openai`: the platform
+  package nested in `@openai/codex` or flattened beside it, binary in `vendor/<target>/bin` or
+  `vendor/<target>/codex`; npm's `.codex-XXXX` staging folders are ignored. Threads start or resume
   with `approvalPolicy: untrusted` and a read-only sandbox, and the controller verifies both before
   inference. Repository tools are app-server dynamic tools. File edits arrive as
   `item/fileChange/requestApproval`; the controller checks each patch against the active turn and
   the exact edit policy, journals the decision and grants single-use approval. Command execution
   requests are declined. Codex is not version-pinned.
 - **Claude** (`providers/claude.ts`) uses the pinned `@anthropic-ai/claude-agent-sdk` and its bundled
-  executable, unless `GRAMPUS_CLAUDE_COMMAND` overrides it. It requires a first-party subscription
+  executable, unless `GRAMPUS_CLAUDE_COMMAND` overrides it. `providers/executables.ts` resolves the
+  bundled executable from the SDK's platform package the way the SDK does, and the adapter passes that
+  exact path to the SDK, so `doctor` reports the program a turn starts. It requires a first-party subscription
   and no API key source. Editing turns get native `Read`, `Edit` and `Write`, which a `PreToolUse`
   hook and permission callback restrict to authorized paths, plus the repository MCP server
   (`providers/claude-repository.ts`) and, when deletions are approved, an in-process delete tool
@@ -350,7 +360,10 @@ workflow engine.
   and, for a typed stop, its reason code as a JSON line on stderr; the server journals it as
   `dashboard.action_failed` (action, bounded plain-text note, reason code, exit code) on the task or
   planning conversation, so the failure survives a restart. Settled jobs are dropped from the
-  in-memory job list after five minutes (`serverLimits.settledJobRetentionMs`). Polling responses are cached by journal
+  in-memory job list after five minutes (`serverLimits.settledJobRetentionMs`).
+- `GET /api/health` returns the stored [health](#health-and-stalls) with version warnings;
+  `?refresh=1` runs the checks first. `/api/state` carries a compact copy (no executable paths) and
+  each task summary, like each task poll, carries `stalled` (null or `{ since, lastActivityAt, owner }`). Polling responses are cached by journal
   revision and exclude large snapshots (`server/task-poll.ts`).
 - Every route parses its body with its own schema (`server/api-schemas.ts`); unknown fields are ignored
   because the browser posts whole forms. Failures map to statuses by error class
@@ -375,6 +388,7 @@ fields, not values, and are bounded.
 | JSON-RPC envelope | `process/process.ts` | The transport fails |
 | Supervisor output, check host request, completion receipts, process identity | `process/supervisor-protocol.ts` | Supervisor protocol failure (`supervisor_lost`), refused receipt, or an unknown process observation |
 | Worker request and result files | `execution/worker-files.ts` | The worker stops before any provider or Git work; a bad result is the run's error |
+| Stored integration health | `health/health-record.ts` | `journal-record` error naming the `health` table |
 | Journal records owned by the execution layer | `persistence/records.ts` | `journal-record` error naming the table. Records are validated in place so their stored bytes, which fences compare, are unchanged. Task and guided state records are validated by domain and orchestration |
 | Orca CLI JSON | `repository/orca-protocol.ts` | `orca-output` error naming the command |
 | Git plumbing output | `repository/git-output.ts` | `git-output` error |
@@ -444,11 +458,51 @@ first `guided.approved`: `guided.answers_supplied`, `guided.scope_authorized`,
 Continuing a stopped task with `task-run` and low-level CLI commands are not counted. Unknown values
 stay null and never count as zero; a total that misses some turn's measurement is marked partial.
 
+## Health and stalls
+
+Health is observation, not evidence: nothing in the workflow reads it to pass a gate, and the adapters
+still refuse what they cannot use when a turn starts.
+
+- **What runs is what is checked.** `providers/executables.ts` resolves the Codex and Claude programs
+  for the adapters and for `doctor` alike. `doctor` (`health/doctor.ts`) starts the Codex app-server
+  with the adapter's own arguments and environment and runs the adapter's handshake (`initialize` with
+  `experimentalApi`, `account/read`, then `mcpServerStatus/list` without a thread); for Claude it
+  creates a real `ClaudeSession` with the adapter's options and asks only control requests
+  (`accountInfo`, `mcpServerStatus`). No thread or turn is ever started, so inference is always
+  `untested`. Git, Node (`node:sqlite`, engine version), Windows PowerShell with the supervisor files,
+  and Orca (`worktree current` only with `--orca`) are checked too.
+- **Typed, stored result.** `health/health-record.ts` pins the report: per integration a status, the
+  executable, version, SDK version and fingerprint, and capability rows (`executable`, `version`,
+  `auth`, `handshake`, `mcp`, `inference`, `sqlite`, `supervisor`) with a sanitised, bounded detail.
+  Statuses are `healthy`, `failed`, `untested`, `not_configured`, `auth_unavailable` and
+  `temporarily_unavailable`; an integration takes its worst tested row. The latest report is the
+  single row of the `health` table, written by `grampus doctor`, by the dashboard at start when the
+  stored result is older than `healthCheckIntervalMs`, by a dashboard run worker before a guided run
+  under the same rule, and by **Check again** (`GET /api/health?refresh=1`).
+- **Version change warning.** Each session records the provider runtime it was created for. The
+  health view (`health/health.ts`) compares the current Codex version, Claude version and Agent SDK
+  version with the latest session of each provider on the task of the most recent accepted delivery,
+  and warns, for example, "Codex changed from X to Y since the last successful delivery; capabilities
+  are untested on this version". It never blocks: treat it as a prompt to run a small task first and
+  to re-record the protocol fixtures if the provider changed. Delivering on the new version clears it.
+- **Stalls.** Guided turns have no deadline. The dashboard server runs `health/stalls.ts` every
+  `stallLimits.scanIntervalMs`: a running session or check of a guided task whose own journal (any
+  session event, or any execution event of a check) and, for a check, its output logs have been silent
+  for `stallWarningMs` is shown as `stalled` on the task summary and poll, and one
+  `guided.stall_detected` task event is appended per silence (it names the activity it measured from,
+  so a rescan or restart does not repeat it). Nothing is stopped, interrupted or recovered; the user
+  decides with the existing stop control.
+- **Protocol drift canary.** `test/fixtures/protocol/` holds a real, sanitised Codex handshake capture,
+  a constructed Codex conversation turn and a constructed Claude SDK turn typed against the pinned SDK.
+  `test/protocol-replay.test.ts` replays them through the real adapters (`connectCodex` with a
+  replaying app-server, `connectClaude` with a recorded query) and asserts the typed events and reply.
+  Re-record a fixture when a provider changes; a failing replay names the message that drifted.
+
 ## Limits
 
 - Windows only. macOS and Linux supervision and installers are **Planned**.
 - One guided task at a time per journal. A small parallel limit is **Planned**.
-- Health records and a server-side view model for the dashboard are **Planned** ([PLAN.md](PLAN.md)).
+- A server-side view model for the dashboard is **Planned** ([PLAN.md](PLAN.md)).
 - No background scheduler, retention cleanup, push or pull request delivery.
 
 ## Module map
@@ -493,6 +547,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `codex.ts`, `codex-protocol.ts` | Codex app-server threads, turns, approvals and dynamic tools; the pinned app-server protocol |
 | | `claude.ts`, `claude-protocol.ts`, `claude-repository.ts`, `claude-files.ts` | Claude SDK sessions and the validated SDK fields, repository MCP server, scoped delete tool |
 | | `integrations.ts` | MCP carry-over into worktrees |
+| | `executables.ts` | The Codex and Claude programs the adapters and `doctor` run, and the provider runtime recorded on sessions |
 | `repository/` | `workspaces.ts`, `orca.ts`, `orca-protocol.ts` | Git and Orca worktree lifecycle and identity; the pinned Orca CLI JSON |
 | | `artifacts.ts`, `snapshot-schema.ts`, `repository-evidence.ts` | Snapshots, artifact digests, instructions and review context |
 | | `git-output.ts` | Parsers for the Git plumbing output that snapshots and delivery read |
@@ -505,7 +560,9 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `native/check.cs`, `native/check.ps1`, `native/process.ps1` | Job Object helper and process identity queries |
 | `verification/` | `checks.ts`, `check-evidence.ts`, `check-output.ts`, `check-recovery.ts` | Checks and submission, check feedback, log paging, receipts |
 | `reporting/` | `report.ts`, `task-usage.ts` | Markdown report; per-task usage, per-stage counters and interventions |
-| `health/` | `doctor.ts` | Readiness checks |
+| `health/` | `doctor.ts` | Inference-free checks of every integration, as a typed report |
+| | `health.ts`, `health-record.ts` | Stored health, staleness, the compact view and version change warnings; the pinned health record |
+| | `stalls.ts` | Stall detection for running guided sessions and checks |
 | `server/` | `ui-server.ts`, `ui-worker.ts` | Loopback dashboard server and action workers |
 | | `api-schemas.ts`, `errors.ts`, `task-poll.ts` | Request body and worker request schemas, error-to-status mapping, the compact task poll |
 | `ui/` | `index.html`, `app.js`, `app.css`, `markdown.js`, `favicon.svg` | Browser client, served as static files |

@@ -100,7 +100,7 @@ function nav() {
   const items = state.tasks
     .map(
       task =>
-        `<button class="navitem ${selected === task.id ? 'selected' : ''}" data-task="${esc(task.id)}"><span class="dot ${esc(task.status)}"></span>${esc(task.title)}<small>${esc(label(task.status))}</small></button>`,
+        `<button class="navitem ${selected === task.id ? 'selected' : ''}" data-task="${esc(task.id)}"><span class="dot ${esc(task.status)}"></span>${esc(task.title)}<small>${esc(label(task.status))}</small>${stallBadge(task.stalled)}</button>`,
     )
     .join('');
   const kickoffs = state.kickoffs
@@ -112,6 +112,46 @@ function nav() {
     .join('');
   const info = state.application;
   return `<aside class="sidebar"><div class="brand"><img class="mark" src="/favicon.svg" width="31" height="31" alt="">grampus</div><button class="new" data-action="new">＋ New task</button><div class="eyebrow">Tasks</div>${items || '<p class="empty">Your tasks will appear here.</p>'}${kickoffs ? `<div class="eyebrow">Planning</div>${kickoffs}` : ''}<footer>WINDOWS ALPHA${info ? `<br>v${esc(info.version)} · ${esc(info.channel)}${info.build ? `<br><span title="${esc(info.build.builtAt)}">Build ${esc(info.build.id)}</span>` : ''}` : ''}<br>Local work. Independent review.<br>Your journal survives restarts.</footer></aside>`;
+}
+const healthNames = {
+  healthy: 'Healthy',
+  failed: 'Failed',
+  untested: 'Not tested',
+  not_configured: 'Not configured',
+  auth_unavailable: 'Sign-in needed',
+  temporarily_unavailable: 'Temporarily unavailable',
+};
+const minutesSince = since => Math.max(0, Math.floor((Date.now() - Date.parse(since)) / 60000)) || 0;
+// Silence is only surfaced; the user decides whether to stop the task.
+const stallBadge = stalled =>
+  stalled
+    ? `<span class="badge stalled" title="Last activity ${esc(stalled.lastActivityAt)}">No activity for ${minutesSince(stalled.lastActivityAt)} min</span>`
+    : '';
+function stallNotice(stalled) {
+  if (!stalled) return '';
+  const name = stalled.owner.label.charAt(0).toUpperCase() + stalled.owner.label.slice(1);
+  const owner = stalled.owner.kind === 'check' ? `check ${stalled.owner.label}` : `${name} session`;
+  return notice(
+    `No activity from the ${owner} for ${minutesSince(stalled.lastActivityAt)} min. Nothing has been stopped: wait if this step is slow, or choose Request stop if it is hung.`,
+  );
+}
+function healthIndicator(health = state.health) {
+  if (!health) return '';
+  const title =
+    health.status === 'unknown'
+      ? 'Integrations not checked yet'
+      : health.status === 'healthy'
+        ? 'Integrations healthy'
+        : 'Integrations need attention';
+  const capability = item =>
+    `<li title="${esc(item.detail)}">${esc(item.name)}: ${esc(healthNames[item.status] || item.status)}${['healthy', 'untested'].includes(item.status) ? '' : ` · ${esc(item.detail)}`}</li>`;
+  const rows = health.integrations
+    .map(
+      item =>
+        `<li><b>${esc(item.id)}</b> <span class="health-status ${esc(item.status)}">${esc(healthNames[item.status] || item.status)}</span>${item.version ? ` <code>${esc(item.version)}</code>` : ''}<ul>${item.capabilities.map(capability).join('')}</ul></li>`,
+    )
+    .join('');
+  return `<details class="health ${esc(health.status)}"><summary>${esc(title)}</summary><div class="health-details">${health.warnings.map(warning => notice(warning)).join('')}${health.checkedAt ? `<p class="hint">Checked ${esc(elapsedTime(health.checkedAt))} ago${health.stale ? ' · due for a new check' : ''}</p>` : ''}${rows ? `<ul class="health-list">${rows}</ul>` : ''}${button('health-refresh', 'Check again')}</div></details>`;
 }
 function welcome() {
   return `<div class="welcome"><div class="eyebrow">Your local coding workspace</div><h1>A clear brief.<br>A checked, reviewed change.</h1><p class="lead muted">Describe what you want to change. Grampus helps clarify the details, prepares a plan, and guides the work through to a local commit.</p><div class="actions">${button('new', 'Start a task →', 'primary')}</div><div class="intro-grid"><section class="card"><span class="eyebrow">01 / Plan</span><b>Agree on the outcome</b><p>Discuss the task and review the files, checks and examples before approving.</p></section><section class="card"><span class="eyebrow">02 / Work</span><b>Keep the evidence</b><p>Follow implementation, quality passes, independent review and acceptance in one place.</p></section><section class="card"><span class="eyebrow">03 / Deliver</span><b>Stay in control</b><p>Answer questions, request a stop or recover interrupted work. Delivery stays local.</p></section></div></div>`;
@@ -520,7 +560,7 @@ function taskPage() {
         `<div class="step ${s.status === 'complete' || current > stageOrder.indexOf(stage) ? 'done' : current === stageOrder.indexOf(stage) ? 'active' : ''}">${name}</div>`,
     )
     .join('');
-  return `<div class="eyebrow">Task / Slice ${s.sliceIndex + 1} of ${s.plan.slices.length}</div><h1>${esc(view.task.brief.title)}</h1>${badge(s.status)}<div class="steps" aria-label="Task progress">${steps}</div>${timelineCard(view)}<div class="columns"><div><section class="card focus"><h2>${esc(label(s.status))}</h2>${s.note ? `<div class="muted">${markdown(humanNote(s.note))}</div>` : ''}${notice(state.jobs[selected]?.error, true)}${taskAction(view)}</section>${explorationCard(view.exploration)}${s.status === 'draft' ? planCard(s.plan) : `<section class="card"><details><summary>Approved outcome and execution plan</summary>${planCard(s.plan)}</details></section>`}${s.status === 'awaiting_scope' ? `<section class="card"><h2>Inspect the file authorization</h2>${code(JSON.stringify(s.policy ? { files: s.policy.files, create: s.policy.create, delete: s.policy.delete } : s.plan.slices[s.sliceIndex].scope, null, 2))}<h3>Repository instructions</h3>${s.snapshot.instructions.length ? s.snapshot.instructions.map(item => `<details open><summary>${esc(item.path)}</summary>${code(item.content)}</details>`).join('') : '<p class="muted">No repository instructions were captured.</p>'}<h3>Files in the retained snapshot</h3>${view.scopeFiles.map(file => `<details ${s.policy?.files.includes(file.path) || s.policy?.delete?.includes(file.path) ? 'open' : ''}><summary>${esc(file.path)}</summary>${code(file.content ?? '(absent)')}</details>`).join('')}</section>` : ''}${s.snapshot?.diff.length ? `<section class="card"><h2>Retained changes</h2>${s.snapshot.diff.map(diff => `<details><summary>${esc(diff.path)}</summary><div class="hint">Before · ${esc(diff.previousEncoding)}</div>${code(diff.previousContent ?? '(absent)')}<div class="hint">After · ${esc(diff.encoding)}</div>${code(diff.content ?? '(absent)')}</details>`).join('')}</section>` : ''}${view.findings.length ? `<section class="card"><h2>${view.carriedFindings ? 'Earlier review findings to address' : 'Independent review findings'}</h2>${view.findings.map(finding => `<h3>${esc(finding.severity)}</h3>${markdown(finding.description)}${code(finding.evidence)}`).join('')}</section>` : ''}${qualityResultsCard(view)}${view.checks.length ? `<section class="card"><h2>Preparation, checks and acceptance</h2>${view.checks.map(checkCard).join('')}</section>` : ''}<section class="card"><details><summary>Journal-derived report</summary><div class="markdown report" id="report-content">${loadedReport?.id === selected && loadedReport.key === expected(view) ? window.GrampusMarkdown.render(loadedReport.text) : 'Load or download the report when needed.'}</div>${button('view-report', 'Load report')}${button('report', 'Download Markdown')}</details></section></div><aside>${usageCard(view)}${revisionCard(view)}${managementCard(!!state.jobs[selected]?.running || !!s.owner || !!s.pending || s.status === 'recovery_required')}${referenceCard(view, false)}<section class="card"><h2>Workspace and delivery</h2><dl class="facts"><dt>Workspace</dt><dd>${esc(view.workspace?.path || s.plan.workspace.path || 'Not created yet')}</dd><dt>Implementer</dt><dd>${esc(s.plan.implementation.provider)}</dd><dt>Reviewer</dt><dd>${esc(s.plan.review.provider)}</dd><dt>Version</dt><dd>${s.version}</dd><dt>Delivery</dt><dd>Local only</dd></dl>${view.deliveries.map(delivery => `<div class="check"><b>${esc(delivery.phase)}</b><code>${esc(delivery.commit || delivery.result?.commit || delivery.id)}</code></div>`).join('')}</section>${integrationCard(view.integrations)}</aside></div>`;
+  return `<div class="eyebrow">Task / Slice ${s.sliceIndex + 1} of ${s.plan.slices.length}</div><h1>${esc(view.task.brief.title)}</h1>${badge(s.status)}<div class="steps" aria-label="Task progress">${steps}</div>${timelineCard(view)}<div class="columns"><div><section class="card focus"><h2>${esc(label(s.status))}</h2>${s.note ? `<div class="muted">${markdown(humanNote(s.note))}</div>` : ''}${notice(state.jobs[selected]?.error, true)}${stallNotice(view.stalled)}${taskAction(view)}</section>${explorationCard(view.exploration)}${s.status === 'draft' ? planCard(s.plan) : `<section class="card"><details><summary>Approved outcome and execution plan</summary>${planCard(s.plan)}</details></section>`}${s.status === 'awaiting_scope' ? `<section class="card"><h2>Inspect the file authorization</h2>${code(JSON.stringify(s.policy ? { files: s.policy.files, create: s.policy.create, delete: s.policy.delete } : s.plan.slices[s.sliceIndex].scope, null, 2))}<h3>Repository instructions</h3>${s.snapshot.instructions.length ? s.snapshot.instructions.map(item => `<details open><summary>${esc(item.path)}</summary>${code(item.content)}</details>`).join('') : '<p class="muted">No repository instructions were captured.</p>'}<h3>Files in the retained snapshot</h3>${view.scopeFiles.map(file => `<details ${s.policy?.files.includes(file.path) || s.policy?.delete?.includes(file.path) ? 'open' : ''}><summary>${esc(file.path)}</summary>${code(file.content ?? '(absent)')}</details>`).join('')}</section>` : ''}${s.snapshot?.diff.length ? `<section class="card"><h2>Retained changes</h2>${s.snapshot.diff.map(diff => `<details><summary>${esc(diff.path)}</summary><div class="hint">Before · ${esc(diff.previousEncoding)}</div>${code(diff.previousContent ?? '(absent)')}<div class="hint">After · ${esc(diff.encoding)}</div>${code(diff.content ?? '(absent)')}</details>`).join('')}</section>` : ''}${view.findings.length ? `<section class="card"><h2>${view.carriedFindings ? 'Earlier review findings to address' : 'Independent review findings'}</h2>${view.findings.map(finding => `<h3>${esc(finding.severity)}</h3>${markdown(finding.description)}${code(finding.evidence)}`).join('')}</section>` : ''}${qualityResultsCard(view)}${view.checks.length ? `<section class="card"><h2>Preparation, checks and acceptance</h2>${view.checks.map(checkCard).join('')}</section>` : ''}<section class="card"><details><summary>Journal-derived report</summary><div class="markdown report" id="report-content">${loadedReport?.id === selected && loadedReport.key === expected(view) ? window.GrampusMarkdown.render(loadedReport.text) : 'Load or download the report when needed.'}</div>${button('view-report', 'Load report')}${button('report', 'Download Markdown')}</details></section></div><aside>${usageCard(view)}${revisionCard(view)}${managementCard(!!state.jobs[selected]?.running || !!s.owner || !!s.pending || s.status === 'recovery_required')}${referenceCard(view, false)}<section class="card"><h2>Workspace and delivery</h2><dl class="facts"><dt>Workspace</dt><dd>${esc(view.workspace?.path || s.plan.workspace.path || 'Not created yet')}</dd><dt>Implementer</dt><dd>${esc(s.plan.implementation.provider)}</dd><dt>Reviewer</dt><dd>${esc(s.plan.review.provider)}</dd><dt>Version</dt><dd>${s.version}</dd><dt>Delivery</dt><dd>Local only</dd></dl>${view.deliveries.map(delivery => `<div class="check"><b>${esc(delivery.phase)}</b><code>${esc(delivery.commit || delivery.result?.commit || delivery.id)}</code></div>`).join('')}</section>${integrationCard(view.integrations)}</aside></div>`;
 }
 function render() {
   sessionStorage.setItem('grampus-selection', JSON.stringify({ screen, selected }));
@@ -539,7 +579,7 @@ function render() {
   const focus = document.activeElement?.id,
     start = document.activeElement?.selectionStart,
     end = document.activeElement?.selectionEnd;
-  app.innerHTML = `<div class="shell">${nav()}<main class="main" id="main"><div class="topline"><span>Workspace / ${screen === 'new' ? 'New task' : screen === 'kickoff' ? 'Planning' : screen === 'task' ? 'Task' : 'Overview'}</span><span class="local">Local controller · Windows alpha</span></div>${screen === 'new' ? newTask() : screen === 'kickoff' ? kickoffPage() : screen === 'task' ? taskPage() : welcome()}</main></div>`;
+  app.innerHTML = `<div class="shell">${nav()}<main class="main" id="main"><div class="topline"><span>Workspace / ${screen === 'new' ? 'New task' : screen === 'kickoff' ? 'Planning' : screen === 'task' ? 'Task' : 'Overview'}</span><span class="topline-end">${healthIndicator()}<span class="local">Local controller · Windows alpha</span></span></div>${screen === 'new' ? newTask() : screen === 'kickoff' ? kickoffPage() : screen === 'task' ? taskPage() : welcome()}</main></div>`;
   renderedKey = nextRenderedKey;
   const timeline = document.getElementById('task-timeline-history');
   if (timeline && timelineExpandedId === selected) timeline.scrollTop = timelineScroll;
@@ -703,6 +743,13 @@ app.addEventListener('click', async event => {
         timelineExpandedId = id;
         render();
       }
+      return;
+    }
+    if (action === 'health-refresh') {
+      pending = true;
+      render();
+      // Runs the inference-free checks again; the next refresh shows the stored result.
+      await api('/api/health?refresh=1');
       return;
     }
     if (action === 'suggest-references') {

@@ -1,0 +1,61 @@
+{
+  "description": "A real codex app-server handshake: initialize with the experimental API capability, initialized and account/read. No thread or turn, so no inference. Captured with the arguments of codexAppServerArguments().",
+  "recordedWith": "codex-cli 0.163.0",
+  "recordedAt": "2026-10-19",
+  "sanitised": ["account email", "ChatGPT account id", "codex home path", "host name", "installation id"],
+  "exchange": [
+    {
+      "client": {
+        "method": "initialize",
+        "params": {
+          "clientInfo": { "name": "grampus", "title": "Grampus" },
+          "capabilities": { "experimentalApi": true }
+        }
+      }
+    },
+    {
+      "server": {
+        "result": {
+          "userAgent": "grampus/0.163.0 (Windows 10.0.26200; x86_64) unknown (grampus; 0.1.0)",
+          "codexHome": "<codex home>",
+          "platformFamily": "windows",
+          "platformOs": "windows"
+        }
+      }
+    },
+    { "client": { "method": "initialized", "params": {} } },
+    { "client": { "method": "account/read", "params": { "refreshToken": false } } },
+    {
+      "server": {
+        "method": "remoteControl/status/changed",
+        "params": {
+          "status": "disabled",
+          "serverName": "<host>",
+          "installationId": "<installation>",
+          "environmentId": null
+        },
+        "emittedAtMs": 1792371627949
+      }
+    },
+    {
+      "server": {
+        "method": "account/updated",
+        "params": { "authMode": "chatgpt", "planType": "self_serve_business_prolite" },
+        "emittedAtMs": 1792371629659
+      }
+    },
+    {
+      "server": {
+        "result": {
+          "account": { "type": "chatgpt", "email": "<email>", "planType": "self_serve_business_prolite" },
+          "requiresOpenaiAuth": true,
+          "workspaceRouting": {
+            "chatgptAccountId": "<account>",
+            "backendOrigin": "https://chatgpt.com",
+            "accountRoutingOverride": "NO_CONSTRAINT"
+          }
+        }
+      }
+    }
+  ]
+}

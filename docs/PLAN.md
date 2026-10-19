@@ -43,8 +43,8 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
 - **Central configuration.** Done 19 October 2026. Fixed limits are in `src/config/limits.ts` and
   operational settings in `src/config/settings.ts`; an optional validated `config.json` in the data
   directory overrides ports, usage polling, the default check timeout and the default workflow
-  policy ([CONFIGURATION.md](CONFIGURATION.md)). Concurrency and stall threshold keys are accepted
-  but **Planned**. The stricter compiler flags from the structure step landed at the same time.
+  policy ([CONFIGURATION.md](CONFIGURATION.md)). The concurrency key is accepted
+  but **Planned**; the stall threshold is used since step 3. The stricter compiler flags from the structure step landed at the same time.
 - **Configurable quality passes.** Done 19 October 2026. Declarative pass definitions (no code
   plugins) of two kinds: review lenses assessed in the independent review turn, and edit passes
   that run as scoped implementer turns after the first successful implementation and before
@@ -73,10 +73,16 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
    references with the snapshots in a content-addressed table, the runner check reads an
    indexed column, and failed dashboard actions are journaled as `dashboard.action_failed`.
    Typed stop reason codes landed with step 6.
-3. **Health and stalls.** Doctor checks the executables actually used, results are
-   stored and shown, provider versions recorded per session with a change warning,
-   stall detection that surfaces silence without killing anything, a recorded protocol
-   replay test.
+3. **Health and stalls.** Done 19 October 2026. `doctor` resolves the Codex and Claude
+   executables with the adapters' own functions (`providers/executables.ts`) and runs their
+   real handshakes without inference; the typed result is stored in the journal (`health`
+   table), refreshed when stale at dashboard start and before a dashboard run, and shown in a
+   header card and `/api/health`. Sessions record the provider executable, version and SDK
+   version; a version that differs from the last successful delivery is a warning, never a
+   block. Silent running turns and checks are surfaced after `stallWarningMs` with one
+   `guided.stall_detected` event per silence and nothing stopped. Recorded Codex and Claude
+   protocol fixtures are replayed through the adapters as a drift canary
+   ([ARCHITECTURE.md](ARCHITECTURE.md#health-and-stalls)).
 4. **Parallel tasks.** A small configurable limit (default 2) of guided tasks running
    at once, each in its own worktree.
 5. **Dashboard.** Server-side view model (status, next action, attention items with

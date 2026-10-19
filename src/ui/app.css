@@ -988,3 +988,68 @@ a {
   padding: 1rem;
   font-size: 0.8rem;
 }
+.topline-end {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.health {
+  position: relative;
+}
+.health > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.health > summary:before {
+  content: '';
+  height: 7px;
+  width: 7px;
+  border-radius: 50%;
+  background: #91a4b4;
+}
+.health.healthy > summary:before {
+  background: #348770;
+}
+.health.attention > summary:before {
+  background: var(--accent);
+}
+.health-details {
+  position: absolute;
+  right: 0;
+  z-index: 5;
+  width: min(420px, 90vw);
+  max-height: 70vh;
+  overflow: auto;
+  margin-top: 8px;
+  padding: 12px 15px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 6px 20px rgb(23 35 47 / 12%);
+  color: #1d2a35;
+}
+.health-list,
+.health-list ul {
+  margin: 6px 0;
+  padding-left: 16px;
+}
+.health-list > li {
+  margin-bottom: 6px;
+}
+.health-status.healthy {
+  color: #2b745b;
+}
+.health-status.failed,
+.health-status.auth_unavailable {
+  color: #982f2a;
+}
+.badge.stalled {
+  display: block;
+  width: fit-content;
+  margin-top: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+}

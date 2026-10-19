@@ -41,6 +41,7 @@ test('without config.json the built-in defaults apply and nothing is created', t
     defaultQualityPasses: ['simplification'],
     maxConcurrentTasks: 2,
     stallWarningMs: 600_000,
+    healthCheckIntervalMs: 600_000,
   });
   assert.deepEqual(settings, defaultSettings());
   assert.equal(existsSync(root), false);
@@ -84,6 +85,7 @@ test('invalid types, out-of-range values and malformed JSON are refused with the
     { defaultWorkflowPolicy: { repairRounds: 6 } },
     { defaultWorkflowPolicy: { mode: 'unattended' } },
     { maxConcurrentTasks: 0 },
+    { healthCheckIntervalMs: 999 },
     [],
     null,
   ]) {

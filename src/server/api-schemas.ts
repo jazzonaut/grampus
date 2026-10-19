@@ -88,7 +88,8 @@ export const taskWorkerActions = [
  * already validated settings and are parsed again by `parseSettings`.
  */
 export const workerRequestSchema = z.intersection(
-  z.object({ db: text, id: text, settings: z.unknown() }),
+  /** `health`: the dashboard runs real integration checks, so a run worker checks stale health first. */
+  z.object({ db: text, id: text, settings: z.unknown(), health: z.literal(true).exactOptional() }),
   workerActionSchema,
 );
 export type WorkerRequest = z.infer<typeof workerRequestSchema>;

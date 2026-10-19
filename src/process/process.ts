@@ -9,16 +9,18 @@ import { z } from 'zod';
 import { processLimits } from '../config/limits.js';
 import { BoundaryError, describeIssues } from './boundary.js';
 
+/** Run a short helper command; `cwd` defaults to this process's working directory. */
 export function command(
   file: string,
   args: string[],
   timeout: number = processLimits.commandTimeoutMs,
+  cwd?: string,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       file,
       args,
-      { timeout, maxBuffer: processLimits.commandOutputBytes, windowsHide: true, encoding: 'utf8' },
+      { timeout, maxBuffer: processLimits.commandOutputBytes, windowsHide: true, encoding: 'utf8', cwd },
       (error, stdout, stderr) => {
         if (error)
           reject(

@@ -4,6 +4,7 @@ import { Workflow } from '../domain/workflow.js';
 import { Sessions } from './sessions.js';
 import { Workspaces } from '../repository/workspaces.js';
 import type { Provider } from '../providers/types.js';
+import { providerRuntime } from '../providers/executables.js';
 import { assertTaskExecutionIdle, type Execution } from './execution-state.js';
 import { requireDeadController } from '../verification/check-recovery.js';
 import { snapshotRepository, type RepositorySnapshot } from '../repository/artifacts.js';
@@ -95,6 +96,8 @@ export class Executions {
       if (again.artifact !== continuation.artifact)
         throw new Error('Repository changed while checking slice continuation');
     }
+    // Resolved outside the write lock: the first resolution in a process runs `--version`.
+    const runtime = providerRuntime(provider);
     return this.store.transaction(() => {
       const workspace = this.workspaces.get(workspaceId);
       const workflow = new Workflow(this.store);
@@ -145,7 +148,7 @@ export class Executions {
         if (task.attempt.agent.provider === provider && !fallbackReason?.trim())
           throw new Error('Same-provider review requires a fallback reason');
       }
-      const session = new Sessions(this.store).create(provider, workspace.path, model);
+      const session = new Sessions(this.store).create(provider, workspace.path, model, runtime);
       if (resumeFrom) {
         const previous = this.get(resumeFrom),
           prior = new Sessions(this.store).get(previous.sessionId);

@@ -115,7 +115,8 @@ grampus update --yes
 The destination must be outside the checkout and either empty or an installation
 owned by Grampus. Installation paths cannot contain semicolons, quotes, `%`, `!`
 or newlines. Existing `GRAMPUS_CODEX_COMMAND` and `GRAMPUS_CLAUDE_COMMAND` overrides
-are honored; each must name a native executable, not a shell command or npm batch shim.
+are honored; each must name a native executable, not a shell command or npm batch shim. Without an
+override, a Codex installed with npm is run through the native binary its package vendors.
 The installer serializes updates to one destination and never overwrites arbitrary
 existing directories. This distribution is for local Windows use. Published release
 downloads, a bundled Node runtime and macOS and Linux installers are **Planned**.

@@ -6,6 +6,7 @@ import { providerLimits } from '../config/limits.js';
 import { applicationVersion } from '../config/runtime.js';
 import { UnrecognizedMessages, protocolDiagnostic, boundedExcerpt } from '../process/boundary.js';
 import { mcpInstructions } from './integrations.js';
+import { codexExecutable } from './executables.js';
 import { referenceInstructions } from '../repository/reference-folders.js';
 import {
   repositoryTools,
@@ -46,31 +47,43 @@ import {
 } from './types.js';
 import { z } from 'zod';
 
+/**
+ * Every configured MCP server's status, page by page up to `providerLimits.mcpStatusTotal`. With a thread
+ * the thread's own connections are reported; `doctor` passes null to ask without starting a thread.
+ */
+export async function listCodexMcpServers(
+  rpc: RpcProcess,
+  threadId: string | null,
+): Promise<{ name: string; status: string; tools: number; auth: string }[]> {
+  const servers: { name: string; status: string; tools: number; auth: string }[] = [];
+  let cursor: string | null = null;
+  do {
+    const page: McpStatusPage = parseCodexResponse(
+      'mcpServerStatus/list',
+      mcpStatusPageSchema,
+      await rpc.request('mcpServerStatus/list', {
+        threadId,
+        detail: 'toolsAndAuthOnly',
+        limit: providerLimits.mcpStatusPage,
+        cursor,
+      }),
+    );
+    servers.push(
+      ...page.data.map(item => ({
+        name: item.name,
+        status: item.runtimeStatus ?? 'configured',
+        tools: Object.keys(item.tools ?? {}).length,
+        auth: item.authStatus ?? 'unknown',
+      })),
+    );
+    cursor = page.nextCursor;
+  } while (cursor && servers.length < providerLimits.mcpStatusTotal);
+  return servers;
+}
+
 async function reportIntegrations(rpc: RpcProcess, threadId: string, emit: ConnectOptions['emit']) {
   try {
-    const servers: { name: string; status: string; tools: number; auth: string }[] = [];
-    let cursor: string | null = null;
-    do {
-      const page: McpStatusPage = parseCodexResponse(
-        'mcpServerStatus/list',
-        mcpStatusPageSchema,
-        await rpc.request('mcpServerStatus/list', {
-          threadId,
-          detail: 'toolsAndAuthOnly',
-          limit: providerLimits.mcpStatusPage,
-          cursor,
-        }),
-      );
-      servers.push(
-        ...page.data.map(item => ({
-          name: item.name,
-          status: item.runtimeStatus ?? 'configured',
-          tools: Object.keys(item.tools ?? {}).length,
-          auth: item.authStatus ?? 'unknown',
-        })),
-      );
-      cursor = page.nextCursor;
-    } while (cursor && servers.length < providerLimits.mcpStatusTotal);
+    const servers = await listCodexMcpServers(rpc, threadId);
     emit({ type: 'integrations.updated', data: { servers } });
   } catch {
     emit({
@@ -123,48 +136,80 @@ function developerInstructions(options: ConnectOptions): string {
   return text;
 }
 
-export async function connectCodex(options: ConnectOptions): Promise<AgentSession> {
-  options.signal.throwIfAborted();
-  const disabled = [
-    'shell_tool',
-    'unified_exec',
-    'hooks',
-    'multi_agent',
-    'browser_use',
-    'computer_use',
-    'image_generation',
-    'goals',
-    'code_mode',
+/** Features disabled on every Grampus app-server: no shell, hooks, delegation or other side channels. */
+const disabledFeatures = [
+  'shell_tool',
+  'unified_exec',
+  'hooks',
+  'multi_agent',
+  'browser_use',
+  'computer_use',
+  'image_generation',
+  'goals',
+  'code_mode',
+];
+
+/** The exact `codex app-server` arguments of every Grampus connection; `doctor` uses them unchanged. */
+export function codexAppServerArguments(): string[] {
+  return [
+    'app-server',
+    '--listen',
+    'stdio://',
+    '-c',
+    'forced_login_method="chatgpt"',
+    ...disabledFeatures.flatMap(feature => ['--disable', feature]),
   ];
-  const rpc = new RpcProcess(
-    process.env.GRAMPUS_CODEX_COMMAND ?? 'codex',
-    [
-      'app-server',
-      '--listen',
-      'stdio://',
-      '-c',
-      'forced_login_method="chatgpt"',
-      ...disabled.flatMap(feature => ['--disable', feature]),
-    ],
-    { cwd: options.cwd, env: subscriptionEnvironment() },
+}
+
+/** Start the resolved Codex executable as an app-server in `cwd`, with API keys removed from its environment. */
+export function startCodexAppServer(cwd: string): RpcProcess {
+  return new RpcProcess(codexExecutable().command, codexAppServerArguments(), { cwd, env: subscriptionEnvironment() });
+}
+
+/** What the app-server reported during the handshake, before any thread exists. */
+export interface CodexHandshake {
+  account: z.output<typeof accountReadSchema>['account'];
+}
+
+/**
+ * The connection handshake: `initialize` with the capabilities Grampus relies on (the experimental API,
+ * needed for dynamic tools and the approvals reviewer), `initialized`, then `account/read` without a
+ * token refresh. No thread or turn is started, so the handshake never causes inference.
+ */
+export async function codexHandshake(rpc: RpcProcess): Promise<CodexHandshake> {
+  await rpc.request('initialize', {
+    clientInfo: { name: 'grampus', title: 'Grampus', version: applicationVersion },
+    capabilities: { experimentalApi: true },
+  });
+  rpc.notify('initialized');
+  const auth = parseCodexResponse(
+    'account/read',
+    accountReadSchema,
+    await rpc.request('account/read', { refreshToken: false }),
   );
+  return { account: auth.account };
+}
+
+/** True when the handshake shows the ChatGPT subscription login every Codex turn requires. */
+export function hasCodexSubscription(handshake: CodexHandshake): boolean {
+  return handshake.account?.type === 'chatgpt';
+}
+
+/** Connect a Codex session. `start` creates the app-server process; replay tests substitute a recorded server. */
+export async function connectCodex(
+  options: ConnectOptions,
+  start: (cwd: string) => RpcProcess = startCodexAppServer,
+): Promise<AgentSession> {
+  options.signal.throwIfAborted();
+  const rpc = start(options.cwd);
   const abort = () => {
     void rpc.close().catch(() => {});
   };
   options.signal.addEventListener('abort', abort, { once: true });
   try {
     options.emit({ type: 'process.started', data: { pid: rpc.pid } });
-    await rpc.request('initialize', {
-      clientInfo: { name: 'grampus', title: 'Grampus', version: applicationVersion },
-      capabilities: { experimentalApi: true },
-    });
-    rpc.notify('initialized');
-    const auth = parseCodexResponse(
-      'account/read',
-      accountReadSchema,
-      await rpc.request('account/read', { refreshToken: false }),
-    );
-    if (auth.account?.type !== 'chatgpt') throw new Error('Codex requires an existing ChatGPT subscription login');
+    const auth = await codexHandshake(rpc);
+    if (!hasCodexSubscription(auth)) throw new Error('Codex requires an existing ChatGPT subscription login');
     const params = {
       cwd: options.cwd,
       modelProvider: 'openai',
