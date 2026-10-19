@@ -4,11 +4,10 @@ import { Workflow } from '../domain/workflow.js';
 import { Sessions } from './sessions.js';
 import { Workspaces } from '../repository/workspaces.js';
 import type { Provider } from '../providers/types.js';
-import { assertTaskExecutionIdle, type Execution, type ExecutionLease } from './execution-state.js';
+import { assertTaskExecutionIdle, type Execution } from './execution-state.js';
 import { requireDeadController } from '../verification/check-recovery.js';
 import { snapshotRepository, type RepositorySnapshot } from '../repository/artifacts.js';
 import { verifyNoChange } from '../repository/delivery-git.js';
-import type { Delivery } from './deliveries.js';
 import { sessionContinuation } from './session-context.js';
 
 export class Executions {
@@ -17,16 +16,16 @@ export class Executions {
     private readonly workspaces = new Workspaces(store),
   ) {}
   get(id: string): Execution {
-    return this.store.execution<Execution>(id);
+    return this.store.execution(id);
   }
   list(): Execution[] {
-    return this.store.executions<Execution>();
+    return this.store.executions();
   }
 
   recoverReadOnly(id: string): void {
     this.store.transaction(() => {
       const execution = this.get(id);
-      const lease = this.store.lease<ExecutionLease>(execution.workspaceId);
+      const lease = this.store.lease(execution.workspaceId);
       if (
         lease?.executionId !== id ||
         !lease.readOnlyRecovery ||
@@ -67,7 +66,9 @@ export class Executions {
     let continuation: RepositorySnapshot | null = null;
     if (role === 'implementation' && observedTask.phase === 'ready' && observedTask.slice?.completed.length) {
       const workspace = inspected.workspace;
-      continuation = await snapshotRepository(workspace.path!, workspace.baseCommit);
+      const path = workspace.path;
+      if (!path) throw new Error('Workspace has no path');
+      continuation = await snapshotRepository(path, workspace.baseCommit);
       const revision = observedTask.guided?.plan.revision;
       const revisedContinuation =
         revision &&
@@ -78,13 +79,13 @@ export class Executions {
       if (!revisedContinuation)
         verifyNoChange({
           id: 'continuation',
-          cwd: workspace.path!,
+          cwd: path,
           branch: `refs/heads/${workspace.branch}`,
           base: workspace.baseCommit,
           message: 'Verify slice continuation',
           snapshot: continuation,
         });
-      const again = await snapshotRepository(workspace.path!, workspace.baseCommit);
+      const again = await snapshotRepository(path, workspace.baseCommit);
       if (again.artifact !== continuation.artifact)
         throw new Error('Repository changed while checking slice continuation');
     }
@@ -108,7 +109,7 @@ export class Executions {
       if (role === 'implementation' && previous) {
         if (inspected.head !== previous.head) throw new Error('HEAD differs from the last delivered slice');
         if (task.phase === 'ready') {
-          const delivery = this.store.delivery<Delivery>(previous.deliveryId);
+          const delivery = this.store.delivery(previous.deliveryId);
           const revised = task.guided?.plan.revision;
           const approvedRevision =
             revised &&
@@ -182,7 +183,8 @@ export class Executions {
       const attempt =
         role === 'implementation'
           ? workflow.start(task.id, { provider, model: model ?? 'provider-default', sessionId: session.id })
-          : task.attempt!;
+          : task.attempt;
+      if (!attempt) throw new Error('Review requires an implementation attempt');
       const execution: Execution = {
         id: randomUUID(),
         taskId: task.id,

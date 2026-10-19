@@ -1,16 +1,36 @@
+// Owns reads of installed dependency source for the grampus_read_dependency tool: package resolution
+// from an importing directory, bounded paging and literal search, never outside the task repository.
 import { createRequire } from 'node:module';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 import { formatBytes, repositoryToolLimits } from '../config/limits.js';
+import { parseBoundary, parseJson } from '../process/boundary.js';
+import type { ReadDependencyArguments } from './repository-tool-arguments.js';
 
 const limits = repositoryToolLimits;
+const rangeSchema = z.object({
+  offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
+  limit: z.number().int().min(1).max(limits.pageCharacters).default(limits.pageCharacters),
+});
+const querySchema = z
+  .string()
+  .max(limits.dependencyQueryCharacters)
+  .refine(value => value.trim() !== '');
+
+/** The `package.json` fields read here; other fields of an installed manifest are not trusted or used. */
+const manifestSchema = z.looseObject({ name: z.unknown().optional(), version: z.unknown().optional() });
+function readManifest(path: string) {
+  const context = { kind: 'configuration', source: path } as const;
+  return parseBoundary(manifestSchema, parseJson(readFileSync(path, 'utf8'), context), context);
+}
 
 /** Read installed package source without giving agents shell or filesystem-wide access. */
-export function readInstalledDependency(repo: string, input: Record<string, unknown>) {
-  const name = input['package'],
-    path = input['path'] ?? 'package.json',
-    from = input['from'] ?? '.';
+export function readInstalledDependency(repo: string, input: ReadDependencyArguments) {
+  const name = input.package,
+    path = input.path ?? 'package.json',
+    from = input.from ?? '.';
   if (
     typeof name !== 'string' ||
     !/^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/i.test(name) ||
@@ -42,7 +62,7 @@ export function readInstalledDependency(repo: string, input: Record<string, unkn
     let directory = dirname(require.resolve(name));
     while (true) {
       const candidate = join(directory, 'package.json');
-      if (existsSync(candidate) && JSON.parse(readFileSync(candidate, 'utf8')).name === name) {
+      if (existsSync(candidate) && readManifest(candidate).name === name) {
         manifest = candidate;
         break;
       }
@@ -61,17 +81,10 @@ export function readInstalledDependency(repo: string, input: Record<string, unkn
   const bytes = readFileSync(file),
     text = bytes.toString('utf8');
   if (bytes.includes(0) || !Buffer.from(text).equals(bytes)) throw new Error('Dependency source is not UTF-8 text');
-  const offset = input['offset'] ?? 0,
-    limit = input['limit'] ?? limits.pageCharacters;
-  if (
-    !Number.isSafeInteger(offset) ||
-    Number(offset) < 0 ||
-    !Number.isSafeInteger(limit) ||
-    Number(limit) < 1 ||
-    Number(limit) > limits.pageCharacters
-  )
-    throw new Error('Invalid dependency read offset or limit');
-  const info = JSON.parse(readFileSync(manifest, 'utf8'));
+  const range = rangeSchema.safeParse({ offset: input.offset, limit: input.limit });
+  if (!range.success) throw new Error('Invalid dependency read offset or limit');
+  const { offset, limit } = range.data;
+  const info = readManifest(manifest);
   const identity = {
     package: name,
     version: info.version,
@@ -79,17 +92,14 @@ export function readInstalledDependency(repo: string, input: Record<string, unkn
     resolvedPath: file,
     sha256: createHash('sha256').update(bytes).digest('hex'),
   };
-  if (input['query'] !== undefined) {
-    if (
-      typeof input['query'] !== 'string' ||
-      !input['query'].trim() ||
-      input['query'].length > limits.dependencyQueryCharacters
-    )
+  if (input.query !== undefined) {
+    const literal = querySchema.safeParse(input.query);
+    if (!literal.success)
       throw new Error(`Dependency search requires 1–${limits.dependencyQueryCharacters} literal characters`);
     const source = text.toLowerCase(),
-      query = input['query'].toLowerCase(),
+      query = literal.data.toLowerCase(),
       matches: { offset: number; content: string }[] = [];
-    let cursor = Number(offset),
+    let cursor = offset,
       found: number;
     const context = limits.dependencySnippetCharacters;
     while (matches.length < limits.dependencyMatches && (found = source.indexOf(query, cursor)) >= 0) {
@@ -101,15 +111,15 @@ export function readInstalledDependency(repo: string, input: Record<string, unkn
     }
     return {
       ...identity,
-      query: input['query'],
+      query: literal.data,
       matches,
       nextOffset: source.indexOf(query, cursor) >= 0 ? cursor : null,
     };
   }
   return {
     ...identity,
-    content: text.slice(Number(offset), Number(offset) + Number(limit)),
-    nextOffset: Number(offset) + Number(limit) < text.length ? Number(offset) + Number(limit) : null,
+    content: text.slice(offset, offset + limit),
+    nextOffset: offset + limit < text.length ? offset + limit : null,
     totalCharacters: text.length,
     note: 'Installed dependency source; read hash is retained, but this is not repository validation evidence.',
   };

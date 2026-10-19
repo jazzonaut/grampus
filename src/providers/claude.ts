@@ -1,26 +1,43 @@
+// Owns the Claude adapter: one Agent SDK query per turn with Grampus' tool policy, hooks and MCP
+// servers. Fields the controller relies on are validated by claude-protocol.ts before they are used.
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { authorizeEditTool, editingInstructions } from '../execution/edit-policy.js';
+import { authorizeEditTool, editingInstructions, type EditingContext } from '../execution/edit-policy.js';
 import { processLimits, providerLimits, repositoryToolLimits } from '../config/limits.js';
 import { currentSettings } from '../config/settings.js';
 import {
   query,
   createSdkMcpServer,
-  type AccountInfo,
-  type ModelUsage,
+  type HookCallback,
+  type CanUseTool,
+  type PermissionResult,
   type Query,
   type SDKMessage,
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
+import { UnrecognizedMessages, boundedExcerpt, describeIssues, protocolDiagnostic } from '../process/boundary.js';
 import { claudeDeleteTool } from './claude-files.js';
 import { claudeRepository, isRepositoryTool } from './claude-repository.js';
 import { explorationInstructions } from '../repository/repository-tools.js';
 import { allowMcpTool, isExternalMcpTool, mcpInstructions, projectMcpServers } from './integrations.js';
 import { referenceInstructions } from '../repository/reference-folders.js';
 import {
+  claudeAccountSchema,
+  claudeAssistantUsageSchema,
+  claudeInitSchema,
+  claudeMcpStatusSchema,
+  claudeResultSchema,
+  claudeTextDeltaSchema,
+  claudeUsageSampleSchema,
+  isKnownClaudeMessageType,
+  parseClaudeMessage,
+  type ClaudeAccount,
+  type ClaudeModelUsage,
+} from './claude-protocol.js';
+import {
   instructions,
   titleInstructions,
-  replySchema,
+  replyOutputSchema,
   parseReply,
   subscriptionEnvironment,
   numeric,
@@ -54,7 +71,7 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   }
 }
 
-export function hasClaudeSubscription(account: AccountInfo): boolean {
+export function hasClaudeSubscription(account: ClaudeAccount): boolean {
   // Current native SDK builds omit tokenSource even for authenticated Team accounts.
   const plan = /^(claude\s+)?(pro|max|team|enterprise)$/i.test(account.subscriptionType ?? '');
   return (
@@ -85,6 +102,23 @@ export async function connectClaude(options: ConnectOptions): Promise<AgentSessi
   }
 }
 
+/** PreToolUse hook for editing turns: every native file tool decision is journaled before it runs. */
+function editingHook(options: ConnectOptions, editing: EditingContext): HookCallback {
+  return input => {
+    if (input.hook_event_name !== 'PreToolUse') return Promise.resolve({});
+    if (options.repository && isRepositoryTool(input.tool_name)) return Promise.resolve({});
+    if (isExternalMcpTool(input.tool_name) || input.tool_name === 'ToolSearch') return Promise.resolve({});
+    const decision = authorizeEditTool(editing, input.tool_name, input.tool_input, options.emit);
+    return Promise.resolve({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse' as const,
+        permissionDecision: decision.allowed ? ('allow' as const) : ('deny' as const),
+        permissionDecisionReason: decision.reason,
+      },
+    });
+  };
+}
+
 export class ClaudeSession implements AgentSession {
   private readonly input = new InputQueue();
   private readonly sessionId: string;
@@ -99,101 +133,50 @@ export class ClaudeSession implements AgentSession {
   private usageTimer: ReturnType<typeof setInterval> | undefined;
   private samplingUsage = false;
   private lastUsage = '';
+  private readonly unrecognized = new UnrecognizedMessages();
 
   constructor(
     private readonly options: ConnectOptions,
     createQuery: typeof query = query,
   ) {
     this.sessionId = options.providerSessionId ?? randomUUID();
-    const fileServer = options.editing?.policy.delete?.length
+    const owned = () => !!this.active && !this.stopRequested && !this.stopped && !this.closing;
+    const editing = options.editing;
+    const fileServer = editing?.policy.delete?.length
       ? createSdkMcpServer({
           name: 'grampus_files',
           version: '1.0.0',
           alwaysLoad: true,
           timeout: repositoryToolLimits.deleteToolTimeoutMs,
-          tools: [
-            claudeDeleteTool(
-              options.editing,
-              options.emit,
-              () => !!this.active && !this.stopRequested && !this.stopped && !this.closing,
-            ),
-          ],
+          tools: [claudeDeleteTool(editing, options.emit, owned)],
         })
       : null;
+    const title = options.purpose === 'title';
     this.query = createQuery({
       prompt: this.input,
       options: {
         cwd: options.cwd,
-        tools:
-          options.purpose === 'title' ? [] : options.editing ? ['Read', 'Edit', 'Write', 'ToolSearch'] : ['ToolSearch'],
+        tools: title ? [] : editing ? ['Read', 'Edit', 'Write', 'ToolSearch'] : ['ToolSearch'],
         permissionMode: 'default',
-        mcpServers:
-          options.purpose === 'title'
-            ? {}
-            : {
-                ...projectMcpServers(options.configurationCwd ?? options.cwd, options.cwd),
-                ...(fileServer ? { grampus_files: fileServer } : {}),
-                ...(options.repository
-                  ? {
-                      grampus_repository: claudeRepository(
-                        options.repository,
-                        options.emit,
-                        () => !!this.active && !this.stopRequested && !this.stopped && !this.closing,
-                      ),
-                    }
-                  : {}),
-              },
-        strictMcpConfig: options.purpose === 'title',
-        systemPrompt:
-          options.purpose === 'title'
-            ? titleInstructions
-            : `${options.editing ? editingInstructions : instructions}\n${mcpInstructions}${options.repository ? `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}` : ''}`,
-        outputFormat: { type: 'json_schema', schema: replySchema },
-        maxTurns: options.purpose === 'title' ? providerLimits.claudeTitleMaxTurns : providerLimits.claudeMaxTurns,
+        mcpServers: title
+          ? {}
+          : {
+              ...projectMcpServers(options.configurationCwd ?? options.cwd, options.cwd),
+              ...(fileServer ? { grampus_files: fileServer } : {}),
+              ...(options.repository
+                ? { grampus_repository: claudeRepository(options.repository, options.emit, owned) }
+                : {}),
+            },
+        strictMcpConfig: title,
+        systemPrompt: title
+          ? titleInstructions
+          : `${editing ? editingInstructions : instructions}\n${mcpInstructions}${options.repository ? `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}` : ''}`,
+        outputFormat: { type: 'json_schema', schema: replyOutputSchema },
+        maxTurns: title ? providerLimits.claudeTitleMaxTurns : providerLimits.claudeMaxTurns,
         includePartialMessages: true,
-        ...(options.editing
-          ? {
-              hooks: {
-                PreToolUse: [
-                  {
-                    hooks: [
-                      async input => {
-                        if (input.hook_event_name !== 'PreToolUse') return {};
-                        if (options.repository && isRepositoryTool(input.tool_name)) return {};
-                        if (isExternalMcpTool(input.tool_name) || input.tool_name === 'ToolSearch') return {};
-                        const decision = authorizeEditTool(
-                          options.editing!,
-                          input.tool_name,
-                          input.tool_input,
-                          options.emit,
-                        );
-                        return {
-                          hookSpecificOutput: {
-                            hookEventName: 'PreToolUse' as const,
-                            permissionDecision: decision.allowed ? ('allow' as const) : ('deny' as const),
-                            permissionDecisionReason: decision.reason,
-                          },
-                        };
-                      },
-                    ],
-                  },
-                ],
-              },
-            }
-          : {}),
+        ...(editing ? { hooks: { PreToolUse: [{ hooks: [editingHook(options, editing)] }] } } : {}),
         env: { ...subscriptionEnvironment(), CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' },
-        canUseTool: async (name, input) => {
-          if (options.purpose === 'title') return { behavior: 'deny', message: 'Task naming does not use tools' };
-          if (allowMcpTool(name, options.emit, !!this.active && !this.stopRequested && !this.stopped && !this.closing))
-            return { behavior: 'allow' as const, updatedInput: input };
-          if (options.repository && isRepositoryTool(name)) return { behavior: 'allow' as const, updatedInput: input };
-          if (options.editing) {
-            const decision = authorizeEditTool(options.editing, name, input, options.emit);
-            if (decision.allowed) return { behavior: 'allow', updatedInput: input };
-            return { behavior: 'deny', message: decision.reason };
-          }
-          return { behavior: 'deny', message: 'Grampus conversation sessions do not execute tools' };
-        },
+        canUseTool: this.canUseTool(owned),
         ...(options.providerSessionId ? { resume: options.providerSessionId } : { sessionId: this.sessionId }),
         ...(options.model ? { model: options.model } : {}),
         ...(process.env.GRAMPUS_CLAUDE_COMMAND
@@ -218,8 +201,26 @@ export class ClaudeSession implements AgentSession {
     this.consumption = this.consume();
   }
 
+  private canUseTool(owned: () => boolean): CanUseTool {
+    const options = this.options;
+    return (name, input) => {
+      const decide = (): PermissionResult => {
+        if (options.purpose === 'title') return { behavior: 'deny', message: 'Task naming does not use tools' };
+        if (allowMcpTool(name, options.emit, owned())) return { behavior: 'allow', updatedInput: input };
+        if (options.repository && isRepositoryTool(name)) return { behavior: 'allow', updatedInput: input };
+        if (options.editing) {
+          const decision = authorizeEditTool(options.editing, name, input, options.emit);
+          if (decision.allowed) return { behavior: 'allow', updatedInput: input };
+          return { behavior: 'deny', message: decision.reason };
+        }
+        return { behavior: 'deny', message: 'Grampus conversation sessions do not execute tools' };
+      };
+      return Promise.resolve(decide());
+    };
+  }
+
   async authenticate(): Promise<void> {
-    const account = await this.query.accountInfo();
+    const account = parseClaudeMessage('accountInfo', claudeAccountSchema, await this.query.accountInfo());
     if (!hasClaudeSubscription(account)) {
       throw new Error('Claude requires an existing first-party Claude subscription login');
     }
@@ -242,11 +243,11 @@ export class ClaudeSession implements AgentSession {
     }
   }
 
-  private publishUsage(models: Record<string, ModelUsage>, cost: unknown, complete: boolean): Usage {
+  private publishUsage(models: ClaudeModelUsage, cost: unknown, complete: boolean): Usage {
     const values = Object.values(models);
     const sum = (key: 'inputTokens' | 'outputTokens' | 'cacheReadInputTokens'): number | null =>
       values.length && values.every(value => numeric(value[key]) !== null)
-        ? values.reduce((total, value) => total + value[key], 0)
+        ? values.reduce((total, value) => total + (numeric(value[key]) ?? 0), 0)
         : null;
     const usage: Usage = {
       scope: 'provider-session-cumulative',
@@ -270,9 +271,9 @@ export class ClaudeSession implements AgentSession {
     const active = this.active;
     this.samplingUsage = true;
     try {
-      const report = await this.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
-        skipBehaviors: true,
-      });
+      const report = claudeUsageSampleSchema.parse(
+        await this.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }),
+      );
       if (this.active === active && !this.closing && !this.stopped)
         this.publishUsage(report.session.model_usage, report.session.total_cost_usd, false);
     } catch {
@@ -282,65 +283,92 @@ export class ClaudeSession implements AgentSession {
     }
   }
 
+  private integrations(servers: { name: string; status: string }[]): void {
+    this.options.emit({
+      type: 'integrations.updated',
+      data: {
+        servers: servers
+          .filter(server => !server.name.startsWith('grampus_'))
+          .map(server => ({ name: server.name, status: server.status })),
+      },
+    });
+  }
+
+  private initialised(message: SDKMessage): void {
+    const init = parseClaudeMessage('system/init', claudeInitSchema, message);
+    if (init.session_id !== this.sessionId) throw new Error('Claude resumed a different session');
+    this.options.emit({
+      type: 'session.connected',
+      data: { providerSessionId: init.session_id, model: init.model, auth: 'subscription' },
+    });
+    this.integrations(init.mcp_servers);
+  }
+
+  private assistantUsage(message: SDKMessage): void {
+    const parsed = claudeAssistantUsageSchema.safeParse(message);
+    if (!parsed.success) {
+      this.options.emit(
+        protocolDiagnostic('protocol.malformed', {
+          provider: 'claude',
+          messageType: 'assistant',
+          excerpt: boundedExcerpt({ keys: Object.keys(message) }),
+          issues: describeIssues(parsed.error),
+        }),
+      );
+      return;
+    }
+    if (parsed.data.parent_tool_use_id) return;
+    const usage = parsed.data.message.usage;
+    const inputTokens = numeric(usage.input_tokens),
+      cached = numeric(usage.cache_read_input_tokens),
+      created = numeric(usage.cache_creation_input_tokens);
+    if (inputTokens !== null)
+      this.options.emit({
+        type: 'context.updated',
+        data: { inputTokens: inputTokens + (cached ?? 0) + (created ?? 0) },
+      });
+  }
+
   private message(message: SDKMessage): void {
-    if (message.type === 'system' && message.subtype === 'init') {
-      if (message.session_id !== this.sessionId) throw new Error('Claude resumed a different session');
-      this.options.emit({
-        type: 'session.connected',
-        data: { providerSessionId: message.session_id, model: message.model, auth: 'subscription' },
-      });
-      this.options.emit({
-        type: 'integrations.updated',
-        data: {
-          servers: message.mcp_servers
-            .filter(server => !server.name.startsWith('grampus_'))
-            .map(server => ({ name: server.name, status: server.status })),
-        },
-      });
+    const type: string = message.type;
+    if (!isKnownClaudeMessageType(type)) {
+      if (this.active && this.unrecognized.report(type))
+        this.options.emit(
+          protocolDiagnostic('protocol.unrecognized', {
+            provider: 'claude',
+            messageType: type,
+            excerpt: boundedExcerpt(message),
+          }),
+        );
+      return;
     }
+    if (message.type === 'system' && message.subtype === 'init') this.initialised(message);
     if (!this.active) return;
-    if (message.type === 'assistant' && !message.parent_tool_use_id) {
-      const usage = message.message.usage;
-      const inputTokens = numeric(usage.input_tokens),
-        cached = numeric(usage.cache_read_input_tokens),
-        created = numeric(usage.cache_creation_input_tokens);
-      if (inputTokens !== null)
-        this.options.emit({
-          type: 'context.updated',
-          data: { inputTokens: inputTokens + (cached ?? 0) + (created ?? 0) },
-        });
+    if (message.type === 'assistant') this.assistantUsage(message);
+    if (message.type === 'stream_event') {
+      const delta = claudeTextDeltaSchema.safeParse(message);
+      if (delta.success) this.options.emit({ type: 'output.delta', data: { text: delta.data.event.delta.text } });
     }
-    if (
-      message.type === 'stream_event' &&
-      message.event.type === 'content_block_delta' &&
-      message.event.delta.type === 'text_delta'
-    ) {
-      this.options.emit({ type: 'output.delta', data: { text: message.event.delta.text } });
-    }
-    if (message.type !== 'result') return;
-    const active = this.active;
+    if (message.type === 'result') this.finish(this.active, message);
+  }
+
+  private finish(active: NonNullable<ClaudeSession['active']>, message: SDKMessage): void {
     this.active = null;
     clearInterval(this.usageTimer);
     try {
-      const usage = this.publishUsage(message.modelUsage, message.total_cost_usd, true);
+      const result = parseClaudeMessage('result', claudeResultSchema, message);
+      const usage = this.publishUsage(result.modelUsage, result.total_cost_usd, true);
       const status = this.stopRequested
         ? 'interrupted'
-        : message.is_error || message.subtype !== 'success'
+        : result.is_error || result.subtype !== 'success'
           ? 'failed'
           : 'completed';
       active.resolve({
         status,
-        reply:
-          status === 'completed' && message.subtype === 'success'
-            ? parseReply(message.structured_output ?? message.result)
-            : null,
+        reply: status === 'completed' ? parseReply(result.structured_output ?? result.result) : null,
         usage,
         error:
-          status === 'failed'
-            ? 'errors' in message
-              ? message.errors.join('; ')
-              : 'Claude reported a failed result'
-            : null,
+          status === 'failed' ? (result.errors ? result.errors.join('; ') : 'Claude reported a failed result') : null,
       });
     } catch (error) {
       active.reject(error instanceof Error ? error : new Error(String(error)));
@@ -365,15 +393,7 @@ export class ClaudeSession implements AgentSession {
     this.options.emit({ type: 'turn.started', data: { providerTurnId: null } });
     return result.then(async output => {
       try {
-        const servers = await this.query.mcpServerStatus();
-        this.options.emit({
-          type: 'integrations.updated',
-          data: {
-            servers: servers
-              .filter(server => !server.name.startsWith('grampus_'))
-              .map(server => ({ name: server.name, status: server.status })),
-          },
-        });
+        this.integrations(claudeMcpStatusSchema.parse(await this.query.mcpServerStatus()));
       } catch {
         /* Connection status is observational; retain the actual turn result. */
       }

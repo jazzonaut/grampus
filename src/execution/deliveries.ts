@@ -3,50 +3,24 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Store } from '../persistence/store.js';
+import type { Delivery, DeliverySpec } from '../persistence/records.js';
 import { commandLimits, planLimits } from '../config/limits.js';
 import { Workflow } from '../domain/workflow.js';
 import { Sessions } from './sessions.js';
 import { Workspaces } from '../repository/workspaces.js';
-import { claimExecution, type Execution, type ExecutionLease } from './execution-state.js';
+import { claimExecution, type Execution } from './execution-state.js';
 import { captureRepository } from '../repository/repository-evidence.js';
-import {
-  allocateReceipt,
-  readReceipt,
-  requireDeadController,
-  type CheckReceipt,
-} from '../verification/check-recovery.js';
+import { allocateReceipt, readReceipt, requireDeadController } from '../verification/check-recovery.js';
 import {
   runCheckProcess,
   retainedOutput,
   type CheckProcessOptions,
   type CheckProcessResult,
 } from '../process/check-process.js';
-import { gitText, verifyCommit, verifyNoChange, type DeliveryRequest } from '../repository/delivery-git.js';
+import { gitText, verifyCommit, verifyNoChange } from '../repository/delivery-git.js';
 import { currentProcessStartedAt } from '../process/process-identity.js';
 
-export interface DeliverySpec {
-  artifact: string;
-  instructionsDigest: string;
-  message: string;
-  timeoutMs: number;
-  mode?: 'commit' | 'no_change';
-}
-export interface Delivery {
-  id: string;
-  executionId: string;
-  spec: DeliverySpec;
-  phase: 'running' | 'delivered' | 'failed' | 'interrupted' | 'recovery_required';
-  dispatch: 'not_requested' | 'requested';
-  request: DeliveryRequest | null;
-  receipt: CheckReceipt | null;
-  supervisorPid: number | null;
-  toolPid: number | null;
-  result: CheckProcessResult | null;
-  commit: string | null;
-  error: string | null;
-  /** Set at settlement; null until then and for undelivered results. */
-  outcome: 'committed' | 'no_change' | null;
-}
+export type { Delivery, DeliverySpec } from '../persistence/records.js';
 
 export class Deliveries {
   constructor(
@@ -54,10 +28,10 @@ export class Deliveries {
     private readonly workspaces = new Workspaces(store),
   ) {}
   get(id: string): Delivery {
-    return this.store.delivery<Delivery>(id);
+    return this.store.delivery(id);
   }
   private save(delivery: Delivery, type: string): void {
-    const execution = this.store.execution<Execution>(delivery.executionId);
+    const execution = this.store.execution(delivery.executionId);
     this.store.saveDelivery(delivery.id, execution.id, delivery);
     const event = {
       deliveryId: delivery.id,
@@ -77,8 +51,8 @@ export class Deliveries {
     this.store.append(execution.taskId, execution.version, type, event);
   }
   private fence(delivery: Delivery): Execution {
-    const execution = this.store.execution<Execution>(delivery.executionId);
-    const lease = this.store.lease<ExecutionLease>(execution.workspaceId);
+    const execution = this.store.execution(delivery.executionId);
+    const lease = this.store.lease(execution.workspaceId);
     if (lease?.kind !== 'delivery' || lease.executionId !== execution.id || lease.runId !== delivery.id)
       throw new Error('Delivery no longer owns the workspace');
     return execution;
@@ -96,7 +70,8 @@ export class Deliveries {
   }
   private async verify(delivery: Delivery): Promise<void> {
     const execution = this.fence(delivery);
-    const request = delivery.request!;
+    const request = delivery.request;
+    if (!request) throw new Error('Delivery has no retained request to verify');
     const snapshot = await captureRepository(this.workspaces, execution);
     const noChange = request.mode === 'no_change';
     let commit: string | null = null;
@@ -161,7 +136,7 @@ export class Deliveries {
       outcome: null,
     };
     const execution = this.store.transaction(() => {
-      const execution = this.store.execution<Execution>(executionId);
+      const execution = this.store.execution(executionId);
       const workflow = new Workflow(this.store);
       const task = workflow.get(execution.taskId);
       if (execution.role !== 'implementation') throw new Error('Delivery requires an implementation execution');
@@ -180,12 +155,14 @@ export class Deliveries {
       if (snapshot.artifact !== spec.artifact || snapshot.instructionsDigest !== spec.instructionsDigest)
         throw new Error('Repository or instructions changed before delivery');
       const workspace = this.workspaces.get(execution.workspaceId);
-      const branch = gitText(workspace.path!, 'symbolic-ref', 'HEAD');
+      if (!workspace.path) throw new Error('Delivery workspace has no path');
+      const cwd = workspace.path;
+      const branch = gitText(cwd, 'symbolic-ref', 'HEAD');
       if (branch !== `refs/heads/${workspace.branch}`)
         throw new Error('Delivery branch differs from workspace ownership');
       delivery.request = {
         id: delivery.id,
-        cwd: workspace.path!,
+        cwd,
         branch,
         base: workspace.baseCommit,
         message: spec.message,
@@ -213,7 +190,7 @@ export class Deliveries {
       delivery.result = await runner({
         file: process.execPath,
         args: [fileURLToPath(new URL('./delivery-worker.js', import.meta.url)), requestFile],
-        cwd: workspace.path!,
+        cwd,
         timeoutMs: spec.timeoutMs,
         ...(signal ? { signal } : {}),
         receipt: delivery.receipt,
@@ -257,7 +234,8 @@ export class Deliveries {
       if (!['running', 'recovery_required'].includes(delivery.phase))
         throw new Error('Delivery does not need recovery');
       const execution = this.fence(delivery);
-      const lease = this.store.lease<ExecutionLease>(execution.workspaceId)!;
+      const lease = this.store.lease(execution.workspaceId);
+      if (!lease) throw new Error('Delivery no longer owns the workspace');
       requireDeadController(lease);
       if (delivery.dispatch === 'requested') {
         if (!delivery.receipt) throw new Error('Dispatched delivery has no settlement receipt identity');

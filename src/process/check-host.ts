@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { commandLimits, processLimits } from '../config/limits.js';
+import { checkHostRequestSchema, supervisorMessageSchema } from './supervisor-protocol.js';
 
 // A detached Node host survives the controller's libuv job. Windows PowerShell
 // needs its normal hidden-console launch, so the host owns that child until exit.
@@ -25,9 +26,9 @@ const output = createInterface({ input: child.stdout, crlfDelay: Infinity });
 output.on('line', line => {
   if (unlimited && !stopping) {
     try {
-      const message = JSON.parse(line) as { type?: string };
-      if (message.type === 'started') clearTimeout(deadline);
-      if (message.type === 'result') {
+      const message = supervisorMessageSchema.safeParse(JSON.parse(line));
+      if (message.data?.type === 'started') clearTimeout(deadline);
+      if (message.data?.type === 'result') {
         clearTimeout(deadline);
         deadline = setTimeout(() => child.kill(), processLimits.supervisorSettleMs);
       }
@@ -57,9 +58,9 @@ input.on('line', line => {
     return;
   }
   try {
-    const request = JSON.parse(line) as Record<string, unknown>;
+    const request = checkHostRequestSchema.parse(JSON.parse(line));
     clearTimeout(deadline);
-    const timeout = Number(request['timeoutMs']);
+    const timeout = request.timeoutMs;
     unlimited = timeout === 0;
     deadline = setTimeout(
       () => child.kill(),

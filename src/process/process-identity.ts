@@ -1,12 +1,13 @@
+// Owns process identity: Windows creation times that tell a recycled PID from the process that owned a
+// run. The helper's output is validated by supervisor-protocol.ts; anything else is an unknown observation.
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { processLimits } from '../config/limits.js';
+import { processObservationSchema } from './supervisor-protocol.js';
 
+export { validProcessStartTime } from './supervisor-protocol.js';
 export type ProcessObservation = { state: 'present'; startedAt: string } | { state: 'absent' | 'unknown' };
-export function validProcessStartTime(value: unknown): value is string {
-  return typeof value === 'string' && /^[1-9][0-9]{0,18}$/.test(value);
-}
 
 /** Query an OS creation time without rounding its 64-bit FILETIME through a JS number. */
 export function inspectProcess(pid: number): ProcessObservation {
@@ -17,7 +18,7 @@ export function inspectProcess(pid: number): ProcessObservation {
       'System32/WindowsPowerShell/v1.0/powershell.exe',
     );
     const script = fileURLToPath(new URL('../../../src/process/native/process.ps1', import.meta.url));
-    const value = JSON.parse(
+    const value: unknown = JSON.parse(
       execFileSync(
         powershell,
         ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, String(pid)],
@@ -29,10 +30,9 @@ export function inspectProcess(pid: number): ProcessObservation {
           stdio: ['ignore', 'pipe', 'ignore'],
         },
       ),
-    ) as Record<string, unknown>;
-    if (value['state'] === 'present' && validProcessStartTime(value['startedAt']))
-      return { state: 'present', startedAt: value['startedAt'] };
-    if (value['state'] === 'absent') return { state: 'absent' };
+    );
+    const observed = processObservationSchema.safeParse(value);
+    if (observed.success) return observed.data;
   } catch {
     /* Missing helpers, denied access and timeouts cannot prove absence. */
   }

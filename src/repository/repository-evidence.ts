@@ -17,8 +17,9 @@ export async function captureRepository(workspaces: Workspaces, execution: Execu
   const inspected = await workspaces.inspect(execution.workspaceId, false);
   if (!inspected.taskCurrent) throw new Error('Workspace task version changed');
   const workspace = workspaces.get(execution.workspaceId);
-  const snapshot = await snapshotRepository(workspace.path!, workspace.baseCommit);
-  const verified = await snapshotRepository(workspace.path!, workspace.baseCommit);
+  const path = workspaces.path(execution.workspaceId);
+  const snapshot = await snapshotRepository(path, workspace.baseCommit);
+  const verified = await snapshotRepository(path, workspace.baseCommit);
   if (snapshot.artifact !== verified.artifact) throw new Error('Repository changed while collecting the snapshot');
   await workspaces.inspect(execution.workspaceId, false);
   return snapshot;
@@ -36,10 +37,10 @@ export async function reviewContext(
     throw new Error('Artifact review requires a review binding to a verified digest');
   const snapshot = captured ?? (await captureRepository(workspaces, execution));
   if (snapshot.artifact !== execution.artifact) throw new Error('Repository changed since implementation submission');
-  const workspace = workspaces.get(execution.workspaceId);
+  const path = workspaces.path(execution.workspaceId);
   const planContext = new Workflow(store).get(execution.taskId).guided?.plan.context;
   const selected = planContext?.files;
-  const supplied = repositoryContext(workspace.path!, snapshot, selected, planContext?.exploration === true);
+  const supplied = repositoryContext(path, snapshot, selected, planContext?.exploration === true);
   const context = JSON.stringify(
     continuing && planContext?.exploration
       ? {

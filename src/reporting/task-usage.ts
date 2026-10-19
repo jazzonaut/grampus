@@ -1,7 +1,13 @@
 import type { Store } from '../persistence/store.js';
-import type { Session } from '../execution/sessions.js';
-import type { Execution } from '../execution/execution-state.js';
+import { z } from 'zod';
 import { numeric, type Provider, type Usage } from '../providers/types.js';
+import { usageSchema } from '../providers/reply-schema.js';
+
+// Journal event payloads this module reads. An event that does not match contributes nothing, so a
+// missing or malformed usage report leaves usage unknown rather than counting it as zero.
+const linkedSession = z.object({ sessionId: z.string() });
+const usageEvent = z.object({ data: usageSchema });
+const resultEvent = z.object({ result: z.object({ usage: usageSchema }) });
 
 const fields = ['inputTokens', 'outputTokens', 'cachedInputTokens', 'estimatedCostUsd'] as const;
 type Field = (typeof fields)[number];
@@ -23,15 +29,16 @@ export interface ProviderUsage {
 export function taskUsage(store: Store, taskId: string): ProviderUsage[] {
   const ids = new Set(
     store
-      .executions<Execution>()
+      .executions()
       .filter(item => item.taskId === taskId)
       .map(item => item.sessionId),
   );
-  for (const event of store.events(taskId, ['guided.kickoff_linked']))
-    ids.add((event.data as { sessionId: string }).sessionId);
-  for (const id of ids)
-    for (const event of store.sessionEvents(id, ['kickoff.title_started']))
-      ids.add((event.data as { sessionId: string }).sessionId);
+  const link = (data: unknown) => {
+    const linked = linkedSession.safeParse(data);
+    if (linked.success) ids.add(linked.data.sessionId);
+  };
+  for (const event of store.events(taskId, ['guided.kickoff_linked'])) link(event.data);
+  for (const id of ids) for (const event of store.sessionEvents(id, ['kickoff.title_started'])) link(event.data);
   const latest = new Map<
     string,
     {
@@ -44,7 +51,7 @@ export function taskUsage(store: Store, taskId: string): ProviderUsage[] {
     }
   >();
   for (const id of ids) {
-    const session = store.session<Session>(id),
+    const session = store.session(id),
       events = store.sessionEvents(id, ['turn.requested', 'usage.updated', 'turn.result']);
     const request = events.findLast(event => event.type === 'turn.requested');
     if (!request) continue;
@@ -52,10 +59,13 @@ export function taskUsage(store: Store, taskId: string): ProviderUsage[] {
       sequence = 0,
       updatedAt: string | null = null;
     for (const event of events) {
-      const data = event.data as { data?: Usage; result?: { usage?: Usage | null } };
       const value =
-        event.type === 'usage.updated' ? data.data : event.type === 'turn.result' ? data.result?.usage : null;
-      if (value?.scope === 'provider-session-cumulative') {
+        event.type === 'usage.updated'
+          ? usageEvent.safeParse(event.data).data?.data
+          : event.type === 'turn.result'
+            ? resultEvent.safeParse(event.data).data?.result.usage
+            : undefined;
+      if (value) {
         usage = value;
         sequence = event.sequence;
         updatedAt = event.at;

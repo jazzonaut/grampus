@@ -1,6 +1,16 @@
 import { execFile } from 'node:child_process';
 import { isAbsolute } from 'node:path';
 import { processLimits } from '../config/limits.js';
+import {
+  orcaEnvelopeSchema,
+  orcaHostSchema,
+  orcaJson,
+  orcaRepoShowSchema,
+  orcaWorktreeListSchema,
+  orcaWorktreeResultSchema,
+  orcaWorktreeSchema,
+  parseOrca,
+} from './orca-protocol.js';
 
 export function orcaExecutable(): string {
   return (
@@ -37,50 +47,33 @@ export interface OrcaWorkspaceClient {
   show(repository: string, identityKey: string): Promise<OrcaWorktree>;
 }
 
-type ObjectValue = Record<string, unknown>;
-function object(value: unknown): ObjectValue {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Malformed Orca response');
-  return value as ObjectValue;
-}
-function string(value: unknown): string {
-  if (typeof value !== 'string' || !value) throw new Error('Missing Orca identity or path');
-  return value;
-}
-
-function worktree(value: unknown): OrcaWorktree {
-  const raw = object(value);
-  const identity = object(raw['identity']);
-  if (identity['executionHostId'] !== 'local' || raw['hostId'] !== 'local')
+function worktree(command: string, value: unknown): OrcaWorktree {
+  const host = parseOrca(command, orcaHostSchema, value);
+  if (host.identity.executionHostId !== 'local' || host.hostId !== 'local')
     throw new Error('Only local Orca workspaces are supported');
-  const id = string(raw['id']),
-    repoId = string(raw['repoId']),
-    path = string(raw['path']),
-    branch = string(raw['branch']);
-  const instanceId = string(identity['instanceId']),
-    identityKey = string(identity['key']);
+  const raw = parseOrca(command, orcaWorktreeSchema, value, 'Malformed Orca worktree identity or path');
+  const { instanceId, key: identityKey } = raw.identity;
   if (
-    !isAbsolute(path) ||
-    !id.startsWith(`${repoId}::`) ||
-    !branch.startsWith('refs/heads/') ||
-    raw['instanceId'] !== instanceId ||
-    identityKey !== `wt2:local:${instanceId}` ||
-    typeof raw['isMainWorktree'] !== 'boolean' ||
-    typeof raw['isArchived'] !== 'boolean'
+    !isAbsolute(raw.path) ||
+    !raw.id.startsWith(`${raw.repoId}::`) ||
+    !raw.branch.startsWith('refs/heads/') ||
+    raw.instanceId !== instanceId ||
+    identityKey !== `wt2:local:${instanceId}`
   ) {
     throw new Error('Invalid Orca worktree identity');
   }
   return {
-    id,
-    repoId,
-    path,
-    branch,
+    id: raw.id,
+    repoId: raw.repoId,
+    path: raw.path,
+    branch: raw.branch,
     identityKey,
     instanceId,
-    name: string(raw['displayName']),
-    comment: typeof raw['comment'] === 'string' ? raw['comment'] : '',
-    baseRef: typeof raw['baseRef'] === 'string' ? raw['baseRef'] : null,
-    isMain: raw['isMainWorktree'],
-    archived: raw['isArchived'],
+    name: raw.displayName,
+    comment: typeof raw.comment === 'string' ? raw.comment : '',
+    baseRef: typeof raw.baseRef === 'string' ? raw.baseRef : null,
+    isMain: raw.isMainWorktree,
+    archived: raw.isArchived,
   };
 }
 
@@ -113,15 +106,20 @@ function transport(executable: string): OrcaTransport {
 export class OrcaCli implements OrcaWorkspaceClient {
   constructor(private readonly run: OrcaTransport = transport(orcaExecutable())) {}
 
-  private async request(cwd: string, args: string[]): Promise<ObjectValue> {
-    const response = object(JSON.parse(await this.run(cwd, [...args, '--json'])) as unknown);
-    if (response['ok'] !== true) {
-      const code = object(response['error'])['code'];
+  /** Runs one command and returns its `result`; `command` names it in errors (`repo show`, `worktree list`). */
+  private async request(cwd: string, command: string, args: string[]): Promise<unknown> {
+    const response = parseOrca(
+      command,
+      orcaEnvelopeSchema,
+      orcaJson(command, await this.run(cwd, [...command.split(' '), ...args, '--json'])),
+    );
+    if (!response.ok) {
+      const code = response.error?.code;
       throw new Error(
         `Orca refused the request: ${typeof code === 'string' && /^[a-z_]+$/.test(code) ? code : 'unknown'}`,
       );
     }
-    return object(response['result']);
+    return response.result;
   }
 
   async preflight(repository: string): Promise<{ id: string; path: string }> {
@@ -129,19 +127,20 @@ export class OrcaCli implements OrcaWorkspaceClient {
     if (!['--setup', '--no-parent', '--base-branch', '--comment', '--json'].every(flag => help.includes(flag))) {
       throw new Error('Orca CLI lacks required workspace controls; update Orca before creating workspaces');
     }
-    const repo = object((await this.request(repository, ['repo', 'show', '--repo', `path:${repository}`]))['repo']);
-    if (repo['kind'] !== 'git' || !isAbsolute(string(repo['path'])))
-      throw new Error('Orca must reference a local Git repository');
-    const result = { id: string(repo['id']), path: string(repo['path']) };
+    const { repo } = parseOrca(
+      'repo show',
+      orcaRepoShowSchema,
+      await this.request(repository, 'repo show', ['--repo', `path:${repository}`]),
+    );
+    if (repo.kind !== 'git' || !isAbsolute(repo.path)) throw new Error('Orca must reference a local Git repository');
+    const result = { id: repo.id, path: repo.path };
     // Verify modern local identity responses before making any mutation.
     await this.list(repository, result.id);
     return result;
   }
 
   async create(repository: string, request: OrcaCreateRequest): Promise<OrcaWorktree> {
-    const result = await this.request(repository, [
-      'worktree',
-      'create',
+    const result = await this.request(repository, 'worktree create', [
       '--repo',
       `id:${request.repoId}`,
       '--name',
@@ -154,31 +153,32 @@ export class OrcaCli implements OrcaWorkspaceClient {
       '--setup',
       'skip',
     ]);
-    return worktree(result['worktree']);
+    return worktree('worktree create', parseOrca('worktree create', orcaWorktreeResultSchema, result).worktree);
   }
 
   async list(repository: string, repoId: string): Promise<OrcaWorktree[]> {
-    const result = await this.request(repository, ['worktree', 'list', '--repo', `id:${repoId}`]);
-    const scope = object(result['hostScope']);
+    const incomplete = 'Orca worktree listing is incomplete or includes another host';
+    const result = parseOrca(
+      'worktree list',
+      orcaWorktreeListSchema,
+      await this.request(repository, 'worktree list', ['--repo', `id:${repoId}`]),
+      incomplete,
+    );
     if (
-      result['truncated'] !== false ||
-      !Array.isArray(result['worktrees']) ||
-      result['totalCount'] !== result['worktrees'].length ||
-      !Array.isArray(scope['omittedHostIds']) ||
-      scope['omittedHostIds'].length !== 0 ||
-      !Array.isArray(scope['hostIds']) ||
-      scope['hostIds'].some(id => id !== 'local')
+      result.truncated ||
+      result.totalCount !== result.worktrees.length ||
+      result.hostScope.omittedHostIds.length !== 0 ||
+      result.hostScope.hostIds.some(id => id !== 'local')
     ) {
-      throw new Error('Orca worktree listing is incomplete or includes another host');
+      throw new Error(incomplete);
     }
-    const entries = result['worktrees'].map(worktree);
+    const entries = result.worktrees.map(entry => worktree('worktree list', entry));
     if (entries.some(entry => entry.repoId !== repoId)) throw new Error('Orca returned a different repository');
     return entries;
   }
 
   async show(repository: string, identityKey: string): Promise<OrcaWorktree> {
-    return worktree(
-      (await this.request(repository, ['worktree', 'show', '--worktree', `identity:${identityKey}`]))['worktree'],
-    );
+    const result = await this.request(repository, 'worktree show', ['--worktree', `identity:${identityKey}`]);
+    return worktree('worktree show', parseOrca('worktree show', orcaWorktreeResultSchema, result).worktree);
   }
 }

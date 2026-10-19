@@ -1,12 +1,13 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Store } from '../persistence/store.js';
+import type { ImplementationRun } from '../persistence/records.js';
 import { agentTimeout } from './agent-timeout.js';
 import { Sessions, type RunOptions } from './sessions.js';
 import { Workspaces } from '../repository/workspaces.js';
 import { captureRepository } from '../repository/repository-evidence.js';
-import type { Execution, ExecutionLease } from './execution-state.js';
+import type { Execution } from './execution-state.js';
 import {
   prepareEditing,
   validateEditPolicy,
@@ -14,12 +15,7 @@ import {
   type EditPolicy,
   type EditingContext,
 } from './edit-policy.js';
-import {
-  allocateReceipt,
-  readReceipt,
-  requireDeadController,
-  type CheckReceipt,
-} from '../verification/check-recovery.js';
+import { allocateReceipt, readReceipt, requireDeadController } from '../verification/check-recovery.js';
 import {
   runCheckProcess,
   retainedOutput,
@@ -27,25 +23,12 @@ import {
   type CheckProcessResult,
 } from '../process/check-process.js';
 import { parseReply, type TurnResult } from '../providers/types.js';
-import type { RepositorySnapshot } from '../repository/artifacts.js';
 import { currentProcessStartedAt } from '../process/process-identity.js';
 import { currentSettings, type Settings } from '../config/settings.js';
+import { readImplementationResult } from './worker-files.js';
 
-export interface ImplementationRun {
-  id: string;
-  executionId: string;
-  policy: EditPolicy;
-  phase: 'running' | 'completed' | 'failed' | 'interrupted' | 'recovery_required';
-  dispatch: 'not_requested' | 'requested';
-  before: RepositorySnapshot | null;
-  after: RepositorySnapshot | null;
-  receipt: CheckReceipt | null;
-  supervisorPid: number | null;
-  toolPid: number | null;
-  process: CheckProcessResult | null;
-  result: TurnResult | null;
-  error: string | null;
-}
+export type { ImplementationRun } from '../persistence/records.js';
+/** The request file the controller writes for the supervised implementation worker. */
 export interface ImplementationRequest {
   database: string;
   id: string;
@@ -60,11 +43,11 @@ export class Implementations {
     private readonly workspaces = new Workspaces(store),
   ) {}
   get(id: string): ImplementationRun {
-    return this.store.implementation<ImplementationRun>(id);
+    return this.store.implementation(id);
   }
   private fence(run: ImplementationRun): Execution {
-    const execution = this.store.execution<Execution>(run.executionId);
-    const lease = this.store.lease<ExecutionLease>(execution.workspaceId);
+    const execution = this.store.execution(run.executionId);
+    const lease = this.store.lease(execution.workspaceId);
     if (lease?.kind !== 'implementation' || lease.executionId !== execution.id || lease.runId !== run.id)
       throw new Error('Implementation no longer owns its workspace');
     return execution;
@@ -104,12 +87,8 @@ export class Implementations {
     };
     if (!interrupted && run.process?.reason === 'exited' && run.process.exitCode === 0 && run.receipt) {
       try {
-        const response = JSON.parse(readFileSync(join(run.receipt.directory, 'result.json'), 'utf8')) as {
-          id: string;
-          result: TurnResult;
-        };
-        if (response.id !== run.id || !['completed', 'failed', 'interrupted'].includes(response.result?.status))
-          throw new Error('Invalid implementation result');
+        const response = readImplementationResult(join(run.receipt.directory, 'result.json'));
+        if (response.id !== run.id) throw new Error('Invalid implementation result');
         result = response.result;
         if (result.status === 'completed') result.reply = parseReply(result.reply);
       } catch (error) {
@@ -120,7 +99,7 @@ export class Implementations {
       try {
         run.after = await captureRepository(this.workspaces, execution);
         verifyEditingScope(
-          { cwd: this.workspaces.get(execution.workspaceId).path!, policy: run.policy, snapshot: run.before },
+          { cwd: this.workspaces.path(execution.workspaceId), policy: run.policy, snapshot: run.before },
           run.after,
         );
       } catch (error) {
@@ -150,7 +129,7 @@ export class Implementations {
     const sessions = new Sessions(this.store);
     let claimedPrompt = '';
     const run = this.store.transaction(() => {
-      const execution = this.store.execution<Execution>(executionId);
+      const execution = this.store.execution(executionId);
       if (execution.role !== 'implementation')
         throw new Error('Native implementation requires an implementation execution');
       const claim = sessions.claim(execution.sessionId, prompt, options.answers, true);
@@ -181,7 +160,7 @@ export class Implementations {
     try {
       run.before = await captureRepository(this.workspaces, execution);
       const context: EditingContext = {
-        cwd: this.workspaces.get(execution.workspaceId).path!,
+        cwd: this.workspaces.path(execution.workspaceId),
         policy,
         snapshot: run.before,
       };
@@ -241,7 +220,8 @@ export class Implementations {
       if (!['running', 'recovery_required'].includes(run.phase))
         throw new Error('Implementation run does not need recovery');
       const execution = this.fence(run);
-      const lease = this.store.lease<ExecutionLease>(execution.workspaceId)!;
+      const lease = this.store.lease(execution.workspaceId);
+      if (!lease) throw new Error('Implementation no longer owns its workspace');
       requireDeadController(lease);
       if (run.dispatch === 'requested') {
         if (!run.receipt) throw new Error('Implementation dispatch has no receipt identity');

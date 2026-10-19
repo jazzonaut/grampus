@@ -1,30 +1,33 @@
-import { readFileSync, writeFileSync, renameSync } from 'node:fs';
+// Entry point of the supervised implementation worker: one provider editing turn inside the check
+// supervisor's job, with its result written to `result.json` for the controller to settle.
+import { writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { Store } from '../persistence/store.js';
 import { Sessions } from './sessions.js';
 import { Workspaces } from '../repository/workspaces.js';
 import { captureRepository, repositoryContext } from '../repository/repository-evidence.js';
 import { Workflow } from '../domain/workflow.js';
-import type { ImplementationRequest, ImplementationRun } from './implementations.js';
-import type { Execution, ExecutionLease } from './execution-state.js';
 import { editingFileContext, prepareEditing } from './edit-policy.js';
+import { readImplementationRequest } from './worker-files.js';
 import { connectAgent } from '../providers/index.js';
 import type { AgentSession, TurnResult } from '../providers/types.js';
 import { taskCheckEvidence } from '../verification/check-evidence.js';
 import { parseSettings, useSettings } from '../config/settings.js';
 
 async function main(): Promise<void> {
-  const request = JSON.parse(readFileSync(process.argv[2]!, 'utf8')) as ImplementationRequest;
+  const requestFile = process.argv[2];
+  if (!requestFile) throw new Error('Implementation request file is required');
+  const request = readImplementationRequest(requestFile);
   useSettings(parseSettings(request.settings, 'the implementation request'));
   const store = new Store(request.database);
   let agent: AgentSession | null = null;
   try {
-    const run = store.implementation<ImplementationRun>(request.id);
-    const execution = store.execution<Execution>(run.executionId);
+    const run = store.implementation(request.id);
+    const execution = store.execution(run.executionId);
     const sessions = new Sessions(store);
     const session = sessions.get(execution.sessionId);
     if (
-      store.lease<ExecutionLease>(execution.workspaceId)?.runId !== run.id ||
+      store.lease(execution.workspaceId)?.runId !== run.id ||
       session.run?.id !== run.id ||
       session.phase !== 'running'
     )
@@ -79,7 +82,8 @@ async function main(): Promise<void> {
     );
     await agent.close();
     agent = null;
-    const path = join(run.receipt!.directory, 'result.json');
+    if (!run.receipt) throw new Error('Implementation run has no receipt directory');
+    const path = join(run.receipt.directory, 'result.json');
     writeFileSync(`${path}.tmp`, JSON.stringify({ id: run.id, result }));
     renameSync(`${path}.tmp`, path);
   } finally {

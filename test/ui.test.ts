@@ -76,7 +76,8 @@ test('dashboard polls show the actual failure without raw logs and page logs onl
   await tasks.run(task.id);
   const state = tasks.get(task.id),
     raw = 'HUGE_RAW_LOG '.repeat(5000) + '\n\x1b[31mAssertionError: MarkInfo must follow its reference\x1b[0m';
-  const check = {
+  // A complete record: the store validates every check it reads back.
+  const check: RepositoryCheck = {
     id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     executionId: state.executionId!,
     phase: 'failed',
@@ -87,9 +88,13 @@ test('dashboard polls show the actual failure without raw logs and page logs onl
     },
     before: state.snapshot,
     after: state.snapshot,
+    supervisorPid: null,
+    toolPid: null,
     error: null,
+    purpose: 'validation',
+    dispatch: 'requested',
     result: { stdout: '', stderr: raw, reason: 'exited', exitCode: 1, exitConfirmed: true, outputTruncated: false },
-  } as RepositoryCheck;
+  };
   ui.store.saveCheck(check.id, check.executionId, check);
   const saved = ui.store.get<any>(task.id);
   saved.guided.status = 'blocked';
@@ -115,7 +120,7 @@ test('dashboard polls show the actual failure without raw logs and page logs onl
   const other = tasks.create({ ...f.plan, workspace: { ...f.plan.workspace, path: join(f.root, 'other-workspace') } });
   assert.equal(
     (await fetch(`${url.origin}/api/tasks/${other.id}/check-output?checkId=${check.id}`, { headers })).status,
-    400,
+    404,
   );
 });
 
@@ -380,7 +385,7 @@ test('dashboard revisions run in an isolated worker and stale approval cannot ap
     plan = structuredClone(original.state.plan);
   plan.brief.outcome = 'Revised observable output';
   plan.reviewPolicy = { repairRounds: 1, arbitrator: { provider: 'codex' } };
-  assert.equal((await post('revise', { expected: 'stale', plan })).status, 400);
+  assert.equal((await post('revise', { expected: 'stale', plan })).status, 409);
   assert.equal((await post('revise', { expected: expected(original), plan })).status, 202);
   const deadline = Date.now() + 15000;
   let state: any;
@@ -399,7 +404,7 @@ test('dashboard revisions run in an isolated worker and stale approval cannot ap
   assert.equal(ui.store.sessions().length, 0);
   assert.equal(
     (await post('approve', { expected: expected(original), version: 1, digest: original.state.digest })).status,
-    400,
+    409,
   );
   assert.equal(
     (await post('approve', { expected: expected(revised), version: 2, digest: revised.state.digest })).status,
@@ -487,11 +492,11 @@ test('dashboard reference selection and task reset/delete enforce displayed stat
   ).json();
   let item = (await state()).kickoffs.find((item: any) => item.id === id);
   assert.equal(item.config.references.length, 1);
-  assert.equal((await post(`/api/kickoffs/${id}/references`, { references: [], expected: 'stale' })).status, 400);
+  assert.equal((await post(`/api/kickoffs/${id}/references`, { references: [], expected: 'stale' })).status, 409);
   assert.equal((await post(`/api/kickoffs/${id}/references`, { references: [], expected: item.turnKey })).status, 200);
   item = (await state()).kickoffs.find((item: any) => item.id === id);
   assert.deepEqual(item.config.references, []);
-  assert.equal((await post(`/api/kickoffs/${id}/delete`, { expected: 'stale' })).status, 400);
+  assert.equal((await post(`/api/kickoffs/${id}/delete`, { expected: 'stale' })).status, 409);
   const reset = await (await post(`/api/kickoffs/${id}/reset`, { expected: item.turnKey })).json();
   item = (await state()).kickoffs.find((item: any) => item.id === reset.id);
   assert.equal(item.config.request, 'Original request');
@@ -506,7 +511,7 @@ test('dashboard reference selection and task reset/delete enforce displayed stat
     view = await (await fetch(`${url.origin}/api/tasks/${task.id}`, { headers })).json();
   assert.equal((await post(`/api/tasks/${task.id}/delete`, { expected: expected(view) })).status, 200);
   assert.deepEqual((await state()).tasks, []);
-  assert.equal((await fetch(`${url.origin}/api/tasks/${task.id}`, { headers })).status, 400);
+  assert.equal((await fetch(`${url.origin}/api/tasks/${task.id}`, { headers })).status, 404);
   assert.equal(existsSync(join(f.repo, 'greeting.js')), true);
 });
 test('dashboard requires its local token and origin, rejects stale decisions, and preserves drafts over restart', async t => {
@@ -562,7 +567,7 @@ test('dashboard requires its local token and origin, rejects stale decisions, an
   assert.equal(view.state.plan.workspace.base, f.git('rev-parse', 'HEAD'));
   assert.equal(
     (await req(`/api/tasks/${id}/approve`, { version: 1, digest: view.state.digest, expected: 'stale' })).status,
-    400,
+    409,
   );
   assert.equal(ui.store.workspaces().length, 0);
   assert.equal(
@@ -573,7 +578,7 @@ test('dashboard requires its local token and origin, rejects stale decisions, an
   assert.equal(ui.store.workspaces().length, 0);
   assert.equal(
     (await req(`/api/tasks/${id}/approve`, { version: 1, digest: view.state.digest, expected: expected(view) })).status,
-    400,
+    409,
   );
   await ui.close();
   ui = await startUi({ db, port: 0 });
@@ -599,7 +604,7 @@ test('dashboard requires its local token and origin, rejects stale decisions, an
   const kickoff = await (await req('/api/kickoffs', { repo: f.repo, request: 'Confirm greeting' })).json();
   const planned = await planners.send(kickoff.id);
   const prepare = `/api/kickoffs/${kickoff.id}/prepare`;
-  assert.equal((await req(prepare, { digest: 'stale' })).status, 400);
+  assert.equal((await req(prepare, { digest: 'stale' })).status, 409);
   assert.equal((await req(prepare, { digest: planned.candidateDigest })).status, 201);
   assert.equal((await req(prepare, { digest: planned.candidateDigest })).status, 400);
   assert.equal(ui.store.workspaces().length, 0);
@@ -639,7 +644,7 @@ test(
     await post(route + '/approve', { version: 1, digest: view.state.digest, expected: expected(view) });
     view = await get(route);
     assert.equal((await post(route + '/run', { expected: expected(view) })).status, 202);
-    assert.equal((await post(route + '/run', { expected: expected(view) })).status, 400);
+    assert.equal((await post(route + '/run', { expected: expected(view) })).status, 409);
     view = await wait();
     assert.equal(view.state.status, 'awaiting_scope', view.state.note);
     assert.equal(view.state.plan.context.exploration, true);

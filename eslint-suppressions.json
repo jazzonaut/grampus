@@ -1,24 +1,4 @@
 {
-  "src/cli.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    },
-    "complexity": {
-      "count": 1
-    },
-    "max-depth": {
-      "count": 5
-    },
-    "max-lines-per-function": {
-      "count": 1
-    }
-  },
   "src/domain/acceptance.ts": {
     "complexity": {
       "count": 2
@@ -30,6 +10,11 @@
     },
     "max-lines-per-function": {
       "count": 1
+    }
+  },
+  "src/domain/workflow.ts": {
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 21
     }
   },
   "src/execution/deliveries.ts": {
@@ -46,23 +31,8 @@
     }
   },
   "src/execution/edit-policy.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 14
-    },
     "complexity": {
-      "count": 4
-    },
-    "no-control-regex": {
-      "count": 1
-    },
-    "preserve-caught-error": {
-      "count": 1
+      "count": 3
     }
   },
   "src/execution/execution-state.ts": {
@@ -93,7 +63,7 @@
   },
   "src/execution/sessions.ts": {
     "complexity": {
-      "count": 3
+      "count": 2
     },
     "max-lines-per-function": {
       "count": 1
@@ -114,6 +84,9 @@
     }
   },
   "src/orchestration/guided-tasks.ts": {
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 77
+    },
     "@typescript-eslint/switch-exhaustiveness-check": {
       "count": 3
     },
@@ -128,6 +101,9 @@
     }
   },
   "src/orchestration/kickoff.ts": {
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 6
+    },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -155,17 +131,17 @@
       "count": 1
     }
   },
+  "src/orchestration/task-lifecycle.ts": {
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 6
+    }
+  },
   "src/orchestration/task-title.ts": {
     "no-control-regex": {
       "count": 1
     },
     "no-useless-escape": {
       "count": 1
-    }
-  },
-  "src/persistence/store.ts": {
-    "@typescript-eslint/restrict-template-expressions": {
-      "count": 2
     }
   },
   "src/probes/mcp-probe.ts": {
@@ -177,6 +153,9 @@
     }
   },
   "src/probes/multifile-probe.ts": {
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 13
+    },
     "complexity": {
       "count": 2
     },
@@ -185,6 +164,9 @@
     }
   },
   "src/probes/probe-interruption.ts": {
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 5
+    },
     "complexity": {
       "count": 1
     },
@@ -199,11 +181,17 @@
     "@typescript-eslint/no-explicit-any": {
       "count": 1
     },
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 1
+    },
     "@typescript-eslint/prefer-promise-reject-errors": {
       "count": 1
     }
   },
   "src/probes/task-probe.ts": {
+    "@typescript-eslint/no-non-null-assertion": {
+      "count": 1
+    },
     "max-lines-per-function": {
       "count": 1
     }
@@ -213,65 +201,7 @@
       "count": 1
     }
   },
-  "src/providers/claude-files.ts": {
-    "@typescript-eslint/require-await": {
-      "count": 1
-    }
-  },
-  "src/providers/claude-repository.ts": {
-    "@typescript-eslint/require-await": {
-      "count": 1
-    }
-  },
   "src/providers/claude.ts": {
-    "@typescript-eslint/require-await": {
-      "count": 2
-    },
-    "@typescript-eslint/unbound-method": {
-      "count": 5
-    },
-    "complexity": {
-      "count": 2
-    }
-  },
-  "src/providers/codex.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 7
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 25
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    },
-    "@typescript-eslint/unbound-method": {
-      "count": 2
-    },
-    "complexity": {
-      "count": 3
-    }
-  },
-  "src/providers/integrations.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 7
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    }
-  },
-  "src/providers/types.ts": {
     "complexity": {
       "count": 1
     }
@@ -290,29 +220,7 @@
     }
   },
   "src/repository/installed-dependency.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    },
     "complexity": {
-      "count": 1
-    }
-  },
-  "src/repository/reference-folders.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/repository/repository-context.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     }
   },
@@ -322,9 +230,6 @@
     }
   },
   "src/repository/repository-tools.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 3
-    },
     "complexity": {
       "count": 1
     },
@@ -333,51 +238,11 @@
     },
     "max-lines-per-function": {
       "count": 2
-    },
-    "no-control-regex": {
-      "count": 1
     }
   },
   "src/repository/workspaces.ts": {
-    "@typescript-eslint/prefer-promise-reject-errors": {
-      "count": 1
-    },
     "complexity": {
       "count": 1
-    },
-    "preserve-caught-error": {
-      "count": 2
-    }
-  },
-  "src/server/ui-server.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 7
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    },
-    "complexity": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 2
-    }
-  },
-  "src/server/ui-worker.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 18
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 8
     }
   },
   "src/ui/app.js": {
@@ -391,17 +256,9 @@
       "count": 1
     }
   },
-  "src/verification/check-evidence.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 3
-    }
-  },
   "src/verification/check-output.ts": {
     "complexity": {
       "count": 1
-    },
-    "no-control-regex": {
-      "count": 2
     }
   },
   "src/verification/checks.ts": {
@@ -444,18 +301,8 @@
       "count": 25
     }
   },
-  "test/guided-tasks-slices.test.ts": {
-    "@typescript-eslint/unbound-method": {
-      "count": 1
-    }
-  },
   "test/implementations-recovery.test.ts": {
     "no-empty": {
-      "count": 1
-    }
-  },
-  "test/repository-tools.test.ts": {
-    "@typescript-eslint/unbound-method": {
       "count": 1
     }
   },
@@ -471,9 +318,6 @@
   },
   "test/ui.test.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
-    "@typescript-eslint/unbound-method": {
       "count": 1
     },
     "no-control-regex": {

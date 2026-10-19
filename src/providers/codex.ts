@@ -1,6 +1,10 @@
+// Owns the Codex adapter: one `codex app-server` process per turn, thread start or resume, turns,
+// controller-approved native patches and the dynamic repository tools. Protocol shapes are pinned in
+// codex-protocol.ts; this module only acts on messages that module has validated.
 import { RpcProcess, type RpcMessage } from '../process/process.js';
 import { providerLimits } from '../config/limits.js';
 import { applicationVersion } from '../config/runtime.js';
+import { UnrecognizedMessages, protocolDiagnostic, boundedExcerpt } from '../process/boundary.js';
 import { mcpInstructions } from './integrations.js';
 import { referenceInstructions } from '../repository/reference-folders.js';
 import {
@@ -11,9 +15,28 @@ import {
 } from '../repository/repository-tools.js';
 import { authorizeFileChanges, implementationInstructions, type EditingContext } from '../execution/edit-policy.js';
 import {
+  accountReadSchema,
+  agentMessageText,
+  classifyCodexNotification,
+  configReadSchema,
+  fileChangeItem,
+  isKnownCodexNotification,
+  itemId,
+  mcpStatusPageSchema,
+  notificationThread,
+  parseCodexResponse,
+  patchApprovalRequestSchema,
+  readOnlySandboxSchema,
+  threadStartSchema,
+  toolCallRequestSchema,
+  turnStartSchema,
+  type CodexNotification,
+  type McpStatusPage,
+} from './codex-protocol.js';
+import {
   instructions,
   titleInstructions,
-  replySchema,
+  replyOutputSchema,
   parseReply,
   subscriptionEnvironment,
   numeric,
@@ -22,27 +45,29 @@ import {
   type TurnResult,
   type Usage,
 } from './types.js';
+import { z } from 'zod';
 
 async function reportIntegrations(rpc: RpcProcess, threadId: string, emit: ConnectOptions['emit']) {
   try {
     const servers: { name: string; status: string; tools: number; auth: string }[] = [];
     let cursor: string | null = null;
     do {
-      const page: {
-        data: { name: string; runtimeStatus?: string | null; tools: Record<string, unknown>; authStatus: string }[];
-        nextCursor: string | null;
-      } = await rpc.request('mcpServerStatus/list', {
-        threadId,
-        detail: 'toolsAndAuthOnly',
-        limit: providerLimits.mcpStatusPage,
-        cursor,
-      });
+      const page: McpStatusPage = parseCodexResponse(
+        'mcpServerStatus/list',
+        mcpStatusPageSchema,
+        await rpc.request('mcpServerStatus/list', {
+          threadId,
+          detail: 'toolsAndAuthOnly',
+          limit: providerLimits.mcpStatusPage,
+          cursor,
+        }),
+      );
       servers.push(
         ...page.data.map(item => ({
           name: item.name,
           status: item.runtimeStatus ?? 'configured',
           tools: Object.keys(item.tools ?? {}).length,
-          auth: item.authStatus,
+          auth: item.authStatus ?? 'unknown',
         })),
       );
       cursor = page.nextCursor;
@@ -56,6 +81,49 @@ async function reportIntegrations(rpc: RpcProcess, threadId: string, emit: Conne
       },
     });
   }
+}
+
+/** config/read materializes optional fields as null; TOML overrides cannot represent null. */
+function withoutNulls(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutNulls);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, item]) => (item === null ? [] : [[key, withoutNulls(item)]])),
+  );
+}
+
+const mcpServerSchema = z.looseObject({ enabled: z.unknown().optional() });
+
+async function mcpOverrides(rpc: RpcProcess, options: ConnectOptions): Promise<Record<string, unknown>> {
+  const overrides: Record<string, unknown> = { web_search: 'disabled' };
+  const effective = parseCodexResponse(
+    'config/read',
+    configReadSchema,
+    await rpc.request('config/read', { includeLayers: false, cwd: options.configurationCwd ?? options.cwd }),
+  );
+  for (const [name, server] of Object.entries(effective.config.mcp_servers ?? {})) {
+    const configured = withoutNulls(server);
+    overrides[`mcp_servers.${name}`] = {
+      ...(configured && typeof configured === 'object' ? configured : {}),
+      enabled: options.purpose !== 'title' && mcpServerSchema.parse(server).enabled !== false,
+    };
+  }
+  return overrides;
+}
+
+function developerInstructions(options: ConnectOptions): string {
+  let text =
+    options.purpose === 'title'
+      ? titleInstructions
+      : options.editing
+        ? implementationInstructions(
+            'Use only apply_patch to update approved existing files, add explicitly authorized new files or delete explicitly authorized unchanged files, using their supplied contents. Deferred entries must be read with grampus_read_file before editing; null without deferred means absent. Parent directories must already exist. Deletion paths cannot be updated or recreated. Do not move files or delete directories. Each patch requires controller approval.',
+          )
+        : instructions;
+  if (options.purpose !== 'title') text += `\n${mcpInstructions}`;
+  if (options.repository)
+    text += `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}`;
+  return text;
 }
 
 export async function connectCodex(options: ConnectOptions): Promise<AgentSession> {
@@ -94,62 +162,43 @@ export async function connectCodex(options: ConnectOptions): Promise<AgentSessio
       capabilities: { experimentalApi: true },
     });
     rpc.notify('initialized');
-    const auth = await rpc.request<{ account: { type: string } | null }>('account/read', { refreshToken: false });
-    if (auth.account?.type !== 'chatgpt') throw new Error('Codex requires an existing ChatGPT subscription login');
-    const overrides: Record<string, unknown> = { web_search: 'disabled' };
-    const effective = await rpc.request<{ config: { mcp_servers?: Record<string, Record<string, unknown>> } }>(
-      'config/read',
-      { includeLayers: false, cwd: options.configurationCwd ?? options.cwd },
+    const auth = parseCodexResponse(
+      'account/read',
+      accountReadSchema,
+      await rpc.request('account/read', { refreshToken: false }),
     );
-    for (const [name, server] of Object.entries(effective.config.mcp_servers ?? {})) {
-      // config/read materializes optional fields as null; TOML overrides cannot represent null.
-      const configured = JSON.parse(JSON.stringify(server, (_key, value) => (value === null ? undefined : value)));
-      overrides[`mcp_servers.${name}`] = {
-        ...configured,
-        enabled: options.purpose !== 'title' && server['enabled'] !== false,
-      };
-    }
+    if (auth.account?.type !== 'chatgpt') throw new Error('Codex requires an existing ChatGPT subscription login');
     const params = {
       cwd: options.cwd,
       modelProvider: 'openai',
       approvalPolicy: 'untrusted',
       sandbox: 'read-only',
-      developerInstructions:
-        options.purpose === 'title'
-          ? titleInstructions
-          : options.editing
-            ? implementationInstructions(
-                'Use only apply_patch to update approved existing files, add explicitly authorized new files or delete explicitly authorized unchanged files, using their supplied contents. Deferred entries must be read with grampus_read_file before editing; null without deferred means absent. Parent directories must already exist. Deletion paths cannot be updated or recreated. Do not move files or delete directories. Each patch requires controller approval.',
-              )
-            : instructions,
-      config: overrides,
+      developerInstructions: developerInstructions(options),
+      config: await mcpOverrides(rpc, options),
       ...(options.editing ? { approvalsReviewer: 'user' } : {}),
       ...(options.repository && !options.providerSessionId
         ? { dynamicTools: repositoryToolDefinitions.map(tool => ({ type: 'function', ...tool })) }
         : {}),
       ...(options.model ? { model: options.model } : {}),
     };
-    if (options.purpose !== 'title') params.developerInstructions += `\n${mcpInstructions}`;
-    if (options.repository)
-      params.developerInstructions += `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}`;
-    const thread = await rpc.request<{
-      thread: { id: string };
-      model: string;
-      approvalPolicy?: unknown;
-      approvalsReviewer?: unknown;
-      sandbox?: { type?: string; networkAccess?: boolean };
-    }>(
-      options.providerSessionId ? 'thread/resume' : 'thread/start',
-      options.providerSessionId ? { ...params, threadId: options.providerSessionId } : params,
+    const method = options.providerSessionId ? 'thread/resume' : 'thread/start';
+    const thread = parseCodexResponse(
+      method,
+      threadStartSchema,
+      await rpc.request(
+        method,
+        options.providerSessionId ? { ...params, threadId: options.providerSessionId } : params,
+      ),
     );
     if (options.providerSessionId && thread.thread.id !== options.providerSessionId)
       throw new Error('Codex resumed a different session');
+    const sandbox = readOnlySandboxSchema.safeParse(thread.sandbox);
     if (
       options.editing &&
       (thread.approvalPolicy !== 'untrusted' ||
         thread.approvalsReviewer !== 'user' ||
-        thread.sandbox?.type !== 'readOnly' ||
-        thread.sandbox.networkAccess === true)
+        !sandbox.success ||
+        sandbox.data.networkAccess === true)
     )
       throw new Error('Codex did not confirm controller approvals and read-only sandbox');
     options.emit({
@@ -168,20 +217,25 @@ export async function connectCodex(options: ConnectOptions): Promise<AgentSessio
   }
 }
 
+interface ActiveTurn {
+  resolve: (result: TurnResult) => void;
+  reject: (error: Error) => void;
+  turnId: string | null;
+  text: string;
+  usage: Usage | null;
+  patches: Map<string, unknown>;
+  seenItems: Set<string>;
+  toolCalls: Set<string>;
+  stopping: boolean;
+}
+
+const patchOwnershipSchema = z.looseObject({ threadId: z.string(), turnId: z.string(), itemId: z.string() });
+
 export class CodexSession implements AgentSession {
-  private active: {
-    resolve: (result: TurnResult) => void;
-    reject: (error: Error) => void;
-    turnId: string | null;
-    text: string;
-    usage: Usage | null;
-    patches: Map<string, unknown>;
-    seenItems: Set<string>;
-    toolCalls: Set<string>;
-    stopping: boolean;
-  } | null = null;
+  private active: ActiveTurn | null = null;
   private readonly unsubscribe: (() => void)[];
   private readonly readRepository: ReturnType<typeof repositoryTools> | undefined;
+  private readonly unrecognized = new UnrecognizedMessages();
 
   constructor(
     private readonly rpc: RpcProcess,
@@ -203,62 +257,60 @@ export class CodexSession implements AgentSession {
     ];
   }
 
-  private approve(message: RpcMessage): unknown {
-    const p = message.params as Record<string, unknown> | undefined;
+  private callTool(params: unknown): unknown {
     const active = this.active;
-    if (message.method === 'item/tool/call') {
-      try {
-        if (
-          !this.readRepository ||
-          !active ||
-          active.stopping ||
-          active.turnId === null ||
-          p?.['threadId'] !== this.threadId ||
-          p['turnId'] !== active.turnId ||
-          typeof p['callId'] !== 'string' ||
-          p['namespace'] != null
-        )
-          throw new Error('Repository tool call lacks current turn ownership');
-        const callKey = `tool:${p['callId']}`;
-        if (active.toolCalls.has(callKey) || active.toolCalls.size >= providerLimits.turnToolCalls)
-          throw new Error('Duplicate repository tool call or turn tool limit exceeded');
-        active.toolCalls.add(callKey);
-        const result = this.readRepository(String(p['tool']), p['arguments']);
-        return { success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(result) }] };
-      } catch (error) {
-        return {
-          success: false,
-          contentItems: [{ type: 'inputText', text: error instanceof Error ? error.message : String(error) }],
-        };
-      }
-    }
-    if (!this.editing) return undefined;
-    if (message.method === 'item/fileChange/requestApproval') {
-      const matches =
-        active &&
-        !active.stopping &&
-        active.turnId !== null &&
-        p?.['threadId'] === this.threadId &&
-        p['turnId'] === active.turnId &&
-        typeof p['itemId'] === 'string';
-      const changes = matches ? active.patches.get(p['itemId'] as string) : undefined;
-      if (matches) active.patches.delete(p['itemId'] as string); // One decision per item, including denials.
+    try {
+      const call = toolCallRequestSchema.safeParse(params);
       if (
-        changes &&
-        p &&
-        p['grantRoot'] == null &&
-        Object.keys(p).every(field =>
-          ['threadId', 'turnId', 'itemId', 'reason', 'grantRoot', 'startedAtMs'].includes(field),
-        )
-      ) {
-        return { decision: authorizeFileChanges(this.editing, changes, this.emit) ? 'accept' : 'decline' };
-      }
-      this.emit({
-        type: 'tool.denied',
-        data: { tool: 'apply_patch', reason: 'Approval lacks a current, unused patch or requests broader permissions' },
-      });
-      return { decision: 'decline' };
+        !this.readRepository ||
+        !active ||
+        active.stopping ||
+        active.turnId === null ||
+        !call.success ||
+        call.data.threadId !== this.threadId ||
+        call.data.turnId !== active.turnId
+      )
+        throw new Error('Repository tool call lacks current turn ownership');
+      const callKey = `tool:${call.data.callId}`;
+      if (active.toolCalls.has(callKey) || active.toolCalls.size >= providerLimits.turnToolCalls)
+        throw new Error('Duplicate repository tool call or turn tool limit exceeded');
+      active.toolCalls.add(callKey);
+      const result = this.readRepository(call.data.tool, call.data.arguments);
+      return { success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(result) }] };
+    } catch (error) {
+      return {
+        success: false,
+        contentItems: [{ type: 'inputText', text: error instanceof Error ? error.message : String(error) }],
+      };
     }
+  }
+
+  private approvePatch(editing: EditingContext, params: unknown): unknown {
+    const active = this.active;
+    const owned = patchOwnershipSchema.safeParse(params);
+    const matches =
+      active &&
+      !active.stopping &&
+      active.turnId !== null &&
+      owned.success &&
+      owned.data.threadId === this.threadId &&
+      owned.data.turnId === active.turnId;
+    const changes = matches ? active.patches.get(owned.data.itemId) : undefined;
+    if (matches) active.patches.delete(owned.data.itemId); // One decision per item, including denials.
+    // Strict: grantRoot or any unknown field would ask for more than this one patch.
+    if (changes && patchApprovalRequestSchema.safeParse(params).success)
+      return { decision: authorizeFileChanges(editing, changes, this.emit) ? 'accept' : 'decline' };
+    this.emit({
+      type: 'tool.denied',
+      data: { tool: 'apply_patch', reason: 'Approval lacks a current, unused patch or requests broader permissions' },
+    });
+    return { decision: 'decline' };
+  }
+
+  private approve(message: RpcMessage): unknown {
+    if (message.method === 'item/tool/call') return this.callTool(message.params);
+    if (!this.editing) return undefined;
+    if (message.method === 'item/fileChange/requestApproval') return this.approvePatch(this.editing, message.params);
     this.emit({ type: 'tool.denied', data: { tool: message.method, reason: 'Only scoped file patches are enabled' } });
     if (message.method === 'item/commandExecution/requestApproval') return { decision: 'decline' };
     // Unknown permission/tool requests keep the transport's default rejection.
@@ -267,73 +319,143 @@ export class CodexSession implements AgentSession {
 
   private message(message: RpcMessage): void {
     if (!message.method || !this.active) return;
-    const p = message.params as Record<string, any> | undefined;
-    if (!p || p['threadId'] !== this.threadId) return;
-    const active = this.active;
-    if (message.method === 'turn/started') {
-      if (typeof p['turn']?.id !== 'string' || (active.turnId && active.turnId !== p['turn'].id)) return;
-      active.turnId = p['turn'].id;
+    const thread = notificationThread(message.params);
+    // Thread-scoped messages for another thread, and known ones without a thread, are not ours.
+    if (thread !== this.threadId && (thread !== null || isKnownCodexNotification(message.method))) return;
+    const classified = classifyCodexNotification(message.method, message.params);
+    if (classified.kind === 'ignored') return;
+    if (classified.kind === 'unrecognized') {
+      if (this.unrecognized.report(classified.method))
+        this.emit(
+          protocolDiagnostic('protocol.unrecognized', {
+            provider: 'codex',
+            messageType: classified.method,
+            excerpt: classified.excerpt,
+          }),
+        );
+      return;
+    }
+    if (classified.kind === 'malformed') {
+      this.emit(
+        protocolDiagnostic('protocol.malformed', {
+          provider: 'codex',
+          messageType: classified.method,
+          excerpt: classified.excerpt,
+          issues: classified.issues,
+        }),
+      );
+      return;
+    }
+    this.notification(this.active, classified.notification);
+  }
+
+  private notification(active: ActiveTurn, notification: CodexNotification): void {
+    if (notification.method === 'turn/started') {
+      const id = notification.params.turn.id;
+      if (active.turnId && active.turnId !== id) return;
+      active.turnId = id;
       this.emit({ type: 'turn.started', data: { providerTurnId: active.turnId } });
+      return;
     }
-    if (p['turnId'] && active.turnId && p['turnId'] !== active.turnId) return;
-    if (this.editing && active.turnId !== null && p['turnId'] === active.turnId && !active.stopping) {
-      if (message.method === 'item/started' && p['item']?.type === 'fileChange' && typeof p['item'].id === 'string') {
-        if (active.seenItems.has(p['item'].id)) active.patches.delete(p['item'].id);
-        else {
-          if (active.seenItems.size >= providerLimits.turnPatchItems)
-            throw new Error('Native patch item limit exceeded');
-          active.seenItems.add(p['item'].id);
-          if (p['item'].status === 'inProgress') active.patches.set(p['item'].id, p['item'].changes);
-        }
+    if (notification.method === 'turn/completed') {
+      this.completeTurn(active, notification.params.turn);
+      return;
+    }
+    const turnId = notification.params.turnId;
+    if (turnId && active.turnId && turnId !== active.turnId) return;
+    if (this.editing && active.turnId !== null && turnId === active.turnId && !active.stopping)
+      this.trackPatch(active, notification);
+    switch (notification.method) {
+      case 'item/agentMessage/delta':
+        this.emit({ type: 'output.delta', data: { text: notification.params.delta } });
+        return;
+      case 'item/completed': {
+        const text = agentMessageText(notification.params.item);
+        if (text !== null) active.text = text;
+        return;
       }
-      if (message.method === 'item/fileChange/patchUpdated' && active.patches.has(p['itemId']))
-        active.patches.set(p['itemId'], p['changes']);
-      if (message.method === 'item/completed' && p['item']?.type === 'fileChange') active.patches.delete(p['item'].id);
-    }
-    if (message.method === 'item/agentMessage/delta') {
-      this.emit({ type: 'output.delta', data: { text: String(p['delta']) } });
-    }
-    if (message.method === 'item/completed' && p['item']?.type === 'agentMessage') active.text = String(p['item'].text);
-    if (message.method === 'thread/tokenUsage/updated') {
-      const inputTokens = numeric(p['tokenUsage']?.last?.inputTokens);
-      if (inputTokens !== null)
+      case 'thread/tokenUsage/updated':
+        this.usage(active, notification.params.tokenUsage);
+        return;
+      case 'error':
         this.emit({
-          type: 'context.updated',
-          data: { inputTokens, windowTokens: numeric(p['tokenUsage']?.modelContextWindow) },
+          type: 'provider.error',
+          data: {
+            message: boundedExcerpt(notification.params.error.message),
+            willRetry: notification.params.willRetry ?? null,
+          },
         });
-      const total = p['tokenUsage']?.total;
-      active.usage = {
-        scope: 'provider-session-cumulative',
-        inputTokens: numeric(total?.inputTokens),
-        outputTokens: numeric(total?.outputTokens),
-        cachedInputTokens: numeric(total?.cachedInputTokens),
-        estimatedCostUsd: null,
-        billedCostUsd: null,
-      };
-      this.emit({ type: 'usage.updated', data: active.usage });
+        return;
+      case 'item/started':
+      case 'item/fileChange/patchUpdated':
+        return;
     }
-    if (message.method === 'turn/completed') {
-      if (active.turnId && p['turn'].id !== active.turnId) return;
-      this.active = null;
-      const status =
-        p['turn'].status === 'completed' ? 'completed' : p['turn'].status === 'interrupted' ? 'interrupted' : 'failed';
-      try {
-        active.resolve({
-          status,
-          reply: status === 'completed' ? parseReply(active.text) : null,
-          usage: active.usage,
-          error: p['turn'].error?.message ?? null,
-        });
-      } catch (error) {
-        active.reject(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  private trackPatch(active: ActiveTurn, notification: CodexNotification): void {
+    if (notification.method === 'item/started') {
+      const item = fileChangeItem(notification.params.item);
+      if (!item) return;
+      if (active.seenItems.has(item.id)) active.patches.delete(item.id);
+      else {
+        if (active.seenItems.size >= providerLimits.turnPatchItems) throw new Error('Native patch item limit exceeded');
+        active.seenItems.add(item.id);
+        if (item.status === 'inProgress') active.patches.set(item.id, item.changes);
       }
+    }
+    if (notification.method === 'item/fileChange/patchUpdated' && active.patches.has(notification.params.itemId))
+      active.patches.set(notification.params.itemId, notification.params.changes);
+    if (notification.method === 'item/completed' && notification.params.item.type === 'fileChange') {
+      const id = itemId(notification.params.item);
+      if (id !== null) active.patches.delete(id);
+    }
+  }
+
+  private usage(
+    active: ActiveTurn,
+    tokenUsage: Extract<CodexNotification, { method: 'thread/tokenUsage/updated' }>['params']['tokenUsage'],
+  ): void {
+    const inputTokens = numeric(tokenUsage.last?.inputTokens);
+    if (inputTokens !== null)
+      this.emit({
+        type: 'context.updated',
+        data: { inputTokens, windowTokens: numeric(tokenUsage.modelContextWindow) },
+      });
+    const total = tokenUsage.total;
+    active.usage = {
+      scope: 'provider-session-cumulative',
+      inputTokens: numeric(total?.inputTokens),
+      outputTokens: numeric(total?.outputTokens),
+      cachedInputTokens: numeric(total?.cachedInputTokens),
+      estimatedCostUsd: null,
+      billedCostUsd: null,
+    };
+    this.emit({ type: 'usage.updated', data: active.usage });
+  }
+
+  private completeTurn(
+    active: ActiveTurn,
+    turn: Extract<CodexNotification, { method: 'turn/completed' }>['params']['turn'],
+  ): void {
+    if (active.turnId && turn.id !== active.turnId) return;
+    this.active = null;
+    const status = turn.status === 'completed' ? 'completed' : turn.status === 'interrupted' ? 'interrupted' : 'failed';
+    try {
+      active.resolve({
+        status,
+        reply: status === 'completed' ? parseReply(active.text) : null,
+        usage: active.usage,
+        error: turn.error?.message ?? null,
+      });
+    } catch (error) {
+      active.reject(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
   async turn(prompt: string): Promise<TurnResult> {
     if (this.active) throw new Error('Codex already has an active turn');
-    let resolve!: (value: TurnResult) => void;
-    let reject!: (error: Error) => void;
+    let resolve!: ActiveTurn['resolve'];
+    let reject!: ActiveTurn['reject'];
     const result = new Promise<TurnResult>((yes, no) => {
       resolve = yes;
       reject = no;
@@ -352,11 +474,15 @@ export class CodexSession implements AgentSession {
       stopping: false,
     };
     try {
-      const started = await this.rpc.request<{ turn: { id: string } }>('turn/start', {
-        threadId: this.threadId,
-        input: [{ type: 'text', text: prompt }],
-        outputSchema: replySchema,
-      });
+      const started = parseCodexResponse(
+        'turn/start',
+        turnStartSchema,
+        await this.rpc.request('turn/start', {
+          threadId: this.threadId,
+          input: [{ type: 'text', text: prompt }],
+          outputSchema: replyOutputSchema,
+        }),
+      );
       if (this.active) {
         if (this.active.turnId && this.active.turnId !== started.turn.id)
           throw new Error('Codex acknowledged a different turn');

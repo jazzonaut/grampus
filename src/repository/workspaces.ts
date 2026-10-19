@@ -4,43 +4,34 @@ import { lstatSync, realpathSync, statSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { Store } from '../persistence/store.js';
+import type { Workspace } from '../persistence/records.js';
 import type { Task } from '../domain/workflow.js';
 import { OrcaCli, type OrcaWorkspaceClient, type OrcaWorktree } from './orca.js';
 import { currentProcessStartedAt, inspectProcess } from '../process/process-identity.js';
 import { processAlive } from '../verification/check-recovery.js';
 import { processLimits } from '../config/limits.js';
+import { worktreeList } from './git-output.js';
+import { systemErrorCode } from '../process/boundary.js';
 
-export interface Workspace {
-  id: string;
-  taskId: string;
-  version: number;
-  adapter: 'git' | 'orca';
-  repository: string;
-  commonDirectory: string;
-  path: string | null;
-  branch: string | null;
-  baseCommit: string;
-  host: string;
-  phase: 'creating' | 'ready' | 'recovery_required' | 'released';
-  owner: {
-    controllerPid: number;
-    gitPid: number | null;
-    exitConfirmed: boolean;
-    /** Null when a creation time could not be observed; recovery then stays conservative. */
-    controllerStartedAt: string | null;
-    gitStartedAt: string | null;
-  } | null;
-  orca?: {
-    repoId: string;
-    name: string;
-    marker: string;
-    identityKey: string | null;
-    instanceId: string | null;
-    worktreeId: string | null;
-  };
-}
+export type { Workspace } from '../persistence/records.js';
 
 type LocatedWorkspace = Workspace & { path: string; branch: string };
+
+/** A workspace that has been placed: it has a path and a branch. */
+function located(workspace: Workspace): LocatedWorkspace {
+  const { path, branch } = workspace;
+  if (!path || !branch) throw new Error('Workspace has no path or branch');
+  return { ...workspace, path, branch };
+}
+/** The creation owner recorded before any Git or Orca call. */
+function creationOwner(workspace: Workspace): NonNullable<Workspace['owner']> {
+  if (!workspace.owner) throw new Error('Workspace creation has no recorded owner');
+  return workspace.owner;
+}
+function orcaReservation(workspace: Workspace): NonNullable<Workspace['orca']> {
+  if (!workspace.orca) throw new Error('Workspace has no Orca reservation');
+  return workspace.orca;
+}
 
 function reservationKey(workspace: Workspace): string {
   if (workspace.phase === 'released') return `released:${workspace.id}`;
@@ -74,7 +65,7 @@ function exists(path: string): boolean {
     lstatSync(path);
     return true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    if (systemErrorCode(error) === 'ENOENT') return false;
     throw error;
   }
 }
@@ -92,7 +83,10 @@ function git(cwd: string, args: string[], started?: (pid: number | null) => void
       ['-c', 'core.fsmonitor=false', ...(creating ? ['-c', 'core.autocrlf=false'] : []), '-C', cwd, ...args],
       { env, windowsHide: true, encoding: 'utf8', timeout, maxBuffer: processLimits.toolOutputBytes },
       (error, stdout) => {
-        if (startupError) reject(startupError);
+        if (startupError)
+          reject(
+            startupError instanceof Error ? startupError : new Error('Git could not start', { cause: startupError }),
+          );
         else if (error)
           reject(
             new Error(
@@ -114,27 +108,12 @@ function git(cwd: string, args: string[], started?: (pid: number | null) => void
 
 async function worktrees(repository: string): Promise<Worktree[]> {
   const output = await git(repository, ['worktree', 'list', '--porcelain', '-z']);
-  return output
-    .split('\0\0')
-    .filter(Boolean)
-    .map(block => {
-      const fields = Object.fromEntries(
-        block
-          .split('\0')
-          .filter(Boolean)
-          .map(field => {
-            const space = field.indexOf(' ');
-            return space < 0 ? [field, ''] : [field.slice(0, space), field.slice(space + 1)];
-          }),
-      );
-      if (!fields['worktree']) throw new Error('Unrecognized Git worktree listing');
-      return {
-        path: exists(fields['worktree']) ? realpathSync.native(fields['worktree']) : fields['worktree'],
-        ...(fields['HEAD'] ? { head: fields['HEAD'] } : {}),
-        ...(fields['branch'] ? { branch: fields['branch'] } : {}),
-        ...(fields['locked'] !== undefined ? { locked: fields['locked'] } : {}),
-      };
-    });
+  return worktreeList(output).map(entry => ({
+    path: exists(entry.worktree) ? realpathSync.native(entry.worktree) : entry.worktree,
+    ...(entry.HEAD ? { head: entry.HEAD } : {}),
+    ...(entry.branch ? { branch: entry.branch } : {}),
+    ...(entry.locked !== undefined ? { locked: entry.locked } : {}),
+  }));
 }
 
 /** Journal intent before asking Git or Orca to create a worktree; never replay creation. */
@@ -144,10 +123,16 @@ export class Workspaces {
     private readonly orca: OrcaWorkspaceClient = new OrcaCli(),
   ) {}
   get(id: string): Workspace {
-    return this.store.workspace<Workspace>(id);
+    return this.store.workspace(id);
+  }
+  /** The checked-out path of a workspace; a reservation that has none cannot run work. */
+  path(id: string): string {
+    const { path } = this.get(id);
+    if (!path) throw new Error('Workspace has no checked-out path');
+    return path;
   }
   list(): Workspace[] {
-    return this.store.workspaces<Workspace>();
+    return this.store.workspaces();
   }
 
   /** Metadata only: a reviewed revision keeps the original base, branch and files. */
@@ -268,22 +253,25 @@ export class Workspaces {
           pid => {
             this.change(workspace.id, 'git.started', current => {
               const observed = pid === null ? null : inspectProcess(pid);
-              current.owner!.gitPid = pid;
-              current.owner!.gitStartedAt = observed?.state === 'present' ? observed.startedAt : null;
-              return { pid, startedAt: current.owner!.gitStartedAt };
+              const owner = creationOwner(current);
+              owner.gitPid = pid;
+              owner.gitStartedAt = observed?.state === 'present' ? observed.startedAt : null;
+              return { pid, startedAt: owner.gitStartedAt };
             });
           },
         );
       } finally {
         this.change(workspace.id, 'git.exited', current => {
-          current.owner!.exitConfirmed = true;
+          creationOwner(current).exitConfirmed = true;
         });
       }
       await this.verifyCreation(workspace);
-      return this.change(workspace.id, 'workspace.ready', current => {
-        current.phase = 'ready';
-        current.owner = null;
-      }) as LocatedWorkspace;
+      return located(
+        this.change(workspace.id, 'workspace.ready', current => {
+          current.phase = 'ready';
+          current.owner = null;
+        }),
+      );
     } catch (error) {
       this.change(workspace.id, 'workspace.recovery_required', current => {
         current.phase = 'recovery_required';
@@ -291,6 +279,7 @@ export class Workspaces {
       });
       throw new Error(
         `Workspace ${workspace.id} needs recovery: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
   }
@@ -305,7 +294,7 @@ export class Workspaces {
         current.host !== hostname() ||
         !current.path ||
         this.store.lease(id) ||
-        this.store.executions<{ workspaceId: string }>().some(execution => execution.workspaceId === id)
+        this.store.executions().some(execution => execution.workspaceId === id)
       )
         throw new Error('Only an unused standalone reservation with confirmed Git exit can be released');
       if (
@@ -326,13 +315,20 @@ export class Workspaces {
       };
     });
     try {
+      const path = workspace.path;
       if (
-        exists(workspace.path!) ||
-        (await worktrees(workspace.repository)).some(item => pathKey(item.path) === pathKey(workspace.path!))
+        !path ||
+        exists(path) ||
+        (await worktrees(workspace.repository)).some(item => pathKey(item.path) === pathKey(path))
       )
         throw new Error('Workspace files or Git registration exist; inspect or recover them instead of releasing');
       return this.change(id, 'workspace.released', current => {
-        if (current.phase !== 'creating' || current.owner?.controllerPid !== process.pid || exists(current.path!))
+        if (
+          current.phase !== 'creating' ||
+          current.owner?.controllerPid !== process.pid ||
+          current.path !== path ||
+          exists(path)
+        )
           throw new Error('Workspace changed during release');
         current.phase = 'released';
         current.owner = null;
@@ -404,16 +400,18 @@ export class Workspaces {
     try {
       const result = await this.orca.create(root, {
         repoId: repo.id,
-        name: workspace.orca!.name,
-        marker: workspace.orca!.marker,
+        name: orcaReservation(workspace).name,
+        marker: orcaReservation(workspace).marker,
         baseCommit,
       });
       this.bindOrca(id, result);
       await this.verifyCreation(this.get(id));
-      return this.change(id, 'workspace.ready', current => {
-        current.phase = 'ready';
-        current.owner = null;
-      }) as LocatedWorkspace;
+      return located(
+        this.change(id, 'workspace.ready', current => {
+          current.phase = 'ready';
+          current.owner = null;
+        }),
+      );
     } catch (error) {
       this.change(id, 'workspace.recovery_required', current => {
         current.phase = 'recovery_required';
@@ -421,13 +419,14 @@ export class Workspaces {
       });
       throw new Error(
         `Workspace ${id} needs recovery; Orca creation must not be replayed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
   }
 
   private bindOrca(id: string, result: OrcaWorktree): void {
     this.change(id, 'orca.identity_recorded', current => {
-      const orca = current.orca!;
+      const orca = orcaReservation(current);
       if (
         result.repoId !== orca.repoId ||
         result.name !== orca.name ||
@@ -548,13 +547,14 @@ export class Workspaces {
     });
     try {
       if (workspace.adapter === 'orca' && !workspace.orca?.identityKey) {
-        const orca = workspace.orca!;
+        const orca = orcaReservation(workspace);
         const matches = (await this.orca.list(workspace.repository, orca.repoId)).filter(
           item => item.name === orca.name && item.comment === orca.marker,
         );
-        if (matches.length !== 1)
+        const [match] = matches;
+        if (matches.length !== 1 || !match)
           throw new Error('Orca creation outcome is unknown or ambiguous; reservation retained without replay');
-        this.bindOrca(id, matches[0]!);
+        this.bindOrca(id, match);
       }
       await this.verifyCreation(this.get(id));
       return this.change(id, 'workspace.recovered', current => {

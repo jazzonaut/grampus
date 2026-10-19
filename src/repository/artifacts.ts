@@ -3,24 +3,11 @@ import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { formatBytes, processLimits, repositoryLimits } from '../config/limits.js';
+import type { RepositorySnapshot } from './snapshot-schema.js';
+import { lsTreeLongEntry } from './git-output.js';
+import { systemErrorCode } from '../process/boundary.js';
 
-export interface RepositorySnapshot {
-  artifact: string;
-  head: string;
-  index: string;
-  files: { path: string; sha256: string | null; executable: boolean }[];
-  diff: {
-    path: string;
-    before: string | null;
-    after: string | null;
-    encoding: 'utf8' | 'base64';
-    content: string | null;
-    previousEncoding: 'utf8' | 'base64';
-    previousContent: string | null;
-  }[];
-  instructions: { path: string; content: string }[];
-  instructionsDigest: string;
-}
+export type { RepositorySnapshot } from './snapshot-schema.js';
 const digest = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 
 function gitBytes(cwd: string, args: string[], input?: Buffer): Promise<Buffer> {
@@ -68,10 +55,9 @@ export async function snapshotRepository(cwd: string, base: string): Promise<Rep
   if (!['sha1', 'sha256'].includes(objectFormat)) throw new Error('Unsupported Git object format');
   const baseline = new Map<string, { mode: string; oid: string; bytes: number }>();
   for (const entry of (await git(cwd, ['ls-tree', '-r', '-l', '-z', base])).split('\0').filter(Boolean)) {
-    const tab = entry.indexOf('\t');
-    const [mode, type, oid, size] = entry.slice(0, tab).split(/\s+/);
+    const { mode, type, oid, size, path } = lsTreeLongEntry(entry);
     if (type !== 'blob' || mode === '120000') throw new Error('Submodule and symlink snapshots are not supported yet');
-    baseline.set(entry.slice(tab + 1), { mode: mode!, oid: oid!, bytes: Number(size) });
+    baseline.set(path, { mode, oid, bytes: size });
   }
   const names = [
     ...new Set([
@@ -88,7 +74,7 @@ export async function snapshotRepository(cwd: string, base: string): Promise<Rep
     try {
       stat = lstatSync(path);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      if (systemErrorCode(error) === 'ENOENT') return null;
       throw error;
     }
     if (!stat.isFile() || stat.isSymbolicLink())
@@ -107,7 +93,7 @@ export async function snapshotRepository(cwd: string, base: string): Promise<Rep
       try {
         if (lstatSync(parent).isSymbolicLink()) throw new Error('Snapshot path traverses a symlink');
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        if (systemErrorCode(error) !== 'ENOENT') throw error;
       }
     }
     const content = read(path);
@@ -151,7 +137,9 @@ export async function snapshotRepository(cwd: string, base: string): Promise<Rep
     );
     let offset = 0;
     for (const file of previousFiles) {
-      const bytes = baseline.get(file.path)!.bytes,
+      const original = baseline.get(file.path);
+      if (!original) throw new Error('Snapshot baseline is missing a changed file');
+      const bytes = original.bytes,
         end = data.indexOf(10, offset);
       if (end < 0 || data.subarray(offset, end).toString('ascii') !== `${file.before} blob ${bytes}`)
         throw new Error('Snapshot blob response is invalid');

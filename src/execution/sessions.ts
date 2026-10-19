@@ -3,18 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { resolve } from 'node:path';
 import { statSync } from 'node:fs';
+import { z } from 'zod';
 import type { Store } from '../persistence/store.js';
+import type { Session } from '../persistence/records.js';
 import { processLimits } from '../config/limits.js';
 import { agentTimeout } from './agent-timeout.js';
 import { connectAgent } from '../providers/index.js';
 import { Workspaces } from '../repository/workspaces.js';
-import {
-  claimExecution,
-  requireExecutionLease,
-  settleExecution,
-  stopExecution,
-  type Execution,
-} from './execution-state.js';
+import { claimExecution, requireExecutionLease, settleExecution, stopExecution } from './execution-state.js';
 import { Workflow, activeSlice, activeCriteria, type Task } from '../domain/workflow.js';
 import { currentProcessStartedAt, inspectProcess } from '../process/process-identity.js';
 import { processAlive as ownedProcessAlive } from '../verification/check-recovery.js';
@@ -26,39 +22,21 @@ import {
   type AgentSession,
   type Connector,
   type Provider,
-  type Reply,
   type TurnResult,
 } from '../providers/types.js';
 import { taskCheckEvidence, checkEvidenceSummary } from '../verification/check-evidence.js';
 
-export interface Session {
-  toolsetVersion?: number;
-  deletedAt?: string;
-  mode?: 'editing';
-  id: string;
-  provider: Provider;
-  providerSessionId: string | null;
-  model: string | null;
-  cwd: string;
-  phase: 'idle' | 'running' | 'awaiting_answer' | 'stop_requested' | 'interrupted' | 'failed' | 'recovery_required';
-  lastReply: Reply | null;
-  run: {
-    id: string;
-    controllerPid: number;
-    host: string;
-    providerPid: number | null;
-    /** Null when the creation time could not be observed; recovery then stays conservative. */
-    controllerStartedAt: string | null;
-    providerStartedAt: string | null;
-    /** Tracked only for runs whose provider connection is a separate durable step. */
-    providerDispatch?: 'not_requested' | 'requested';
-  } | null;
-}
+export type { Session } from '../persistence/records.js';
+
+// Adapter events whose data changes session state. Adapters are in-process, but their data repeats
+// what the provider reported, so it is validated before it becomes session identity.
+const connectedEventSchema = z.object({ providerSessionId: z.string().min(1), model: z.string().nullish() });
+const processStartedEventSchema = z.object({ pid: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) });
 
 export class Sessions {
   constructor(private readonly store: Store) {}
   get(id: string): Session {
-    return this.store.session<Session>(id);
+    return this.store.session(id);
   }
 
   create(provider: Provider, cwd: string, model: string | null = null): Session {
@@ -105,7 +83,7 @@ export class Sessions {
       if (editing) {
         if (session.providerSessionId && session.mode !== 'editing')
           throw new Error('Native editing requires a fresh session or an existing editing session');
-        const execution = this.store.executionForSession<Execution>(id);
+        const execution = this.store.executionForSession(id);
         if (execution?.role !== 'implementation')
           throw new Error('Native editing requires an implementation execution');
         session.mode = 'editing';
@@ -113,11 +91,15 @@ export class Sessions {
       if (['running', 'stop_requested', 'recovery_required'].includes(session.phase))
         throw new Error('Session already owned or needs recovery; no automatic replay');
       if (session.phase === 'awaiting_answer') {
-        const questions = session.lastReply!.questions;
+        const questions = session.lastReply?.questions;
+        if (!questions) throw new Error('The pending questions are missing; recover the session');
         if (
           !answers ||
           Object.keys(answers).length !== questions.length ||
-          questions.some(q => typeof answers[q.id] !== 'string' || !answers[q.id]!.trim())
+          questions.some(q => {
+            const answer = answers[q.id];
+            return typeof answer !== 'string' || !answer.trim();
+          })
         ) {
           throw new Error('Answer every pending question by its id');
         }
@@ -135,7 +117,7 @@ export class Sessions {
         ...(trackDispatch ? { providerDispatch: 'not_requested' as const } : {}),
       };
       claimExecution(this.store, session, session.run.id, editing ? 'implementation' : 'conversation');
-      const execution = this.store.executionForSession<Execution>(id);
+      const execution = this.store.executionForSession(id);
       if (execution) {
         const task = this.store.get<Task>(execution.taskId);
         prompt = `Approved task context (${editing ? 'native file editing; do not claim validation or completion' : 'conversation only; do not claim repository execution or completion'}):\n${JSON.stringify(
@@ -172,9 +154,9 @@ export class Sessions {
       }
       const execution = requireExecutionLease(this.store, session, runId);
       if (event.type === 'session.connected') {
-        const data = event.data as { providerSessionId: string; model: string | null };
-        if (typeof data.providerSessionId !== 'string' || !data.providerSessionId)
-          throw new Error('Missing provider session identity');
+        const connected = connectedEventSchema.safeParse(event.data);
+        if (!connected.success) throw new Error('Missing provider session identity');
+        const data = connected.data;
         if (session.providerSessionId && session.providerSessionId !== data.providerSessionId)
           throw new Error('Provider session identity changed');
         session.providerSessionId = data.providerSessionId;
@@ -193,8 +175,8 @@ export class Sessions {
         }
       }
       if (event.type === 'process.started') {
-        const pid = (event.data as { pid?: number }).pid;
-        if (pid && Number.isSafeInteger(pid) && pid > 0) {
+        const pid = processStartedEventSchema.safeParse(event.data).data?.pid;
+        if (pid !== undefined) {
           const observed = inspectProcess(pid);
           session.run.providerPid = pid;
           session.run.providerStartedAt = observed.state === 'present' ? observed.startedAt : null;
@@ -310,9 +292,10 @@ export async function runSession(
   )
     throw new Error('Interrupt delay must be a positive integer');
   const sessions = new Sessions(store);
-  const review = options.artifactReview ? store.executionForSession<Execution>(id) : null;
+  const review = options.artifactReview ? store.executionForSession(id) : null;
   if (options.artifactReview && (review?.role !== 'review' || !review.artifact?.startsWith('sha256:')))
     throw new Error('Artifact review requires a review execution bound to a verified content digest');
+  const reviewArtifact = review?.artifact ?? '';
   const claim = store.transaction(() => {
     if (review) {
       const session = sessions.get(id);
@@ -320,7 +303,7 @@ export async function runSession(
         id: randomUUID(),
         attemptId: review.attemptId,
         version: review.version,
-        artifact: review.artifact!,
+        artifact: reviewArtifact,
         kind: 'review',
         outcome: 'skipped',
         source: 'agent',
@@ -369,7 +352,7 @@ export async function runSession(
   let result: TurnResult = { status: 'failed', reply: null, usage: null, error: 'Turn did not complete' };
   let exitConfirmed = false;
   try {
-    const execution = store.executionForSession<Execution>(id);
+    const execution = store.executionForSession(id);
     let repository = options.repository;
     let configurationCwd = options.repository?.repo ?? claim.session.cwd;
     if (execution) {
@@ -479,10 +462,10 @@ export async function runSession(
       sessions.settle(id, claim.runId, result, exitConfirmed);
       if (review && exitConfirmed && owned) {
         const session = sessions.get(id);
-        const isReview = result.status === 'completed' && result.reply?.kind === 'review';
+        const verdict = result.status === 'completed' && result.reply?.kind === 'review' ? result.reply : null;
+        const isReview = verdict !== null;
         const outcome =
-          result.status === 'failed' ||
-          (isReview && result.reply!.findings.some(finding => finding.severity === 'blocking'))
+          result.status === 'failed' || verdict?.findings.some(finding => finding.severity === 'blocking')
             ? 'failed'
             : isReview
               ? 'passed'
@@ -491,7 +474,7 @@ export async function runSession(
           id: claim.runId,
           attemptId: review.attemptId,
           version: review.version,
-          artifact: review.artifact!,
+          artifact: reviewArtifact,
           kind: 'review',
           outcome,
           source: 'agent',

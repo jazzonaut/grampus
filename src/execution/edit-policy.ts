@@ -5,14 +5,42 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import type { RepositorySnapshot } from '../repository/artifacts.js';
 import { parseReply, type AgentEvent } from '../providers/types.js';
 import { editLimits, formatBytes, processLimits } from '../config/limits.js';
+import { codexFileChangeSchema } from '../providers/codex-protocol.js';
+import { z } from 'zod';
+import { systemErrorCode } from '../process/boundary.js';
 
-export interface EditPolicy {
-  artifact: string;
-  instructionsDigest: string;
-  files: string[];
-  create?: string[];
-  delete?: string[];
-}
+/**
+ * The shape of an edit policy, as read from a CLI policy file or a journal record. Semantic rules
+ * (path syntax, protected paths, limits, digests) are enforced by `validateEditPolicy`.
+ */
+export const editPolicySchema = z.strictObject({
+  artifact: z.string(),
+  instructionsDigest: z.string(),
+  files: z.array(z.string()),
+  create: z.array(z.string()).exactOptional(),
+  delete: z.array(z.string()).exactOptional(),
+});
+export type EditPolicy = z.infer<typeof editPolicySchema>;
+
+export const deleteFileTool = 'mcp__grampus_files__delete_file';
+
+// Native Claude file tool inputs are agent-supplied. Each tool has a strict schema; the path is checked
+// against the policy first so a denial names the most relevant reason.
+const filePathSchema = z.looseObject({ file_path: z.string() });
+const toolText = z
+  .string()
+  .refine(text => !text.includes('\0') && Buffer.byteLength(text) <= editLimits.payloadBytes, 'Unbounded text');
+const fileToolSchemas: Partial<Record<string, z.ZodType>> = {
+  Read: z.strictObject({ file_path: z.string(), offset: z.unknown().optional(), limit: z.unknown().optional() }),
+  Write: z.strictObject({ file_path: z.string(), content: toolText }),
+  Edit: z.strictObject({
+    file_path: z.string(),
+    old_string: toolText,
+    new_string: toolText,
+    replace_all: z.unknown().optional(),
+  }),
+  [deleteFileTool]: z.strictObject({ file_path: z.string() }),
+};
 export interface EditingContext {
   cwd: string;
   policy: EditPolicy;
@@ -24,7 +52,6 @@ export function checkEditableSize(path: string, bytes: number): void {
       `Editable text file "${path}" is ${bytes} bytes; the limit is ${formatBytes(editLimits.fileBytes)} (${editLimits.fileBytes} bytes). Revise the task scope or split the file before retrying.`,
     );
 }
-export const deleteFileTool = 'mcp__grampus_files__delete_file';
 const key = (path: string) => (process.platform === 'win32' ? path.toLowerCase() : path);
 const protectedPath = (path: string) =>
   path.split(/[\\/]/).some(part => /^(\.git|\.claude|\.codex|\.grampus|AGENTS\.md|CLAUDE\.md)$/i.test(part));
@@ -54,7 +81,8 @@ export function validateEditPolicy(policy: EditPolicy): void {
         !path ||
         path.length > editLimits.pathCharacters ||
         isAbsolute(path) ||
-        /[\\:<>"|?*\x00-\x1f]/.test(path) ||
+        /[\\:<>"|?*]/.test(path) ||
+        [...path].some(character => character.charCodeAt(0) < 0x20) ||
         path
           .split('/')
           .some(
@@ -98,25 +126,22 @@ function checkedFile(
   );
   const creation = context.policy.create?.find(path => key(resolve(root, path)) === key(absolute));
   const deletion = file && context.policy.delete?.some(path => key(path) === key(file.path));
-  if (!file && !creation) throw new Error('Tool path is not an existing snapshot file or explicit creation path');
+  const target = file?.path ?? creation;
+  if (target === undefined) throw new Error('Tool path is not an existing snapshot file or explicit creation path');
   let present = true;
   for (let current = absolute; key(current) !== key(root); current = dirname(current)) {
     let stat;
     try {
       stat = lstatSync(current);
     } catch (error) {
-      if (
-        current === absolute &&
-        (creation || deletion) &&
-        allowMissing &&
-        (error as NodeJS.ErrnoException).code === 'ENOENT'
-      ) {
+      if (current === absolute && (creation || deletion) && allowMissing && systemErrorCode(error) === 'ENOENT') {
         present = false;
         continue;
       }
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+      if (systemErrorCode(error) === 'ENOENT')
         throw new Error(
           `File scope "${inputPath}" requires ${current === absolute ? 'an existing file' : `existing parent directories (missing "${relative(root, current)}")`}. Revise the task scope before retrying.`,
+          { cause: error },
         );
       throw error;
     }
@@ -136,14 +161,14 @@ function checkedFile(
     if (key(realpathSync.native(current)) !== key(current))
       throw new Error(`Tool path "${inputPath}" resolves through an alias at "${relative(root, current)}"`);
   }
-  if (!present) return { path: file?.path ?? creation!, bytes: null };
+  if (!present) return { path: target, bytes: null };
   const bytes = readFileSync(absolute);
   checkEditableSize(inputPath, bytes.length);
   if (bytes.includes(0) || !Buffer.from(bytes.toString('utf8')).equals(bytes))
     throw new Error(
       `Tools require UTF-8 text files: "${inputPath}" contains binary or invalid UTF-8 content. Revise the task scope before retrying.`,
     );
-  return { path: file?.path ?? creation!, bytes };
+  return { path: target, bytes };
 }
 
 function requireDeletion(context: EditingContext, file: { path: string; bytes: Buffer | null }): void {
@@ -179,7 +204,8 @@ export function prepareEditing(context: EditingContext): void {
   let bytes = 0;
   for (const path of [...context.policy.files, ...(context.policy.delete ?? [])]) {
     const file = checkedFile(context, path);
-    bytes += file.bytes!.length;
+    if (file.bytes === null) throw new Error(`Editable file "${path}" is missing from the workspace`);
+    bytes += file.bytes.length;
     if (context.policy.delete?.includes(path)) requireDeletion(context, file);
   }
   if (bytes > editLimits.scopeBytes)
@@ -257,25 +283,10 @@ export function authorizeFileChanges(
   try {
     if (!Array.isArray(changes) || !changes.length || changes.length > editLimits.paths)
       throw new Error(`Patch requires 1–${editLimits.paths} explicitly scoped file changes`);
-    for (const change of changes) {
-      if (
-        !change ||
-        typeof change !== 'object' ||
-        Object.keys(change).some(field => !['path', 'kind', 'diff'].includes(field)) ||
-        typeof change.path !== 'string' ||
-        !change.kind ||
-        !['update', 'add', 'delete'].includes(change.kind.type) ||
-        change.kind.move_path != null ||
-        Object.keys(change.kind).some(
-          field => !(change.kind.type === 'update' ? ['type', 'move_path'] : ['type']).includes(field),
-        ) ||
-        typeof change.diff !== 'string' ||
-        change.diff.includes('\0') ||
-        Buffer.byteLength(change.diff) > editLimits.payloadBytes
-      )
-        throw new Error(
-          'Only bounded text updates, explicit additions and explicit deletions without moves are allowed',
-        );
+    const parsed = z.array(codexFileChangeSchema).safeParse(changes);
+    if (!parsed.success)
+      throw new Error('Only bounded text updates, explicit additions and explicit deletions without moves are allowed');
+    for (const change of parsed.data) {
       const file = checkedFile(context, change.path, change.kind.type === 'add');
       const creation = context.policy.create?.some(path => key(path) === key(file.path));
       if (change.kind.type === 'delete') requireDeletion(context, file);
@@ -324,36 +335,23 @@ export function authorizeEditTool(
     if (!['Read', 'Edit', 'Write', deleteFileTool].includes(name))
       throw new Error('Only Read, Edit, Write and the scoped deletion tool are enabled');
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid tool input');
-    const fields = input as Record<string, unknown>;
-    if (typeof fields['file_path'] !== 'string') throw new Error('Tool requires file_path');
-    const file = checkedFile(context, fields['file_path'], name === 'Write');
-    path = file.path;
-    const creation = context.policy.create?.some(value => key(value) === key(path!));
+    const target = filePathSchema.safeParse(input);
+    if (!target.success) throw new Error('Tool requires file_path');
+    const file = checkedFile(context, target.data.file_path, name === 'Write');
+    const filePath = file.path;
+    path = filePath;
+    const creation = context.policy.create?.some(value => key(value) === key(filePath));
     if (name === deleteFileTool) requireDeletion(context, file);
-    else if (name !== 'Read' && !creation && !context.policy.files.some(value => key(value) === key(path!)))
+    else if (name !== 'Read' && !creation && !context.policy.files.some(value => key(value) === key(filePath)))
       throw new Error('File is not authorized for editing');
-    if (creation) requireVisibleCreation(context, path);
-    const allowedKeys =
-      name === deleteFileTool
-        ? ['file_path']
-        : name === 'Read'
-          ? ['file_path', 'offset', 'limit']
-          : name === 'Write'
-            ? ['file_path', 'content']
-            : ['file_path', 'old_string', 'new_string', 'replace_all'];
-    if (Object.keys(fields).some(value => !allowedKeys.includes(value)))
-      throw new Error('Unsupported file tool option');
-    const textFields =
-      name === 'Read' || name === deleteFileTool ? [] : name === 'Write' ? ['content'] : ['old_string', 'new_string'];
-    if (
-      textFields.some(
-        field =>
-          typeof fields[field] !== 'string' ||
-          fields[field].includes('\0') ||
-          Buffer.byteLength(fields[field]) > editLimits.payloadBytes,
-      )
-    )
-      throw new Error('File tool text exceeds the allowed format or size');
+    if (creation) requireVisibleCreation(context, filePath);
+    const options = fileToolSchemas[name]?.safeParse(input);
+    if (!options?.success)
+      throw new Error(
+        options?.error.issues.some(issue => issue.code === 'unrecognized_keys')
+          ? 'Unsupported file tool option'
+          : 'File tool text exceeds the allowed format or size',
+      );
     emit({ type: 'tool.authorized', data: { tool: name, path } });
     return { allowed: true, reason: 'Within the explicit file policy' };
   } catch (error) {
@@ -371,7 +369,7 @@ export function authorizeEditTool(
 export function deleteEditingFile(context: EditingContext, input: unknown, emit: (event: AgentEvent) => void): void {
   const decision = authorizeEditTool(context, deleteFileTool, input, emit);
   if (!decision.allowed) throw new Error(decision.reason);
-  const file = checkedFile(context, (input as { file_path: string }).file_path);
+  const file = checkedFile(context, filePathSchema.parse(input).file_path);
   requireDeletion(context, file);
   unlinkSync(resolve(realpathSync.native(context.cwd), file.path));
   emit({ type: 'tool.deleted', data: { tool: deleteFileTool, path: file.path } });

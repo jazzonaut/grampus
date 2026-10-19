@@ -10,16 +10,16 @@ export function claudeDeleteTool(context: EditingContext, emit: (event: AgentEve
     'delete_file',
     'Delete one exact file from the approved deletion-only list. No directories, wildcards, edits or shell commands.',
     { file_path: z.string().min(1).max(editLimits.deletePathCharacters) },
-    async input => {
+    input => {
       try {
         if (!ownsTurn()) throw new Error('No active implementation turn owns this deletion');
         deleteEditingFile(context, input, emit);
-        return { content: [{ type: 'text', text: 'Deleted the authorized file.' }] };
+        return Promise.resolve({ content: [{ type: 'text' as const, text: 'Deleted the authorized file.' }] });
       } catch (error) {
-        return {
+        return Promise.resolve({
           isError: true,
-          content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }],
-        };
+          content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }],
+        });
       }
     },
     { annotations: { destructiveHint: true, readOnlyHint: false, idempotentHint: false, openWorldHint: false } },

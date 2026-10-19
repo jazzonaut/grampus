@@ -5,7 +5,9 @@ import {
   type SpawnOptionsWithoutStdio,
 } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { z } from 'zod';
 import { processLimits } from '../config/limits.js';
+import { BoundaryError, describeIssues } from './boundary.js';
 
 export function command(
   file: string,
@@ -30,13 +32,19 @@ export function command(
   });
 }
 
-export interface RpcMessage {
-  id?: number | string;
-  method?: string;
-  params?: unknown;
-  result?: unknown;
-  error?: { message: string };
-}
+/**
+ * The JSON-RPC 2.0 envelope (without the `jsonrpc` member, which app-server omits). This pins only the
+ * envelope: method results and notification parameters stay `unknown` here and are parsed by the
+ * protocol module of whoever owns the method. A line that is not an envelope fails the transport.
+ */
+export const rpcMessageSchema = z.object({
+  id: z.union([z.number(), z.string()]).nullable().optional(),
+  method: z.string().optional(),
+  params: z.unknown().optional(),
+  result: z.unknown().optional(),
+  error: z.looseObject({ code: z.number().optional(), message: z.string().optional() }).optional(),
+});
+export type RpcMessage = z.infer<typeof rpcMessageSchema>;
 
 /** Bounded requests plus notifications for one owned app-server process. */
 export class RpcProcess {
@@ -70,17 +78,26 @@ export class RpcProcess {
         this.fail(new Error('RPC message too large'));
         return;
       }
-      let message: RpcMessage;
+      let value: unknown;
       try {
-        message = JSON.parse(line) as RpcMessage;
+        value = JSON.parse(line);
       } catch {
         this.fail(new Error('Invalid JSON from RPC process'));
         return;
       }
-      if (!message || typeof message !== 'object') {
-        this.fail(new Error('Invalid RPC message'));
+      const parsed = rpcMessageSchema.safeParse(value);
+      if (!parsed.success) {
+        const issues = describeIssues(parsed.error);
+        this.fail(
+          new BoundaryError(
+            { kind: 'provider-protocol', source: 'JSON-RPC envelope' },
+            issues,
+            `Invalid RPC message: ${issues.join('; ')}`,
+          ),
+        );
         return;
       }
+      const message = parsed.data;
       try {
         for (const listener of this.listeners) listener(message);
       } catch (error) {
@@ -110,7 +127,7 @@ export class RpcProcess {
       if (!request) return;
       this.pending.delete(message.id);
       clearTimeout(request.timer);
-      if (message.error) request.reject(new Error(message.error.message));
+      if (message.error) request.reject(new Error(message.error.message ?? 'RPC request failed'));
       else request.resolve(message.result);
     });
   }
@@ -148,15 +165,16 @@ export class RpcProcess {
     return this.child.pid;
   }
 
-  request<T>(method: string, params: unknown, timeout: number = processLimits.rpcRequestTimeoutMs): Promise<T> {
+  /** Resolves with the raw, unvalidated result; the caller parses it with the method's own schema. */
+  request(method: string, params: unknown, timeout: number = processLimits.rpcRequestTimeoutMs): Promise<unknown> {
     if (this.stopped) return Promise.reject(new Error('RPC process unavailable'));
     const id = ++this.sequence;
-    return new Promise<T>((resolve, reject) => {
+    return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`RPC timeout: ${method}`));
       }, timeout);
-      this.pending.set(id, { resolve: value => resolve(value as T), reject, timer });
+      this.pending.set(id, { resolve, reject, timer });
       this.child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
     });
   }
