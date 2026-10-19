@@ -144,6 +144,11 @@ shown.
   failed and stopped turns and wall time per stage, and a line with total turns, repair attempts
   and human interventions after approval. Unknown values show as Unknown, never 0; **partial**
   or a `+` marks a lower bound. Billed cost is always unknown.
+- **Token usage headline** (task, planning and overview): every token counted once, as the token
+  allowance counts it (Codex input already includes cache reads; Claude cache reads and writes are
+  added), followed by how many of them were cache reads, which are usually billed at a fraction of
+  other input. An agent turn re-sends its growing conversation on every model call, so most of a
+  long exploring turn is cache reads.
 - **Details:** the timeline (latest entries first, **View full timeline** pages through the
   whole history), the plan, approval and artifact digests, retained changes (each file's exact
   before and after), the report (**Load report** renders it, **Download Markdown** saves it),

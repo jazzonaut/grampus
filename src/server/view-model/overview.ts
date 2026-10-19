@@ -258,7 +258,14 @@ function unreadableSummary(task: UnreadableTask): TaskSummaryV1 | null {
     reviewer: agent(state.plan.review),
     lastActivityAt: null,
     stalled: null,
-    usage: { tokens: null, estimatedCostUsd: null, completeness: 'none', turns: 0, interventions: 0 },
+    usage: {
+      tokens: null,
+      cachedTokens: null,
+      estimatedCostUsd: null,
+      completeness: 'none',
+      turns: 0,
+      interventions: 0,
+    },
     needsAttention: true,
   };
 }

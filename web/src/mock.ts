@@ -19,6 +19,7 @@ import type {
 
 const unmeasured: UsageHeadlineV1 = {
   tokens: null,
+  cachedTokens: null,
   estimatedCostUsd: null,
   completeness: 'none',
   turns: 0,
@@ -319,7 +320,14 @@ export const mockUsageStages: readonly StageUsageV1[] = [
 ];
 
 export const mockUsage: UsageV1 = {
-  headline: { tokens: 195_244, estimatedCostUsd: null, completeness: 'partial', turns: 3, interventions: 1 },
+  headline: {
+    tokens: 195_244,
+    cachedTokens: 96_000,
+    estimatedCostUsd: null,
+    completeness: 'partial',
+    turns: 3,
+    interventions: 1,
+  },
   providers: [...mockUsageProviders],
   stages: [...mockUsageStages],
   turns: 3,

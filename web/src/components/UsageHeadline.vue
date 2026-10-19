@@ -16,6 +16,9 @@ const labels = {
     <p class="text-xs text-muted">Token usage</p>
     <p class="mt-1 font-semibold text-highlighted">
       {{ usage.tokens === null ? 'Usage unknown' : `${formatTokens(usage.tokens)} tokens` }}
+      <span v-if="usage.tokens !== null && usage.cachedTokens" class="text-sm font-normal text-muted" data-cached-tokens
+        >({{ formatTokens(usage.cachedTokens) }} cached)</span
+      >
     </p>
     <p class="mt-1 text-xs text-muted">
       {{ labels[usage.completeness] }} · {{ plural(usage.turns, 'turn')

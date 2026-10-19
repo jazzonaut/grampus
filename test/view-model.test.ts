@@ -110,6 +110,7 @@ test('usage keeps unknown values null and marks a total over unknown parts as pa
   const result = usageView(usage);
   assert.deepEqual(result.headline, {
     tokens: 120,
+    cachedTokens: null,
     estimatedCostUsd: null,
     completeness: 'partial',
     turns: 3,
@@ -120,6 +121,63 @@ test('usage keeps unknown values null and marks a total over unknown parts as pa
   assert.equal(result.providers[1]?.inputTokens, null);
   assert.equal(result.providers[0]?.label, 'Codex');
   assert.equal(usageView({ ...usage, providers: [] }).headline.tokens, null);
+});
+
+test('the usage headline counts cache tokens once per provider and says how many were cache reads', () => {
+  const row = {
+    sessions: 1,
+    observedSessions: 1,
+    activeSessions: 0,
+    updatedAt: null,
+    estimatedCostUsd: null,
+    billedCostUsd: null,
+    incomplete: [],
+  };
+  const usage: TaskUsage = {
+    providers: [
+      // Codex input already includes its cache reads.
+      {
+        ...row,
+        provider: 'codex',
+        inputTokens: 1000,
+        outputTokens: 50,
+        cachedInputTokens: 800,
+        cacheWriteInputTokens: 0,
+      },
+      // Claude reports cache reads and writes beside its uncached input.
+      {
+        ...row,
+        provider: 'claude',
+        inputTokens: 10,
+        outputTokens: 5,
+        cachedInputTokens: 300,
+        cacheWriteInputTokens: 40,
+      },
+    ],
+    stages: [],
+    turns: 2,
+    failedTurns: 0,
+    interruptedTurns: 0,
+    unsettledTurns: 0,
+    repairAttempts: 0,
+    interventions: {
+      total: 0,
+      answers: 0,
+      authorizations: 0,
+      assessments: 0,
+      retries: 0,
+      rerunChecks: 0,
+      recoveries: 0,
+      revisions: 0,
+      stops: 0,
+      approvals: 0,
+      guidance: 0,
+    },
+  };
+  const { headline } = usageView(usage);
+  assert.equal(headline.tokens, 1050 + 355);
+  assert.equal(headline.cachedTokens, 1100);
+  assert.equal(headline.completeness, 'complete');
 });
 
 test('a draft waits for approval of its exact version and digest', t => {

@@ -32,13 +32,24 @@ function total(rows: readonly ProviderUsageV1[], field: UsageFieldV1): { value: 
   };
 }
 
-/** The headline across providers: input plus output tokens, estimated cost, turns and interventions. */
+/**
+ * Fields summed into the headline total. Codex input already includes its cache reads, while Claude
+ * reports cache reads and writes beside its uncached input, so each token is counted once, as the
+ * spending allowance (`orchestration/guided/spending.ts`) counts it.
+ */
+function tokenFields(row: ProviderUsageV1): UsageFieldV1[] {
+  return row.provider === 'claude'
+    ? ['inputTokens', 'outputTokens', 'cachedInputTokens', 'cacheWriteInputTokens']
+    : ['inputTokens', 'outputTokens'];
+}
+
+/** The headline across providers: all tokens, the cache reads among them, estimated cost, turns and interventions. */
 export function usageHeadline(usage: Pick<UsageV1, 'providers' | 'turns' | 'interventions'>): UsageHeadlineV1 {
-  const input = total(usage.providers, 'inputTokens'),
-    output = total(usage.providers, 'outputTokens'),
-    cost = total(usage.providers, 'estimatedCostUsd');
-  const tokens = input.value === null && output.value === null ? null : (input.value ?? 0) + (output.value ?? 0);
-  const partial = input.partial || output.partial || input.value === null || output.value === null;
+  const parts = usage.providers.flatMap(row => tokenFields(row).map(field => total([row], field)));
+  const known = parts.filter(part => part.value !== null);
+  const tokens = known.length ? known.reduce((sum, part) => sum + (part.value ?? 0), 0) : null;
+  const partial = parts.some(part => part.partial || part.value === null);
+  const cost = total(usage.providers, 'estimatedCostUsd');
   const completeness: UsageCompleteness = !usage.providers.length
     ? 'none'
     : usage.providers.some(row => row.completeness === 'live')
@@ -50,6 +61,7 @@ export function usageHeadline(usage: Pick<UsageV1, 'providers' | 'turns' | 'inte
           : 'complete';
   return {
     tokens,
+    cachedTokens: total(usage.providers, 'cachedInputTokens').value,
     estimatedCostUsd: cost.value,
     completeness,
     turns: usage.turns,

@@ -343,8 +343,13 @@ export interface InterventionsV1 {
 
 /** The one-line usage figure of a task summary. */
 export interface UsageHeadlineV1 {
-  /** Input plus output tokens across providers; null when nothing was measured. */
+  /**
+   * Every input and output token across providers, counting cache reads and writes once (Codex input
+   * includes its cache reads; Claude reports them separately); null when nothing was measured.
+   */
   tokens: number | null;
+  /** The cache reads included in `tokens`, usually billed at a fraction of other input; null when unmeasured. */
+  cachedTokens: number | null;
   estimatedCostUsd: number | null;
   completeness: UsageCompleteness;
   turns: number;
