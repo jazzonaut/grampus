@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { Sessions } from '../src/execution/sessions.js';
-import { windows, review, services, fixture, lens } from './helpers/guided-tasks.js';
+import { windows, review, services, fixture, lens, resolvedFindings } from './helpers/guided-tasks.js';
 
 test('automatic work repairs a failed check with complete evidence and resumes its implementer', windows, async t => {
   const f = fixture(t);
@@ -111,10 +111,11 @@ test('an independent failed simplification lens triggers repair rather than a ma
     services(++edits === 1 ? "// needless explanation\nconsole.log('hello world');\n" : "console.log('hello world');\n")
       .implementationRunner!(options);
   config.connector = async () => ({
-    turn: async () => ({
+    turn: async prompt => ({
       status: 'completed',
       reply: {
         ...review,
+        priorFindings: resolvedFindings(prompt),
         lenses: [
           ++reviews === 1
             ? lens('fail', 'Remove the comment that repeats the output statement.')

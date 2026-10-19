@@ -11,6 +11,19 @@ export const replyOutputSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
+    priorFindings: {
+      type: ['array', 'null'],
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string' },
+          status: { type: 'string', enum: ['resolved', 'unresolved'] },
+          evidence: { type: 'string' },
+        },
+        required: ['id', 'status', 'evidence'],
+      },
+    },
     lenses: lensAssessmentsJsonSchema,
     kind: { type: 'string', enum: ['message', 'question', 'review'] },
     text: { type: 'string' },
@@ -41,7 +54,7 @@ export const replyOutputSchema = {
       },
     },
   },
-  required: ['kind', 'text', 'questions', 'findings', 'lenses'],
+  required: ['kind', 'text', 'questions', 'findings', 'lenses', 'priorFindings'],
 };
 
 const nonBlank = (what: string) => z.string().refine(value => value.trim() !== '', `${what} must not be blank`);
@@ -67,6 +80,17 @@ export const replyFindingSchema = z.object({
  */
 export const agentReplySchema = z
   .object({
+    /** Review progress claims; the controller checks coverage against its finding identities. */
+    priorFindings: z
+      .array(
+        z.object({
+          id: nonBlank('Prior finding id'),
+          status: z.enum(['resolved', 'unresolved']),
+          evidence: nonBlank('Resolution evidence'),
+        }),
+      )
+      .nullable()
+      .exactOptional(),
     /** Review replies only: one assessment per quality lens the review prompt selected. */
     lenses: lensAssessmentsSchema.nullable().exactOptional(),
     kind: z.enum(['message', 'question', 'review']),
@@ -83,6 +107,8 @@ export const agentReplySchema = z
       context.addIssue({ code: 'custom', path: ['kind'], message: 'Findings require kind=review' });
     if (reply.lenses != null && reply.kind !== 'review')
       context.addIssue({ code: 'custom', path: ['lenses'], message: 'Only a review may assess lenses' });
+    if (reply.priorFindings?.length && reply.kind !== 'review')
+      context.addIssue({ code: 'custom', path: ['priorFindings'], message: 'Only a review may resolve findings' });
   });
 
 /** A validated structured agent reply. */

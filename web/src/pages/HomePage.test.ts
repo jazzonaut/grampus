@@ -15,7 +15,7 @@ describe('HomePage', () => {
     const panels = wrapper.findAll('[data-panel]').map(panel => panel.attributes('data-panel'));
     expect(panels[0]).toBe('attention');
     const attention = wrapper.get('[data-panel="attention"]');
-    expect(attention.text()).toContain("this slice's check repair allowance is used up");
+    expect(attention.text()).toContain("this slice's shared repair allowance is used up");
     expect(attention.text()).toContain('CHECK_REPAIR_EXHAUSTED');
     // An action with a form links to its screen instead of posting from here.
     expect(attention.get('[data-attention="question"] a[href="#/tasks/task-2"]').text()).toContain('Rename');

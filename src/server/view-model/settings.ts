@@ -76,7 +76,7 @@ const policySettings: readonly (IntegerSpec & { key: keyof typeof workflowPolicy
   {
     key: 'repairRounds',
     label: 'Repair rounds for new plans',
-    meaning: 'Automatic repair rounds per slice after failed validation or acceptance.',
+    meaning: 'Shared automatic repair rounds per slice across validation, review and acceptance.',
   },
   {
     key: 'maxSessionTurns',

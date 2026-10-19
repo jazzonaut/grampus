@@ -80,7 +80,7 @@ Example:
 | Field | Default | Allowed | Meaning |
 | --- | --- | --- | --- |
 | `mode` | `"automatic"` | `"automatic"`, `"supervised"` | Automatic runs to a verified commit; supervised stops at file authorization and quality assessment |
-| `repairRounds` | `2` | 0 to 5 | Automatic repair rounds per slice after failed validation or acceptance |
+| `repairRounds` | `6` | 0 to 10 | Shared automatic repair rounds per slice across validation, review and acceptance; progress checks can stop earlier |
 | `maxSessionTurns` | `6` | 1 to 50 | Turns before a fresh provider conversation |
 | `maxContextTokens` | `120000` | 8000 to 1000000 | Observed input tokens before a fresh provider conversation |
 

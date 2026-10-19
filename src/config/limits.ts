@@ -30,14 +30,12 @@ export const planLimits = {
   commitMessageBytes: 8192,
   /** Ordered slices in one brief; each is a separate verified delivery. */
   slices: 64,
-  /** Most automatic repair rounds a plan may approve after blocking reviews. */
-  reviewRepairRounds: 2,
 } as const;
 
 /** Inclusive ranges for an approved workflow policy. Settings defaults must also fall inside them. */
 export const workflowPolicyBounds = {
-  /** Check and acceptance repair rounds per slice. */
-  repairRounds: { min: 0, max: 5 },
+  /** Shared validation, acceptance and review repair rounds per slice. */
+  repairRounds: { min: 0, max: 10 },
   /** Turns before a fresh provider conversation. */
   maxSessionTurns: { min: 1, max: 50 },
   /** Observed input tokens before a fresh provider conversation. */
@@ -130,7 +128,7 @@ export const checkOutputLimits = {
 /** Independent review. History limits stop before inference instead of silently omitting findings. */
 export const reviewLimits = {
   /** Earlier verdicts for one slice; beyond this the task stops for a revision. */
-  historyVerdicts: 8,
+  historyVerdicts: 12,
   /** Encoded size of the earlier verdicts sent to the reviewer. */
   historyBytes: 128 * KiB,
   /** Bytes in a reviewer's summary of one quality lens assessment. */

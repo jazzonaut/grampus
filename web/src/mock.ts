@@ -107,7 +107,7 @@ export const mockRetryAttention: AttentionItem = {
   taskId: 'task-4',
   kickoffId: null,
   title: 'Upgrade the test runner',
-  why: "The check still fails and this slice's check repair allowance is used up.",
+  why: "The check still fails and this slice's shared repair allowance is used up.",
   status: 'failed',
   stopReason: 'CHECK_REPAIR_EXHAUSTED',
   since: '2026-10-19T08:40:00.000Z',
@@ -358,7 +358,7 @@ export const mockPlan: PlanView = {
   mode: 'automatic',
   workflowSummary:
     'Automatic workflow: implement, validate, repair, independently review and deliver within the approved scope.',
-  reviewSummary: 'Review repair allowance: 1 round.',
+  reviewSummary: 'Review repairs use the shared slice allowance and require evidence of progress.',
   qualityPasses: [
     { id: 'simplification', title: 'Simplification', kind: 'lens', instructions: 'Prefer the simplest change.' },
   ],
@@ -448,7 +448,7 @@ export const mockAssessAction = mockAction('assess', 'Record assessment and cont
 const planJson = {
   brief: { title: 'Add retry', outcome: 'Old outcome', plan: 'Old plan' },
   workflowPolicy: { mode: 'automatic', repairRounds: 2 },
-  reviewPolicy: { repairRounds: 1, arbitrator: { provider: 'codex' } },
+  reviewPolicy: { arbitrator: { provider: 'codex' } },
   quality: { passes: [{ id: 'simplification', kind: 'lens' }] },
 };
 
@@ -478,12 +478,12 @@ export const mockReviseAction = mockAction('revise', "Revise this task's plan", 
       }),
       field({
         name: 'validation-repairs',
-        label: 'Check repair allowance per slice',
+        label: 'Shared repair allowance per slice',
         input: 'number',
         value: 2,
         required: true,
         min: 0,
-        max: 5,
+        max: 10,
         target: '/plan/workflowPolicy/repairRounds',
       }),
       field({

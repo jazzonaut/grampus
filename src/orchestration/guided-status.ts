@@ -10,7 +10,7 @@ import { rerunChecksIneligibility } from './guided/rerun.js';
 import type { GuidedState } from './guided/state.js';
 import { selectedLenses } from '../domain/quality-passes.js';
 import { Sessions } from '../execution/sessions.js';
-import { guidedPlanDigest, reviewRepairRounds } from '../domain/guided-plan.js';
+import { guidedPlanDigest } from '../domain/guided-plan.js';
 import { deepEqual } from '../domain/deep-equal.js';
 import { explorationSummary } from '../repository/repository-tools.js';
 import { integrationSummary } from '../providers/integrations.js';
@@ -228,7 +228,7 @@ function draftLines(task: Task, state: GuidedState): string[] {
   lines.push('', `Approval digest: ${state.digest}`);
   const policy = plan.workflowPolicy;
   lines.push(
-    `Workflow: ${policy.mode}; check repairs per slice: ${policy.repairRounds}; review repairs: ${reviewRepairRounds(plan)}; arbitrator: ${JSON.stringify(plan.reviewPolicy?.arbitrator ?? null)}.${policy.mode === 'supervised' ? ' Fresh authorization and quality assessment are required for each repair.' : ''}`,
+    `Workflow: ${policy.mode}; shared repairs per slice: ${policy.repairRounds}; arbitrator: ${JSON.stringify(plan.reviewPolicy?.arbitrator ?? null)}.${policy.mode === 'supervised' ? ' Fresh authorization and quality assessment are required for each repair.' : ''}`,
     `Quality passes: ${plan.quality.passes.map(pass => `${pass.id} (${pass.kind})`).join(', ') || 'none'}.`,
   );
   if (plan.revision) lines.push(`Retained revision checkpoint: ${JSON.stringify(plan.revision)}`);

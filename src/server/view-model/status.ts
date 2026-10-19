@@ -169,7 +169,7 @@ export const stopPresentation: Readonly<Record<StopReasonCode, StopPresentation>
   CHECK_REPAIR_EXHAUSTED: failure(
     'failed_check',
     'Repair allowance used up',
-    "The check still fails and this slice's check repair allowance is used up.",
+    "The check still fails and this slice's shared repair allowance is used up.",
   ),
   QUALITY_ASSESSMENT_FAILED: failure(
     'review_findings',
@@ -183,13 +183,18 @@ export const stopPresentation: Readonly<Record<StopReasonCode, StopPresentation>
   ),
   REVIEW_REPAIR_EXHAUSTED: failure(
     'review_findings',
-    'Review repair allowance used up',
-    'Blocking review findings remain and the review repair allowance is used up.',
+    'Shared repair allowance used up',
+    'Blocking review findings remain and the shared slice repair allowance is used up.',
   ),
   REVIEW_NO_PROGRESS: failure(
     'review_findings',
     'Review made no progress',
-    'The reviewer blocked the same change it had already blocked.',
+    'The artifact is unchanged or an earlier blocking finding remains unresolved.',
+  ),
+  REVIEW_PROGRESS_UNCONFIRMED: failure(
+    'review_findings',
+    'Review progress needs evidence',
+    'The reviewer did not account for every earlier blocker with a unique evidenced disposition.',
   ),
   ARBITRATION_UNRESOLVED: failure(
     'review_findings',

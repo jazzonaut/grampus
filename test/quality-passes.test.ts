@@ -107,13 +107,21 @@ test('a guided task gates on its selected lenses; low-level tasks keep the simpl
 });
 
 test('prompts carry the approved lens and edit pass instructions verbatim', () => {
-  const prompt = reviewPrompt({ arbitrating: false, verdicts: '[]', lenses: [builtInQualityPasses[0]!, custom] });
+  const prompt = reviewPrompt({
+    arbitrating: false,
+    verdicts: '[]',
+    priorFindings: [],
+    lenses: [builtInQualityPasses[0]!, custom],
+  });
   assert.ok(prompt.includes(builtInQualityPasses[0]!.instructions));
   assert.ok(prompt.includes(custom.instructions));
   assert.match(prompt, /exactly one entry per lens/);
   assert.match(prompt, /source-text searches/);
   assert.match(prompt, /conformance/);
-  assert.match(reviewPrompt({ arbitrating: false, verdicts: '[]', lenses: [] }), /No quality lenses are selected/);
+  assert.match(
+    reviewPrompt({ arbitrating: false, verdicts: '[]', priorFindings: [], lenses: [] }),
+    /No quality lenses are selected/,
+  );
   const refactor = builtInQualityPasses[2]!;
   const edit = qualityPassPrompt({ pass: refactor, slicePreparation: undefined });
   assert.ok(edit.includes(refactor.instructions));

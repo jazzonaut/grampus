@@ -148,7 +148,7 @@ test('a draft waits for approval of its exact version and digest', t => {
     detail.details.plan.qualityPasses.map(pass => pass.id),
     ['simplification'],
   );
-  assert.match(detail.details.plan.reviewSummary, /Review repair allowance: 2 rounds/);
+  assert.match(detail.details.plan.reviewSummary, /Review repairs use the shared slice allowance/);
   const revise = detail.decisions.find(item => item.id === 'revise')!;
   assert.deepEqual(
     revise.form?.fields.map(field => field.target),
@@ -161,7 +161,6 @@ test('a draft waits for approval of its exact version and digest', t => {
       '/plan/workflowPolicy/repairRounds',
       '/plan/workflowPolicy/maxSessionTurns',
       '/plan/workflowPolicy/maxContextTokens',
-      '/plan/reviewPolicy/repairRounds',
       '/plan/reviewPolicy/arbitrator',
       '/plan/quality/passes',
     ],

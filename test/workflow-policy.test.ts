@@ -84,7 +84,7 @@ test('context rotation uses current input size, retains warm conversations and f
   for (const input of [
     { maxContextTokens: 1 },
     { maxSessionTurns: 0 },
-    { repairRounds: 6 },
+    { repairRounds: 11 },
     { mode: 'anything' },
     { mystery: true },
   ])

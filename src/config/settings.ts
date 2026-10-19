@@ -75,7 +75,7 @@ export function defaultSettings(): Settings {
     outputFlushBytes: 8 * KiB,
     defaultPreparationTimeoutMs: 600_000,
     defaultCheckTimeoutMs: 300_000,
-    defaultWorkflowPolicy: { mode: 'automatic', repairRounds: 2, maxSessionTurns: 6, maxContextTokens: 120_000 },
+    defaultWorkflowPolicy: { mode: 'automatic', repairRounds: 6, maxSessionTurns: 6, maxContextTokens: 120_000 },
     qualityPasses: [],
     defaultQualityPasses: ['simplification'],
     maxConcurrentTasks: 2,

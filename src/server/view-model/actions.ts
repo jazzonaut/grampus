@@ -35,7 +35,6 @@
 // | recover-planning    | POST /api/kickoffs/:id/planner-recover  | { expected }                          |
 import { workflowPolicyBounds } from '../../config/limits.js';
 import type { GuidedPlan } from '../../domain/guided-plan.js';
-import { reviewRepairRounds } from '../../domain/guided-plan.js';
 import type { QualityPassDefinition } from '../../domain/quality-passes.js';
 import type { Stage } from '../../orchestration/guided/state.js';
 import type { ActionForm, ActionId, ActionKind, ActionView, FormField, FormOption, JsonValue } from '../api-types.js';
@@ -276,7 +275,7 @@ export function revisionForm(plan: GuidedPlan, available: readonly QualityPassDe
       }),
       numberField(
         'validation-repairs',
-        'Check repair allowance per slice',
+        'Shared repair allowance per slice',
         '/plan/workflowPolicy/repairRounds',
         policy.repairRounds,
         workflowPolicyBounds.repairRounds,
@@ -298,15 +297,6 @@ export function revisionForm(plan: GuidedPlan, available: readonly QualityPassDe
         ),
         help: 'Conversation limits apply to implementers and reviewers at settled retry boundaries. New slices and arbitration always start fresh. Unknown context size falls back to the turn limit.',
       },
-      field({
-        name: 'review-repairs',
-        label: 'Repair rounds after blocking reviews',
-        input: 'select',
-        value: reviewRepairRounds(plan),
-        required: true,
-        options: [option(0, 'Stop for manual retry'), option(1, '1 repair round'), option(2, '2 repair rounds')],
-        target: '/plan/reviewPolicy/repairRounds',
-      }),
       field({
         name: 'arbitrator',
         label: 'After the repair allowance',

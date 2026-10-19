@@ -1,7 +1,6 @@
 // Owns how a guided plan is shown for approval and inspection: its outcome, slices, exact commands and
 // the policy sentences (workflow, review repairs, quality passes) the dashboard prints beside them.
 import type { GuidedPlan } from '../../domain/guided-plan.js';
-import { reviewRepairRounds } from '../../domain/guided-plan.js';
 import type { PlanSliceView, PlanView } from '../api-types.js';
 import { folderName, providerLabel } from './status.js';
 
@@ -17,20 +16,18 @@ export function workflowSummary(plan: GuidedPlan): string {
   const policy = plan.workflowPolicy;
   const mode =
     policy.mode === 'automatic'
-      ? `Automatic workflow: implement, validate, repair, independently review and deliver within the approved scope. Up to ${policy.repairRounds} check ${policy.repairRounds === 1 ? 'repair' : 'repairs'} per slice.`
+      ? `Automatic workflow: implement, validate, repair, independently review and deliver within the approved scope. Up to ${policy.repairRounds} shared ${policy.repairRounds === 1 ? 'repair' : 'repairs'} per slice across validation, review and acceptance.`
       : 'Supervised workflow: pause for file authorization and quality assessment.';
   return `${mode} Conversations resume within a slice and start fresh after ${policy.maxSessionTurns} turns or ${policy.maxContextTokens.toLocaleString('en-GB')} observed context tokens. Each slice and arbitration starts fresh.`;
 }
 
 /**
- * One paragraph on review repairs. Without a review policy, review repairs share the check allowance up
- * to the plan limit (`reviewRepairRounds`), exactly as the controller applies it.
+ * Review uses the shared allowance; continued blocking verdicts require evidence of progress.
  */
 export function reviewSummary(plan: GuidedPlan): string {
-  const rounds = reviewRepairRounds(plan);
   const arbitrator = plan.reviewPolicy?.arbitrator;
   return [
-    `Review repair allowance: ${rounds} ${rounds === 1 ? 'round' : 'rounds'}.`,
+    'Review repairs use the shared slice allowance. Unchanged artifacts, unresolved blockers or missing progress evidence stop automatic repair.',
     arbitrator
       ? `Fresh arbitration: ${providerLabel(arbitrator.provider)}, model ${arbitrator.model ?? 'provider default'}.`
       : 'Unresolved findings stop for your decision.',

@@ -64,16 +64,18 @@ export const StopReasonCode = {
   CHECK_STALE_ARTIFACT: 'CHECK_STALE_ARTIFACT',
   /** An automatic repair left the failing artifact unchanged. */
   CHECK_NO_PROGRESS: 'CHECK_NO_PROGRESS',
-  /** The slice's check repair allowance is used up. */
+  /** A check failed after the slice's shared repair allowance was used up. */
   CHECK_REPAIR_EXHAUSTED: 'CHECK_REPAIR_EXHAUSTED',
   /** A recorded quality lens assessment did not pass (in practice the human's, in supervised mode). */
   QUALITY_ASSESSMENT_FAILED: 'QUALITY_ASSESSMENT_FAILED',
   /** Transient: a blocking review was recorded and the controller is choosing repair, arbitration or a stop. */
   REVIEW_BLOCKING_FINDINGS: 'REVIEW_BLOCKING_FINDINGS',
-  /** Blocking review findings remain and the review repair allowance is used up. */
+  /** Blocking findings remain after the slice's shared repair allowance was used up. */
   REVIEW_REPAIR_EXHAUSTED: 'REVIEW_REPAIR_EXHAUSTED',
   /** The reviewer blocked the same artifact it had already blocked. */
   REVIEW_NO_PROGRESS: 'REVIEW_NO_PROGRESS',
+  /** The reviewer did not account for every prior blocker with a unique evidenced disposition. */
+  REVIEW_PROGRESS_UNCONFIRMED: 'REVIEW_PROGRESS_UNCONFIRMED',
   /** The fresh arbitrator kept a blocking finding. */
   ARBITRATION_UNRESOLVED: 'ARBITRATION_UNRESOLVED',
   /** The review did not pass but named no blocking finding to repair. */

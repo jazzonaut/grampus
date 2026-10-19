@@ -40,6 +40,7 @@ const summaries: Readonly<Record<string, string>> = {
   'guided.assessment_supplied': 'Quality assessment recorded',
   'guided.answers_supplied': 'Answers sent',
   'guided.retry_requested': 'Repair attempt requested',
+  'guided.repair_decided': 'Repair policy decision',
   'guided.preparation_retry_requested': 'Preparation retry requested',
   'guided.checks_rerun_requested': 'Check rerun requested',
   'guided.recovery_requested': 'Recovery requested',

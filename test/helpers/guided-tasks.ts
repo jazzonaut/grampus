@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { Store } from '../../src/persistence/store.js';
 import { GuidedTasks } from '../../src/orchestration/guided/controller.js';
 import type { GuidedServices } from '../../src/orchestration/guided/state.js';
-import { runCheckProcess } from '../../src/process/check-process.js';
+import { runCheckProcess, type CheckProcessOptions } from '../../src/process/check-process.js';
 import type { Reply } from '../../src/providers/types.js';
 import type { LensAssessment } from '../../src/domain/quality-passes.js';
 
@@ -19,6 +19,26 @@ export const cli = fileURLToPath(new URL('../../src/cli.js', import.meta.url));
 export const message: Reply = { kind: 'message', text: 'Offline fixture implementation', questions: [], findings: [] };
 
 export const review: Reply = { kind: 'review', text: 'Offline fixture review', questions: [], findings: [] };
+
+/** Explicitly resolves the controller identities supplied to an offline reviewer. */
+export function resolvedFindings(prompt: string): NonNullable<Reply['priorFindings']> {
+  const line = /Prior blocking findings to account for:\n([^\n]+)/.exec(prompt);
+  const prior = line ? (JSON.parse(line[1]!) as { id: string }[]) : [];
+  return prior.map(item => ({ id: item.id, status: 'resolved', evidence: 'Inspected the repaired fixture.' }));
+}
+
+/** A fake provider process; checks, repository evidence and delivery still use their real paths. */
+export async function inlineImplementation(options: CheckProcessOptions, source: string) {
+  writeFileSync(join(options.cwd, 'greeting.js'), source);
+  writeFileSync(
+    join(options.receipt!.directory, 'result.json'),
+    JSON.stringify({
+      id: options.receipt!.checkId,
+      result: { status: 'completed', reply: message, usage: null, error: null },
+    }),
+  );
+  return { reason: 'exited', exitCode: 0, exitConfirmed: true, stdout: '', stderr: '', outputTruncated: false };
+}
 
 /** A reviewer's assessment of one quality lens, the simplification lens unless another is named. */
 export function lens(verdict: 'pass' | 'fail', summary: string, id = 'simplification'): LensAssessment {

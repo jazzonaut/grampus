@@ -42,7 +42,7 @@ test('blocking review stops delivery and explicit retry uses fresh sessions with
     close: async () => {},
   });
   const tasks = new GuidedTasks(f.store, config),
-    task = tasks.create({ ...f.plan, reviewPolicy: { repairRounds: 0 } }),
+    task = tasks.create({ ...f.plan, workflowPolicy: { mode: 'supervised', repairRounds: 0 } }),
     id = task.id;
   tasks.approve(id, 1, task.guided!.digest);
   await tasks.run(id);

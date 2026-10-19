@@ -3,7 +3,7 @@
 // arbitration, then stop. The reviewer only reads the submitted artifact, and earlier verdicts are
 // never dropped from what it is shown.
 import { formatBytes, reviewLimits } from '../../../config/limits.js';
-import { reviewRepairRounds } from '../../../domain/guided-plan.js';
+import { blockingFindings, priorBlockingFindings, reviewProgress, recordRepairDecision } from '../repair-policy.js';
 import { lensOutcome, selectedLenses, type LensAssessment } from '../../../domain/quality-passes.js';
 import { Sessions, requestedTurnIds, runSession, type Session } from '../../../execution/sessions.js';
 import type { Execution } from '../../../execution/execution-state.js';
@@ -54,16 +54,42 @@ function reviewHistory({ store, executions }: GuidedContext, state: GuidedState)
  * allowance lasts and the artifact changed since the last block, otherwise one fresh arbitration if
  * the plan names an arbitrator, otherwise a stop with the code saying which limit was reached.
  */
-function routeBlockingReview(context: SettleContext, execution: Execution): 'repair' | 'arbitration' | StopReasonCode {
+function routeBlockingReview(
+  context: SettleContext,
+  execution: Execution,
+  session: Session,
+): 'repair' | 'arbitration' | StopReasonCode {
   const { store, state, executions, change, prepareRetry } = context;
   const artifact = execution.artifact;
   if (!artifact) throw new Error(`Review execution ${execution.id} is not bound to an artifact`);
   return store.transaction(() => {
     const cycle = structuredClone(state.reviewCycle);
-    // Blocking the same artifact twice means the last repair changed nothing the reviewer cared about.
-    const noProgress = automatic(state) && cycle.history.some(item => item.artifact === artifact);
+    const prior = priorBlockingFindings(context, state);
+    const reply = session.lastReply;
+    if (!reply) throw new Error('Blocking review has no settled reply');
+    const repeatedArtifact = cycle.history.some(item => item.artifact === artifact);
+    const progress = repeatedArtifact
+      ? 'stalled'
+      : reviewProgress(prior, blockingFindings(state, reply, execution.id), reply);
+    const noProgress = automatic(state) && progress === 'stalled';
+    const unknownProgress = automatic(state) && progress === 'unknown';
+    const reason = noProgress
+      ? 'REVIEW_NO_PROGRESS'
+      : unknownProgress
+        ? 'REVIEW_PROGRESS_UNCONFIRMED'
+        : 'REVIEW_REPAIR_EXHAUSTED';
+    const allowance = state.plan.workflowPolicy.repairRounds;
+    const canRepair = !cycle.arbitrating && !noProgress && !unknownProgress && state.repairCycle.used < allowance;
+    const arbitrate = !canRepair && !cycle.arbitrationUsed && !!state.plan.reviewPolicy?.arbitrator;
+    recordRepairDecision(context, {
+      source: 'review',
+      action: canRepair ? 'repair' : arbitrate ? 'arbitration' : 'stop',
+      reason: canRepair ? 'REVIEW_BLOCKING_FINDINGS' : cycle.arbitrating ? 'ARBITRATION_UNRESOLVED' : reason,
+      resultId: execution.id,
+      progress,
+    });
     cycle.history.push({ executionId: execution.id, artifact });
-    // Journaled first in every route, so the blocking verdict is on record before any repair or
+    // Retained in every route, so the blocking verdict is on record before any repair or
     // arbitration moves the task on; the transient code is replaced by whatever follows.
     change('guided.blocking_review', current => {
       current.reviewCycle = cycle;
@@ -71,15 +97,16 @@ function routeBlockingReview(context: SettleContext, execution: Execution): 'rep
       current.status = 'blocked';
       current.stopReason = stopReason('REVIEW_BLOCKING_FINDINGS', 'Independent review recorded blocking findings.');
     });
-    if (!cycle.arbitrating && !noProgress && cycle.repairs < reviewRepairRounds(state.plan)) {
+    if (canRepair) {
       cycle.repairs++;
-      prepareRetry('guided.review_repair_requested');
       change('guided.repair_budget_used', current => {
         current.reviewCycle = cycle;
+        current.repairCycle.used++;
       });
+      prepareRetry('guided.review_repair_requested');
       return 'repair';
     }
-    if (!cycle.arbitrationUsed && state.plan.reviewPolicy?.arbitrator) {
+    if (arbitrate) {
       executions.close(execution.id);
       change('guided.arbitration_requested', current => {
         current.reviewCycle = { ...cycle, arbitrating: true, arbitrationUsed: true };
@@ -91,7 +118,7 @@ function routeBlockingReview(context: SettleContext, execution: Execution): 'rep
       return 'arbitration';
     }
     if (cycle.arbitrating) return 'ARBITRATION_UNRESOLVED';
-    return noProgress ? 'REVIEW_NO_PROGRESS' : 'REVIEW_REPAIR_EXHAUSTED';
+    return reason;
   });
 }
 
@@ -118,7 +145,7 @@ function settleUnpassed(context: SettleContext, verdict: Verdict): StageOutcome 
     (failedLenses.length > 0 || (outcome === 'failed' && reply?.findings.some(item => item.severity === 'blocking')));
   let code: StopReasonCode;
   if (repairable) {
-    const route = routeBlockingReview(context, execution);
+    const route = routeBlockingReview(context, execution, session);
     if (route === 'repair' || route === 'arbitration') return { kind: 'rerouted', to: route };
     code = route;
   } else code = session.phase !== 'idle' ? 'REVIEW_TURN_FAILED' : 'REVIEW_FAILED_NO_BLOCKING_FINDINGS';
@@ -221,6 +248,31 @@ function settleReview(context: SettleContext): StageOutcome {
   };
   if (session.phase !== 'idle' || verdict.outcome !== 'passed' || verdict.failedLenses.length)
     return settleUnpassed(context, verdict);
+  if (automatic(state)) {
+    const reply = session.lastReply;
+    const progress = reply ? reviewProgress(priorBlockingFindings(context, state), [], reply) : 'unknown';
+    if (progress !== 'progress') {
+      const code = state.reviewCycle.arbitrating
+        ? 'ARBITRATION_UNRESOLVED'
+        : progress === 'stalled'
+          ? 'REVIEW_NO_PROGRESS'
+          : 'REVIEW_PROGRESS_UNCONFIRMED';
+      recordRepairDecision(context, {
+        source: 'review',
+        action: 'stop',
+        reason: code,
+        resultId: execution.id,
+        progress,
+      });
+      return {
+        kind: 'stop',
+        reason: {
+          code,
+          note: session.lastReply?.text || 'Review did not establish resolution of earlier blockers.',
+        },
+      };
+    }
+  }
   return settlePassed(context, verdict);
 }
 
@@ -240,6 +292,7 @@ export const reviewStage: StageHandler = {
         arbitrating: state.reviewCycle.arbitrating,
         verdicts,
         lenses: selectedLenses(state.plan.quality),
+        priorFindings: priorBlockingFindings(context, state),
       }),
       { artifactReview: true, signal, timeoutMs: 0, ...(state.answers ? { answers: state.answers } : {}) },
       services.connector,

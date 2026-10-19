@@ -61,7 +61,7 @@ export const guidedPlanSchema = z.object({
   /** Selected quality passes as full definitions, so approval binds their exact instructions. */
   quality: planQualitySchema,
   preparation: guidedCommandSchema.exactOptional(),
-  reviewPolicy: z.object({ repairRounds: z.number(), arbitrator: guidedAgentSchema.exactOptional() }).exactOptional(),
+  reviewPolicy: z.object({ arbitrator: guidedAgentSchema.exactOptional() }).exactOptional(),
   /** Set by a revision: the delivered state the revised plan continues from. */
   revision: z
     .object({
@@ -278,17 +278,13 @@ function workspacePath(
 }
 
 /**
- * An explicit review policy, or `undefined` so {@link reviewRepairRounds} derives the allowance. An
- * arbitrator without a provider defaults to the implementer's provider.
+ * Optional fresh arbitration. Repair authority belongs to the shared workflow allowance;
+ * an arbitrator without a provider defaults to the implementer's provider.
  */
 function normalizeReviewPolicy(value: unknown, implementer: Provider): GuidedPlan['reviewPolicy'] {
   if (value === undefined) return undefined;
-  const policy = object(value, ['repairRounds', 'arbitrator'], 'review policy');
-  const rounds = policy.repairRounds;
-  if (typeof rounds !== 'number' || !Number.isInteger(rounds) || rounds < 0 || rounds > planLimits.reviewRepairRounds)
-    throw new Error(`Approve 0–${planLimits.reviewRepairRounds} automatic repair rounds`);
+  const policy = object(value, ['arbitrator'], 'review policy');
   return {
-    repairRounds: rounds,
     ...(policy.arbitrator === undefined ? {} : { arbitrator: agent(policy.arbitrator, implementer) }),
   };
 }
@@ -467,11 +463,6 @@ export function normalizeGuidedPlan(
     ...(reviewPolicy ? { reviewPolicy } : {}),
     ...(references.length ? { references } : {}),
   };
-}
-
-/** Without an explicit review policy, review repairs share the check allowance, up to the approvable maximum. */
-export function reviewRepairRounds(plan: GuidedPlan): number {
-  return plan.reviewPolicy?.repairRounds ?? Math.min(planLimits.reviewRepairRounds, plan.workflowPolicy.repairRounds);
 }
 
 /**

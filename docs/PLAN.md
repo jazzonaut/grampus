@@ -53,8 +53,13 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   `config.json`. The selected passes are resolved to full definitions in the approved plan digest.
   Implementation, validation, independent review, acceptance and delivery stay mandatory and
   ordered ([WORKFLOW.md](WORKFLOW.md#quality-passes)).
+- **Progress-aware shared repairs.** Done 19 October 2026. Validation, review and acceptance
+  share one approved slice allowance (six by default, up to ten). Continued blocking reviews
+  must resolve preceding blockers with explicit identities and evidence; stalled or unknown
+  progress stops or uses approved arbitration. Decisions are journaled with their reasons and
+  budget. Journal schema 2 refuses schema 1 without migration ([WORKFLOW.md](WORKFLOW.md)).
 - **No backwards compatibility.** Done 18 October 2026. Legacy plan formats, digests, fields,
-  migrations and `task-automate` are removed from code and docs. The schema restarts at version 1; an older
+  migrations and `task-automate` are removed from code and docs. The current schema is version 2; an older
   journal is refused with a clear message and never modified. The new version uses a fresh
   journal file, so older installed snapshots can still finish their own tasks.
 

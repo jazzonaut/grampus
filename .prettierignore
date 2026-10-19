@@ -5,4 +5,5 @@ package-lock.json
 src/process/native/
 eslint-suppressions.json
 .claude/
+.grampus/
 scripts/installed-launch.mjs

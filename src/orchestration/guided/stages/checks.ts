@@ -18,6 +18,7 @@ import {
 } from '../context.js';
 import { required, type GuidedState } from '../state.js';
 import { acceptanceSpec, automatic, currentSlice, validationSpec } from '../specs.js';
+import { recordRepairDecision } from '../repair-policy.js';
 
 /** Every check of the current execution, including preparation runs. */
 export function checkIds({ store }: GuidedContext, state: GuidedState): string[] {
@@ -78,11 +79,25 @@ function settleFailure(context: SettleContext, result: RepositoryCheck): StageOu
   );
   const allowance = state.plan.workflowPolicy.repairRounds;
   const ineligible = repairIneligibility(state, result);
+  const canRepair = !ineligible && !noProgress && cycle.used < allowance;
+  recordRepairDecision(context, {
+    source: pending.stage === 'validation' ? 'validation' : 'verification',
+    action: canRepair ? 'repair' : 'stop',
+    reason: ineligible ?? (noProgress ? 'CHECK_NO_PROGRESS' : canRepair ? 'CHECK_FAILED' : 'CHECK_REPAIR_EXHAUSTED'),
+    resultId: result.id,
+    progress: ineligible
+      ? 'ineligible'
+      : noProgress
+        ? 'stalled'
+        : cycle.failures.length
+          ? 'artifact_changed'
+          : 'initial',
+  });
   // Retained whatever follows, so a stop can offer rerun checks and a repair can quote the failure.
   change('guided.check_failed', current => {
     current.failedCheckId = result.id;
   });
-  if (!ineligible && !noProgress && cycle.used < allowance) {
+  if (canRepair) {
     cycle.used++;
     cycle.failures.push({ purpose: pending.stage, artifact: required(state, 'snapshot').artifact, issue });
     change('guided.repair_budget_used', current => {

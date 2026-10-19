@@ -379,11 +379,13 @@ export class GuidedTasks {
    * `perform` saw. `recovering` is explicit recovery of a step a previous controller left pending.
    */
   private settle(id: string, token: string, snapshot: RepositorySnapshot | null = null, recovering = false): void {
-    const state = this.get(id),
-      pending = required(state, 'pending');
-    if (pending.stage === 'complete') return;
-    const context = { ...this.context(id, token), state, pending, snapshot, recovering };
-    this.apply(id, token, pending, stageHandlers[pending.stage].settle(context), recovering);
+    this.store.transaction(() => {
+      const state = this.get(id),
+        pending = required(state, 'pending');
+      if (pending.stage === 'complete') return;
+      const context = { ...this.context(id, token), state, pending, snapshot, recovering };
+      this.apply(id, token, pending, stageHandlers[pending.stage].settle(context), recovering);
+    });
   }
   /** Applies a settled step's outcome as one journaled change. */
   private apply(id: string, token: string, pending: Pending, outcome: StageOutcome, recovering: boolean): void {

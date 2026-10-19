@@ -462,7 +462,8 @@ test('dashboard revisions run in an isolated worker and stale approval cannot ap
   // The form's JSON field carries the whole plan; the client writes edits into it at the field targets.
   const plan = structuredClone(revise.form!.fields.find(item => item.name === 'plan')!.value) as any;
   plan.brief.outcome = 'Revised observable output';
-  plan.reviewPolicy = { repairRounds: 1, arbitrator: { provider: 'codex' } };
+  plan.workflowPolicy.repairRounds = 1;
+  plan.reviewPolicy = { arbitrator: { provider: 'codex' } };
   assert.equal((await api.act(revise, { expected: 'stale', plan })).status, 409);
   assert.equal((await api.act(revise, { plan })).status, 202);
   assert.equal((await settled(ui, id, 15_000))?.error, null);
@@ -470,7 +471,7 @@ test('dashboard revisions run in an isolated worker and stale approval cannot ap
     revised = await api.task(id);
   assert.equal(state.version, 2);
   assert.equal(state.status, 'draft');
-  assert.equal(state.plan.reviewPolicy?.repairRounds, 1);
+  assert.equal(state.plan.workflowPolicy.repairRounds, 1);
   assert.equal(revised.details.approval.version, 2);
   assert.equal(ui.store.workspaces().length, 0);
   assert.equal(ui.store.sessions().length, 0);

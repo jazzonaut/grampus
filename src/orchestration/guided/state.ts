@@ -86,7 +86,7 @@ export const pendingSchema = z.object({
 });
 export type Pending = z.infer<typeof pendingSchema>;
 
-/** Check repair spending for the current slice; survives manual retry and restarts. */
+/** Shared repair spending for the current slice; survives manual retry and restarts. */
 export const repairCycleSchema = z.object({
   used: z.number(),
   /** Failed artifacts per purpose; a repeat on the same artifact means the repair made no progress. */
@@ -94,7 +94,7 @@ export const repairCycleSchema = z.object({
 });
 export type RepairCycle = z.infer<typeof repairCycleSchema>;
 
-/** Review repair and arbitration spending for the current slice. */
+/** Review's share of repair spending and arbitration history for the current slice. */
 export const reviewCycleSchema = z.object({
   repairs: z.number(),
   /** Every blocking verdict for this slice; resent to later reviewers in full. */
@@ -118,10 +118,10 @@ export const qualityEditRecordSchema = z.object({
 });
 export type QualityEditRecord = z.infer<typeof qualityEditRecordSchema>;
 
-/** A new slice or revised plan starts with an unused check repair allowance. */
+/** A new slice or revised plan starts with an unused shared repair allowance. */
 export const freshRepairCycle = (): RepairCycle => ({ used: 0, failures: [] });
 
-/** A new slice or revised plan starts with an unused review repair allowance. */
+/** A new slice or revised plan starts with no review repair spending or arbitration history. */
 export const freshReviewCycle = (): ReviewCycle => ({
   repairs: 0,
   history: [],

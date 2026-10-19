@@ -65,10 +65,10 @@ owned processes to settle. From a checkout, use `npm start --` in place of `gram
 
 - **Questions.** Answer every question id with `task-answer <task-id> answers.json`,
   where the file is a JSON object mapping ids to text.
-- **Failures beyond the allowance.** Validation and acceptance failures are repaired
-  automatically up to `workflowPolicy.repairRounds`; a repair that leaves the failing
-  content unchanged stops early.
-- **Blocking review findings beyond the allowance**, or an unresolved arbitration.
+- **Failures beyond the shared allowance.** Validation, review and acceptance use
+  `workflowPolicy.repairRounds` (six by default, 0 to 10 approvable). Unchanged failing
+  content, unresolved prior review blockers or missing progress evidence stop early.
+- **Unresolved arbitration.** A fresh arbitrator can be selected in the approved plan.
 - **Operational problems:** preparation failures, scope errors, uncertain process exits
   and anything that needs recovery.
 
@@ -100,7 +100,7 @@ With `"workflowPolicy": { "mode": "supervised" }`:
 
 Review, acceptance and delivery then follow as in automatic mode. Failed checks stop
 for `task-retry` instead of being repaired automatically. Blocking review findings
-start a repair attempt within the review allowance, and that attempt again stops for
+start a repair attempt within the shared allowance, and that attempt again stops for
 authorization and assessment. To change the mode, revise the plan and approve it again.
 
 ## Repository preparation
@@ -119,16 +119,19 @@ the same attempt.
 ## Review policy and arbitration
 
 ```json
-"reviewPolicy": { "repairRounds": 2, "arbitrator": { "provider": "codex" } }
+"reviewPolicy": { "arbitrator": { "provider": "codex" } }
 ```
 
-`repairRounds` is 0 to 2. Only a settled review with concrete blocking findings spends
-a round; Grampus keeps the findings and files and starts a fresh attempt. Without a
-`reviewPolicy`, review repairs use the workflow allowance, up to two; `repairRounds: 0`
-stops for a manual retry. After the allowance, an optional arbitrator receives a fresh
-artifact-bound review with all earlier verdicts. A same-provider arbitrator is an
-explicitly approved fallback. More than eight verdicts or 128 KiB of history stops
-before inference rather than dropping findings.
+Only a settled review with concrete blocking findings or a failed selected quality lens
+spends a shared round. Grampus retains findings and files, checks artifact changes and asks
+the next reviewer to account for every preceding blocker by controller identity. Further
+automatic repair requires those blockers to be resolved with evidence; a new related defect
+can then use the remaining allowance. A passing review also needs complete dispositions.
+
+If progress stalls, evidence is missing or the shared allowance is exhausted, an optional
+arbitrator receives a fresh artifact-bound review with all earlier verdicts. A same-provider
+arbitrator is an explicitly approved fallback. More than twelve verdicts or 128 KiB of history
+stops before inference rather than dropping findings. See [repair policy](WORKFLOW.md#configuration).
 
 ## Acceptance observations
 

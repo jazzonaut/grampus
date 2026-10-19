@@ -136,9 +136,12 @@ follows submission, and the reviewer's verdict on each selected quality lens bec
 at `assessment` before verification; a failed lens counts as a blocking finding. Edit quality passes
 run between `implementation` and validation on the slice's first successful implementation only
 ([quality passes](WORKFLOW.md#quality-passes)). Ordinary validation and acceptance failures return to
-implementation with their evidence within `workflowPolicy.repairRounds`; blocking review findings
-use the review repair allowance and then an optional fresh arbitrator. A repair that leaves the
-failing artifact unchanged stops early. In **supervised** mode the controller stops at
+implementation with their evidence within `workflowPolicy.repairRounds`, shared with blocking
+review repairs (six by default, up to ten). Review can continue beyond two repairs when the
+artifact changes and the reviewer evidences resolution of every preceding blocker using
+controller-assigned identities. Unchanged artifacts, unresolved blockers and missing progress
+evidence stop early or go to an optional approved arbitrator. Every repair decision is journaled
+with its reason, evidence identity and shared budget in the settlement transaction. In **supervised** mode the controller stops at
 `awaiting_scope` for file authorization and at `awaiting_assessment` after submission for one human
 quality assessment covering every selected lens (skipped when none is selected), then reviews; failed checks stop for a manual retry. The mode is part of
 the approved plan and changes only through a revision. Details are in [WORKFLOW.md](WORKFLOW.md).
@@ -150,7 +153,7 @@ work resumes. The codes are listed and documented in `orchestration/guided/stop-
 (`APPROVAL_REQUIRED`, `SCOPE_AUTHORIZATION_REQUIRED`, `ASSESSMENT_REQUIRED`, `AGENT_QUESTION`, ...),
 settled failures (`PREPARATION_FAILED`, `CHECKPOINT_CHANGED`, `QUALITY_PASS_FAILED`, `CHECK_TIMEOUT`,
 `CHECK_NO_PROGRESS`, `CHECK_REPAIR_EXHAUSTED`, `REVIEW_MISSING_LENS`, `REVIEW_REPAIR_EXHAUSTED`,
-`ARBITRATION_UNRESOLVED`, `DELIVERY_FAILED`, ...)
+`REVIEW_PROGRESS_UNCONFIRMED`, `ARBITRATION_UNRESOLVED`, `DELIVERY_FAILED`, ...)
 and results that cannot be adopted (`RESULT_MISMATCH`, `OPERATION_NEEDS_RECOVERY`,
 `SETTLEMENT_UNCONFIRMED`, ...). A failure without a specific code is `UNEXPECTED_ERROR` before dispatch
 or `RECOVERY_REQUIRED` after it.
@@ -171,8 +174,8 @@ leaf.
 
 `persistence/store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a
 15-second busy timeout ([parallel tasks](#parallel-tasks-and-concurrency)). There is one schema,
-version 1, with thirteen tables and no migrations. A new or empty
-file gets the schema; any other version, or a version 1 file missing a table, is refused with a
+version 2, with thirteen tables and no migrations. A new or empty
+file gets the schema; any other version, or a version 2 file missing a table, is refused with a
 clear error after a read-only inspection, so the file is never modified. The default journal is
 `grampus.sqlite` in the data directory.
 
@@ -587,6 +590,14 @@ first `guided.approved`: `guided.answers_supplied`, `guided.scope_authorized`,
 Continuing a stopped task with `task-run` and low-level CLI commands are not counted. Unknown values
 stay null and never count as zero; a total that misses some turn's measurement is marked partial.
 
+Repair decisions also have a `guided.repair_decided` event: source, action, reason, triggering
+result id, execution/review ids, artifact, progress and shared budget before the decision. The
+linked session retains the review's individual blocker dispositions and provider usage. Tokens
+are measured per provider turn and aggregated by stage, not separately for every controller
+decision or individual tool call. Checks retain their own timings and results. These records
+support analysing repair yield, repeat findings, intervention rate and spend by stage; there
+is no automatic cross-task benchmark or causal attribution of tokens to individual findings.
+
 ## Health and stalls
 
 Health is observation, not evidence: nothing in the workflow reads it to pass a gate, and the adapters
@@ -660,6 +671,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `state.ts`, `keys.ts`, `stop-reasons.ts` | Guided state types; decision and question keys; typed stop reason codes |
 | | `context.ts`, `specs.ts`, `prompts.ts` | Stage handler contract and result adoption; exact leaf requests; agent prompts |
 | | `retry.ts`, `recovery.ts`, `revision.ts` | New attempts and explicit retry checks; leaf recovery; plan revision |
+| | `repair-policy.ts` | Controller finding identities, review progress checks and repair decision evidence |
 | | `rerun.ts` | Which stopped checks may be rerun without a new attempt |
 | | `snapshots.ts` | Snapshot references in guided state and access to the stored snapshots |
 | | `stages/*.ts` | One handler per stage (see [Guided state machine](#guided-state-machine)) |

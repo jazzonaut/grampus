@@ -8,10 +8,10 @@ describe('JSON pointers', () => {
   });
 
   it('creates missing objects and removes a property for undefined', () => {
-    const body = { expected: 'k', plan: { reviewPolicy: { arbitrator: { provider: 'codex' }, repairRounds: 1 } } };
+    const body = { expected: 'k', plan: { reviewPolicy: { arbitrator: { provider: 'codex' } } } };
     writeAt(body, '/answers/x', 'yes');
     writeAt(body, '/plan/reviewPolicy/arbitrator', undefined);
-    expect(body).toEqual({ expected: 'k', answers: { x: 'yes' }, plan: { reviewPolicy: { repairRounds: 1 } } });
+    expect(body).toEqual({ expected: 'k', answers: { x: 'yes' }, plan: { reviewPolicy: {} } });
   });
 });
 
@@ -65,7 +65,7 @@ describe('buildRequest', () => {
           brief: { title: 'Renamed', outcome: 'Old outcome', plan: 'Old plan' },
           workflowPolicy: { mode: 'automatic', repairRounds: 4 },
           // "Stop for your decision" (a null option) removes the arbitrator.
-          reviewPolicy: { repairRounds: 1 },
+          reviewPolicy: {},
           quality: { passes: ['refactor', { id: 'simplification', kind: 'lens' }] },
           notes: ['one', 'two'],
         },
@@ -78,10 +78,10 @@ describe('buildRequest', () => {
     expect(drafts['arbitrator']).toEqual({ kind: 'choice', index: 1 });
     expect(drafts['quality-passes']).toEqual({ kind: 'choices', indices: [0] });
     expect(
-      buildRequest(mockReviseAction, { ...drafts, 'validation-repairs': { kind: 'text', text: '9' } }),
+      buildRequest(mockReviseAction, { ...drafts, 'validation-repairs': { kind: 'text', text: '11' } }),
     ).toMatchObject({
       ok: false,
-      issues: [{ field: 'validation-repairs', message: 'Enter 5 or less.' }],
+      issues: [{ field: 'validation-repairs', message: 'Enter 10 or less.' }],
     });
     const invalid = buildRequest(mockReviseAction, { ...drafts, plan: { kind: 'text', text: '{ nope' } });
     expect(invalid.ok).toBe(false);

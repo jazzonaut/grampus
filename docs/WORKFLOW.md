@@ -7,7 +7,7 @@ New plans default to automatic execution within their exact approved file scope:
 3. Run validation. Return ordinary failures to the implementer with their evidence.
 4. Independently review correctness and maintainability, assessing each selected quality
    lens. Repair concrete blocking findings and failed lenses within the allowance and obtain
-   a new verdict.
+   a new verdict. Validation, review and acceptance draw from one shared repair allowance.
 5. Verify acceptance. Repairs invalidate earlier validation, review and acceptance.
 6. Deliver the verified local commit and continue to the next slice.
 
@@ -51,7 +51,7 @@ Quality passes are declarative definitions, not code: an `id` (kebab-case), a `t
 
 - A **lens** is assessed by the independent reviewer inside its review turn. The verdict
   carries one `{ lens, verdict: "pass" | "fail", summary, findings }` entry per selected lens.
-  A failed lens counts as a blocking finding and uses the review repair allowance. A passing
+  A failed lens counts as a blocking finding and uses the shared repair allowance. A passing
   review that leaves a selected lens unassessed stops with `REVIEW_MISSING_LENS`. Each lens
   verdict is recorded as quality evidence for that lens, bound to the reviewer, attempt,
   version and artifact, and delivery requires a passing assessment of every selected lens.
@@ -130,7 +130,7 @@ The policy is part of the approved plan, visible at approval and editable in
 ```json
 "workflowPolicy": {
   "mode": "automatic",
-  "repairRounds": 2,
+  "repairRounds": 6,
   "maxSessionTurns": 6,
   "maxContextTokens": 120000
 }
@@ -143,16 +143,36 @@ These are the defaults for a new plan that omits the policy or some of its field
 `mode` defaults to `automatic`. `mode: "supervised"` adds file-authorization and
 manual quality assessment checkpoints and leaves failed checks for a manual retry (see
 [the guided CLI](GUIDED-WORKFLOW.md#supervised-mode)).
-Check repair rounds accept 0–5; the limit is shared by validation and acceptance for
-the current slice and survives manual retry/restarts. A new slice or revised plan
-gets a new allowance. Repeated failed content stops early.
+Repair rounds accept 0–10, defaulting to six. Validation, independent review and acceptance
+spend the same allowance for the current slice. It survives manual retry and restarts;
+a new slice or revised plan gets a new allowance. An explicit retry authorises one further
+attempt without replenishing automatic repairs. Infrastructure failures never spend it.
 
-`reviewPolicy` controls review repairs (0–2) and optional fresh arbitration.
-Without that override, review repairs use the workflow allowance, up to two. Review
-repair counts are separate from check repair counts. Unresolved arbitration stops.
+A new related review finding can be repaired automatically after earlier blockers are resolved.
+The controller assigns stable identities to the preceding verdict's blockers, including failed
+selected lenses. The reviewer returns `priorFindings`, one `{ id, status, evidence }` per identity,
+with `status` either `resolved` or `unresolved`. Further automatic repair requires a changed
+artifact and complete, evidenced resolution of every earlier blocker. The same artifact or
+an unresolved blocker stops with `REVIEW_NO_PROGRESS`; missing, duplicate or foreign identities
+stop with `REVIEW_PROGRESS_UNCONFIRMED`. These claims are agent evidence, not controller proof
+of semantic correctness. Passing reviews must also account for prior blockers. All earlier
+verdicts remain available to the reviewer.
+
+`reviewPolicy` selects optional fresh arbitration only. A stalled review, missing progress
+evidence or exhausted shared allowance can go to that approved arbitrator once. Arbitration
+receives the artifact and full review history; an unresolved verdict stops.
 
 Changing the mode, scope, commands or policy values uses a plan revision and fresh
 approval; the approval digest always covers the complete current plan.
+
+Each failed check or blocking review records `guided.repair_decided` in the same transaction
+as its state transition. It names the source, triggering result, execution, artifact, progress,
+action and shared budget before the decision. Review dispositions remain in the linked session's
+structured reply. This makes the choice to repair, arbitrate or stop inspectable alongside the
+existing request/result, check and usage journals.
+
+This policy uses journal schema 2. Schema 1 journals are refused without modification; there is
+no migration. Keep the previous installed build with its journal to finish an existing task.
 
 ## Reuse context at settled boundaries
 

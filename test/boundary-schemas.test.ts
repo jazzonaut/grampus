@@ -271,6 +271,7 @@ test('structured replies drop unknown fields, keep exact rules and categorise fa
     'findings',
     'kind',
     'lenses',
+    'priorFindings',
     'questions',
     'text',
   ]);

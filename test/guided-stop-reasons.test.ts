@@ -96,12 +96,13 @@ function context(state: GuidedState, stage: string, stores: Record<string, unkno
     checks: {},
     store: {
       transaction: (action: () => unknown) => action(),
+      append: () => {},
       executionEvents: () => lease(stage === 'review' ? 'turn' : 'check'),
       ...stores,
     },
     workflow: { get: () => ({ evidence: stores['evidence'] ?? [] }) },
     executions: {
-      get: (id: string) => ({ id, sessionId: 'session', artifact }),
+      get: (id: string) => ({ id, sessionId: id, artifact }),
       close: (id: string) => recorded.closed.push(id),
     },
     change: (type: string, update: (state: GuidedState) => void) => {
@@ -200,7 +201,14 @@ test('a failed check spends the repair allowance, then stops as exhausted or wit
   assert.equal(stopCode(settleValidation(guided('supervised'), failedCheck())), 'CHECK_FAILED_SUPERVISED');
 });
 
-function settleReview(state: GuidedState, reply: Partial<Reply>, outcome: string, phase = 'idle', recorded = record()) {
+function settleReview(
+  state: GuidedState,
+  reply: Partial<Reply>,
+  outcome: string,
+  phase = 'idle',
+  recorded = record(),
+  previous?: Partial<Reply>,
+) {
   const session = {
     id: 'session',
     phase,
@@ -212,7 +220,8 @@ function settleReview(state: GuidedState, reply: Partial<Reply>, outcome: string
       { ...state, stage: 'review' },
       'review',
       {
-        session: () => session,
+        session: (id: string) =>
+          id === 'old' && previous ? { ...session, lastReply: { ...session.lastReply, ...previous } } : session,
         sessionEvents: () => [{ type: 'turn.requested', data: { runId: 'turn' } }],
         evidence: [{ kind: 'review', id: 'turn', outcome }],
       },
@@ -224,6 +233,29 @@ function settleReview(state: GuidedState, reply: Partial<Reply>, outcome: string
 const blocking: Partial<Reply> = {
   findings: [{ severity: 'blocking', description: 'Defect', evidence: 'Concrete' }],
 };
+
+test('a third review repair is allowed after resolved blockers within the shared allowance', () => {
+  const initial = guided('automatic');
+  const state = guided('automatic', {
+    plan: { ...initial.plan, workflowPolicy: { ...initial.plan.workflowPolicy, repairRounds: 6 } },
+    repairCycle: { used: 2, failures: [] },
+    reviewCycle: {
+      repairs: 2,
+      history: [{ executionId: 'old', artifact: 'sha256:older' }],
+      arbitrating: false,
+      arbitrationUsed: false,
+    },
+  });
+  const recorded = record();
+  const next = {
+    findings: [{ severity: 'blocking' as const, description: 'New related defect', evidence: 'Current source' }],
+    priorFindings: [{ id: 'old:0', status: 'resolved' as const, evidence: 'Earlier defect fixed in source' }],
+  };
+  assert.deepEqual(settleReview(state, next, 'failed', 'idle', recorded, blocking), { kind: 'rerouted', to: 'repair' });
+  const budget = recorded.changes.find(item => item.type === 'guided.repair_budget_used')!;
+  assert.equal(budget.state.repairCycle.used, 3);
+  assert.equal(budget.state.reviewCycle.repairs, 3);
+});
 
 test('review settlement records why a verdict stops and when it reroutes', () => {
   const automatic = guided('automatic');
@@ -241,6 +273,7 @@ test('review settlement records why a verdict stops and when it reroutes', () =>
   assert.deepEqual(recorded.retries, ['guided.review_repair_requested']);
 
   const exhausted = guided('automatic', {
+    repairCycle: { used: 2, failures: [] },
     reviewCycle: { repairs: 2, history: [], arbitrating: false, arbitrationUsed: false },
   });
   assert.equal(stopCode(settleReview(exhausted, blocking, 'failed')), 'REVIEW_REPAIR_EXHAUSTED');
@@ -253,6 +286,22 @@ test('review settlement records why a verdict stops and when it reroutes', () =>
     },
   });
   assert.equal(stopCode(settleReview(repeated, blocking, 'failed')), 'REVIEW_NO_PROGRESS');
+  const changed = guided('automatic', {
+    reviewCycle: {
+      repairs: 1,
+      history: [{ executionId: 'old', artifact: 'sha256:older' }],
+      arbitrating: false,
+      arbitrationUsed: false,
+    },
+  });
+  assert.equal(stopCode(settleReview(changed, blocking, 'failed')), 'REVIEW_PROGRESS_UNCONFIRMED');
+  const unresolved = {
+    ...blocking,
+    priorFindings: [{ id: 'old:0', status: 'unresolved' as const, evidence: 'Defect persists' }],
+  };
+  assert.equal(stopCode(settleReview(changed, unresolved, 'failed')), 'REVIEW_NO_PROGRESS');
+  const spentOnChecks = guided('automatic', { repairCycle: { used: 2, failures: [] } });
+  assert.equal(stopCode(settleReview(spentOnChecks, blocking, 'failed')), 'REVIEW_REPAIR_EXHAUSTED');
   const arbitrating = guided('automatic', {
     reviewCycle: { repairs: 0, history: [], arbitrating: true, arbitrationUsed: true },
   });
@@ -260,7 +309,11 @@ test('review settlement records why a verdict stops and when it reroutes', () =>
 
   const arbitrated = record();
   const withArbitrator = guided('automatic', {
-    plan: { ...automatic.plan, reviewPolicy: { repairRounds: 0, arbitrator: { provider: 'codex', model: null } } },
+    plan: {
+      ...automatic.plan,
+      workflowPolicy: { ...automatic.plan.workflowPolicy, repairRounds: 0 },
+      reviewPolicy: { arbitrator: { provider: 'codex', model: null } },
+    },
   });
   assert.deepEqual(settleReview(withArbitrator, blocking, 'failed', 'idle', arbitrated), {
     kind: 'rerouted',
@@ -313,6 +366,7 @@ test('a failed selected lens is a blocking finding in automatic mode only', () =
   assert.deepEqual(recorded.retries, ['guided.review_repair_requested']);
 
   const exhausted = guided('automatic', {
+    repairCycle: { used: 2, failures: [] },
     reviewCycle: { repairs: 2, history: [], arbitrating: false, arbitrationUsed: false },
   });
   const stopped = settleReview(exhausted, { lenses: [lens('simplification', 'fail', 'Remove the wrapper')] }, 'passed');

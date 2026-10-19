@@ -1,4 +1,4 @@
-// Owns the workflow policy a guided plan approves: automatic or supervised mode, the check repair
+// Owns the workflow policy a guided plan approves: automatic or supervised mode, the shared repair
 // allowance and the provider conversation thresholds. Normalisation fills omitted fields from the
 // configured defaults once, so the approved digest binds the effective values, not the defaults.
 import { z } from 'zod';

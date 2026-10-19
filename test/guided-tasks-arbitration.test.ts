@@ -41,7 +41,7 @@ test(
       interrupt: async () => {},
     });
     const tasks = new GuidedTasks(f.store, config),
-      task = tasks.create({ ...f.plan, reviewPolicy: { repairRounds: 1 } }),
+      task = tasks.create({ ...f.plan, workflowPolicy: { mode: 'supervised', repairRounds: 1 } }),
       id = task.id;
     tasks.approve(id, 1, task.guided!.digest);
     await tasks.run(id);
@@ -92,7 +92,11 @@ for (const passes of [true, false])
         interrupt: async () => {},
       });
       const tasks = new GuidedTasks(f.store, config),
-        task = tasks.create({ ...f.plan, reviewPolicy: { repairRounds: 0, arbitrator: { provider: 'codex' } } }),
+        task = tasks.create({
+          ...f.plan,
+          workflowPolicy: { mode: 'supervised', repairRounds: 0 },
+          reviewPolicy: { arbitrator: { provider: 'codex' } },
+        }),
         id = task.id;
       tasks.approve(id, 1, task.guided!.digest);
       await tasks.run(id);
