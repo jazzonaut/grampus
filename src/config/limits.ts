@@ -133,8 +133,25 @@ export const reviewLimits = {
   historyVerdicts: 8,
   /** Encoded size of the earlier verdicts sent to the reviewer. */
   historyBytes: 128 * KiB,
-  /** Bytes in a reviewer's simplification summary. */
-  simplificationSummaryBytes: 12_000,
+  /** Bytes in a reviewer's summary of one quality lens assessment. */
+  lensSummaryBytes: 12_000,
+} as const;
+
+/**
+ * Quality pass definitions. A plan binds the full definitions into its approval digest and agents
+ * receive the instructions verbatim, so these bound both the approved plan and every prompt.
+ */
+export const qualityLimits = {
+  /** Quality passes selected in one plan, and lens assessments in one review verdict. */
+  passes: 6,
+  /** Custom quality pass definitions in `config.json`. */
+  customPasses: 16,
+  /** Characters in a quality pass id. */
+  idCharacters: 40,
+  /** Bytes in a quality pass title. */
+  titleBytes: 120,
+  /** Bytes in a quality pass's instructions. */
+  instructionsBytes: 4 * KiB,
 } as const;
 
 /** Provider turn bounds enforced by the controller. */

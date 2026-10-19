@@ -143,7 +143,8 @@ async function main(): Promise<void> {
   const validation = await checks.run(implementation.id, spec);
   assert.equal(validation.phase, 'passed', validation.error ?? undefined);
   await checks.finish(implementation.id, validation.id);
-  await checks.simplify(implementation.id, {
+  await checks.assess(implementation.id, {
+    pass: 'simplification',
     artifact: snapshot.artifact,
     instructionsDigest: snapshot.instructionsDigest,
     outcome: 'passed',

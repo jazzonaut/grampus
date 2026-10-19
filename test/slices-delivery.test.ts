@@ -32,7 +32,8 @@ async function verified(f: Fixture, execution: Execution, final: boolean) {
   const validation = await f.checks.run(execution.id, spec);
   assert.equal(validation.phase, 'passed', JSON.stringify(validation));
   await f.checks.finish(execution.id, validation.id);
-  await f.checks.simplify(execution.id, {
+  await f.checks.assess(execution.id, {
+    pass: 'simplification',
     artifact: snapshot.artifact,
     instructionsDigest: snapshot.instructionsDigest,
     outcome: 'passed',

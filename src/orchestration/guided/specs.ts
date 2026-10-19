@@ -3,6 +3,7 @@
 // again at settlement, so a result is adopted only if it answers exactly the approved request.
 import { commandLimits } from '../../config/limits.js';
 import type { GuidedPlan, GuidedSlice } from '../../domain/guided-plan.js';
+import { selectedEditPasses, type QualityPassDefinition } from '../../domain/quality-passes.js';
 import type { EditPolicy } from '../../execution/edit-policy.js';
 import type { DeliverySpec } from '../../execution/deliveries.js';
 import type { RepositorySnapshot } from '../../repository/artifacts.js';
@@ -112,6 +113,21 @@ export function deliverySpec(state: GuidedState): DeliverySpec {
 /** After editing, refresh prerequisites when any preparation is approved; otherwise validate directly. */
 export function afterImplementation(state: GuidedState): Stage {
   return currentSlice(state).preparation || state.plan.preparation ? 'refresh' : 'validation';
+}
+
+/** The next selected edit pass that has not yet run in this slice, or null. */
+export function pendingEditPass(state: GuidedState): QualityPassDefinition | null {
+  return (
+    selectedEditPasses(state.plan.quality).find(pass => !state.qualityEdits.some(done => done.pass === pass.id)) ?? null
+  );
+}
+
+/**
+ * After an implementation or edit pass turn left `snapshot`: the next edit pass while one remains and
+ * there is still something editable, otherwise the post-implementation steps.
+ */
+export function afterEditing(state: GuidedState, snapshot: RepositorySnapshot): Stage {
+  return pendingEditPass(state) && editPolicy(state, snapshot) ? 'quality_pass' : afterImplementation(state);
 }
 
 /** The fresh arbitrator while arbitrating, otherwise the independent reviewer. */

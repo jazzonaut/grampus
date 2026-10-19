@@ -3,6 +3,7 @@
 // arbitration, then stop.
 import { formatBytes, reviewLimits } from '../../../config/limits.js';
 import { reviewRepairRounds } from '../../../domain/guided-plan.js';
+import { lensOutcome, selectedLenses, type LensAssessment } from '../../../domain/quality-passes.js';
 import { Sessions, runSession, type Session } from '../../../execution/sessions.js';
 import type { Execution } from '../../../execution/execution-state.js';
 import { GuidedStopError, stopReason, type StopReasonCode } from '../stop-reasons.js';
@@ -97,21 +98,21 @@ interface Verdict {
   session: Session;
   /** The review evidence recorded for this turn, if any. */
   outcome: string | undefined;
-  /** Automatic mode only: the reviewer's simplification assessment failed. */
-  simplificationFailed: boolean;
+  /** Automatic mode only: the selected lenses the reviewer failed. */
+  failedLenses: LensAssessment[];
 }
 
 /**
  * A verdict that did not pass. Only a settled turn with concrete blocking findings (or, in automatic
- * mode, a failed simplification assessment) gives the implementer something to repair; any other
- * non-passing verdict stops for a person.
+ * mode, a failed quality lens, which counts as one) gives the implementer something to repair; any
+ * other non-passing verdict stops for a person.
  */
 function settleUnpassed(context: SettleContext, verdict: Verdict): StageOutcome {
-  const { execution, session, outcome, simplificationFailed } = verdict;
+  const { execution, session, outcome, failedLenses } = verdict;
   const reply = session.lastReply;
   const repairable =
     session.phase === 'idle' &&
-    (simplificationFailed || (outcome === 'failed' && reply?.findings.some(item => item.severity === 'blocking')));
+    (failedLenses.length > 0 || (outcome === 'failed' && reply?.findings.some(item => item.severity === 'blocking')));
   let code: StopReasonCode;
   if (repairable) {
     const route = routeBlockingReview(context, execution);
@@ -123,15 +124,16 @@ function settleUnpassed(context: SettleContext, verdict: Verdict): StageOutcome 
     reason: {
       code,
       note:
-        (simplificationFailed ? reply?.simplification?.summary : reply?.text) ||
+        (failedLenses.length ? failedLenses.map(lens => `${lens.lens}: ${lens.summary}`).join('\n') : reply?.text) ||
         'No independent passing review. Inspect the findings, then use task-retry.',
     },
   };
 }
 
 /**
- * A passing verdict. In automatic mode the reviewer's own simplification assessment becomes the
- * agent evidence for this artifact, so a pass without one cannot continue.
+ * A passing verdict. In automatic mode the reviewer's own assessment of each selected lens becomes
+ * agent evidence for this artifact, so a pass that leaves a selected lens unassessed cannot continue.
+ * With no lenses selected there is nothing to record and acceptance follows.
  */
 function settlePassed({ state }: SettleContext, { execution, session }: Verdict): StageOutcome {
   if (!automatic(state))
@@ -142,26 +144,30 @@ function settlePassed({ state }: SettleContext, { execution, session }: Verdict)
         current.answers = null;
       },
     };
-  const assessment = session.lastReply?.simplification;
-  if (!assessment || assessment.outcome !== 'passed')
+  const lenses = selectedLenses(state.plan.quality);
+  const assessed = lenses.map(lens => session.lastReply?.lenses?.find(item => item.lens === lens.id));
+  const missing = lenses.filter((_, index) => assessed[index]?.verdict !== 'pass').map(lens => lens.id);
+  if (missing.length)
     return {
       kind: 'stop',
       reason: {
-        code: 'REVIEW_MISSING_SIMPLIFICATION',
-        note: 'The reviewer did not supply a passing simplification assessment. Inspect the verdict before continuing.',
+        code: 'REVIEW_MISSING_LENS',
+        note: `The reviewer did not supply a passing assessment of the selected quality lens ${missing.join(', ')}. Inspect the verdict before continuing.`,
       },
     };
   return {
     kind: 'advance',
-    next: 'assessment',
+    next: lenses.length ? 'assessment' : 'verification',
     update: current => {
       current.answers = null;
-      current.assessment = {
-        ...assessment,
+      current.assessments = assessed.map(item => ({
+        pass: item!.lens,
+        outcome: lensOutcome(item!.verdict),
+        summary: item!.summary,
         artifact: state.snapshot!.artifact,
         instructionsDigest: state.snapshot!.instructionsDigest,
         reviewId: execution.id,
-      };
+      }));
     },
   };
 }
@@ -194,9 +200,13 @@ function settleReview(context: SettleContext): StageOutcome {
     execution,
     session,
     outcome: evidence?.outcome,
-    simplificationFailed: automatic(state) && session.lastReply?.simplification?.outcome === 'failed',
+    failedLenses: automatic(state)
+      ? (session.lastReply?.lenses ?? []).filter(
+          item => item.verdict === 'fail' && selectedLenses(state.plan.quality).some(lens => lens.id === item.lens),
+        )
+      : [],
   };
-  if (session.phase !== 'idle' || verdict.outcome !== 'passed' || verdict.simplificationFailed)
+  if (session.phase !== 'idle' || verdict.outcome !== 'passed' || verdict.failedLenses.length)
     return settleUnpassed(context, verdict);
   return settlePassed(context, verdict);
 }
@@ -213,7 +223,11 @@ export const reviewStage: StageHandler = {
     await runSession(
       store,
       executions.get(state.reviewId!).sessionId,
-      reviewPrompt({ arbitrating: state.reviewCycle.arbitrating, verdicts }),
+      reviewPrompt({
+        arbitrating: state.reviewCycle.arbitrating,
+        verdicts,
+        lenses: selectedLenses(state.plan.quality),
+      }),
       { artifactReview: true, signal, timeoutMs: 0, ...(state.answers ? { answers: state.answers } : {}) },
       services.connector,
       workspaces,

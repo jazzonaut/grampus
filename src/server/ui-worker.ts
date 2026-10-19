@@ -1,5 +1,6 @@
 import { Store } from '../persistence/store.js';
 import { GuidedTasks } from '../orchestration/guided/controller.js';
+import { decisionKeyDigest } from '../orchestration/guided/keys.js';
 import { Kickoffs } from '../orchestration/kickoff.js';
 import { Sessions } from '../execution/sessions.js';
 import { processLimits, serverLimits } from '../config/limits.js';
@@ -47,6 +48,13 @@ async function main() {
         break;
       case 'retry':
         await tasks.retry(id, abort.signal);
+        break;
+      case 'rerun-checks':
+        await tasks.rerunChecks(
+          id as string,
+          decisionKeyDigest(String((payload as { expected?: unknown }).expected)),
+          abort.signal,
+        );
         break;
       case 'revise':
         await tasks.revise(id, payload.plan);

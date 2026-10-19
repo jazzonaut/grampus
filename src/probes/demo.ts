@@ -35,7 +35,7 @@ export function runDemo(path: string): string {
       'fixture:hello-world',
       'Synthetic implementation finished',
     );
-    for (const kind of ['simplification', 'validation', 'review', 'verification'] as const) {
+    for (const kind of ['quality', 'validation', 'review', 'verification'] as const) {
       const evidence: Evidence = {
         id: randomUUID(),
         attemptId: attempt.id,
@@ -46,6 +46,7 @@ export function runDemo(path: string): string {
         source: 'synthetic',
         summary: `Synthetic ${kind} fixture; no real agent or repository check`,
         criteria: task.brief.criteria,
+        ...(kind === 'quality' ? { pass: 'simplification' } : {}),
       };
       if (kind === 'review')
         evidence.agent = { provider: 'synthetic-claude', model: 'fixture', sessionId: randomUUID() };

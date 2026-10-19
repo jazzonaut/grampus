@@ -38,7 +38,9 @@ ticket is large.
 
 **Review for approval** freezes the proposal as an unapproved task. Check its outcome,
 criteria, file actions and contents, executables and arguments, expected output,
-agents, command timeouts, pinned base, workflow policy and delivery messages.
+agents, command timeouts, pinned base, workflow policy, quality passes and delivery messages.
+The planner does not choose quality passes: a new plan gets the configured default
+(the simplification lens), and **Revise this task's plan** changes them before approval.
 Generated checks need your judgement: Grampus syntax-checks generated inline Node
 checks but cannot tell whether a check proves the right thing.
 
@@ -47,8 +49,8 @@ Approving a plan in automatic mode (the default) starts the run straight away.
 ## Run
 
 The task runs [automatically within the approved scope](WORKFLOW.md): preparation,
-implementation, validation, independent review with a simplification assessment,
-acceptance and a verified local commit per slice. Questions, scope errors, exhausted
+implementation and any edit quality passes, validation, independent review with an
+assessment of each selected quality lens, acceptance and a verified local commit per slice. Questions, scope errors, exhausted
 repair allowances and operational failures stop for attention with the reason shown.
 
 - **Progress:** the current step, elapsed and last-activity times, repository reads,
@@ -58,14 +60,15 @@ repair allowances and operational failures stop for attention with the reason sh
   output is collapsed and loaded in pages with **Read stdout** and **Read stderr**.
 - **Timeline:** pinned while scrolling, showing the latest entries. **View full
   timeline** expands the history.
-- **Evidence:** findings, outputs, retained changes, local commits and a downloadable
-  Markdown report built from the journal.
+- **Evidence:** findings, quality lens assessments and edit passes, outputs, retained
+  changes, local commits and a downloadable Markdown report built from the journal.
 - **Measured usage:** per-provider tokens and estimated cost, session coverage and the
   last observation time. Partial or missing values are marked; estimates never imply
   billed cost.
 
-In supervised mode the task also stops for file authorization and a simplification
-assessment, with forms for both.
+In supervised mode the task also stops for file authorization and a quality assessment,
+with forms for both. The assessment form lists each selected lens; your outcome and summary
+are recorded for every lens. Without selected lenses there is no assessment stop.
 
 ## Controls
 
@@ -73,9 +76,10 @@ assessment, with forms for both.
 | --- | --- |
 | **Stop now** | Requests settlement of active work. It does not claim processes have already exited |
 | **Retry repair** | Starts a fresh attempt, keeping files and resuming eligible conversations. Use it after staging files mid-run |
+| **Rerun checks** | Shown only when a validation or acceptance check stopped for an infrastructure reason (timeout, interruption, lost output, abnormal exit or runner error) on an unchanged change. Runs the same check again with no agent turn and no new attempt; refused if the workspace changed since |
 | **Retry preparation** | Reruns a failed preparation step in the same attempt |
 | **Recover saved work** | Runs the same conservative receipt checks as `task-recover` after a controller exits |
-| **Revise this task’s plan** | At a settled point, edit outcome, approach, repair policy, or (advanced) files, checks, criteria and remaining slices. Needs fresh approval |
+| **Revise this task’s plan** | At a settled point, edit outcome, approach, repair policy, quality passes (ids in order), or (advanced) files, checks, criteria and remaining slices. Needs fresh approval |
 | **Release unused reservation** | Clears a failed standalone worktree reservation once Git exit and absence of files are confirmed. Deletes nothing |
 | **Reset task** | Restarts planning from the original request in a fresh conversation and baseline. The old task is hidden |
 | **Delete task** | Hides the task. Workspace files, commits and history are kept |

@@ -240,11 +240,6 @@
       "count": 1
     }
   },
-  "src/providers/types.ts": {
-    "complexity": {
-      "count": 1
-    }
-  },
   "src/reporting/task-usage.ts": {
     "complexity": {
       "count": 1

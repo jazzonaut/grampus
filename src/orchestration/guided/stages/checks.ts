@@ -38,6 +38,8 @@ function observationProblem(result: RepositoryCheck): StopReasonCode | null {
   if (run?.reason === 'output_limit') return 'CHECK_OUTPUT_LIMIT';
   if (run?.reason !== 'exited' || !run.exitConfirmed) return 'CHECK_EXIT_UNCONFIRMED';
   if (run.outputUnavailable) return 'CHECK_OUTPUT_UNAVAILABLE';
+  // A check that changed its inputs records an error too; the mutation is the more specific reason.
+  if (result.after && result.before?.artifact !== result.after.artifact) return 'CHECK_MUTATED_ARTIFACT';
   // An acceptance mismatch is a normal failure, unless the output it compared was truncated.
   if (result.error && (result.failureKind !== 'acceptance' || run.outputTruncated))
     return result.failureKind === 'acceptance' ? 'CHECK_OUTPUT_TRUNCATED' : 'CHECK_ERROR';

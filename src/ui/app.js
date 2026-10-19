@@ -43,7 +43,7 @@ const names = {
   ready: 'Ready to continue',
   running: 'Working',
   awaiting_scope: 'File approval needed',
-  awaiting_assessment: 'Simplification review needed',
+  awaiting_assessment: 'Quality assessment needed',
   awaiting_answer: 'Your answer is needed',
   blocked: 'Needs attention',
   recovery_required: 'Recovery needed',
@@ -63,7 +63,8 @@ const humanNote = text =>
   plainText(text)
     .replace(/task-authorize/g, 'the file authorization button')
     .replace(/task-answer/g, 'the answer form')
-    .replace(/task-assess/g, 'the simplification form')
+    .replace(/task-assess/g, 'the quality assessment form')
+    .replace(/task-rerun-checks/g, 'Rerun checks')
     .replace(/task-retry/g, 'a repair attempt')
     .replace(/task-recover/g, 'Recover saved work')
     .replace(/task-run/g, 'Continue task')
@@ -113,7 +114,7 @@ function nav() {
   return `<aside class="sidebar"><div class="brand"><img class="mark" src="/favicon.svg" width="31" height="31" alt="">grampus</div><button class="new" data-action="new">＋ New task</button><div class="eyebrow">Tasks</div>${items || '<p class="empty">Your tasks will appear here.</p>'}${kickoffs ? `<div class="eyebrow">Planning</div>${kickoffs}` : ''}<footer>WINDOWS ALPHA${info ? `<br>v${esc(info.version)} · ${esc(info.channel)}${info.build ? `<br><span title="${esc(info.build.builtAt)}">Build ${esc(info.build.id)}</span>` : ''}` : ''}<br>Local work. Independent review.<br>Your journal survives restarts.</footer></aside>`;
 }
 function welcome() {
-  return `<div class="welcome"><div class="eyebrow">Your local coding workspace</div><h1>A clear brief.<br>A checked, reviewed change.</h1><p class="lead muted">Describe what you want to change. Grampus helps clarify the details, prepares a plan, and guides the work through to a local commit.</p><div class="actions">${button('new', 'Start a task →', 'primary')}</div><div class="intro-grid"><section class="card"><span class="eyebrow">01 / Plan</span><b>Agree on the outcome</b><p>Discuss the task and review the files, checks and examples before approving.</p></section><section class="card"><span class="eyebrow">02 / Work</span><b>Keep the evidence</b><p>Follow implementation, simplification, independent review and acceptance in one place.</p></section><section class="card"><span class="eyebrow">03 / Deliver</span><b>Stay in control</b><p>Answer questions, request a stop or recover interrupted work. Delivery stays local.</p></section></div></div>`;
+  return `<div class="welcome"><div class="eyebrow">Your local coding workspace</div><h1>A clear brief.<br>A checked, reviewed change.</h1><p class="lead muted">Describe what you want to change. Grampus helps clarify the details, prepares a plan, and guides the work through to a local commit.</p><div class="actions">${button('new', 'Start a task →', 'primary')}</div><div class="intro-grid"><section class="card"><span class="eyebrow">01 / Plan</span><b>Agree on the outcome</b><p>Discuss the task and review the files, checks and examples before approving.</p></section><section class="card"><span class="eyebrow">02 / Work</span><b>Keep the evidence</b><p>Follow implementation, quality passes, independent review and acceptance in one place.</p></section><section class="card"><span class="eyebrow">03 / Deliver</span><b>Stay in control</b><p>Answer questions, request a stop or recover interrupted work. Delivery stays local.</p></section></div></div>`;
 }
 function managementCard(active, converted = false) {
   if (converted) return '';
@@ -164,7 +165,7 @@ function explorationCard(summary) {
   return `<section class="card"><h2>Repository exploration</h2><p class="hint">${summary.calls} search, list and read calls completed.</p>${summary.readFiles.length ? `<h3>Recently read files</h3>${code(summary.readFiles.join('\n'))}` : ''}<p class="hint">Read access is independent of approved file changes. Reading files does not establish test coverage.</p></section>`;
 }
 function planCard(plan) {
-  return `<section class="card"><h2>The proposed plan</h2>${markdown(plan.brief.outcome)}<h3>Repository access</h3><p class="hint">${plan.context.exploration ? 'Agents can search and read repository files as needed. ' : 'This plan uses selected context only. '}${plan.context.files.length} initial files out of ${plan.context.totalFiles.toLocaleString()}. Changes require the exact file permissions below. Review includes all changed files and instructions.</p>${code(plan.context.files.join('\n'))}<h3>Acceptance criteria</h3><ul>${plan.brief.criteria.map(item => `<li>${markdown(item)}</li>`).join('')}</ul><h3>Approach</h3>${markdown(plan.brief.plan)}<dl class="facts"><dt>Repository</dt><dd>${esc(plan.workspace.repo)}</dd><dt>Base commit</dt><dd><code>${esc(plan.workspace.base)}</code></dd><dt>Workspace</dt><dd>${esc(plan.workspace.path || 'Created through Orca')}</dd><dt>Agents</dt><dd>${esc(plan.implementation.provider)} implements · ${esc(plan.review.provider)} reviews<br>Models: ${esc(plan.implementation.model || 'provider default')} / ${esc(plan.review.model || 'provider default')}<br>No automatic agent time limit</dd></dl>${workflowPolicyCard(plan)}${reviewPolicyCard(plan)}${plan.preparation ? `<h3>Preparation before implementation and checks</h3><p class="hint">Runs in the task worktree and must leave repository inputs unchanged.</p>${commandCard(plan.preparation)}<p class="hint">Timeout: ${plan.preparation.timeoutMs / 1000}s</p>` : ''}${plan.revision ? `<p class="hint">Retained workspace checkpoint: ${esc(plan.revision.artifact)}. Earlier checks and reviews need to run again.</p>` : ''}${plan.slices.map((slice, index) => `<h3>Slice ${index + 1} · ${esc(plan.brief.slices?.[index]?.title || plan.brief.title)}</h3>${plan.brief.slices?.[index] ? `${markdown(plan.brief.slices[index].plan)}<ul>${plan.brief.slices[index].criteria.map(item => `<li>${markdown(item)}</li>`).join('')}</ul>` : ''}<div class="hint">Files to edit</div>${code(slice.scope.files.join('\n') || '(none)')}${slice.scope.create?.length ? `<div class="hint">Files to create</div>${code(slice.scope.create.join('\n'))}` : ''}${slice.scope.delete?.length ? `<div class="hint">Files to delete</div>${code(slice.scope.delete.join('\n'))}` : ''}${slice.preparation ? `<div class="hint">Preparation after implementation · ${esc(slice.preparation.name)} · ${slice.preparation.timeoutMs / 1000}s</div><p class="hint">May update only this slice’s authorized files before validation.</p>${commandCard(slice.preparation)}` : ''}<div class="hint">Validation · ${esc(slice.validation.name)} · ${slice.validation.timeoutMs / 1000}s</div>${commandCard(slice.validation)}<div class="hint">Acceptance · ${esc(slice.acceptance.name)} · ${slice.acceptance.timeoutMs / 1000}s</div>${commandCard(slice.acceptance)}${slice.acceptance.expectedStdout !== undefined ? `<div class="hint">Exact expected stdout (JSON escaped)</div>${code(JSON.stringify(slice.acceptance.expectedStdout))}` : ''}${slice.acceptance.expectations ? `<div class="hint">Additional acceptance observations</div>${code(JSON.stringify(slice.acceptance.expectations, null, 2))}` : ''}<p class="hint">Delivery: ${esc(slice.mode)} · ${esc(slice.message)}</p>`).join('')}</section>`;
+  return `<section class="card"><h2>The proposed plan</h2>${markdown(plan.brief.outcome)}<h3>Repository access</h3><p class="hint">${plan.context.exploration ? 'Agents can search and read repository files as needed. ' : 'This plan uses selected context only. '}${plan.context.files.length} initial files out of ${plan.context.totalFiles.toLocaleString()}. Changes require the exact file permissions below. Review includes all changed files and instructions.</p>${code(plan.context.files.join('\n'))}<h3>Acceptance criteria</h3><ul>${plan.brief.criteria.map(item => `<li>${markdown(item)}</li>`).join('')}</ul><h3>Approach</h3>${markdown(plan.brief.plan)}<dl class="facts"><dt>Repository</dt><dd>${esc(plan.workspace.repo)}</dd><dt>Base commit</dt><dd><code>${esc(plan.workspace.base)}</code></dd><dt>Workspace</dt><dd>${esc(plan.workspace.path || 'Created through Orca')}</dd><dt>Agents</dt><dd>${esc(plan.implementation.provider)} implements · ${esc(plan.review.provider)} reviews<br>Models: ${esc(plan.implementation.model || 'provider default')} / ${esc(plan.review.model || 'provider default')}<br>No automatic agent time limit</dd></dl>${workflowPolicyCard(plan)}${reviewPolicyCard(plan)}${qualityCard(plan)}${plan.preparation ? `<h3>Preparation before implementation and checks</h3><p class="hint">Runs in the task worktree and must leave repository inputs unchanged.</p>${commandCard(plan.preparation)}<p class="hint">Timeout: ${plan.preparation.timeoutMs / 1000}s</p>` : ''}${plan.revision ? `<p class="hint">Retained workspace checkpoint: ${esc(plan.revision.artifact)}. Earlier checks and reviews need to run again.</p>` : ''}${plan.slices.map((slice, index) => `<h3>Slice ${index + 1} · ${esc(plan.brief.slices?.[index]?.title || plan.brief.title)}</h3>${plan.brief.slices?.[index] ? `${markdown(plan.brief.slices[index].plan)}<ul>${plan.brief.slices[index].criteria.map(item => `<li>${markdown(item)}</li>`).join('')}</ul>` : ''}<div class="hint">Files to edit</div>${code(slice.scope.files.join('\n') || '(none)')}${slice.scope.create?.length ? `<div class="hint">Files to create</div>${code(slice.scope.create.join('\n'))}` : ''}${slice.scope.delete?.length ? `<div class="hint">Files to delete</div>${code(slice.scope.delete.join('\n'))}` : ''}${slice.preparation ? `<div class="hint">Preparation after implementation · ${esc(slice.preparation.name)} · ${slice.preparation.timeoutMs / 1000}s</div><p class="hint">May update only this slice’s authorized files before validation.</p>${commandCard(slice.preparation)}` : ''}<div class="hint">Validation · ${esc(slice.validation.name)} · ${slice.validation.timeoutMs / 1000}s</div>${commandCard(slice.validation)}<div class="hint">Acceptance · ${esc(slice.acceptance.name)} · ${slice.acceptance.timeoutMs / 1000}s</div>${commandCard(slice.acceptance)}${slice.acceptance.expectedStdout !== undefined ? `<div class="hint">Exact expected stdout (JSON escaped)</div>${code(JSON.stringify(slice.acceptance.expectedStdout))}` : ''}${slice.acceptance.expectations ? `<div class="hint">Additional acceptance observations</div>${code(JSON.stringify(slice.acceptance.expectations, null, 2))}` : ''}<p class="hint">Delivery: ${esc(slice.mode)} · ${esc(slice.message)}</p>`).join('')}</section>`;
 }
 function commandCard(command) {
   return `<details class="command-details"><summary>Exact command</summary><div class="hint">Executable</div>${code(command.file)}${command.args.map((arg, index) => `<div class="hint">Argument ${index + 1}</div>${code(arg)}`).join('')}<details><summary>Exact argument array</summary>${code(JSON.stringify(command.args))}</details></details>`;
@@ -175,7 +176,7 @@ function checkCard(check) {
 }
 function workflowPolicyCard(plan) {
   const policy = plan.workflowPolicy;
-  return `<p class="hint">${policy.mode === 'automatic' ? `Automatic workflow: implement, validate, repair, independently review and deliver within the approved scope. Up to ${policy.repairRounds} check repairs per slice.` : 'Supervised workflow: pause for file authorization and simplification assessment.'} Resume conversations within a slice; start fresh after ${policy.maxSessionTurns} turns or ${policy.maxContextTokens.toLocaleString()} observed context tokens. Each slice and arbitration starts fresh.</p>`;
+  return `<p class="hint">${policy.mode === 'automatic' ? `Automatic workflow: implement, validate, repair, independently review and deliver within the approved scope. Up to ${policy.repairRounds} check repairs per slice.` : 'Supervised workflow: pause for file authorization and quality assessment.'} Resume conversations within a slice; start fresh after ${policy.maxSessionTurns} turns or ${policy.maxContextTokens.toLocaleString()} observed context tokens. Each slice and arbitration starts fresh.</p>`;
 }
 function questionsForm(questions, kickoff = false) {
   return `<form id="${kickoff ? 'planner-answer-form' : 'answer-form'}">${questions.map((question, index) => `<label for="answer-${index}">${markdownInline(question.prompt)}</label>${question.choices.length ? `<p class="hint" id="answer-hint-${index}">Choose a suggestion to fill your answer, then edit if needed.</p><ul class="answer-suggestions" aria-label="Suggested answers">${question.choices.map(choice => `<li><button type="button" data-answer-target="answer-${index}" data-answer-value="${esc(choice)}" aria-controls="answer-${index}">${markdownInline(choice)}</button></li>`).join('')}</ul>` : ''}<textarea id="answer-${index}" name="${esc(question.id)}" rows="2" ${question.choices.length ? `aria-describedby="answer-hint-${index}"` : ''} required></textarea>`).join('')}<div class="actions"><button class="primary" type="submit">Send answers and continue →</button></div></form>`;
@@ -233,7 +234,11 @@ function taskProgressCard(view) {
     ],
     validation: ['Running validation', 'Running the approved validation command and collecting its result.'],
     submission: ['Collecting change evidence', 'Checking the changed files and retaining the implementation result.'],
-    assessment: ['Recording simplification', 'Saving the simplification assessment.'],
+    quality_pass: [
+      'Running a quality pass',
+      'The implementer is applying an approved quality pass within the approved file scope.',
+    ],
+    assessment: ['Recording quality assessments', 'Saving the assessment of each selected quality lens.'],
     review_execution: ['Preparing independent review', 'Capturing the change and its evidence for the reviewer.'],
     review: [
       s.reviewCycle.arbitrating ? 'Arbitrating review findings' : 'Reviewing the change',
@@ -320,6 +325,7 @@ function expected(view) {
     instructionsDigest: s.snapshot?.instructionsDigest ?? null,
     executionId: s.executionId,
     reviewId: s.reviewId,
+    failedCheckId: s.failedCheckId ?? null,
     questionKey: view.questionKey ?? null,
   });
 }
@@ -327,16 +333,35 @@ function revisionCard(view) {
   const s = view.state;
   if (view.stale || s.owner || s.pending || s.status === 'recovery_required' || state.jobs[selected]?.running)
     return '';
-  return `<section class="card"><details><summary>Revise this task’s plan</summary><p>Keep workspace files, commits and history. Delivered slices stay fixed. The revised plan needs fresh approval, file authorization, checks and review.</p><form id="revision-form"><label for="revision-title">Task name</label><input id="revision-title" name="title" value="${esc(s.plan.brief.title)}" required><label for="revision-outcome">Revised outcome</label><textarea id="revision-outcome" name="outcome" rows="4" required>${esc(s.plan.brief.outcome)}</textarea><label for="revision-approach">Approach</label><textarea id="revision-approach" name="approach" rows="3" required>${esc(s.plan.brief.plan)}</textarea><label for="workflow-mode">Workflow</label><select id="workflow-mode" name="workflowMode"><option value="automatic" ${s.plan.workflowPolicy.mode === 'automatic' ? 'selected' : ''}>Automatic within approved scope</option><option value="supervised" ${s.plan.workflowPolicy.mode === 'supervised' ? 'selected' : ''}>Supervised checkpoints</option></select>${field('validation-repairs', 'Check repair allowance per slice (0–5)', 'number', s.plan.workflowPolicy.repairRounds, 'min="0" max="5" required')}${field('session-turns', 'Start a fresh conversation after this many turns', 'number', s.plan.workflowPolicy.maxSessionTurns, 'min="1" max="50" required')}${field('context-tokens', 'Start fresh at observed context tokens', 'number', s.plan.workflowPolicy.maxContextTokens, 'min="8000" max="1000000" step="1000" required')}<p class="hint">Conversation limits apply to implementers and reviewers at settled retry boundaries. New slices and arbitration always start fresh. Unknown context size falls back to the turn limit.</p><label for="repair-rounds">Repair rounds after blocking reviews</label><select id="repair-rounds" name="repairRounds">${[0, 1, 2].map(n => `<option value="${n}" ${reviewRepairRounds(s.plan) === n ? 'selected' : ''}>${n === 0 ? 'Stop for manual retry' : `${n} repair ${n === 1 ? 'round' : 'rounds'}`}</option>`).join('')}</select><label for="arbitrator">After the repair allowance</label><select id="arbitrator" name="arbitrator"><option value="">Stop for your decision</option>${['codex', 'claude'].map(provider => `<option value="${provider}" ${s.plan.reviewPolicy?.arbitrator?.provider === provider ? 'selected' : ''}>Fresh ${provider} arbitration</option>`).join('')}</select><p class="hint">Automatic repairs keep the approved scope and require a fresh independent verdict. Supervised mode pauses at each checkpoint. An unresolved arbitration stops the task.</p><details><summary>Files, checks, criteria and slices</summary><p class="hint">Edit the execution plan below to change scope or checks. The outcome and approach fields above take precedence.</p><label for="revised-plan">Execution plan (JSON)</label><textarea id="revised-plan" name="plan" rows="14" required>${esc(JSON.stringify(s.plan, null, 2))}</textarea></details><div class="actions"><button type="submit">Prepare revised plan for approval</button></div></form></details></section>`;
+  return `<section class="card"><details><summary>Revise this task’s plan</summary><p>Keep workspace files, commits and history. Delivered slices stay fixed. The revised plan needs fresh approval, file authorization, checks and review.</p><form id="revision-form"><label for="revision-title">Task name</label><input id="revision-title" name="title" value="${esc(s.plan.brief.title)}" required><label for="revision-outcome">Revised outcome</label><textarea id="revision-outcome" name="outcome" rows="4" required>${esc(s.plan.brief.outcome)}</textarea><label for="revision-approach">Approach</label><textarea id="revision-approach" name="approach" rows="3" required>${esc(s.plan.brief.plan)}</textarea><label for="workflow-mode">Workflow</label><select id="workflow-mode" name="workflowMode"><option value="automatic" ${s.plan.workflowPolicy.mode === 'automatic' ? 'selected' : ''}>Automatic within approved scope</option><option value="supervised" ${s.plan.workflowPolicy.mode === 'supervised' ? 'selected' : ''}>Supervised checkpoints</option></select>${field('validation-repairs', 'Check repair allowance per slice (0–5)', 'number', s.plan.workflowPolicy.repairRounds, 'min="0" max="5" required')}${field('session-turns', 'Start a fresh conversation after this many turns', 'number', s.plan.workflowPolicy.maxSessionTurns, 'min="1" max="50" required')}${field('context-tokens', 'Start fresh at observed context tokens', 'number', s.plan.workflowPolicy.maxContextTokens, 'min="8000" max="1000000" step="1000" required')}<p class="hint">Conversation limits apply to implementers and reviewers at settled retry boundaries. New slices and arbitration always start fresh. Unknown context size falls back to the turn limit.</p><label for="repair-rounds">Repair rounds after blocking reviews</label><select id="repair-rounds" name="repairRounds">${[0, 1, 2].map(n => `<option value="${n}" ${reviewRepairRounds(s.plan) === n ? 'selected' : ''}>${n === 0 ? 'Stop for manual retry' : `${n} repair ${n === 1 ? 'round' : 'rounds'}`}</option>`).join('')}</select><label for="arbitrator">After the repair allowance</label><select id="arbitrator" name="arbitrator"><option value="">Stop for your decision</option>${['codex', 'claude'].map(provider => `<option value="${provider}" ${s.plan.reviewPolicy?.arbitrator?.provider === provider ? 'selected' : ''}>Fresh ${provider} arbitration</option>`).join('')}</select><p class="hint">Automatic repairs keep the approved scope and require a fresh independent verdict. Supervised mode pauses at each checkpoint. An unresolved arbitration stops the task.</p>${field('quality-passes', 'Quality passes (ids, in order)', 'text', s.plan.quality.passes.map(pass => pass.id).join(', '), 'placeholder="none"')}<p class="hint">Available: ${(state.qualityPasses || []).map(pass => `<code>${esc(pass.id)}</code> (${pass.kind === 'lens' ? 'lens' : 'edit'})`).join(', ') || 'none'}. Separate ids with commas; leave empty for none. Lenses are assessed in review; edit passes run before validation in the listed order. Passes already in this plan keep their approved instructions.</p><details><summary>Files, checks, criteria and slices</summary><p class="hint">Edit the execution plan below to change scope or checks. The outcome and approach fields above take precedence.</p><label for="revised-plan">Execution plan (JSON)</label><textarea id="revised-plan" name="plan" rows="14" required>${esc(JSON.stringify(s.plan, null, 2))}</textarea></details><div class="actions"><button type="submit">Prepare revised plan for approval</button></div></form></details></section>`;
 }
 /** Mirrors the controller: without a review policy, review repairs share the check allowance, up to two. */
+function qualityCard(plan) {
+  const passes = plan.quality.passes;
+  if (!passes.length)
+    return '<h3>Quality passes</h3><p class="hint">None selected. Independent review still checks the change; no quality assessment is recorded.</p>';
+  return `<h3>Quality passes</h3><p class="hint">Lenses are assessed by the independent reviewer${plan.workflowPolicy.mode === 'supervised' ? ' and recorded from your quality assessment' : ''}. Edit passes run in this order once per slice, after the first successful implementation and before validation; repairs do not run them again.</p>${passes.map(pass => `<details><summary>${esc(pass.title)} · ${pass.kind === 'lens' ? 'review lens' : 'edit pass'} · <code>${esc(pass.id)}</code></summary>${markdown(pass.instructions)}</details>`).join('')}`;
+}
+function qualityResultsCard(view) {
+  const edits = view.state.qualityEdits,
+    lenses = view.lenses,
+    recorded = view.qualityEvidence;
+  if (!edits.length && !lenses.length && !recorded.length) return '';
+  const verdicts = lenses
+    .map(
+      lens =>
+        `<h3>${esc(lens.lens)} · ${lens.verdict === 'pass' ? 'passed' : 'failed'}</h3>${markdown(lens.summary)}${lens.findings.map(finding => `<div class="hint">${esc(finding.severity)}</div>${markdown(finding.description)}${code(finding.evidence)}`).join('')}`,
+    )
+    .join('');
+  return `<section class="card"><h2>Quality passes</h2>${edits.map(edit => `<div class="check"><b>${esc(edit.pass)}</b> edit pass · ${edit.before === edit.after ? 'no changes needed' : 'changed the files'}</div>`).join('')}${verdicts}${recorded.length ? `<p class="hint">Recorded assessments: ${recorded.map(item => `${esc(item.pass)} ${esc(item.outcome)} (${item.source === 'agent' ? 'independent reviewer' : 'your assessment'})`).join(' · ')}</p>` : ''}</section>`;
+}
 function reviewRepairRounds(plan) {
   return plan.reviewPolicy?.repairRounds ?? Math.min(2, plan.workflowPolicy.repairRounds);
 }
 function reviewPolicyCard(plan) {
   const policy = plan.reviewPolicy;
   const rounds = reviewRepairRounds(plan);
-  return `<p class="hint">Review repair allowance: ${rounds} rounds. ${policy?.arbitrator ? `Fresh arbitration: ${esc(policy.arbitrator.provider)}, model ${esc(policy.arbitrator.model || 'provider default')}. No automatic agent time limit.` : 'Unresolved findings stop for your decision.'} ${plan.workflowPolicy.mode === 'automatic' ? 'Repairs continue within the approved scope with a fresh independent verdict.' : 'Each repair requires fresh file authorization and simplification assessment.'}</p>`;
+  return `<p class="hint">Review repair allowance: ${rounds} rounds. ${policy?.arbitrator ? `Fresh arbitration: ${esc(policy.arbitrator.provider)}, model ${esc(policy.arbitrator.model || 'provider default')}. No automatic agent time limit.` : 'Unresolved findings stop for your decision.'} ${plan.workflowPolicy.mode === 'automatic' ? 'Repairs continue within the approved scope with a fresh independent verdict.' : 'Each repair requires fresh file authorization and quality assessment.'}</p>`;
 }
 function usageCard(view) {
   const rows = view.usage ?? [];
@@ -386,12 +411,22 @@ function taskAction(view) {
     case 'awaiting_scope':
       return `<p>Inspect the repository instructions and authorized files below. Authorization starts the implementation and validation steps.</p>${notice(view.scopeError, true)}<div class="actions">${button('authorize', 'Authorize these files and start →', 'primary', view.scopeError ? 'disabled' : '')}${button('retry', 'Refresh file checkpoint')}</div>`;
     case 'awaiting_assessment':
-      return `<p>Inspect the changes and check output. Record whether the implementation is simple, follows repository patterns, and avoids unnecessary abstractions.</p><form id="assessment-form"><label for="outcome">Simplification outcome</label><select id="outcome" name="outcome"><option value="">Choose after inspecting…</option><option value="passed">Passed</option><option value="failed">Failed — changes needed</option><option value="skipped">Skipped — assessment unavailable</option></select><label for="summary">Your assessment</label><textarea id="summary" name="summary" required rows="3" placeholder="Explain what you inspected and why this outcome applies."></textarea><div class="actions"><button class="primary" type="submit">Record assessment and continue →</button>${button('retry', 'Revise implementation')}</div><p class="hint">A pass continues through independent review, acceptance checks and a verified local commit. Failed or skipped assessments stop progression.</p></form>`;
+      return `<p>Inspect the changes and check output, then assess them against each quality lens below. Your outcome and summary are recorded for every lens listed.</p>${s.plan.quality.passes
+        .filter(pass => pass.kind === 'lens')
+        .map(
+          pass =>
+            `<details><summary>${esc(pass.title)} · <code>${esc(pass.id)}</code></summary>${markdown(pass.instructions)}</details>`,
+        )
+        .join(
+          '',
+        )}<form id="assessment-form"><label for="outcome">Quality assessment outcome</label><select id="outcome" name="outcome"><option value="">Choose after inspecting…</option><option value="passed">Passed</option><option value="failed">Failed: changes needed</option><option value="skipped">Skipped: assessment unavailable</option></select><label for="summary">Your assessment</label><textarea id="summary" name="summary" required rows="3" placeholder="Explain what you inspected and why this outcome applies."></textarea><div class="actions"><button class="primary" type="submit">Record assessment and continue →</button>${button('retry', 'Revise implementation')}</div><p class="hint">A pass continues through independent review, acceptance checks and a verified local commit. Failed or skipped assessments stop progression.</p></form>`;
     case 'awaiting_answer':
       return questionsForm(view.questions);
     case 'blocked':
       if (['preparation', 'refresh'].includes(s.stage))
         return `<p>Preparation failed. Inspect its command output below, resolve the cause, then retry this step. The implementation attempt and retained files are preserved.</p><div class="actions">${button('retry', 'Retry preparation', 'primary')}</div>`;
+      if (view.rerun)
+        return `<p>The check stopped for an infrastructure reason (${esc(s.stopReason?.code || 'check problem')}) and the change has not been edited since. Rerun the same check on the same change, without an agent turn or a new implementation attempt, or retry with a fresh attempt.</p><div class="actions">${button('rerun-checks', 'Rerun checks', 'primary')}${button('retry', 'Retry repair')}</div>`;
       return `<p>${s.stage === 'scope' ? 'File authorization could not be prepared. Inspect the reported path and revise this task’s plan if its file scope is unsupported. Starting a fresh attempt preserves files and uses the same approved scope; it will fail again until the cause is resolved.' : 'Inspect the findings, check output and retained changes. Retrying creates a fresh attempt and preserves existing files.'}</p><div class="actions">${button('retry', 'Retry repair', 'primary')}</div>`;
     case 'complete':
       return `<p>The task passed its gates and was delivered locally. The report retains the checks, reviews, assessments and delivery evidence.</p><div class="actions">${button('report', 'Download task report', 'primary')}</div>`;
@@ -404,22 +439,16 @@ function taskPage() {
   const view = detail,
     s = view.state;
   const automatic = s.plan.workflowPolicy.mode === 'automatic';
+  const assess = s.plan.quality.passes.some(pass => pass.kind === 'lens') ? [['Assess', 'assessment']] : [];
   const stages = [
     ['Plan', 'workspace'],
     ...(s.plan.preparation ? [['Prepare', 'preparation']] : []),
     ['Files', 'scope'],
     ['Implement', 'implementation'],
+    ...(s.plan.quality.passes.some(pass => pass.kind === 'edit') ? [['Quality passes', 'quality_pass']] : []),
     ...(s.plan.preparation || s.plan.slices[s.sliceIndex].preparation ? [['Prepare checks', 'refresh']] : []),
     ['Validate', 'validation'],
-    ...(automatic
-      ? [
-          ['Review', 'review'],
-          ['Simplify', 'assessment'],
-        ]
-      : [
-          ['Simplify', 'assessment'],
-          ['Review', 'review'],
-        ]),
+    ...(automatic ? [['Review', 'review'], ...assess] : [...assess, ['Review', 'review']]),
     ['Accept', 'verification'],
     ['Deliver', 'delivery'],
   ];
@@ -429,6 +458,7 @@ function taskPage() {
     'preparation',
     'scope',
     'implementation',
+    'quality_pass',
     'refresh',
     'validation',
     'submission',
@@ -450,7 +480,7 @@ function taskPage() {
         `<div class="step ${s.status === 'complete' || current > stageOrder.indexOf(stage) ? 'done' : current === stageOrder.indexOf(stage) ? 'active' : ''}">${name}</div>`,
     )
     .join('');
-  return `<div class="eyebrow">Task / Slice ${s.sliceIndex + 1} of ${s.plan.slices.length}</div><h1>${esc(view.task.brief.title)}</h1>${badge(s.status)}<div class="steps" aria-label="Task progress">${steps}</div>${timelineCard(view)}<div class="columns"><div><section class="card focus"><h2>${esc(label(s.status))}</h2>${s.note ? `<div class="muted">${markdown(humanNote(s.note))}</div>` : ''}${notice(state.jobs[selected]?.error, true)}${taskAction(view)}</section>${explorationCard(view.exploration)}${s.status === 'draft' ? planCard(s.plan) : `<section class="card"><details><summary>Approved outcome and execution plan</summary>${planCard(s.plan)}</details></section>`}${s.status === 'awaiting_scope' ? `<section class="card"><h2>Inspect the file authorization</h2>${code(JSON.stringify(s.policy ? { files: s.policy.files, create: s.policy.create, delete: s.policy.delete } : s.plan.slices[s.sliceIndex].scope, null, 2))}<h3>Repository instructions</h3>${s.snapshot.instructions.length ? s.snapshot.instructions.map(item => `<details open><summary>${esc(item.path)}</summary>${code(item.content)}</details>`).join('') : '<p class="muted">No repository instructions were captured.</p>'}<h3>Files in the retained snapshot</h3>${view.scopeFiles.map(file => `<details ${s.policy?.files.includes(file.path) || s.policy?.delete?.includes(file.path) ? 'open' : ''}><summary>${esc(file.path)}</summary>${code(file.content ?? '(absent)')}</details>`).join('')}</section>` : ''}${s.snapshot?.diff.length ? `<section class="card"><h2>Retained changes</h2>${s.snapshot.diff.map(diff => `<details><summary>${esc(diff.path)}</summary><div class="hint">Before · ${esc(diff.previousEncoding)}</div>${code(diff.previousContent ?? '(absent)')}<div class="hint">After · ${esc(diff.encoding)}</div>${code(diff.content ?? '(absent)')}</details>`).join('')}</section>` : ''}${view.findings.length ? `<section class="card"><h2>${view.carriedFindings ? 'Earlier review findings to address' : 'Independent review findings'}</h2>${view.findings.map(finding => `<h3>${esc(finding.severity)}</h3>${markdown(finding.description)}${code(finding.evidence)}`).join('')}</section>` : ''}${view.checks.length ? `<section class="card"><h2>Preparation, checks and acceptance</h2>${view.checks.map(checkCard).join('')}</section>` : ''}<section class="card"><details><summary>Journal-derived report</summary><div class="markdown report" id="report-content">${loadedReport?.id === selected && loadedReport.key === expected(view) ? window.GrampusMarkdown.render(loadedReport.text) : 'Load or download the report when needed.'}</div>${button('view-report', 'Load report')}${button('report', 'Download Markdown')}</details></section></div><aside>${usageCard(view)}${revisionCard(view)}${managementCard(!!state.jobs[selected]?.running || !!s.owner || !!s.pending || s.status === 'recovery_required')}${referenceCard(view, false)}<section class="card"><h2>Workspace and delivery</h2><dl class="facts"><dt>Workspace</dt><dd>${esc(view.workspace?.path || s.plan.workspace.path || 'Not created yet')}</dd><dt>Implementer</dt><dd>${esc(s.plan.implementation.provider)}</dd><dt>Reviewer</dt><dd>${esc(s.plan.review.provider)}</dd><dt>Version</dt><dd>${s.version}</dd><dt>Delivery</dt><dd>Local only</dd></dl>${view.deliveries.map(delivery => `<div class="check"><b>${esc(delivery.phase)}</b><code>${esc(delivery.commit || delivery.result?.commit || delivery.id)}</code></div>`).join('')}</section>${integrationCard(view.integrations)}</aside></div>`;
+  return `<div class="eyebrow">Task / Slice ${s.sliceIndex + 1} of ${s.plan.slices.length}</div><h1>${esc(view.task.brief.title)}</h1>${badge(s.status)}<div class="steps" aria-label="Task progress">${steps}</div>${timelineCard(view)}<div class="columns"><div><section class="card focus"><h2>${esc(label(s.status))}</h2>${s.note ? `<div class="muted">${markdown(humanNote(s.note))}</div>` : ''}${notice(state.jobs[selected]?.error, true)}${taskAction(view)}</section>${explorationCard(view.exploration)}${s.status === 'draft' ? planCard(s.plan) : `<section class="card"><details><summary>Approved outcome and execution plan</summary>${planCard(s.plan)}</details></section>`}${s.status === 'awaiting_scope' ? `<section class="card"><h2>Inspect the file authorization</h2>${code(JSON.stringify(s.policy ? { files: s.policy.files, create: s.policy.create, delete: s.policy.delete } : s.plan.slices[s.sliceIndex].scope, null, 2))}<h3>Repository instructions</h3>${s.snapshot.instructions.length ? s.snapshot.instructions.map(item => `<details open><summary>${esc(item.path)}</summary>${code(item.content)}</details>`).join('') : '<p class="muted">No repository instructions were captured.</p>'}<h3>Files in the retained snapshot</h3>${view.scopeFiles.map(file => `<details ${s.policy?.files.includes(file.path) || s.policy?.delete?.includes(file.path) ? 'open' : ''}><summary>${esc(file.path)}</summary>${code(file.content ?? '(absent)')}</details>`).join('')}</section>` : ''}${s.snapshot?.diff.length ? `<section class="card"><h2>Retained changes</h2>${s.snapshot.diff.map(diff => `<details><summary>${esc(diff.path)}</summary><div class="hint">Before · ${esc(diff.previousEncoding)}</div>${code(diff.previousContent ?? '(absent)')}<div class="hint">After · ${esc(diff.encoding)}</div>${code(diff.content ?? '(absent)')}</details>`).join('')}</section>` : ''}${view.findings.length ? `<section class="card"><h2>${view.carriedFindings ? 'Earlier review findings to address' : 'Independent review findings'}</h2>${view.findings.map(finding => `<h3>${esc(finding.severity)}</h3>${markdown(finding.description)}${code(finding.evidence)}`).join('')}</section>` : ''}${qualityResultsCard(view)}${view.checks.length ? `<section class="card"><h2>Preparation, checks and acceptance</h2>${view.checks.map(checkCard).join('')}</section>` : ''}<section class="card"><details><summary>Journal-derived report</summary><div class="markdown report" id="report-content">${loadedReport?.id === selected && loadedReport.key === expected(view) ? window.GrampusMarkdown.render(loadedReport.text) : 'Load or download the report when needed.'}</div>${button('view-report', 'Load report')}${button('report', 'Download Markdown')}</details></section></div><aside>${usageCard(view)}${revisionCard(view)}${managementCard(!!state.jobs[selected]?.running || !!s.owner || !!s.pending || s.status === 'recovery_required')}${referenceCard(view, false)}<section class="card"><h2>Workspace and delivery</h2><dl class="facts"><dt>Workspace</dt><dd>${esc(view.workspace?.path || s.plan.workspace.path || 'Not created yet')}</dd><dt>Implementer</dt><dd>${esc(s.plan.implementation.provider)}</dd><dt>Reviewer</dt><dd>${esc(s.plan.review.provider)}</dd><dt>Version</dt><dd>${s.version}</dd><dt>Delivery</dt><dd>Local only</dd></dl>${view.deliveries.map(delivery => `<div class="check"><b>${esc(delivery.phase)}</b><code>${esc(delivery.commit || delivery.result?.commit || delivery.id)}</code></div>`).join('')}</section>${integrationCard(view.integrations)}</aside></div>`;
 }
 function render() {
   sessionStorage.setItem('grampus-selection', JSON.stringify({ screen, selected }));
@@ -746,7 +776,7 @@ app.addEventListener('submit', async event => {
     } else if (form.id === 'planner-answer-form') await act('plan', { answers: values, ...binding });
     else if (form.id === 'answer-form') await act('answer', { answers: values, ...binding });
     else if (form.id === 'assessment-form') {
-      if (!values.outcome) throw new Error('Choose a simplification outcome after inspection');
+      if (!values.outcome) throw new Error('Choose a quality assessment outcome after inspection');
       await act('assess', { ...values, ...binding });
     } else if (form.id === 'revision-form') {
       const plan = JSON.parse(values.plan);
@@ -768,6 +798,11 @@ app.addEventListener('submit', async event => {
             }
           : {}),
       };
+      const qualityIds = String(values['quality-passes'] || '')
+        .split(',')
+        .map(id => id.trim())
+        .filter(Boolean);
+      plan.quality = { passes: qualityIds.map(id => plan.quality?.passes?.find(pass => pass.id === id) ?? id) };
       await act('revise', { plan, ...binding });
     }
   } catch (error) {

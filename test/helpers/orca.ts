@@ -138,10 +138,11 @@ export async function deliveryFixture(t: { after(fn: () => void): void }, noChan
   if (!noChange) writeFileSync(join(f.workspace.path, 'greeting.txt'), 'hello world\n');
   const snapshot = await f.checks.snapshot(f.execution.id);
   f.workflow.finish(f.task.id, f.execution.attemptId, 1, 'succeeded', snapshot.artifact, 'Trusted fixture submission');
-  for (const kind of ['validation', 'simplification', 'review', 'verification'] as const)
+  for (const kind of ['validation', 'quality', 'review', 'verification'] as const)
     f.workflow.record(f.task.id, {
       id: kind,
       kind,
+      ...(kind === 'quality' ? { pass: 'simplification' } : {}),
       artifact: snapshot.artifact,
       version: 1,
       attemptId: f.execution.attemptId,

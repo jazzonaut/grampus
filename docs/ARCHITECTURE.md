@@ -55,7 +55,8 @@ names the task for the sidebar (`orchestration/task-title.ts`).
 Converting a proposal creates an unapproved guided task. `domain/guided-plan.ts` normalizes the plan once
 and hashes it into an approval digest covering the brief, slices, file scopes, preparation,
 validation and acceptance commands, expected output, providers, models, workflow and review
-policies, selected context, references and delivery messages. Approval must name both the exact
+policies, the selected quality passes as full definitions, selected context, references and delivery
+messages. Approval must name both the exact
 requirement version and that digest. The controller, not the planner, decides repository, base,
 workspace adapter and providers.
 
@@ -73,8 +74,8 @@ cover every criterion; the final slice is verified against all of them.
 | --- | --- |
 | Version | Incremented on revision. Approval names one version |
 | Attempt | One implementation try, with a fresh id; retries clear current evidence |
-| Evidence | `simplification`, `validation`, `review` or `verification`, each `passed`, `failed` or `skipped`, with source `controller`, `agent` or `synthetic` |
-| Gates | The latest evidence of each kind for the current attempt and artifact must pass, all active criteria must be mapped, and pending decisions must be accepted |
+| Evidence | `quality` (naming its quality pass), `validation`, `review` or `verification`, each `passed`, `failed` or `skipped`, with source `controller`, `agent` or `synthetic` |
+| Gates | The latest evidence of each kind for the current attempt and artifact must pass, including a `quality` assessment of each selected lens (the plan's lenses for a guided task, `simplification` for a low-level task), all active criteria must be mapped, and pending decisions must be accepted |
 | Slice progress | Delivery of an intermediate slice records its commit, advances the index and clears the attempt |
 
 Task phases are `draft`, `ready`, `running`, `stop_requested`, `recovery_required`, `stopped`,
@@ -95,12 +96,13 @@ request.
 | `preparation` | `preparation.ts` | Optional approved restore command, before scope |
 | `scope` | `scope.ts` | Snapshot, verify size limits and build the exact edit policy |
 | `implementation` | `implementation.ts` | Supervised native editing by the implementer |
+| `quality_pass` | `quality-pass.ts` | Each selected edit quality pass, once per slice, as a scoped implementer turn |
 | `refresh` | `preparation.ts` | Optional preparation again after editing, limited to the slice's file scope |
 | `validation` | `checks.ts` | Run the approved validation command |
 | `submission` | `submission.ts` | Submit the implementation with the latest passing check |
 | `review_execution` | `execution.ts` | Create the review (or arbitration) execution |
 | `review` | `review.ts` | Independent artifact review by the other provider |
-| `assessment` | `assessment.ts` | Record the simplification assessment |
+| `assessment` | `assessment.ts` | Record one quality lens assessment per step until every selected lens is recorded |
 | `verification` | `checks.ts` | Run acceptance against the active criteria |
 | `delivery` | `delivery.ts` | Verified local commit, then the next slice or `complete` |
 
@@ -117,13 +119,15 @@ Statuses are `draft`, `ready`, `running`, `awaiting_scope`, `awaiting_assessment
 `awaiting_answer`, `blocked`, `recovery_required` and `complete`.
 
 In **automatic** mode (the default for new plans) scope is authorized by plan approval, review
-follows submission, and the reviewer's explicit simplification verdict becomes agent evidence at
-`assessment` before verification. Ordinary validation and acceptance failures return to
+follows submission, and the reviewer's verdict on each selected quality lens becomes agent evidence
+at `assessment` before verification; a failed lens counts as a blocking finding. Edit quality passes
+run between `implementation` and validation on the slice's first successful implementation only
+([quality passes](WORKFLOW.md#quality-passes)). Ordinary validation and acceptance failures return to
 implementation with their evidence within `workflowPolicy.repairRounds`; blocking review findings
 use the review repair allowance and then an optional fresh arbitrator. A repair that leaves the
 failing artifact unchanged stops early. In **supervised** mode the controller stops at
-`awaiting_scope` for file authorization and at `awaiting_assessment` after submission for a human
-simplification assessment, then reviews; failed checks stop for a manual retry. The mode is part of
+`awaiting_scope` for file authorization and at `awaiting_assessment` after submission for one human
+quality assessment covering every selected lens (skipped when none is selected), then reviews; failed checks stop for a manual retry. The mode is part of
 the approved plan and changes only through a revision. Details are in [WORKFLOW.md](WORKFLOW.md).
 
 Every stop records a typed reason next to the human-readable note: `stopReason: { code, message, at }`
@@ -131,11 +135,19 @@ on the guided state, and `reasonCode` on the journal event that made the change.
 while the status is `draft`, `awaiting_*`, `blocked` or `recovery_required`, and cleared whenever
 work resumes. The codes are listed and documented in `orchestration/guided/stop-reasons.ts`: waits
 (`APPROVAL_REQUIRED`, `SCOPE_AUTHORIZATION_REQUIRED`, `ASSESSMENT_REQUIRED`, `AGENT_QUESTION`, ...),
-settled failures (`PREPARATION_FAILED`, `CHECKPOINT_CHANGED`, `CHECK_TIMEOUT`, `CHECK_NO_PROGRESS`,
-`CHECK_REPAIR_EXHAUSTED`, `REVIEW_REPAIR_EXHAUSTED`, `ARBITRATION_UNRESOLVED`, `DELIVERY_FAILED`, ...)
+settled failures (`PREPARATION_FAILED`, `CHECKPOINT_CHANGED`, `QUALITY_PASS_FAILED`, `CHECK_TIMEOUT`,
+`CHECK_NO_PROGRESS`, `CHECK_REPAIR_EXHAUSTED`, `REVIEW_MISSING_LENS`, `REVIEW_REPAIR_EXHAUSTED`,
+`ARBITRATION_UNRESOLVED`, `DELIVERY_FAILED`, ...)
 and results that cannot be adopted (`RESULT_MISMATCH`, `OPERATION_NEEDS_RECOVERY`,
 `SETTLEMENT_UNCONFIRMED`, ...). A failure without a specific code is `UNEXPECTED_ERROR` before dispatch
 or `RECOVERY_REQUIRED` after it.
+
+A blocked validation or acceptance check whose stop is an infrastructure problem (`CHECK_TIMEOUT`,
+`CHECK_INTERRUPTED`, `CHECK_EXIT_UNCONFIRMED`, `CHECK_OUTPUT_UNAVAILABLE` or `CHECK_ERROR`) and whose
+retained record proves a settled process tree can be rerun with `GuidedTasks.rerunChecks`
+(`orchestration/guided/rerun.ts`): the same check spec on the same execution and attempt, after a
+fresh snapshot confirms the artifact is unchanged, with no agent turn
+([rerun checks](WORKFLOW.md#rerun-checks)).
 
 One guided controller runs per journal at a time. Its ownership has no expiry and is kept across an
 uncertain shutdown. Stop requests are persisted and forwarded as an `AbortSignal` to the running
@@ -187,8 +199,8 @@ is not automated.
 
 An **execution** (`execution/executions.ts`) binds one attempt to a workspace and a fresh Grampus session in a
 given role. Every turn or operation claims the workspace lease (`execution/execution-state.ts`) under a run id
-and lease kind (`conversation`, `snapshot`, `check`, `submission`, `simplification`, `verification`,
-`completion`, `implementation` or `delivery`). The lease is held until process exit is confirmed.
+and lease kind (`conversation`, `snapshot`, `check`, `submission`, `simplification` (used by every
+quality lens assessment), `verification`, `completion`, `implementation` or `delivery`). The lease is held until process exit is confirmed.
 Session state, task outcome, journal events and lease release settle in one transaction, fenced on
 the exact run id. There is no expiry or heartbeat takeover. Leases coordinate Grampus processes
 sharing one journal; they do not lock out editors or other tools.
@@ -203,8 +215,8 @@ review never share a conversation, and arbitration always starts fresh.
 ## Agent adapters
 
 Both adapters return the same validated reply: `kind` is `message`, `question` or `review`, with
-question ids, findings (`blocking` or `suggestion`, with evidence) and, for reviews, a
-simplification verdict. Malformed replies fail the turn.
+question ids, findings (`blocking` or `suggestion`, with evidence) and, for reviews, one
+assessment per requested quality lens (`lenses`). Malformed replies fail the turn.
 
 - **Codex** (`providers/codex.ts`) runs the installed `codex app-server` over stdio JSON-RPC
   (`process/process.ts`), forcing ChatGPT login and refusing other authentication. Threads start or resume
@@ -303,7 +315,8 @@ workflow engine.
 - Strict CSP (`default-src 'none'`, self-hosted scripts and styles only, `frame-ancestors 'none'`),
   `nosniff`, `no-referrer` and `no-store`. Assets are local; there is no CDN.
 - Every task decision carries a **decision key** built from version, digest, status, stage,
-  artifact, instructions digest, execution ids and, for answers, the exact turn and questions. The
+  artifact, instructions digest, execution ids, the failed check on display and, for answers, the
+  exact turn and questions. Commands that need one take its SHA-256 digest (`task-rerun-checks`). The
   controller rechecks it, so a stale tab cannot approve a changed plan or authorize different bytes.
 - Actions run in separate Node worker processes (`server/ui-worker.ts`) using the same controller, so
   restarting the server is never evidence that work stopped. Polling responses are cached by journal
@@ -348,12 +361,14 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | `persistence/` | `store.ts` | SQLite schema, version check, transactions and journal access |
 | `domain/` | `workflow.ts`, `workflow-policy.ts` | Briefs, versions, attempts, evidence, gates, slices and completion; workflow policy validation |
 | | `guided-plan.ts` | Plan normalization, slice file simulation and approval digest |
+| | `quality-passes.ts` | Quality pass definitions, built-ins, plan selection and lens assessments |
 | | `acceptance.ts` | Acceptance expectations and observations against retained output |
 | | `deep-equal.ts` | Structural equality for stored JSON-shaped records |
 | `orchestration/guided/` | `controller.ts` | Guided task controller: public API, runner ownership, drive loop, retry, recovery, revision |
 | | `state.ts`, `keys.ts`, `stop-reasons.ts` | Guided state types; decision and question keys; typed stop reason codes |
 | | `context.ts`, `specs.ts`, `prompts.ts` | Stage handler contract and result adoption; exact leaf requests; agent prompts |
 | | `retry.ts`, `recovery.ts`, `revision.ts` | New attempts and explicit retry checks; leaf recovery; plan revision |
+| | `rerun.ts` | Which stopped checks may be rerun without a new attempt |
 | | `stages/*.ts` | One handler per stage (see [Guided state machine](#guided-state-machine)) |
 | `orchestration/` | `guided-status.ts` | Task views and next actions |
 | | `kickoff.ts`, `prompts/planner.ts`, `planner-progress.ts`, `task-title.ts` | Planning conversations and planner prompts, live planner progress and task naming |

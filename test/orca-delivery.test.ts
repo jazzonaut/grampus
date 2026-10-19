@@ -51,10 +51,11 @@ test('Orca slices reuse the original instance and base, with identity checks bef
     snapshot.artifact,
     'Trusted final integration fixture submission',
   );
-  for (const kind of ['validation', 'simplification', 'review', 'verification'] as const)
+  for (const kind of ['validation', 'quality', 'review', 'verification'] as const)
     f.workflow.record(f.task.id, {
       id: `${next.id}:${kind}`,
       kind,
+      ...(kind === 'quality' ? { pass: 'simplification' } : {}),
       artifact: snapshot.artifact,
       version: 1,
       attemptId: next.attemptId,

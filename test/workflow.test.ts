@@ -46,6 +46,7 @@ function evidence(workflow: Workflow, id: string, kind: Evidence['kind'], change
     version: task.version,
     artifact: task.attempt!.artifact!,
     kind,
+    ...(kind === 'quality' ? { pass: 'simplification' } : {}),
     outcome: 'passed',
     source: kind === 'review' ? 'agent' : 'controller',
     summary: `Observed ${kind}`,
@@ -56,7 +57,7 @@ function evidence(workflow: Workflow, id: string, kind: Evidence['kind'], change
 }
 
 function allEvidence(workflow: Workflow, id: string): void {
-  for (const kind of ['simplification', 'validation', 'review', 'verification'] as const)
+  for (const kind of ['quality', 'validation', 'review', 'verification'] as const)
     workflow.record(id, evidence(workflow, id, kind));
 }
 

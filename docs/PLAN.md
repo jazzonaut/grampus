@@ -40,12 +40,14 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   directory overrides ports, usage polling, the default check timeout and the default workflow
   policy ([CONFIGURATION.md](CONFIGURATION.md)). Concurrency and stall threshold keys are accepted
   but **Planned**. The stricter compiler flags from the structure step landed at the same time.
-- **Configurable quality passes.** Declarative pass definitions (no code plugins) of two kinds:
-  review lenses folded into the independent review turn, and edit passes that run as a scoped
-  agent turn before review and invalidate earlier evidence. Built-ins: simplification (lens,
-  default), naming (lens), refactor (edit). The selected passes are part of the approved plan
-  digest. Implementation, validation, independent review, acceptance and delivery stay
-  mandatory and ordered.
+- **Configurable quality passes.** Done 19 October 2026. Declarative pass definitions (no code
+  plugins) of two kinds: review lenses assessed in the independent review turn, and edit passes
+  that run as scoped implementer turns after the first successful implementation and before
+  validation, once per slice. Built-ins: simplification (lens, default), naming (lens), refactor
+  (edit) and documentation (edit); custom definitions and the default selection are in
+  `config.json`. The selected passes are resolved to full definitions in the approved plan digest.
+  Implementation, validation, independent review, acceptance and delivery stay mandatory and
+  ordered ([WORKFLOW.md](WORKFLOW.md#quality-passes)).
 - **No backwards compatibility.** Done 18 October 2026. Legacy plan formats, digests, fields,
   migrations and `task-automate` are removed from code and docs. The schema restarts at version 1; an older
   journal is refused with a clear message and never modified. The new version uses a fresh
@@ -81,10 +83,11 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   have the planner prefer separate named checks. The default for new plans is now configurable
   (`defaultCheckTimeoutMs` in `config.json`). Investigate the
   slowdown (concurrent load, cold caches in a fresh worktree) with per-check timings.
-- **Retrying validation starts a new implementation attempt.** Timeouts and other
-  infrastructure failures on an unchanged artifact must offer **Rerun checks**: validation
-  only, same artifact, no agent turn. Automatic repair only treats genuine check failures as
-  implementation problems.
+- **Retrying validation starts a new implementation attempt.** Fixed 19 October 2026.
+  Timeouts and other settled infrastructure failures on an unchanged artifact offer **Rerun
+  checks** (`task-rerun-checks`): the same check, same artifact and attempt, no agent turn.
+  Automatic repair only treats genuine check failures as implementation problems and never
+  reruns on its own ([WORKFLOW.md](WORKFLOW.md#rerun-checks)).
 
 ## Deferred until real use asks for them
 

@@ -110,7 +110,7 @@ test('guided task connects real gates and a verified local commit across control
     assert.match(renderReport(second, id), /guided.scope_authorized/);
     const turns = second.sessions().length;
     await assert.rejects(tasks.run(id), /complete/);
-    await assert.rejects(tasks.assess(id, 'passed', 'repeat'), /No simplification/);
+    await assert.rejects(tasks.assess(id, 'passed', 'repeat'), /No quality assessment/);
     assert.equal(second.sessions().length, turns);
   } finally {
     second.close();

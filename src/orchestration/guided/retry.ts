@@ -63,7 +63,7 @@ export function prepareRetry(context: RetryContext, type: string, explicitSnapsh
       current.validationId = null;
       current.snapshot = null;
       current.policy = null;
-      current.assessment = null;
+      current.assessments = [];
       current.answers = null;
       current.reviewCycle.arbitrating = false;
     });
@@ -73,13 +73,20 @@ export function prepareRetry(context: RetryContext, type: string, explicitSnapsh
 /**
  * The workspace snapshot an explicit retry of a stopped implementation adopts. The person may have
  * staged files, which is accepted, but HEAD, repository instructions and the file scope must still
- * match. Returns undefined when the task did not stop in an implementation with a policy.
+ * match. Returns undefined when the task did not stop in an implementation or edit quality pass turn
+ * with a policy.
  */
 export async function implementationRetrySnapshot(
   { store, workspaces }: RetryContext,
   state: GuidedState,
 ): Promise<RepositorySnapshot | undefined> {
-  if (state.stage !== 'implementation' || !state.executionId || !state.snapshot || !state.policy) return;
+  if (
+    (state.stage !== 'implementation' && state.stage !== 'quality_pass') ||
+    !state.executionId ||
+    !state.snapshot ||
+    !state.policy
+  )
+    return;
   const workspace = workspaces.get(state.workspaceId!);
   // The failed execution is settled and cannot acquire another operation lease.
   // The controller owns the task; bind this read to the next leased scope step.

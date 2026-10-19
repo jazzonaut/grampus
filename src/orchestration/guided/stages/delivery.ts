@@ -17,7 +17,8 @@ function startNextSlice(state: GuidedState): void {
   state.validationId = null;
   state.snapshot = null;
   state.policy = null;
-  state.assessment = null;
+  state.assessments = [];
+  state.qualityEdits = [];
   state.feedback = '';
   state.reviewCycle = freshReviewCycle();
   state.repairCycle = freshRepairCycle();

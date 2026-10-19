@@ -35,6 +35,8 @@ test('without config.json the built-in defaults apply and nothing is created', t
     usagePollIntervalMs: 15_000,
     defaultCheckTimeoutMs: 120_000,
     defaultWorkflowPolicy: { mode: 'automatic', repairRounds: 2, maxSessionTurns: 6, maxContextTokens: 120_000 },
+    qualityPasses: [],
+    defaultQualityPasses: ['simplification'],
     maxConcurrentTasks: 2,
     stallWarningMs: 600_000,
   });
@@ -114,6 +116,34 @@ test('injected settings supply new-plan defaults and a worker round trip keeps t
     (currentSettings() as { dashboardPort: number }).dashboardPort = 1;
   }, TypeError);
   assert.deepEqual(parseSettings(JSON.parse(JSON.stringify(currentSettings())), 'a worker request'), injected);
+});
+
+test('custom quality passes and default selections are validated against the built-ins', t => {
+  const custom = {
+    id: 'error-handling',
+    title: 'Error handling',
+    kind: 'lens',
+    instructions: 'Assess whether every new failure path is reported with enough context to act on.',
+  };
+  const loaded = loadSettings(
+    dataDirectory(t, { qualityPasses: [custom], defaultQualityPasses: ['naming', 'error-handling'] }),
+  );
+  assert.deepEqual(loaded.qualityPasses, [custom]);
+  assert.deepEqual(loaded.defaultQualityPasses, ['naming', 'error-handling']);
+  assert.deepEqual(loadSettings(dataDirectory(t, { defaultQualityPasses: [] })).defaultQualityPasses, []);
+  const refused: [unknown, RegExp][] = [
+    [{ qualityPasses: [{ ...custom, id: 'naming' }] }, /"qualityPasses\.0\.id": "naming" is a built-in/],
+    [{ qualityPasses: [custom, custom] }, /duplicate quality pass "error-handling"/],
+    [{ qualityPasses: [{ ...custom, id: 'Error Handling' }] }, /kebab-case/],
+    [{ qualityPasses: [{ ...custom, kind: 'fix' }] }, /"qualityPasses\.0\.kind"/],
+    [{ qualityPasses: [{ ...custom, instructions: 'x'.repeat(5000) }] }, /at most 4096 bytes/],
+    [{ qualityPasses: [{ ...custom, extra: true }] }, /unknown key "qualityPasses\.0\.extra"/],
+    [{ defaultQualityPasses: ['security'] }, /"defaultQualityPasses\.0": unknown quality pass "security"/],
+    [{ defaultQualityPasses: ['naming', 'naming'] }, /duplicate quality pass "naming"/],
+    [{ defaultQualityPasses: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] }, /"defaultQualityPasses"/],
+  ];
+  for (const [config, message] of refused)
+    assert.throws(() => loadSettings(dataDirectory(t, config)), message, JSON.stringify(config));
 });
 
 test('the CLI loads config.json from the data directory once and refuses an invalid file', t => {

@@ -1,6 +1,7 @@
 import type { GuidedState } from '../orchestration/guided/state.js';
 import { randomUUID } from 'node:crypto';
 import { planLimits } from '../config/limits.js';
+import { selectedLenses } from './quality-passes.js';
 import type { Store } from '../persistence/store.js';
 import type { Workspace } from '../repository/workspaces.js';
 import { assertTaskExecutionIdle } from '../execution/execution-state.js';
@@ -35,12 +36,17 @@ export interface Attempt {
   outcome: 'running' | 'succeeded' | 'failed' | 'stopped' | 'uncertain';
 }
 
+/**
+ * One gate result bound to an attempt, version and artifact. `quality` evidence is a lens assessment
+ * and names its quality pass in `pass`; no other kind has a pass.
+ */
 export interface Evidence {
   id: string;
   attemptId: string;
   version: number;
   artifact: string;
-  kind: 'simplification' | 'validation' | 'review' | 'verification';
+  kind: 'quality' | 'validation' | 'review' | 'verification';
+  pass?: string;
   outcome: 'passed' | 'failed' | 'skipped';
   summary: string;
   source: 'controller' | 'agent' | 'synthetic';
@@ -86,6 +92,14 @@ export interface Task {
       head: string;
     }[];
   };
+}
+
+/**
+ * The quality lenses whose latest assessment must pass before delivery: the plan's selected lenses
+ * for a guided task, and the built-in simplification lens for a task driven by the low-level commands.
+ */
+export function requiredQualityLenses(task: Task): string[] {
+  return task.guided ? selectedLenses(task.guided.plan.quality).map(pass => pass.id) : ['simplification'];
 }
 
 /** Final verification covers the whole outcome, including earlier slices. */
@@ -296,7 +310,8 @@ export class Workflow {
     nonempty(evidence.id, 'evidence id');
     nonempty(evidence.summary, 'summary');
     if (
-      !['simplification', 'validation', 'review', 'verification'].includes(evidence.kind) ||
+      !['quality', 'validation', 'review', 'verification'].includes(evidence.kind) ||
+      (evidence.kind === 'quality') !== (typeof evidence.pass === 'string' && evidence.pass.trim() !== '') ||
       !['passed', 'failed', 'skipped'].includes(evidence.outcome) ||
       !['controller', 'agent', 'synthetic'].includes(evidence.source)
     )
@@ -424,7 +439,11 @@ export class Workflow {
       task.attempt?.outcome !== 'succeeded'
     )
       reasons.push('Implementation has not finished successfully');
-    for (const kind of ['simplification', 'validation', 'review', 'verification'] as const) {
+    for (const pass of requiredQualityLenses(task)) {
+      const evidence = task.evidence.findLast(item => item.kind === 'quality' && item.pass === pass);
+      if (evidence?.outcome !== 'passed') reasons.push(`${pass} assessment has not passed`);
+    }
+    for (const kind of ['validation', 'review', 'verification'] as const) {
       const evidence = task.evidence.findLast(item => item.kind === kind);
       if (evidence?.outcome !== 'passed') reasons.push(`${kind} has not passed`);
       if (

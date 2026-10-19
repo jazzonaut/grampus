@@ -1,11 +1,11 @@
-// Guided task tests: automatic repair of failed checks and simplification assessments.
+// Guided task tests: automatic repair of failed checks and failed quality lens assessments.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import type { ImplementationRun } from '../src/execution/implementations.js';
 import { Sessions } from '../src/execution/sessions.js';
-import { windows, review, services, fixture } from './helpers/guided-tasks.js';
+import { windows, review, services, fixture, lens } from './helpers/guided-tasks.js';
 
 test('automatic work repairs a failed check with complete evidence and resumes its implementer', windows, async t => {
   const f = fixture(t);
@@ -35,10 +35,7 @@ test('automatic work repairs a failed check with complete evidence and resumes i
       status: 'completed',
       reply: {
         ...review,
-        simplification: {
-          outcome: 'passed',
-          summary: 'One output statement; no duplication or unnecessary abstractions.',
-        },
+        lenses: [lens('pass', 'One output statement; no duplication or unnecessary abstractions.')],
       },
       usage: null,
       error: null,
@@ -79,7 +76,9 @@ test('automatic work repairs a failed check with complete evidence and resumes i
     ),
   );
   assert.equal(
-    f.store.get<any>(task.id).evidence.find((e: any) => e.kind === 'simplification' && e.outcome === 'passed').source,
+    f.store
+      .get<any>(task.id)
+      .evidence.find((e: any) => e.kind === 'quality' && e.pass === 'simplification' && e.outcome === 'passed').source,
     'agent',
   );
 });
@@ -104,7 +103,7 @@ test('automatic validation stops spending tokens when a repair leaves content un
   assert.equal(f.store.deliveries(stopped.executionId!).length, 0);
 });
 
-test('an independent failed simplification assessment triggers repair rather than a manual form', windows, async t => {
+test('an independent failed simplification lens triggers repair rather than a manual form', windows, async t => {
   const f = fixture(t);
   let edits = 0,
     reviews = 0;
@@ -117,10 +116,11 @@ test('an independent failed simplification assessment triggers repair rather tha
       status: 'completed',
       reply: {
         ...review,
-        simplification:
+        lenses: [
           ++reviews === 1
-            ? { outcome: 'failed', summary: 'Remove the comment that repeats the output statement.' }
-            : { outcome: 'passed', summary: 'The direct output statement now stands on its own.' },
+            ? lens('fail', 'Remove the comment that repeats the output statement.')
+            : lens('pass', 'The direct output statement now stands on its own.'),
+        ],
       },
       usage: null,
       error: null,

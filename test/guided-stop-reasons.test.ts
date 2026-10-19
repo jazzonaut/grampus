@@ -7,6 +7,9 @@ import type { SettleContext, StageOutcome } from '../src/orchestration/guided/co
 import type { GuidedState } from '../src/orchestration/guided/state.js';
 import { repairIneligibility, validationStage } from '../src/orchestration/guided/stages/checks.js';
 import { reviewStage } from '../src/orchestration/guided/stages/review.js';
+import { rerunChecksIneligibility } from '../src/orchestration/guided/rerun.js';
+import type { Store } from '../src/persistence/store.js';
+import type { Task } from '../src/domain/workflow.js';
 import {
   GuidedStopError,
   StopReasonCode,
@@ -15,15 +18,19 @@ import {
 } from '../src/orchestration/guided/stop-reasons.js';
 import type { RepositoryCheck } from '../src/verification/checks.js';
 import type { Reply } from '../src/providers/types.js';
+import { builtInQualityPasses, type LensAssessment } from '../src/domain/quality-passes.js';
 
 const controller = { token: 'token', controllerPid: 1, controllerStartedAt: null, host: 'host' };
 const validation = { name: 'Validation', file: 'node', args: ['-e', ''], timeoutMs: 1000 };
 const artifact = 'sha256:current';
+const simplification = builtInQualityPasses.find(pass => pass.id === 'simplification')!;
+const naming = builtInQualityPasses.find(pass => pass.id === 'naming')!;
 
 function guided(mode: 'automatic' | 'supervised', overrides: Record<string, unknown> = {}): GuidedState {
   return {
     plan: {
       workflowPolicy: { mode, repairRounds: 2 },
+      quality: { passes: [simplification] },
       implementation: { provider: 'codex', model: null },
       review: { provider: 'claude', model: null },
       slices: [{ mode: 'commit', scope: { files: ['a.js'] }, validation, acceptance: validation, message: 'Deliver' }],
@@ -108,6 +115,13 @@ function context(state: GuidedState, stage: string, stores: Record<string, unkno
 }
 
 const record = (): Recorded => ({ changes: [], retries: [], closed: [] });
+
+const lens = (id: string, verdict: 'pass' | 'fail', summary = `Concrete ${id} assessment`): LensAssessment => ({
+  lens: id,
+  verdict,
+  summary,
+  findings: [],
+});
 
 function settleValidation(state: GuidedState, check: RepositoryCheck, recorded = record()): StageOutcome {
   return validationStage.settle(context(state, 'validation', { checks: () => [check] }, recorded));
@@ -213,8 +227,8 @@ const blocking: Partial<Reply> = {
 
 test('review settlement records why a verdict stops and when it reroutes', () => {
   const automatic = guided('automatic');
-  assert.equal(stopCode(settleReview(automatic, {}, 'passed')), 'REVIEW_MISSING_SIMPLIFICATION');
-  const passed = settleReview(automatic, { simplification: { outcome: 'passed', summary: 'Simple' } }, 'passed');
+  assert.equal(stopCode(settleReview(automatic, {}, 'passed')), 'REVIEW_MISSING_LENS');
+  const passed = settleReview(automatic, { lenses: [lens('simplification', 'pass')] }, 'passed');
   assert.equal(passed.kind === 'advance' && passed.next, 'assessment');
   assert.equal(stopCode(settleReview(automatic, {}, 'failed')), 'REVIEW_FAILED_NO_BLOCKING_FINDINGS');
   assert.equal(stopCode(settleReview(automatic, blocking, 'failed', 'failed')), 'REVIEW_TURN_FAILED');
@@ -255,6 +269,121 @@ test('review settlement records why a verdict stops and when it reroutes', () =>
   assert.deepEqual(arbitrated.closed, ['review']);
   assert.equal(arbitrated.changes.at(-1)!.type, 'guided.arbitration_requested');
   assert.equal(arbitrated.changes.at(-1)!.state.reviewCycle.arbitrating, true);
+});
+
+test('a passing review records one assessment per selected lens and stops when a lens is missing', () => {
+  const both = guided('automatic', {
+    plan: { ...guided('automatic').plan, quality: { passes: [simplification, naming] } },
+  });
+  const missing = settleReview(both, { lenses: [lens('simplification', 'pass')] }, 'passed');
+  assert.equal(stopCode(missing), 'REVIEW_MISSING_LENS');
+  assert.match((missing as { reason: { note: string } }).reason.note, /naming/);
+
+  const passed = settleReview(
+    both,
+    { lenses: [lens('naming', 'pass'), lens('simplification', 'pass'), lens('unselected', 'fail')] },
+    'passed',
+  );
+  assert.equal(passed.kind, 'advance');
+  const next = structuredClone(both);
+  (passed as { update: (state: GuidedState) => void }).update(next);
+  assert.deepEqual(
+    next.assessments.map(item => [item.pass, item.outcome, item.reviewId, item.artifact]),
+    [
+      ['simplification', 'passed', 'review', artifact],
+      ['naming', 'passed', 'review', artifact],
+    ],
+  );
+
+  const none = guided('automatic', { plan: { ...guided('automatic').plan, quality: { passes: [] } } });
+  const direct = settleReview(none, {}, 'passed');
+  assert.equal(direct.kind === 'advance' && direct.next, 'verification');
+});
+
+test('a failed selected lens is a blocking finding in automatic mode only', () => {
+  const recorded = record();
+  const failed = settleReview(
+    guided('automatic'),
+    { lenses: [lens('simplification', 'fail')] },
+    'passed',
+    'idle',
+    recorded,
+  );
+  assert.deepEqual(failed, { kind: 'rerouted', to: 'repair' });
+  assert.deepEqual(recorded.retries, ['guided.review_repair_requested']);
+
+  const exhausted = guided('automatic', {
+    reviewCycle: { repairs: 2, history: [], arbitrating: false, arbitrationUsed: false },
+  });
+  const stopped = settleReview(exhausted, { lenses: [lens('simplification', 'fail', 'Remove the wrapper')] }, 'passed');
+  assert.equal(stopCode(stopped), 'REVIEW_REPAIR_EXHAUSTED');
+  assert.match((stopped as { reason: { note: string } }).reason.note, /simplification: Remove the wrapper/);
+
+  // An unselected lens never blocks, and supervised mode leaves lenses to the person's assessment.
+  const ignored = settleReview(
+    guided('automatic'),
+    { lenses: [lens('simplification', 'pass'), lens('naming', 'fail')] },
+    'passed',
+  );
+  assert.equal(ignored.kind === 'advance' && ignored.next, 'assessment');
+  const supervised = settleReview(guided('supervised'), { lenses: [lens('simplification', 'fail')] }, 'passed');
+  assert.equal(supervised.kind === 'advance' && supervised.next, 'verification');
+});
+
+test('a check that changed its inputs is reported as a mutation even when the runner recorded an error', () => {
+  const mutated = failedCheck({
+    error: 'Check changed repository inputs; inspect the diff and run a fresh check',
+    after: { artifact: 'sha256:other' },
+  } as Partial<RepositoryCheck>);
+  assert.equal(repairIneligibility(guided('automatic'), mutated), 'CHECK_MUTATED_ARTIFACT');
+});
+
+function blockedOn(code: string, check: RepositoryCheck, overrides: Record<string, unknown> = {}) {
+  const state = guided('automatic', {
+    status: 'blocked',
+    stage: 'validation',
+    failedCheckId: check.id,
+    pending: null,
+    owner: null,
+    stopReason: { code, message: 'Stopped', at: '2026-10-19T00:00:00.000Z' },
+    ...overrides,
+  });
+  const store = { check: () => check } as unknown as Store;
+  return rerunChecksIneligibility(store, { guided: state, brief: { criteria: ['c'] } } as unknown as Task);
+}
+
+test('rerunning checks is offered only for settled infrastructure stops on the unchanged artifact', () => {
+  const timedOut = failedCheck({}, { reason: 'timed_out' });
+  for (const code of [
+    'CHECK_TIMEOUT',
+    'CHECK_INTERRUPTED',
+    'CHECK_EXIT_UNCONFIRMED',
+    'CHECK_OUTPUT_UNAVAILABLE',
+    'CHECK_ERROR',
+  ])
+    assert.equal(blockedOn(code, timedOut), null, code);
+  assert.equal(blockedOn('CHECK_EXIT_UNCONFIRMED', failedCheck({ result: null, dispatch: 'not_requested' })), null);
+  for (const code of [
+    'CHECK_OUTPUT_LIMIT',
+    'CHECK_OUTPUT_TRUNCATED',
+    'CHECK_MUTATED_ARTIFACT',
+    'CHECK_STALE_ARTIFACT',
+    'CHECK_REPAIR_EXHAUSTED',
+    'CHECK_FAILED_SUPERVISED',
+  ])
+    assert.match(blockedOn(code, timedOut) ?? '', /Rerun checks applies after/, code);
+  assert.match(blockedOn('CHECK_TIMEOUT', failedCheck({}, { exitConfirmed: false })) ?? '', /not confirmed settled/);
+  assert.match(
+    blockedOn('CHECK_TIMEOUT', failedCheck({ spec: { ...timedOut.spec, timeoutMs: 5 } })) ?? '',
+    /differs from the approved check/,
+  );
+  assert.match(
+    blockedOn('CHECK_TIMEOUT', failedCheck({ before: { artifact: 'sha256:old' } } as Partial<RepositoryCheck>)) ?? '',
+    /different artifact/,
+  );
+  assert.match(blockedOn('CHECK_TIMEOUT', failedCheck({ purpose: 'verification' })) ?? '', /current stopped step/);
+  assert.match(blockedOn('CHECK_TIMEOUT', timedOut, { status: 'ready' }) ?? '', /stopped validation or acceptance/);
+  assert.match(blockedOn('CHECK_TIMEOUT', timedOut, { stage: 'review' }) ?? '', /stopped validation or acceptance/);
 });
 
 test('coded errors keep their message and cause; other errors fall back to the generic code', () => {

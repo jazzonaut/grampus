@@ -18,6 +18,7 @@ import { allocateReceipt, readReceipt, requireDeadController, type CheckReceipt 
 import { captureRepository } from '../repository/repository-evidence.js';
 import { assertAcceptance, validateExpectations, type AcceptanceExpectations } from '../domain/acceptance.js';
 import { prepareEditing, validateEditPolicy, verifyEditingScope, type EditPolicy } from '../execution/edit-policy.js';
+import { lensOutcome, parseQualityAssessment, type QualityAssessment } from '../domain/quality-passes.js';
 
 export interface CheckSpec {
   name: string;
@@ -31,13 +32,7 @@ export interface CheckSpec {
   expectations?: AcceptanceExpectations;
   preparation?: { scope?: Pick<EditPolicy, 'files' | 'create' | 'delete'> };
 }
-export interface SimplificationAssessment {
-  reviewId?: string;
-  artifact: string;
-  instructionsDigest: string;
-  outcome: 'passed' | 'failed' | 'skipped';
-  summary: string;
-}
+export type { QualityAssessment } from '../domain/quality-passes.js';
 export interface RepositoryCheck {
   failureKind?: 'acceptance';
   id: string;
@@ -175,37 +170,24 @@ export class Checks {
     }
   }
 
-  /** A trusted caller's assessment, not an inference from checks or review findings. */
-  async simplify(executionId: string, assessment: SimplificationAssessment): Promise<void> {
-    assessment = structuredClone(assessment);
-    if (
-      !assessment ||
-      Object.keys(assessment).some(
-        key => !['artifact', 'instructionsDigest', 'outcome', 'summary', 'reviewId'].includes(key),
-      ) ||
-      typeof assessment.artifact !== 'string' ||
-      !/^sha256:[a-f0-9]{64}$/.test(assessment.artifact) ||
-      typeof assessment.instructionsDigest !== 'string' ||
-      !/^[a-f0-9]{64}$/.test(assessment.instructionsDigest) ||
-      !['passed', 'failed', 'skipped'].includes(assessment.outcome) ||
-      typeof assessment.summary !== 'string' ||
-      !assessment.summary.trim() ||
-      Buffer.byteLength(assessment.summary) > commandLimits.assessmentBytes
-    ) {
-      throw new Error(
-        `Simplification requires artifact, instructionsDigest, outcome (passed/failed/skipped) and a nonempty summary (at most ${formatBytes(commandLimits.assessmentBytes)})`,
-      );
-    }
+  /**
+   * Records a trusted caller's assessment of one quality lens, not an inference from checks or review
+   * findings. With `reviewId` it must repeat that settled review's own verdict for the lens exactly.
+   */
+  async assess(executionId: string, input: QualityAssessment): Promise<void> {
+    const assessment = parseQualityAssessment(
+      input,
+      `A quality assessment requires a pass id, artifact, instructionsDigest, outcome (passed/failed/skipped) and a nonempty summary (at most ${formatBytes(commandLimits.assessmentBytes)})`,
+    );
     const runId = randomUUID();
     const execution = this.store.transaction(() => {
       const execution = this.store.execution<Execution>(executionId);
-      if (execution.role !== 'implementation')
-        throw new Error('Assess simplification through the implementation execution');
+      if (execution.role !== 'implementation') throw new Error('Assess quality through the implementation execution');
       const task = this.store.get<Task>(execution.taskId);
       if (assessment.reviewId) {
         const review = this.store.execution<Execution>(assessment.reviewId),
           session = new Sessions(this.store).get(review.sessionId);
-        const verdict = session.lastReply?.simplification;
+        const verdict = session.lastReply?.lenses?.find(item => item.lens === assessment.pass);
         if (
           review.taskId !== execution.taskId ||
           review.version !== execution.version ||
@@ -214,26 +196,28 @@ export class Checks {
           review.artifact !== assessment.artifact ||
           session.run ||
           session.phase !== 'idle' ||
-          verdict?.outcome !== assessment.outcome ||
+          !verdict ||
+          lensOutcome(verdict.verdict) !== assessment.outcome ||
           verdict.summary !== assessment.summary
         )
-          throw new Error('Simplification must match a settled independent review of this artifact');
+          throw new Error('A reviewer assessment must match a settled independent review of this artifact');
       }
       if (
         task.attempt?.outcome !== 'succeeded' ||
         !['awaiting_verification', 'awaiting_decision'].includes(task.phase)
       ) {
-        throw new Error('Simplification assessment requires a submitted implementation');
+        throw new Error('Quality assessment requires a submitted implementation');
       }
       new Workflow(this.store).record(task.id, {
         id: `${runId}:requested`,
         attemptId: execution.attemptId,
         version: execution.version,
         artifact: task.attempt?.artifact ?? '',
-        kind: 'simplification',
+        kind: 'quality',
+        pass: assessment.pass,
         outcome: 'skipped',
         source: 'controller',
-        summary: 'Explicit simplification assessment requested; artifact verification is pending',
+        summary: 'Explicit quality assessment requested; artifact verification is pending',
       });
       return this.claim(executionId, runId, 'simplification');
     });
@@ -254,15 +238,16 @@ export class Checks {
             attemptId: execution.attemptId,
             version: execution.version,
             artifact: snapshot.artifact,
-            kind: 'simplification',
+            kind: 'quality',
+            pass: assessment.pass,
             source: assessment.reviewId ? 'agent' : 'controller',
             outcome: assessment.outcome,
             summary: assessment.summary,
           })
         ) {
-          throw new Error('Implementation attempt changed before simplification assessment');
+          throw new Error('Implementation attempt changed before quality assessment');
         }
-        this.store.appendExecution(execution.id, 'simplification.assessed', assessment);
+        this.store.appendExecution(execution.id, 'quality.assessed', assessment);
       });
     } finally {
       this.store.transaction(() => {

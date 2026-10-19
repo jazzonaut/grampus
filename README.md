@@ -84,9 +84,10 @@ checkout. Every task command accepts `--db <path>`. `grampus --help` prints the 
 | `demo` | Run a synthetic task in a temporary journal. Starts no agents |
 | `task-new <plan.json>`, `task-show <id> [--details\|--json]` | Store a guided plan as a draft; show progress and the next action |
 | `task-approve <id> <version> <digest>`, `task-run <id>` | Approve the exact plan; advance until input is needed |
-| `task-authorize <id>`, `task-assess <id> --outcome <o> --summary <s>` | Supervised mode only: authorize file scope; record simplification |
+| `task-authorize <id>`, `task-assess <id> --outcome <o> --summary <s>` | Supervised mode only: authorize file scope; record a quality assessment of the selected lenses |
 | `task-answer <id> <answers.json>` | Answer pending agent questions |
 | `task-retry <id>` | Retry after a stop |
+| `task-rerun-checks <id> <decision-key>` | Rerun a check stopped by a timeout or other infrastructure problem on the unchanged artifact, without a new attempt |
 | `task-revise <id> <version> <plan.json>` | Revise a settled plan, keeping files and delivered slices |
 | `task-stop <id>`, `task-recover <id>`, `task-release-workspace <id>` | Stop, reconcile after a crash, release an unused failed reservation |
 | `create`, `approve`, `list`, `show`, `report` | Low-level task records and the Markdown report |

@@ -1,7 +1,7 @@
 // Owns the shape of the guided task state saved in the task record, and the injectable services the
 // controller and its tests use. Behaviour lives in the controller and stage handlers.
 import type { Workspaces } from '../../repository/workspaces.js';
-import type { SimplificationAssessment } from '../../verification/checks.js';
+import type { QualityAssessment } from '../../domain/quality-passes.js';
 import type { EditPolicy } from '../../execution/edit-policy.js';
 import type { RepositorySnapshot } from '../../repository/artifacts.js';
 import type { Connector } from '../../providers/types.js';
@@ -16,6 +16,7 @@ export type Stage =
   | 'preparation'
   | 'scope'
   | 'implementation'
+  | 'quality_pass'
   | 'refresh'
   | 'validation'
   | 'submission'
@@ -67,7 +68,8 @@ export interface Owner {
 export interface Pending {
   stage: Stage;
   known: string[];
-  assessment: SimplificationAssessment | null;
+  /** The assessment an `assessment` step records: the head of the queue when the step began. */
+  assessment: QualityAssessment | null;
   controller: Owner;
 }
 
@@ -85,6 +87,19 @@ export interface ReviewCycle {
   history: { executionId: string; artifact: string }[];
   arbitrating: boolean;
   arbitrationUsed: boolean;
+}
+
+/**
+ * An edit pass that settled in the current slice. Edit passes run once per slice, after its first
+ * successful implementation turn, so a later repair attempt skips every pass recorded here.
+ */
+export interface QualityEditRecord {
+  pass: string;
+  /** The implementation run that applied the pass. */
+  implementationId: string;
+  /** Artifact before and after the pass; equal when the pass changed nothing. */
+  before: string;
+  after: string;
 }
 
 /** A new slice or revised plan starts with an unused check repair allowance. */
@@ -122,7 +137,10 @@ export interface GuidedState {
   owner: Owner | null;
   pending: Pending | null;
   stopRequested: boolean;
-  assessment: SimplificationAssessment | null;
+  /** Lens assessments still to record on the current artifact, one per `assessment` step. */
+  assessments: QualityAssessment[];
+  /** Edit passes already applied in the current slice. */
+  qualityEdits: QualityEditRecord[];
   answers: Record<string, string> | null;
   feedback: string;
   note: string;

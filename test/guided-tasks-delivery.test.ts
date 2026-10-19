@@ -69,7 +69,7 @@ test(
   },
 );
 
-test('failed simplification is retained and cannot start independent review or delivery', windows, async t => {
+test('a failed quality assessment is retained and cannot start independent review or delivery', windows, async t => {
   const f = fixture(t),
     id = f.create();
   await f.tasks.run(id);
@@ -77,9 +77,11 @@ test('failed simplification is retained and cannot start independent review or d
   assert.equal(checkpoint.status, 'awaiting_assessment', checkpoint.note);
   const failed = await f.tasks.assess(id, 'skipped', 'Inspection still outstanding');
   assert.equal(failed.status, 'blocked', failed.note);
-  assert.equal(failed.stopReason?.code, 'SIMPLIFICATION_FAILED');
+  assert.equal(failed.stopReason?.code, 'QUALITY_ASSESSMENT_FAILED');
   assert.ok(
-    new Workflow(f.store).get(id).evidence.some(item => item.kind === 'simplification' && item.outcome === 'skipped'),
+    new Workflow(f.store)
+      .get(id)
+      .evidence.some(item => item.kind === 'quality' && item.pass === 'simplification' && item.outcome === 'skipped'),
   );
   assert.equal(f.store.executions<Execution>().filter(item => item.role === 'review').length, 0);
   assert.equal(f.store.deliveries(failed.executionId!).length, 0);

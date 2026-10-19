@@ -75,20 +75,20 @@ test(
     crashProgram(f, 'assess', 'assessment_input', id);
     const before = f.tasks.get(id);
     assert.equal(before.pending, null);
-    assert.equal(before.assessment!.summary, 'Offline explicit simplification');
+    assert.equal(before.assessments[0]!.summary, 'Offline explicit simplification');
     const recovered = await f.tasks.recover(id);
     assert.equal(recovered.status, 'ready');
     assert.equal(recovered.stage, 'assessment');
     assert.equal(recovered.reviewId, null);
     assert.equal(
-      new Workflow(f.store).get(id).evidence.filter(item => item.kind === 'simplification' && item.outcome === 'passed')
+      new Workflow(f.store).get(id).evidence.filter(item => item.kind === 'quality' && item.outcome === 'passed')
         .length,
       0,
     );
     const done = await f.tasks.run(id);
     assert.equal(done.status, 'complete', done.note);
     assert.equal(
-      new Workflow(f.store).get(id).evidence.find(item => item.kind === 'simplification' && item.outcome === 'passed')!
+      new Workflow(f.store).get(id).evidence.find(item => item.kind === 'quality' && item.outcome === 'passed')!
         .summary,
       'Offline explicit simplification',
     );

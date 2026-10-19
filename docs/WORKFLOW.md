@@ -3,16 +3,17 @@
 New plans default to automatic execution within their exact approved file scope:
 
 1. Prepare the worktree and prerequisites.
-2. Implement and simplify the current slice.
+2. Implement the current slice, then apply the selected edit quality passes.
 3. Run validation. Return ordinary failures to the implementer with their evidence.
-4. Independently review correctness, maintainability and simplification. Repair concrete
-   blocking findings within the allowance and obtain a new verdict.
+4. Independently review correctness and maintainability, assessing each selected quality
+   lens. Repair concrete blocking findings and failed lenses within the allowance and obtain
+   a new verdict.
 5. Verify acceptance. Repairs invalidate earlier validation, review and acceptance.
 6. Deliver the verified local commit and continue to the next slice.
 
-Questions, scope changes, uncertain process exits, mutating checks, prerequisite failures,
-exhausted allowances and repairs that leave the failing artifact unchanged stop for
-attention. Each stop records a typed reason code beside its note, for example
+Questions, scope changes, uncertain process exits, check timeouts and other infrastructure
+failures, mutating checks, prerequisite failures, exhausted allowances and repairs that leave
+the failing artifact unchanged stop for attention. Each stop records a typed reason code beside its note, for example
 `CHECK_REPAIR_EXHAUSTED` or `CHECK_NO_PROGRESS`
 ([guided state machine](ARCHITECTURE.md#guided-state-machine)).
 An ordinary failed test does not require a manual retry or another approval
@@ -25,10 +26,79 @@ preserves those staged files and authorized edits, checks that HEAD, instruction
 and file scope still match, and takes a new checkpoint. Automatic repair never
 silently adopts an externally changed checkpoint.
 
-The independent reviewer supplies an explicit simplification assessment of the current
-artifact. Grampus verifies that assessment's reviewer, attempt, version and artifact
-before recording it as **agent evidence**, rather than inferring it from a passing check.
-Runtime validation and acceptance remain controller evidence.
+The independent reviewer supplies an explicit assessment of each selected quality lens on
+the current artifact. Grampus verifies each assessment's reviewer, attempt, version and
+artifact before recording it as **agent evidence**, rather than inferring it from a passing
+check. Runtime validation and acceptance remain controller evidence.
+
+## Quality passes
+
+Quality passes are declarative definitions, not code: an `id` (kebab-case), a `title`, a
+`kind` and the `instructions` sent to the agent. There are two kinds:
+
+- A **lens** is assessed by the independent reviewer inside its review turn. The verdict
+  carries one `{ lens, verdict: "pass" | "fail", summary, findings }` entry per selected lens.
+  A failed lens counts as a blocking finding and uses the review repair allowance. A passing
+  review that leaves a selected lens unassessed stops with `REVIEW_MISSING_LENS`. Each lens
+  verdict is recorded as quality evidence for that lens, bound to the reviewer, attempt,
+  version and artifact, and delivery requires a passing assessment of every selected lens.
+- An **edit** pass is a scoped turn by the implementer, resuming the implementation
+  conversation, after the slice's first successful implementation turn and before
+  validation. It uses the slice's authorized paths rebuilt on what the implementation left,
+  and its result is recorded as a `quality_pass.completed` execution event and in the task's
+  `qualityEdits`. Edit passes run in the listed order and **once per slice**: repair attempts
+  and explicit retries skip a pass that already completed, so repairs stay focused on the
+  failure. A failed pass turn stops with `QUALITY_PASS_FAILED`; a retry starts a new attempt
+  that runs the failed pass again after implementing. Validation always runs after the
+  passes, so no evidence is taken before them.
+
+| Built-in | Kind | Purpose |
+| --- | --- | --- |
+| `simplification` | lens | Simplification, naming, duplication and test quality (the default) |
+| `naming` | lens | Misleading or lazy names and consistency with the codebase's vocabulary |
+| `refactor` | edit | Improve the structure of the changed code without changing behaviour |
+| `documentation` | edit | Add or repair TSDoc and comments for the changed code; why, not what |
+
+A plan selects passes in `quality.passes`, as ids or full definitions:
+
+```json
+"quality": { "passes": ["simplification", "naming", "refactor"] }
+```
+
+Normalisation resolves ids to full definitions, so the approval digest covers the exact
+instructions and a later settings change never alters an approved plan. A plan without
+`quality` gets `defaultQualityPasses` (`["simplification"]` unless configured). An empty list
+selects no passes: the reviewer is asked for no lens and no quality assessment is required.
+At most six passes, unique ids, and instructions up to 4 KiB each. The planner never chooses
+passes; change them at approval with **Revise this task's plan**. Custom definitions are
+added in `config.json` ([configuration](CONFIGURATION.md)).
+
+In supervised mode the person's assessment is the quality evidence: the task stops at
+`awaiting_assessment` after submission and one outcome and summary cover every selected lens,
+recorded as evidence for each. With no lenses selected it does not stop there. The reviewer
+still returns lens verdicts in supervised mode, shown beside its findings, but they do not
+replace the person's assessment.
+
+## Rerun checks
+
+A validation or acceptance check that stops for an infrastructure reason on an unchanged
+artifact can be rerun without a new implementation attempt: **Rerun checks** on the
+dashboard, or `task-rerun-checks <id> <decision-key>` with the key shown in `task-show`'s
+next action. It runs the same approved check spec again on the same execution and attempt,
+with a new check record and the usual evidence binding. No agent turn is sent.
+
+It is offered after `CHECK_TIMEOUT`, `CHECK_INTERRUPTED`, `CHECK_EXIT_UNCONFIRMED`,
+`CHECK_OUTPUT_UNAVAILABLE` and `CHECK_ERROR`, and only when the retained check proves its
+process tree settled (never dispatched, or a confirmed exit). The controller then snapshots
+the workspace and refuses the rerun if the artifact or repository instructions changed.
+`CHECK_OUTPUT_LIMIT` and `CHECK_OUTPUT_TRUNCATED` are not offered, because the same command
+on the same bytes produces the same output again: revise the check. A check whose
+settlement is uncertain needs recovery, not a rerun.
+
+Automatic mode never reruns a check on its own: a timeout is always surfaced for you to
+decide. Automatic repair treats only a genuine, confirmed, fully observed failure on the
+unchanged artifact as an implementation problem; infrastructure stops never spend the
+repair allowance. **Retry repair** remains available and starts a fresh attempt.
 
 ## Configuration
 
@@ -49,7 +119,7 @@ These are the defaults for a new plan that omits the policy or some of its field
 ([configuration](CONFIGURATION.md)).
 
 `mode` defaults to `automatic`. `mode: "supervised"` adds file-authorization and
-manual-simplification checkpoints and leaves failed checks for a manual retry (see
+manual quality assessment checkpoints and leaves failed checks for a manual retry (see
 [the guided CLI](GUIDED-WORKFLOW.md#supervised-mode)).
 Check repair rounds accept 0–5; the limit is shared by validation and acceptance for
 the current slice and survives manual retry/restarts. A new slice or revised plan

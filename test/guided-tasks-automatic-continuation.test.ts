@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GuidedTasks } from '../src/orchestration/guided/controller.js';
-import { windows, review, services, fixture } from './helpers/guided-tasks.js';
+import { windows, review, services, fixture, lens } from './helpers/guided-tasks.js';
 
 test(
   'automatic acceptance repair invalidates earlier evidence and resumes its independent reviewer',
@@ -26,7 +26,7 @@ test(
           status: 'completed',
           reply: {
             ...review,
-            simplification: { outcome: 'passed', summary: 'Inspected the current single output statement.' },
+            lenses: [lens('pass', 'Inspected the current single output statement.')],
           },
           usage: null,
           error: null,

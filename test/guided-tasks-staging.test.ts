@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { guidedTaskView } from '../src/orchestration/guided-status.js';
-import { windows, review, git, services, fixture } from './helpers/guided-tasks.js';
+import { windows, review, git, services, fixture, lens } from './helpers/guided-tasks.js';
 
 test('explicit retry adopts staged files after an interrupted implementation', windows, async t => {
   const f = fixture(t),
@@ -24,7 +24,7 @@ test('explicit retry adopts staged files after an interrupted implementation', w
   config.connector = async () => ({
     turn: async () => ({
       status: 'completed',
-      reply: { ...review, simplification: { outcome: 'passed', summary: 'One direct output statement.' } },
+      reply: { ...review, lenses: [lens('pass', 'One direct output statement.')] },
       usage: null,
       error: null,
     }),

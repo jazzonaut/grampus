@@ -49,6 +49,8 @@ Example:
 | `usagePollIntervalMs` | `15000` | 1000 to 600000 | How often Claude usage is sampled during a turn. The final result always replaces the samples |
 | `defaultCheckTimeoutMs` | `120000` | 100 to 600000 | Timeout written into new plans for validation, acceptance and preparation commands that omit `timeoutMs` |
 | `defaultWorkflowPolicy` | see below | see below | Workflow policy for new plans that omit it, or omit some of its fields |
+| `qualityPasses` | `[]` | up to 16 definitions | Custom quality passes a plan may select by id, in addition to the built-ins (see below) |
+| `defaultQualityPasses` | `["simplification"]` | up to 6 distinct known ids, or `[]` | Quality passes selected for new plans that omit `quality` |
 | `maxConcurrentTasks` | `2` | 1 to 16 | **Planned:** guided tasks that may run at once. Accepted but not used yet |
 | `stallWarningMs` | `600000` | 1000 to 86400000 | **Planned:** silence after which a running turn or check is shown as possibly stalled. Accepted but not used yet |
 
@@ -56,10 +58,38 @@ Example:
 
 | Field | Default | Allowed | Meaning |
 | --- | --- | --- | --- |
-| `mode` | `"automatic"` | `"automatic"`, `"supervised"` | Automatic runs to a verified commit; supervised stops at file authorization and simplification assessment |
+| `mode` | `"automatic"` | `"automatic"`, `"supervised"` | Automatic runs to a verified commit; supervised stops at file authorization and quality assessment |
 | `repairRounds` | `2` | 0 to 5 | Automatic repair rounds per slice after failed validation or acceptance |
 | `maxSessionTurns` | `6` | 1 to 50 | Turns before a fresh provider conversation |
 | `maxContextTokens` | `120000` | 8000 to 1000000 | Observed input tokens before a fresh provider conversation |
+
+Each entry of `qualityPasses` is a strict object:
+
+| Field | Allowed | Meaning |
+| --- | --- | --- |
+| `id` | kebab-case, at most 40 characters, not a built-in id, unique | How plans and verdicts name the pass |
+| `title` | nonempty, at most 120 bytes | Shown at approval and on the dashboard |
+| `kind` | `"lens"`, `"edit"` | A lens is assessed by the independent reviewer; an edit pass is a scoped implementer turn before validation |
+| `instructions` | nonempty, at most 4096 bytes | Sent verbatim to the agent |
+
+```json
+{
+  "qualityPasses": [
+    {
+      "id": "error-handling",
+      "title": "Error handling",
+      "kind": "lens",
+      "instructions": "Assess whether every new failure path is reported with enough context to act on."
+    }
+  ],
+  "defaultQualityPasses": ["simplification", "error-handling"]
+}
+```
+
+The built-ins are `simplification`, `naming`, `refactor` and `documentation`
+([quality passes](WORKFLOW.md#quality-passes)). A plan stores the full definitions it selected,
+so removing or editing a custom pass later never changes an approved plan; a revision keeps
+the definitions already in the plan.
 
 ## What settings do not change
 

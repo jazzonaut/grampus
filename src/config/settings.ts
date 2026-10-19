@@ -10,7 +10,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { WorkflowPolicy } from '../domain/workflow-policy.js';
-import { commandLimits, workflowPolicyBounds } from './limits.js';
+import {
+  qualityPassDefinitionSchema,
+  qualitySettingsProblems,
+  type QualityPassDefinition,
+} from '../domain/quality-passes.js';
+import { commandLimits, qualityLimits, workflowPolicyBounds } from './limits.js';
 import { defaultDashboardPort } from './runtime.js';
 
 export interface Settings {
@@ -22,6 +27,10 @@ export interface Settings {
   defaultCheckTimeoutMs: number;
   /** Workflow policy for new plans that omit it, or fields of it; approved plans keep their own copy. */
   defaultWorkflowPolicy: WorkflowPolicy;
+  /** Custom quality pass definitions a plan may select by id, in addition to the built-ins. */
+  qualityPasses: readonly QualityPassDefinition[];
+  /** Quality pass ids selected for new plans that omit `quality`; approved plans keep their own copy. */
+  defaultQualityPasses: readonly string[];
   /** Planned: guided tasks that may run at once, each in its own worktree. Not used yet. */
   maxConcurrentTasks: number;
   /** Planned: silence after which a running turn or check is surfaced as possibly stalled. Not used yet. */
@@ -38,6 +47,8 @@ export function defaultSettings(): Settings {
     usagePollIntervalMs: 15_000,
     defaultCheckTimeoutMs: 120_000,
     defaultWorkflowPolicy: { mode: 'automatic', repairRounds: 2, maxSessionTurns: 6, maxContextTokens: 120_000 },
+    qualityPasses: [],
+    defaultQualityPasses: ['simplification'],
     maxConcurrentTasks: 2,
     stallWarningMs: 600_000,
   };
@@ -45,21 +56,31 @@ export function defaultSettings(): Settings {
 
 const integer = (min: number, max: number) => z.number().int().min(min).max(max);
 const bounded = (range: { min: number; max: number }) => integer(range.min, range.max);
-const overridesSchema = z.strictObject({
-  dashboardPort: integer(1, 65_535).optional(),
-  usagePollIntervalMs: integer(1000, 600_000).optional(),
-  defaultCheckTimeoutMs: integer(commandLimits.minTimeoutMs, commandLimits.maxTimeoutMs).optional(),
-  defaultWorkflowPolicy: z
-    .strictObject({
-      mode: z.enum(['automatic', 'supervised']).optional(),
-      repairRounds: bounded(workflowPolicyBounds.repairRounds).optional(),
-      maxSessionTurns: bounded(workflowPolicyBounds.maxSessionTurns).optional(),
-      maxContextTokens: bounded(workflowPolicyBounds.maxContextTokens).optional(),
-    })
-    .optional(),
-  maxConcurrentTasks: integer(1, 16).optional(),
-  stallWarningMs: integer(1000, 86_400_000).optional(),
-});
+const overridesSchema = z
+  .strictObject({
+    dashboardPort: integer(1, 65_535).optional(),
+    usagePollIntervalMs: integer(1000, 600_000).optional(),
+    defaultCheckTimeoutMs: integer(commandLimits.minTimeoutMs, commandLimits.maxTimeoutMs).optional(),
+    defaultWorkflowPolicy: z
+      .strictObject({
+        mode: z.enum(['automatic', 'supervised']).optional(),
+        repairRounds: bounded(workflowPolicyBounds.repairRounds).optional(),
+        maxSessionTurns: bounded(workflowPolicyBounds.maxSessionTurns).optional(),
+        maxContextTokens: bounded(workflowPolicyBounds.maxContextTokens).optional(),
+      })
+      .optional(),
+    qualityPasses: z.array(qualityPassDefinitionSchema).max(qualityLimits.customPasses).optional(),
+    defaultQualityPasses: z.array(z.string()).max(qualityLimits.passes).optional(),
+    maxConcurrentTasks: integer(1, 16).optional(),
+    stallWarningMs: integer(1000, 86_400_000).optional(),
+  })
+  .superRefine((value, context) => {
+    for (const problem of qualitySettingsProblems(
+      value.qualityPasses ?? [],
+      value.defaultQualityPasses ?? defaultSettings().defaultQualityPasses,
+    ))
+      context.addIssue({ code: 'custom', path: problem.path, message: problem.message });
+  });
 
 function describeIssue(issue: z.core.$ZodIssue): string {
   const at = issue.path.map(String).join('.');
@@ -101,7 +122,12 @@ export function loadSettings(dataDirectory: string): Settings {
 }
 
 const freeze = (settings: Settings): Settings =>
-  Object.freeze({ ...settings, defaultWorkflowPolicy: Object.freeze({ ...settings.defaultWorkflowPolicy }) });
+  Object.freeze({
+    ...settings,
+    defaultWorkflowPolicy: Object.freeze({ ...settings.defaultWorkflowPolicy }),
+    qualityPasses: Object.freeze(settings.qualityPasses.map(pass => Object.freeze({ ...pass }))),
+    defaultQualityPasses: Object.freeze([...settings.defaultQualityPasses]),
+  });
 let active: Settings | null = null;
 
 /** Install the settings for this process. Entry points call this once at startup; tests may inject values. */

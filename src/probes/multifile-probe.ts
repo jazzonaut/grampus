@@ -8,7 +8,7 @@ import { Store } from '../persistence/store.js';
 import { Workflow, activeCriteria, activeSlice } from '../domain/workflow.js';
 import { Workspaces } from '../repository/workspaces.js';
 import { Executions } from '../execution/executions.js';
-import { Checks, type SimplificationAssessment } from '../verification/checks.js';
+import { Checks, type QualityAssessment } from '../verification/checks.js';
 import { Deliveries } from '../execution/deliveries.js';
 import { Implementations } from '../execution/implementations.js';
 import { runSession, Sessions } from '../execution/sessions.js';
@@ -365,11 +365,11 @@ async function finish(): Promise<void> {
   const validation = checks.get(saved.validationId);
   assert.equal(validation.executionId, implementation.id);
   assert.equal(validation.phase, 'passed');
-  const assessment = JSON.parse(readFileSync(resolve(values.assessment!), 'utf8')) as SimplificationAssessment;
+  const assessment = JSON.parse(readFileSync(resolve(values.assessment!), 'utf8')) as QualityAssessment;
   assert.equal(assessment.artifact, saved.artifact, 'Assessment must identify the checkpoint artifact');
   assert.equal(assessment.instructionsDigest, saved.instructionsDigest);
   // Failed/skipped judgments are journaled but never start review or delivery.
-  await checks.simplify(implementation.id, assessment);
+  await checks.assess(implementation.id, { ...assessment, pass: assessment.pass || 'simplification' });
   assert.equal(assessment.outcome, 'passed', 'Simplification has not passed; inspect the result before continuing');
   store.transaction(() => {
     assert.ok(

@@ -11,6 +11,7 @@ import { pinnedContext, pinnedRepository } from '../repository/repository-contex
 import { normalizeReferences, type ReferenceFolder } from '../repository/reference-folders.js';
 import { validateExpectations, type AcceptanceExpectations } from './acceptance.js';
 import { normalizeWorkflowPolicy, type WorkflowPolicy } from './workflow-policy.js';
+import { availableQualityPasses, normalizeQuality, type PlanQuality } from './quality-passes.js';
 
 export interface GuidedCommand {
   name: string;
@@ -33,6 +34,8 @@ export interface GuidedAgent {
 }
 export interface GuidedPlan {
   workflowPolicy: WorkflowPolicy;
+  /** Selected quality passes as full definitions, so approval binds their exact instructions. */
+  quality: PlanQuality;
   preparation?: GuidedCommand;
   reviewPolicy?: { repairRounds: number; arbitrator?: GuidedAgent };
   revision?: {
@@ -137,10 +140,17 @@ export function normalizeGuidedPlan(
       'context',
       'references',
       'preparation',
+      'quality',
     ],
     'guided plan',
   );
   const workflowPolicy = normalizeWorkflowPolicy(value.workflowPolicy);
+  const settings = currentSettings();
+  const quality = normalizeQuality(
+    value.quality,
+    availableQualityPasses(settings.qualityPasses),
+    settings.defaultQualityPasses,
+  );
   const preparation = value.preparation === undefined ? undefined : command(value.preparation, false, 'Preparation');
   const references = normalizeReferences(value.references);
   const brief = structuredClone(
@@ -284,6 +294,7 @@ export function normalizeGuidedPlan(
     slices,
     context,
     workflowPolicy,
+    quality,
     ...(preparation ? { preparation } : {}),
     ...(reviewPolicy ? { reviewPolicy } : {}),
     ...(references.length ? { references } : {}),

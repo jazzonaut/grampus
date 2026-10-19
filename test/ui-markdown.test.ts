@@ -5,6 +5,12 @@ import { createContext, runInContext } from 'node:vm';
 
 // Current-format plan and state fields that dashboard fixtures share.
 const workflowPolicy = { mode: 'automatic', repairRounds: 2, maxSessionTurns: 6, maxContextTokens: 120000 };
+const quality = {
+  passes: [
+    { id: 'simplification', title: 'Simplification', kind: 'lens', instructions: 'Assess <simplification>.' },
+    { id: 'refactor', title: 'Refactor', kind: 'edit', instructions: 'Improve structure.' },
+  ],
+};
 const planContext = { files: [], exploration: true, inventoryDigest: 'fixture', totalFiles: 1, totalBytes: 1 };
 const cycles = {
   repairCycle: { used: 0, failures: [] },
@@ -99,6 +105,7 @@ test('MCP connections are the last sidebar panel on both planning and task pages
     brief: { title: 'A task', outcome: 'An outcome', plan: 'An approach', criteria: ['A criterion'] },
     workspace: { repo: 'C:/repo', base: 'abc', path: 'C:/work' },
     workflowPolicy,
+    quality,
     context: planContext,
     implementation: { provider: 'codex', model: null },
     review: { provider: 'claude', model: null },
@@ -116,8 +123,8 @@ test('MCP connections are the last sidebar panel on both planning and task pages
     `
     selected = 'planning';
     state.kickoffs = [{id:selected,config:{request:'A request',repo:'C:/repo',base:'abc',provider:'codex',adapter:'git',files:[],exploration:true},session:{phase:'idle'},messages:[],integrations:servers}];
-    detail = {task:{id:'task',brief:plan.brief},state:{status:'complete',stage:'complete',sliceIndex:0,version:1,plan,repairCycle:{used:0,failures:[]},reviewCycle:{repairs:0,history:[],arbitrating:false,arbitrationUsed:false}},
-      integrations:servers,findings:[],checks:[],deliveries:[],events:[]};
+    detail = {task:{id:'task',brief:plan.brief},state:{status:'complete',stage:'complete',sliceIndex:0,version:1,plan,repairCycle:{used:0,failures:[]},reviewCycle:{repairs:0,history:[],arbitrating:false,arbitrationUsed:false},qualityEdits:[]},
+      integrations:servers,findings:[],lenses:[],qualityEvidence:[],checks:[],deliveries:[],events:[]};
   `,
     context,
   );
@@ -165,6 +172,7 @@ test('plan revisions, repair budgets and structured acceptance remain reviewable
       plan: {
         brief: { title: '</textarea><script>bad</script>', outcome: 'New output', plan: 'Small change' },
         workflowPolicy,
+        quality,
         reviewPolicy: { repairRounds: 2, arbitrator: { provider: 'codex', model: 'fixture' } },
       },
     },
@@ -180,8 +188,53 @@ test('plan revisions, repair budgets and structured acceptance remain reviewable
   assert.match(html, /<dd>240<\/dd>/);
   assert.match(html, /&lt;\/textarea&gt;/);
   assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /id="quality-passes" name="quality-passes" type="text" value="simplification, refactor"/);
   runInContext('view.state.owner = {token:"owned"}', context);
   assert.equal(runInContext('revisionCard(view)', context), '');
+});
+
+test('quality passes show at approval, in the assessment form and as results; rerun appears only when offered', () => {
+  const { context } = dashboard();
+  runInContext(
+    'state.qualityPasses = [{ id: "naming", title: "Naming", kind: "lens", instructions: "Names." }]',
+    context,
+  );
+  const plan = { workflowPolicy: { ...workflowPolicy, mode: 'supervised' }, quality, slices: [] };
+  const approval = runInContext('qualityCard(plan)', Object.assign(context, { plan })) as string;
+  assert.match(approval, /Simplification · review lens · <code>simplification<\/code>/);
+  assert.match(approval, /Refactor · edit pass/);
+  assert.match(approval, /Assess &lt;simplification&gt;\./);
+  assert.match(runInContext('qualityCard({ ...plan, quality: { passes: [] } })', context) as string, /None selected/);
+
+  const base = { owner: null, pending: null, plan, qualityEdits: [], sliceIndex: 0 };
+  context['view'] = { state: { ...base, status: 'awaiting_assessment' }, lenses: [], qualityEvidence: [] };
+  const form = runInContext('taskAction(view)', context) as string;
+  assert.match(form, /assessment-form/);
+  assert.match(form, /recorded for every lens listed/);
+  assert.match(form, /<code>simplification<\/code>/);
+  assert.doesNotMatch(form, /<code>refactor<\/code>/);
+
+  context['view'] = {
+    state: { ...base, status: 'blocked', stage: 'validation', stopReason: { code: 'CHECK_TIMEOUT' } },
+    rerun: 'npm start -- task-rerun-checks',
+  };
+  const offered = runInContext('taskAction(view)', context) as string;
+  assert.match(offered, /data-action="rerun-checks"/);
+  assert.match(offered, /CHECK_TIMEOUT/);
+  assert.match(offered, /data-action="retry"/);
+  runInContext('view.rerun = null', context);
+  assert.doesNotMatch(runInContext('taskAction(view)', context) as string, /rerun-checks/);
+
+  context['view'] = {
+    state: { ...base, qualityEdits: [{ pass: 'refactor', implementationId: 'run', before: 'a', after: 'b' }] },
+    lenses: [{ lens: 'naming', verdict: 'fail', summary: 'Rename <data>', findings: [] }],
+    qualityEvidence: [{ pass: 'simplification', outcome: 'passed', source: 'agent' }],
+  };
+  const results = runInContext('qualityResultsCard(view)', context) as string;
+  assert.match(results, /<b>refactor<\/b> edit pass · changed the files/);
+  assert.match(results, /naming · failed/);
+  assert.match(results, /Rename &lt;data&gt;/);
+  assert.match(results, /simplification passed \(independent reviewer\)/);
 });
 
 test('usage cards separate metrics, format costs, distinguish missing measurements and refresh values', () => {
@@ -293,6 +346,7 @@ test('proposed plans render narrative Markdown while command arguments stay lite
     },
     workspace: { repo: 'C:/repo', base: 'abc', path: 'C:/work' },
     workflowPolicy,
+    quality,
     context: planContext,
     implementation: { provider: 'claude', model: null },
     review: { provider: 'codex', model: null },
@@ -325,6 +379,7 @@ test('preparation commands are visible for approval and failures offer a prepara
     },
     workspace: { repo: 'C:/repo', base: 'abc' },
     workflowPolicy,
+    quality,
     context: planContext,
     implementation: { provider: 'codex', model: null },
     review: { provider: 'claude', model: null },

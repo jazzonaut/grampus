@@ -80,11 +80,12 @@ export async function fixture(t: { after(fn: () => void): void }, prepare?: (pat
       snapshot.artifact,
       'Explicit trusted fixture submission',
     );
-  for (const kind of ['validation', 'simplification', 'review', 'verification'] as const) {
+  for (const kind of ['validation', 'quality', 'review', 'verification'] as const) {
     if (noChange && kind === 'validation') continue;
     workflow.record(task.id, {
       id: kind,
       kind,
+      ...(kind === 'quality' ? { pass: 'simplification' } : {}),
       artifact: snapshot.artifact,
       version: 1,
       attemptId: execution.attemptId,

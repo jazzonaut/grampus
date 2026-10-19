@@ -18,10 +18,11 @@ async function gated(f: Fixture, execution = f.execution) {
     snapshot.artifact,
     'Trusted offline fixture submission',
   );
-  for (const kind of ['validation', 'simplification', 'review', 'verification'] as const)
+  for (const kind of ['validation', 'quality', 'review', 'verification'] as const)
     f.workflow.record(f.task.id, {
       id: `${execution.id}:${kind}`,
       kind,
+      ...(kind === 'quality' ? { pass: 'simplification' } : {}),
       artifact: snapshot.artifact,
       attemptId: execution.attemptId,
       version: 1,

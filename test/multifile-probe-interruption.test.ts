@@ -141,7 +141,8 @@ for (const mode of ['existing', 'new', 'delete'] as const)
         const validation = await checks.run(fresh.id, spec);
         assert.equal(validation.phase, 'passed', JSON.stringify(validation));
         await checks.finish(fresh.id, validation.id);
-        await checks.simplify(fresh.id, {
+        await checks.assess(fresh.id, {
+          pass: 'simplification',
           artifact: submitted.artifact,
           instructionsDigest: submitted.instructionsDigest,
           outcome: 'passed',

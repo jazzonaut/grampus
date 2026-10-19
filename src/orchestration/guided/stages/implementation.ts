@@ -6,14 +6,19 @@ import { deepEqual } from '../../../domain/deep-equal.js';
 import { withReason, type StopReasonCode } from '../stop-reasons.js';
 import { adoptOne, mismatch, requireOrigin, requireSettled, type StageHandler } from '../context.js';
 import { implementationPrompt } from '../prompts.js';
-import { afterImplementation, currentSlice } from '../specs.js';
+import { afterEditing, currentSlice, editPolicy } from '../specs.js';
 
 /**
  * Why an implementation turn stopped. Staging is told apart from other failures by its snapshots
  * (same HEAD and instructions, different index) because it needs a different action: finish
- * staging, then retry, rather than inspecting a failed edit.
+ * staging, then retry, rather than inspecting a failed edit. Edit quality passes share the rule and
+ * name their own codes for other failures.
  */
-function failureCode(result: ImplementationRun): StopReasonCode {
+export function failureCode(
+  result: ImplementationRun,
+  failed: StopReasonCode = 'IMPLEMENTATION_FAILED',
+  interrupted: StopReasonCode = 'IMPLEMENTATION_INTERRUPTED',
+): StopReasonCode {
   const { before, after } = result;
   if (
     before &&
@@ -23,7 +28,7 @@ function failureCode(result: ImplementationRun): StopReasonCode {
     after.index !== before.index
   )
     return 'CHECKPOINT_CHANGED';
-  return result.phase === 'interrupted' ? 'IMPLEMENTATION_INTERRUPTED' : 'IMPLEMENTATION_FAILED';
+  return result.phase === 'interrupted' ? interrupted : failed;
 }
 
 /**
@@ -82,6 +87,15 @@ export const implementationStage: StageHandler = {
         reason: { code: 'AGENT_QUESTION', note: 'Answer the implementation questions with task-answer.' },
         update,
       };
-    return { kind: 'advance', next: afterImplementation(state), update };
+    const next = afterEditing(state, after);
+    return {
+      kind: 'advance',
+      next,
+      update: current => {
+        update(current);
+        // An edit pass works on what the implementation left, within the same authorized paths.
+        if (next === 'quality_pass') current.policy = editPolicy(current, after);
+      },
+    };
   },
 };

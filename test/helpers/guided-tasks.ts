@@ -10,6 +10,7 @@ import { GuidedTasks } from '../../src/orchestration/guided/controller.js';
 import type { GuidedServices } from '../../src/orchestration/guided/state.js';
 import { runCheckProcess } from '../../src/process/check-process.js';
 import type { Reply } from '../../src/providers/types.js';
+import type { LensAssessment } from '../../src/domain/quality-passes.js';
 
 export const windows = { skip: process.platform !== 'win32' };
 
@@ -18,6 +19,11 @@ export const cli = fileURLToPath(new URL('../../src/cli.js', import.meta.url));
 export const message: Reply = { kind: 'message', text: 'Offline fixture implementation', questions: [], findings: [] };
 
 export const review: Reply = { kind: 'review', text: 'Offline fixture review', questions: [], findings: [] };
+
+/** A reviewer's assessment of one quality lens, the simplification lens unless another is named. */
+export function lens(verdict: 'pass' | 'fail', summary: string, id = 'simplification'): LensAssessment {
+  return { lens: id, verdict, summary, findings: [] };
+}
 
 export function preparation(code: string) {
   return { name: 'Restore repository prerequisites', file: 'node', args: ['-e', code], timeoutMs: 15000 };
@@ -106,6 +112,46 @@ export function fixture(t: { after(fn: () => void): void }) {
     return task.id;
   };
   return { root, repo, store, plan, tasks, create };
+}
+
+/** Validation that hangs past its timeout until `marker` exists, then checks the greeting. */
+export function slowValidation(marker: string | null) {
+  const hang = 'setTimeout(() => {}, 60000)';
+  const check =
+    "const a=require('node:assert/strict');a.equal(require('node:child_process').execFileSync(process.execPath,['greeting.js'],{encoding:'utf8'}),'hello world\\n');";
+  return {
+    name: 'Validation',
+    file: 'node',
+    args: [
+      '-e',
+      marker
+        ? `const fs=require('node:fs');if(!fs.existsSync(${JSON.stringify(marker)})){fs.writeFileSync(${JSON.stringify(marker)},'');${hang}}else{${check}}`
+        : hang,
+    ],
+    timeoutMs: 1000,
+  };
+}
+
+/** Guided tasks over the offline services that count implementer turns; the reviewer passes the simplification lens. */
+export function counted(f: ReturnType<typeof fixture>) {
+  const config = services();
+  const runner = config.implementationRunner!;
+  let turns = 0;
+  config.implementationRunner = options => {
+    turns++;
+    return runner(options);
+  };
+  config.connector = async () => ({
+    turn: async () => ({
+      status: 'completed' as const,
+      reply: { ...review, lenses: [lens('pass', 'One direct output statement.')] },
+      usage: null,
+      error: null,
+    }),
+    interrupt: async () => {},
+    close: async () => {},
+  });
+  return { tasks: new GuidedTasks(f.store, config), turns: () => turns };
 }
 
 export function crashProgram(

@@ -13,11 +13,13 @@ import { Executions } from '../../execution/executions.js';
 import { Sessions } from '../../execution/sessions.js';
 import { Workspaces } from '../../repository/workspaces.js';
 import type { RepositorySnapshot } from '../../repository/artifacts.js';
-import { Checks, type SimplificationAssessment } from '../../verification/checks.js';
+import { Checks } from '../../verification/checks.js';
+import { selectedLenses, type QualityAssessment } from '../../domain/quality-passes.js';
 import { processAlive } from '../../verification/check-recovery.js';
 import { currentProcessStartedAt } from '../../process/process-identity.js';
 import { evidenceIds, type GuidedContext, type StageOutcome, type StateUpdate, type StopInput } from './context.js';
-import { guidedDecisionKey, guidedQuestionKey } from './keys.js';
+import { guidedDecisionDigest, guidedDecisionKey, guidedQuestionKey } from './keys.js';
+import { rerunChecksIneligibility } from './rerun.js';
 import { recoverLeafOperations } from './recovery.js';
 import { implementationRetrySnapshot, preparationRetrySnapshot, prepareRetry } from './retry.js';
 import { draftRevision, requireLinkedSessionsSettled, revisedState } from './revision.js';
@@ -97,7 +99,8 @@ export class GuidedTasks {
         owner: null,
         pending: null,
         stopRequested: false,
-        assessment: null,
+        assessments: [],
+        qualityEdits: [],
         answers: null,
         feedback: '',
         note: draftNote,
@@ -157,7 +160,8 @@ export class GuidedTasks {
         artifact: state.snapshot?.artifact ?? null,
         instructionsDigest: state.snapshot?.instructionsDigest ?? null,
         policy: state.policy,
-        assessment: state.assessment,
+        assessments: state.assessments,
+        qualityEdits: state.qualityEdits,
         reviewCycle: state.reviewCycle,
         repairCycle: state.repairCycle,
         failedCheckId: state.failedCheckId,
@@ -308,7 +312,12 @@ export class GuidedTasks {
     if (state.pending) throw new Error('An earlier step needs explicit recovery; nothing will be replayed');
     const known = this.known(this.context(id, token), state);
     return this.change(id, token, 'guided.step_requested', state => {
-      state.pending = { stage: state.stage, known, assessment: state.assessment, controller: { ...state.owner! } };
+      state.pending = {
+        stage: state.stage,
+        known,
+        assessment: state.assessments[0] ?? null,
+        controller: { ...state.owner! },
+      };
       state.status = 'running';
       state.note = `Running ${state.stage}.`;
     });
@@ -444,16 +453,20 @@ export class GuidedTasks {
       'awaiting_scope',
     );
   }
-  /** Supervised mode: records an explicit simplification assessment of the current artifact and continues. */
+  /**
+   * Supervised mode: records a person's quality assessment of the current artifact and continues. One
+   * outcome and summary cover every selected lens, and are recorded as evidence for each of them.
+   */
   async assess(
     id: string,
-    outcome: SimplificationAssessment['outcome'],
+    outcome: QualityAssessment['outcome'],
     summary: string,
     signal?: AbortSignal,
   ): Promise<GuidedState> {
     const state = this.current(id);
-    if (state.status !== 'awaiting_assessment' || !state.snapshot)
-      throw new Error('No simplification assessment is pending');
+    const lenses = selectedLenses(state.plan.quality);
+    if (state.status !== 'awaiting_assessment' || !state.snapshot || !lenses.length)
+      throw new Error('No quality assessment is pending');
     if (
       !['passed', 'failed', 'skipped'].includes(outcome) ||
       typeof summary !== 'string' ||
@@ -467,12 +480,13 @@ export class GuidedTasks {
       id,
       async (token, signal) => {
         this.change(id, token, 'guided.assessment_supplied', state => {
-          state.assessment = {
+          state.assessments = lenses.map(lens => ({
+            pass: lens.id,
             artifact: state.snapshot!.artifact,
             instructionsDigest: state.snapshot!.instructionsDigest,
             outcome,
             summary,
-          };
+          }));
           state.status = 'ready';
         });
         await this.drive(id, token, signal);
@@ -543,6 +557,48 @@ export class GuidedTasks {
       signal,
       false,
       allowed,
+    );
+  }
+  /**
+   * Reruns a stopped validation or acceptance check on the unchanged artifact without a new
+   * implementation attempt: no agent turn, the same execution and attempt, and a new check record
+   * under the usual evidence binding. Only infrastructure stops whose check settled qualify
+   * ({@link rerunChecksIneligibility}); automatic mode never reruns on its own, so a timeout is always
+   * surfaced. `expectedDecision` is the digest of the decision key the caller inspected.
+   */
+  async rerunChecks(id: string, expectedDecision: string, signal?: AbortSignal): Promise<GuidedState> {
+    const eligible = (): GuidedState => {
+      const state = this.current(id);
+      if (expectedDecision !== guidedDecisionDigest(state, guidedQuestionKey(this.store, state)))
+        throw new Error('Task changed since you inspected it; refresh before taking this action');
+      const problem = rerunChecksIneligibility(this.store, this.workflow.get(id));
+      if (problem) throw new Error(problem);
+      return state;
+    };
+    eligible();
+    return this.owned(
+      id,
+      async (token, signal) => {
+        // Claiming the runner leaves the decision key unchanged, so the inspected decision must still apply.
+        const state = eligible();
+        if (this.unsettled(id, state)) throw new Error('Recover the unfinished operation before rerunning checks');
+        const snapshot = await this.checks.snapshot(state.executionId!);
+        if (
+          snapshot.artifact !== state.snapshot!.artifact ||
+          snapshot.instructionsDigest !== state.snapshot!.instructionsDigest
+        )
+          throw new Error(
+            'The workspace changed since the check ran; rerun checks applies only to the unchanged artifact. Use task-retry for a new attempt or revise the plan.',
+          );
+        this.change(id, token, 'guided.checks_rerun_requested', current => {
+          current.status = 'ready';
+          current.note = '';
+        });
+        await this.drive(id, token, signal);
+      },
+      signal,
+      false,
+      'blocked',
     );
   }
   /**

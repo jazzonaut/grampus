@@ -50,6 +50,7 @@ interface PlannerReplyPlan {
   review?: unknown;
   context?: unknown;
   references?: unknown;
+  quality?: unknown;
 }
 
 /** Every pending question needs a nonempty answer, keyed by its id, and nothing else. */
@@ -83,9 +84,10 @@ function needsContext(events: { sequence: number; type: string; data: unknown }[
 }
 
 /**
- * The guided plan in a planner reply. Paths, pinned base, providers, context and references are
- * chosen by the user and controller, so the reply's values for them are replaced before
- * normalisation; the generated title, if any, replaces the planner's.
+ * The guided plan in a planner reply. Paths, pinned base, providers, context, references and quality
+ * passes are chosen by the user and controller, so the reply's values for them are replaced before
+ * normalisation (quality passes by the configured default, changed through a revision); the
+ * generated title, if any, replaces the planner's.
  */
 function planFromReply(reply: string, config: Kickoff, title: string | undefined): GuidedPlan {
   const raw = JSON.parse(reply) as PlannerReplyPlan;
@@ -100,6 +102,7 @@ function planFromReply(reply: string, config: Kickoff, title: string | undefined
   raw.review = { provider: config.provider === 'codex' ? 'claude' : 'codex' };
   raw.context = { files: config.files.map(file => file.path), exploration: true };
   raw.references = config.references;
+  delete raw.quality;
   const plan = normalizeGuidedPlan(raw);
   requireValidInlineChecks(plan);
   return plan;

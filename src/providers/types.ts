@@ -1,11 +1,12 @@
 import type { RepositoryAccess } from '../repository/repository-tools.js';
 import type { EditingContext } from '../execution/edit-policy.js';
-import { reviewLimits } from '../config/limits.js';
+import { lensAssessmentsJsonSchema, parseLensAssessments, type LensAssessment } from '../domain/quality-passes.js';
 export type Provider = 'codex' | 'claude';
 export const agentToolsetVersion = 3;
 
 export interface Reply {
-  simplification?: { outcome: 'passed' | 'failed'; summary: string } | null;
+  /** Review replies only: one assessment per quality lens the review prompt selected. */
+  lenses?: LensAssessment[] | null;
   kind: 'message' | 'question' | 'review';
   text: string;
   questions: { id: string; prompt: string; choices: string[] }[];
@@ -16,17 +17,7 @@ export const replySchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    simplification: {
-      anyOf: [
-        { type: 'null' },
-        {
-          type: 'object',
-          additionalProperties: false,
-          properties: { outcome: { type: 'string', enum: ['passed', 'failed'] }, summary: { type: 'string' } },
-          required: ['outcome', 'summary'],
-        },
-      ],
-    },
+    lenses: lensAssessmentsJsonSchema,
     kind: { type: 'string', enum: ['message', 'question', 'review'] },
     text: { type: 'string' },
     questions: {
@@ -56,7 +47,7 @@ export const replySchema = {
       },
     },
   },
-  required: ['kind', 'text', 'questions', 'findings', 'simplification'],
+  required: ['kind', 'text', 'questions', 'findings', 'lenses'],
 };
 
 export const instructions = `You are participating in a Grampus conversation. Do not edit files, run commands or delegate work. Use configured MCP integrations and the supplied read-only tools to gather task context.
@@ -104,15 +95,10 @@ export function parseReply(value: unknown): Reply {
     throw new Error('Invalid review findings');
   if ((r.kind === 'question') !== r.questions.length > 0 || (r.kind !== 'review' && r.findings.length > 0))
     throw new Error('Reply kind does not match content');
-  if (
-    r.simplification != null &&
-    (r.kind !== 'review' ||
-      !['passed', 'failed'].includes(r.simplification.outcome) ||
-      typeof r.simplification.summary !== 'string' ||
-      !r.simplification.summary.trim() ||
-      Buffer.byteLength(r.simplification.summary) > reviewLimits.simplificationSummaryBytes)
-  )
-    throw new Error('Invalid independent simplification assessment');
+  if (r.lenses != null) {
+    if (r.kind !== 'review') throw new Error('Invalid quality lens assessments: only a review may assess lenses');
+    r.lenses = parseLensAssessments(r.lenses);
+  }
   return r as Reply;
 }
 

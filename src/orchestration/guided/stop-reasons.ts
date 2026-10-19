@@ -13,7 +13,7 @@ export const StopReasonCode = {
   APPROVAL_REQUIRED: 'APPROVAL_REQUIRED',
   /** Supervised mode: the exact file scope waits for explicit authorization. */
   SCOPE_AUTHORIZATION_REQUIRED: 'SCOPE_AUTHORIZATION_REQUIRED',
-  /** Supervised mode: a human simplification assessment is required after submission. */
+  /** Supervised mode: a human quality assessment of the selected lenses is required after submission. */
   ASSESSMENT_REQUIRED: 'ASSESSMENT_REQUIRED',
   /** An assessment step settled without an accepted assessment; it must be supplied again. */
   ASSESSMENT_UNSETTLED: 'ASSESSMENT_UNSETTLED',
@@ -29,6 +29,8 @@ export const StopReasonCode = {
   IMPLEMENTATION_FAILED: 'IMPLEMENTATION_FAILED',
   /** The implementation turn was interrupted, usually by a stop request. */
   IMPLEMENTATION_INTERRUPTED: 'IMPLEMENTATION_INTERRUPTED',
+  /** An edit quality pass turn failed, was interrupted or returned no settled artifact. */
+  QUALITY_PASS_FAILED: 'QUALITY_PASS_FAILED',
   /** Files were staged or unstaged during the implementation, so its Git checkpoint changed. */
   CHECKPOINT_CHANGED: 'CHECKPOINT_CHANGED',
   /** The workspace changed between automatic repair attempts. */
@@ -63,8 +65,8 @@ export const StopReasonCode = {
   CHECK_NO_PROGRESS: 'CHECK_NO_PROGRESS',
   /** The slice's check repair allowance is used up. */
   CHECK_REPAIR_EXHAUSTED: 'CHECK_REPAIR_EXHAUSTED',
-  /** Supervised mode: the human simplification assessment did not pass. */
-  SIMPLIFICATION_FAILED: 'SIMPLIFICATION_FAILED',
+  /** A recorded quality lens assessment did not pass (in practice the human's, in supervised mode). */
+  QUALITY_ASSESSMENT_FAILED: 'QUALITY_ASSESSMENT_FAILED',
   /** Transient: a blocking review was recorded and the controller is choosing repair, arbitration or a stop. */
   REVIEW_BLOCKING_FINDINGS: 'REVIEW_BLOCKING_FINDINGS',
   /** Blocking review findings remain and the review repair allowance is used up. */
@@ -77,8 +79,8 @@ export const StopReasonCode = {
   REVIEW_FAILED_NO_BLOCKING_FINDINGS: 'REVIEW_FAILED_NO_BLOCKING_FINDINGS',
   /** The review turn itself failed or was interrupted. */
   REVIEW_TURN_FAILED: 'REVIEW_TURN_FAILED',
-  /** Automatic mode: a passing review did not include a passing simplification assessment. */
-  REVIEW_MISSING_SIMPLIFICATION: 'REVIEW_MISSING_SIMPLIFICATION',
+  /** Automatic mode: a passing review did not assess every selected quality lens. */
+  REVIEW_MISSING_LENS: 'REVIEW_MISSING_LENS',
   /** The slice's review history is too long to resend in full. */
   REVIEW_HISTORY_LIMIT: 'REVIEW_HISTORY_LIMIT',
   /** Local delivery settled without a verified commit. */

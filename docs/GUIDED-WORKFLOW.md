@@ -28,8 +28,9 @@ A plan contains:
 - `slices`: one execution configuration per brief slice (one for an unsliced brief),
   each with a file `scope` (`files`, `create`, `delete`), `validation`, `acceptance`,
   a delivery `message`, and optional `preparation` and `mode`.
-- Optional `workflowPolicy`, `reviewPolicy`, top-level `preparation`, `context` and
-  `references`.
+- Optional `workflowPolicy`, `reviewPolicy`, `quality`, top-level `preparation`, `context`
+  and `references`. `quality.passes` lists quality pass ids or full definitions; it defaults
+  to the configured `defaultQualityPasses` ([quality passes](WORKFLOW.md#quality-passes)).
 
 Commands use `name`, `file`, `args` and `timeoutMs` (default 120000 or the configured
 `defaultCheckTimeoutMs`, at most 600000; see [configuration](CONFIGURATION.md)).
@@ -73,6 +74,12 @@ owned processes to settle. From a checkout, use `npm start --` in place of `gram
 Inspect the retained files, findings and check output, then use `task-retry`. Valid
 tests and acceptance criteria must not be weakened to make them pass.
 
+When a check stopped for an infrastructure reason, such as `CHECK_TIMEOUT`, on an unchanged
+artifact, `task-show` offers `task-rerun-checks <task-id> <decision-key>` as the next action.
+It reruns the same check without an agent turn or a new implementation attempt
+([rerun checks](WORKFLOW.md#rerun-checks)). The decision key is the digest of the state you
+inspected, so a command copied before the task changed is refused.
+
 ## Supervised mode
 
 With `"workflowPolicy": { "mode": "supervised" }`:
@@ -80,14 +87,15 @@ With `"workflowPolicy": { "mode": "supervised" }`:
 1. Before each editing turn the task stops at `awaiting_scope`. Inspect the files with
    `task-show <task-id> --details`, then run `task-authorize <task-id>`. Authorization
    binds to that exact snapshot.
-2. After validation and submission it stops at `awaiting_assessment`. Inspect the code
-   and record a simplification outcome:
+2. After validation and submission it stops at `awaiting_assessment` when the plan selects
+   quality lenses. Inspect the code and record one outcome covering every selected lens:
 
    ```sh
    grampus task-assess <task-id> --outcome passed --summary "One direct statement; no duplication or extra abstractions."
    ```
 
-   `failed` or `skipped` is retained and stops before review.
+   It is recorded as evidence for each selected lens. `failed` or `skipped` is retained and
+   stops before review.
 
 Review, acceptance and delivery then follow as in automatic mode. Failed checks stop
 for `task-retry` instead of being repaired automatically. Blocking review findings

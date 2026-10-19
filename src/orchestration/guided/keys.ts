@@ -22,7 +22,8 @@ export function guidedQuestionKey(store: Store, state: GuidedState): string | nu
 
 /**
  * Everything a decision depends on: plan version and digest, position, artifact, instructions,
- * executions and, for answers, the question key. The controller recomputes and compares it.
+ * executions, the failed check on display and, for answers, the question key. The controller
+ * recomputes and compares it.
  */
 export function guidedDecisionKey(state: GuidedState, questionKey: string | null = null): string {
   return JSON.stringify({
@@ -34,6 +35,20 @@ export function guidedDecisionKey(state: GuidedState, questionKey: string | null
     instructionsDigest: state.snapshot?.instructionsDigest ?? null,
     executionId: state.executionId,
     reviewId: state.reviewId,
+    failedCheckId: state.failedCheckId,
     questionKey,
   });
+}
+
+/**
+ * The SHA-256 digest of a decision key. Commands take the digest rather than the key itself, because
+ * a JSON argument does not survive every Windows shell's quoting intact.
+ */
+export function decisionKeyDigest(key: string): string {
+  return createHash('sha256').update(key).digest('hex');
+}
+
+/** The digest of the current decision key, as `task-show` prints it for commands that need one. */
+export function guidedDecisionDigest(state: GuidedState, questionKey: string | null = null): string {
+  return decisionKeyDigest(guidedDecisionKey(state, questionKey));
 }

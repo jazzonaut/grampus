@@ -17,7 +17,7 @@ import { Deliveries } from './execution/deliveries.js';
 import { Implementations } from './execution/implementations.js';
 import { GuidedTasks } from './orchestration/guided/controller.js';
 import { guidedTaskView, renderGuidedTask } from './orchestration/guided-status.js';
-import type { SimplificationAssessment } from './verification/checks.js';
+import type { QualityAssessment } from './domain/quality-passes.js';
 import { defaultDataDirectory, updateInstallation, versionInformation, versionLabel } from './config/runtime.js';
 import { currentSettings, loadSettings, useSettings } from './config/settings.js';
 
@@ -45,9 +45,11 @@ const help = `Grampus — local agent controller
   task-run <id>                   Advance until input is needed or work stops
   task-authorize <id>             Authorize the inspected file scope and continue
   task-assess <id> --outcome passed|failed|skipped --summary <text>
-                                  Record explicit simplification and continue
+                                  Record a quality assessment of the selected lenses and continue
   task-answer <id> <answers.json> Answer pending questions and continue
   task-retry <id>                 Retry preparation, or start a fresh implementation attempt
+  task-rerun-checks <id> <decision-key>  Rerun a check stopped by a timeout or other infrastructure problem
+                                  on the unchanged artifact; no agent turn or new attempt
   task-stop <id>                  Request a running guided controller to stop
   task-recover <id>               Reconcile saved results; never replay provider/Git work
   workspace-new <task-id> <version>  Create a worktree (--repo, --path, optional --base)
@@ -63,7 +65,7 @@ const help = `Grampus — local agent controller
   execution-snapshot <id>        Inspect repository content, diff and instruction digest
   execution-check <id> <file.json>  Run an explicit check against that snapshot (Windows)
   execution-finish <id> <check-id> Submit implementation with the latest passing check
-  execution-simplify <id> <file.json> Record an explicit assessment of the submitted artifact
+  execution-simplify <id> <file.json> Record an explicit quality lens assessment of the submitted artifact
   execution-verify <id> <file.json> Verify current slice criteria (all task criteria for final slice)
   execution-review <id>           Review a verified artifact (review execution; optional --answers-file)
   execution-complete <id>         Recheck artifact and require every completion gate
@@ -199,6 +201,7 @@ async function main(): Promise<void> {
       'task-assess',
       'task-answer',
       'task-retry',
+      'task-rerun-checks',
       'task-stop',
       'task-recover',
     ];
@@ -227,12 +230,15 @@ async function main(): Promise<void> {
       } else if (action === 'task-run') await tasks.run(id, abort.signal);
       else if (action === 'task-authorize') await tasks.authorize(id, abort.signal);
       else if (action === 'task-assess')
-        await tasks.assess(id, values.outcome as SimplificationAssessment['outcome'], values.summary!, abort.signal);
+        await tasks.assess(id, values.outcome as QualityAssessment['outcome'], values.summary!, abort.signal);
       else if (action === 'task-answer') {
         if (!version) throw new Error('task-answer requires an answers JSON file');
         await tasks.answer(id, JSON.parse(readFileSync(version, 'utf8')), abort.signal);
       } else if (action === 'task-retry') await tasks.retry(id, abort.signal);
-      else if (action === 'task-release-workspace') await tasks.releaseWorkspace(id);
+      else if (action === 'task-rerun-checks') {
+        if (!version) throw new Error('task-rerun-checks requires the decision key shown by task-show');
+        await tasks.rerunChecks(id, version, abort.signal);
+      } else if (action === 'task-release-workspace') await tasks.releaseWorkspace(id);
       else if (action === 'task-stop') tasks.stop(id);
       else if (action === 'task-recover') await tasks.recover(id);
       console.log(
@@ -358,7 +364,7 @@ async function main(): Promise<void> {
       if (action === 'execution-simplify') {
         if (!version) throw new Error('execution-simplify requires an assessment file');
         const assessment = JSON.parse(readFileSync(version, 'utf8'));
-        await checks.simplify(id!, assessment);
+        await checks.assess(id!, assessment);
         console.log(JSON.stringify(new Workflow(store).get(executions.get(id!).taskId), null, 2));
         if (assessment.outcome !== 'passed') process.exitCode = 1;
       }

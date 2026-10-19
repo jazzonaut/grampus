@@ -59,6 +59,7 @@ function expected(view: any) {
     instructionsDigest: s.snapshot?.instructionsDigest ?? null,
     executionId: s.executionId,
     reviewId: s.reviewId,
+    failedCheckId: s.failedCheckId ?? null,
     questionKey: view.questionKey ?? null,
   });
 }
@@ -153,7 +154,64 @@ test('approving an automatic plan starts work without a second continue or file 
   assert.equal(view.state.status, 'blocked', view.state.note);
   assert.equal(view.state.stage, 'validation');
   assert.equal(view.checks[0].phase, 'failed');
+  assert.equal(view.rerun, null, 'A genuine check failure is not offered a rerun');
   assert.ok(!ui.store.events(task.id).some(event => (event.data as any)?.status === 'awaiting_scope'));
+});
+
+test('a timed-out check offers Rerun checks, which runs a new check through a worker without a new attempt', async t => {
+  const f = fixture(t),
+    ui = await startUi({ db: join(f.root, 'grampus.sqlite'), port: 0 });
+  t.after(async () => {
+    await ui.close();
+    f.cleanup();
+  });
+  const tasks = new GuidedTasks(ui.store),
+    task = tasks.create({
+      ...f.plan,
+      workflowPolicy: { mode: 'automatic' },
+      slices: [
+        {
+          ...f.plan.slices[0],
+          validation: { file: 'node', args: ['-e', 'setTimeout(() => {}, 60000)'], timeoutMs: 1000 },
+        },
+      ],
+    });
+  tasks.approve(task.id, 1, task.guided!.digest);
+  await tasks.run(task.id);
+  const url = new URL(ui.url),
+    headers = { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' };
+  const get = async () => await (await fetch(`${url.origin}/api/tasks/${task.id}`, { headers })).json();
+  const status = await (await fetch(`${url.origin}/api/state`, { headers })).json();
+  assert.deepEqual(
+    status.qualityPasses.map((pass: any) => pass.id),
+    ['simplification', 'naming', 'refactor', 'documentation'],
+  );
+  let view = await get();
+  assert.equal(view.state.stopReason.code, 'CHECK_TIMEOUT', view.state.note);
+  assert.match(view.rerun, /task-rerun-checks/);
+  const attempt = ui.store.get<any>(task.id).attempt.id;
+  const response = await fetch(`${url.origin}/api/tasks/${task.id}/rerun-checks`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ expected: expected(view) }),
+  });
+  assert.equal(response.status, 202);
+  const deadline = Date.now() + 30000;
+  do {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    view = await get();
+  } while (
+    ((await (await fetch(`${url.origin}/api/state`, { headers })).json()).jobs[task.id]?.running ||
+      view.checks.length < 2) &&
+    Date.now() < deadline
+  );
+  const job = (await (await fetch(`${url.origin}/api/state`, { headers })).json()).jobs[task.id];
+  assert.equal(job.error, null);
+  assert.equal(view.checks.length, 2);
+  assert.notEqual(view.checks[1].id, view.checks[0].id);
+  assert.equal(view.state.stopReason.code, 'CHECK_TIMEOUT');
+  assert.equal(ui.store.get<any>(task.id).attempt.id, attempt);
+  assert.ok(ui.store.events(task.id).some(event => event.type === 'guided.checks_rerun_requested'));
 });
 
 test('planning infers generic preparation on initial and resumed turns and retains commands for approval', async t => {

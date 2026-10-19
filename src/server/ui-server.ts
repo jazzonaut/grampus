@@ -18,6 +18,7 @@ import { currentSettings } from '../config/settings.js';
 import { TaskLifecycle } from '../orchestration/task-lifecycle.js';
 import { suggestReferenceFolders } from '../repository/reference-folders.js';
 import type { Task } from '../domain/workflow.js';
+import { availableQualityPasses } from '../domain/quality-passes.js';
 import type { RepositoryCheck } from '../verification/checks.js';
 import type { Execution } from '../execution/execution-state.js';
 import { checkIssue, outputExcerpt, readCheckLog } from '../verification/check-output.js';
@@ -131,6 +132,7 @@ export async function startUi(options: UiOptions) {
           jobs: Object.fromEntries(jobs),
           journal: store.path,
           application: versionInformation(currentSettings().dashboardPort),
+          qualityPasses: availableQualityPasses(currentSettings().qualityPasses),
         });
         return;
       }
@@ -380,7 +382,17 @@ export async function startUi(options: UiOptions) {
           return;
         }
         if (
-          !['run', 'authorize', 'assess', 'answer', 'retry', 'revise', 'recover', 'release-workspace'].includes(action)
+          ![
+            'run',
+            'authorize',
+            'assess',
+            'answer',
+            'retry',
+            'rerun-checks',
+            'revise',
+            'recover',
+            'release-workspace',
+          ].includes(action)
         )
           throw new Error('Unknown task action');
         launch(id!, action, payload);
