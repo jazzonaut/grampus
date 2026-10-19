@@ -1,8 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { Store } from '../persistence/store.js';
 import { Workspaces } from '../repository/workspaces.js';
-import type { Execution, ExecutionLease } from './execution-state.js';
-import type { Delivery } from './deliveries.js';
 import { snapshotRepository } from '../repository/artifacts.js';
 import {
   deliveryGit,
@@ -28,10 +26,10 @@ export async function deliverRepository(
     const workspaces = store ? workspaceFactory(store) : null;
     const fence = () => {
       if (!store || !binding || !workspaces) return;
-      const execution = store.execution<Execution>(binding.executionId);
+      const execution = store.execution(binding.executionId);
       const workspace = workspaces.get(binding.workspaceId);
-      const delivery = store.delivery<Delivery>(request.id);
-      const lease = store.lease<ExecutionLease>(binding.workspaceId);
+      const delivery = store.delivery(request.id);
+      const lease = store.lease(binding.workspaceId);
       if (
         execution.workspaceId !== workspace.id ||
         execution.role !== 'implementation' ||

@@ -1,6 +1,5 @@
 import type { Store } from '../persistence/store.js';
 import { Workflow, activeSlice } from '../domain/workflow.js';
-import type { Execution } from '../execution/execution-state.js';
 import { explorationSummary } from '../repository/repository-tools.js';
 import { taskUsage, usageLines } from './task-usage.js';
 
@@ -14,8 +13,10 @@ export function renderReport(store: Store, id: string): string {
   const task = workflow.get(id);
   const blockers = workflow.blockers(id);
   const slice = activeSlice(task);
+  const progress = task.slice,
+    briefSlices = task.brief.slices;
   const exploration = store
-    .executions<Execution>()
+    .executions()
     .filter(execution => execution.taskId === id)
     .map(execution => ({
       role: execution.role,
@@ -55,18 +56,18 @@ export function renderReport(store: Store, id: string): string {
           '',
         ]
       : []),
-    ...(slice
+    ...(slice && progress && briefSlices
       ? [
           '## Slices',
           '',
-          `Current slice: ${slice.number}/${slice.total} — ${prose(slice.title)}. Delivered: ${task.slice!.completed.length}/${slice.total}.`,
+          `Current slice: ${slice.number}/${slice.total} — ${prose(slice.title)}. Delivered: ${progress.completed.length}/${slice.total}.`,
           '',
-          ...task.brief.slices!.flatMap((item, index) => [
-            `${index + 1}. ${prose(item.title)} — ${task.slice!.completed.some(done => done.index === index) ? 'delivered' : index === task.slice!.index ? 'current' : 'pending'}`,
+          ...briefSlices.flatMap((item, index) => [
+            `${index + 1}. ${prose(item.title)} — ${progress.completed.some(done => done.index === index) ? 'delivered' : index === progress.index ? 'current' : 'pending'}`,
             `   ${prose(item.plan)}`,
           ]),
           '',
-          ...task.slice!.completed.map(
+          ...progress.completed.map(
             done => `- Slice ${done.index + 1}: ${done.outcome}; HEAD ${done.head}; delivery ${done.deliveryId}.`,
           ),
           '',

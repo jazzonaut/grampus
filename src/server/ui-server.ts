@@ -1,16 +1,19 @@
+// Owns the loopback dashboard server: static client assets, the token-guarded JSON API over the journal
+// and the action workers it starts. Request bodies are parsed by api-schemas.ts; failures map to HTTP
+// statuses in errors.ts. The server is not a second workflow engine: every decision goes to the controller.
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
 import { Store } from '../persistence/store.js';
+import { StaleStateError } from '../persistence/errors.js';
 import { GuidedTasks } from '../orchestration/guided/controller.js';
 import { guidedDecisionKey } from '../orchestration/guided/keys.js';
 import { guidedTaskView } from '../orchestration/guided-status.js';
 import { renderReport } from '../reporting/report.js';
 import { Kickoffs } from '../orchestration/kickoff.js';
-import { boundedRepositoryFiles } from '../repository/repository-evidence.js';
-import { editingScopeFiles } from '../execution/edit-policy.js';
 import { Sessions } from '../execution/sessions.js';
 import { versionInformation } from '../config/runtime.js';
 import { checkOutputLimits, formatBytes, serverLimits } from '../config/limits.js';
@@ -19,9 +22,26 @@ import { TaskLifecycle } from '../orchestration/task-lifecycle.js';
 import { suggestReferenceFolders } from '../repository/reference-folders.js';
 import type { Task } from '../domain/workflow.js';
 import { availableQualityPasses } from '../domain/quality-passes.js';
-import type { RepositoryCheck } from '../verification/checks.js';
-import type { Execution } from '../execution/execution-state.js';
-import { checkIssue, outputExcerpt, readCheckLog } from '../verification/check-output.js';
+import { readCheckLog } from '../verification/check-output.js';
+import { describeIssues } from '../process/boundary.js';
+import { HttpError, errorResponse } from './errors.js';
+import { eventSummary, taskPoll } from './task-poll.js';
+import {
+  approveTaskBody,
+  createKickoffBody,
+  createTaskBody,
+  decisionBody,
+  inspectRepositoryBody,
+  kickoffContextBody,
+  kickoffReferencesBody,
+  lifecycleBody,
+  prepareKickoffBody,
+  searchFilesBody,
+  suggestReferencesBody,
+  taskWorkerActions,
+  workerActionSchema,
+  type WorkerAction,
+} from './api-schemas.js';
 
 interface Job {
   running: boolean;
@@ -34,6 +54,234 @@ export interface UiOptions {
   port?: number;
 }
 
+const assets: Record<string, [string, string]> = {
+  '/': ['src/ui/index.html', 'text/html'],
+  '/app.js': ['src/ui/app.js', 'text/javascript'],
+  '/app.css': ['src/ui/app.css', 'text/css'],
+  '/favicon.svg': ['src/ui/favicon.svg', 'image/svg+xml'],
+  '/markdown.js': ['src/ui/markdown.js', 'text/javascript'],
+  '/vendor/markdown-it.js': ['node_modules/markdown-it/dist/browser/markdown-it.umd.min.js', 'text/javascript'],
+};
+const itemRoute = /^\/api\/(?<kind>tasks|kickoffs)\/(?<id>[a-f0-9-]+)(?:\/(?<action>[a-z-]+))?$/;
+const routeSchema = z.object({ kind: z.enum(['tasks', 'kickoffs']), id: z.string(), action: z.string().optional() });
+type ItemRoute = z.infer<typeof routeSchema>;
+const checkOutputQuery = z.object({
+  checkId: z.string().default(''),
+  stream: z.enum(['stdout', 'stderr'], { error: 'Invalid log page' }).default('stderr'),
+  offset: z.coerce
+    .number({ error: 'Invalid log page' })
+    .int({ error: 'Invalid log page' })
+    .min(0, { error: 'Invalid log page' })
+    .default(0),
+  raw: z.string().optional(),
+});
+
+/** Parse a request body or query with the route's schema; failures are 400 with field-level issues. */
+function parseRequest<S extends z.ZodType>(schema: S, value: unknown): z.output<S> {
+  const result = schema.safeParse(value);
+  if (result.success) return result.data;
+  const issues = describeIssues(result.error);
+  throw new HttpError(400, `Invalid request: ${issues.join('; ')}`, issues);
+}
+
+async function readBody(request: IncomingMessage): Promise<unknown> {
+  if (request.headers['content-type'] !== 'application/json') throw new HttpError(415, 'Use application/json');
+  let bytes = 0;
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    const received: unknown = chunk;
+    const buffer = Buffer.isBuffer(received) ? received : Buffer.from(String(received));
+    bytes += buffer.length;
+    if (bytes > serverLimits.requestBytes)
+      throw new HttpError(413, `Request exceeds ${formatBytes(serverLimits.requestBytes)}`);
+    chunks.push(buffer);
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new HttpError(400, 'Request body is not valid JSON');
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new HttpError(400, 'Request must be an object');
+  return value;
+}
+
+/** Everything a request handler needs from one running dashboard. */
+interface Dashboard {
+  store: Store;
+  tasks: GuidedTasks;
+  kickoffs: Kickoffs;
+  jobs: Map<string, Job>;
+  cachedViews: Map<string, { revision: string; value: unknown }>;
+  launch: (id: string, work: WorkerAction) => void;
+}
+
+function json(response: ServerResponse, code: number, body: unknown): void {
+  response.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
+  response.end(JSON.stringify(body));
+}
+
+function liveTask(store: Store, id: string): Task {
+  const task = store.get<Task>(id);
+  if (task.deletedAt) throw new HttpError(404, 'This task was deleted');
+  return task;
+}
+
+function cachedPoll(dashboard: Dashboard, id: string): unknown {
+  const revision = dashboard.store.revision(),
+    cached = dashboard.cachedViews.get(id);
+  if (cached?.revision === revision) return cached.value;
+  const value = taskPoll(dashboard.store, id);
+  if (dashboard.cachedViews.size >= serverLimits.cachedTaskViews) {
+    const oldest = dashboard.cachedViews.keys().next();
+    if (!oldest.done) dashboard.cachedViews.delete(oldest.value);
+  }
+  dashboard.cachedViews.set(id, { revision, value });
+  return value;
+}
+
+function getItem(dashboard: Dashboard, route: ItemRoute, url: URL): unknown {
+  const { store } = dashboard;
+  if (route.kind !== 'tasks') throw new HttpError(404, 'Not found');
+  const task = liveTask(store, route.id);
+  if (route.action === 'events') return { events: store.events(route.id).map(eventSummary) };
+  if (route.action === 'report') return { report: renderReport(store, route.id) };
+  if (route.action === 'check-output') {
+    const query = parseRequest(checkOutputQuery, Object.fromEntries(url.searchParams));
+    const check = store.check(query.checkId);
+    if (store.execution(check.executionId).taskId !== task.id)
+      throw new HttpError(404, 'Check belongs to another task');
+    return readCheckLog(check, query.stream, query.offset, checkOutputLimits.maxPageCharacters, query.raw === '1');
+  }
+  if (route.action === undefined) return cachedPoll(dashboard, route.id);
+  throw new HttpError(404, 'Not found');
+}
+
+function postRoot(dashboard: Dashboard, path: string, payload: unknown): [number, unknown] {
+  const { kickoffs, tasks } = dashboard;
+  switch (path) {
+    case '/api/references/suggest':
+      return [
+        200,
+        { suggestions: suggestReferenceFolders(parseRequest(suggestReferencesBody, payload).request ?? '') },
+      ];
+    case '/api/repositories/inspect': {
+      const inspected = kickoffs.inspect(parseRequest(inspectRepositoryBody, payload));
+      return [200, { repo: inspected.repo, base: inspected.base, context: inspected.context }];
+    }
+    case '/api/repositories/files':
+      return [200, kickoffs.search(parseRequest(searchFilesBody, payload))];
+    case '/api/kickoffs':
+      return [201, { id: kickoffs.create(parseRequest(createKickoffBody, payload)) }];
+    case '/api/tasks':
+      return [201, { id: tasks.create(parseRequest(createTaskBody, payload).plan).id }];
+    default:
+      throw new HttpError(404, 'Not found');
+  }
+}
+
+function kickoffAction(dashboard: Dashboard, id: string, action: string, payload: unknown): [number, unknown] {
+  const { kickoffs, store } = dashboard;
+  const view = kickoffs.view(id);
+  const current = (expected: string) => {
+    if (expected !== view.turnKey) throw new StaleStateError('Planning state changed; inspect the current discussion');
+    return expected;
+  };
+  switch (action) {
+    case 'context': {
+      const body = parseRequest(kickoffContextBody, payload);
+      return [200, kickoffs.changeContext(id, body.files, current(body.expected))];
+    }
+    case 'references': {
+      const body = parseRequest(kickoffReferencesBody, payload);
+      return [200, kickoffs.changeContext(id, view.config.files, current(body.expected), body.references)];
+    }
+    case 'stop':
+      if (!view.session.run) throw new Error('Planner has not started or has already settled; refresh its state');
+      new Sessions(store).stop(id, view.session.run.id, 'User requested a stop in the dashboard');
+      return [200, { ok: true }];
+    case 'prepare': {
+      const { digest } = parseRequest(prepareKickoffBody, payload);
+      if (view.candidateDigest !== null && digest !== view.candidateDigest)
+        throw new StaleStateError('The proposed plan changed; inspect the current proposal before preparing approval');
+      return [201, { id: kickoffs.prepare(id, digest) }];
+    }
+    case 'plan':
+    case 'planner-recover': {
+      const work = parseRequest(workerActionSchema, { action, payload });
+      if (work.action === 'plan') current(work.payload.expected);
+      dashboard.launch(id, work);
+      return [202, { ok: true }];
+    }
+    default:
+      throw new HttpError(404, 'Unknown kickoff action');
+  }
+}
+
+function taskAction(dashboard: Dashboard, id: string, action: string, payload: unknown): [number, unknown] {
+  const { store, tasks } = dashboard;
+  const view = guidedTaskView(store, id);
+  if (action === 'stop') {
+    tasks.stop(id);
+    return [200, { ok: true }];
+  }
+  // Every decision names the exact state displayed to the user. A stale tab cannot authorize new bytes.
+  const expected = guidedDecisionKey(view.state, view.questionKey);
+  const decided = parseRequest(decisionBody, payload).expected;
+  if (decided !== expected)
+    throw new StaleStateError('Task changed since you inspected it; refresh before taking this action');
+  if (action === 'approve') {
+    const body = parseRequest(approveTaskBody, payload);
+    const approved = new GuidedTasks(store, { expectedState: body.expected }).approve(id, body.version, body.digest);
+    if (approved.plan.workflowPolicy.mode !== 'automatic') return [200, { ok: true }];
+    dashboard.launch(id, { action: 'run', payload: { expected: guidedDecisionKey(approved) } });
+    return [202, { ok: true }];
+  }
+  if (!taskWorkerActions.some(name => name === action)) throw new HttpError(404, 'Unknown task action');
+  dashboard.launch(id, parseRequest(workerActionSchema, { action, payload }));
+  return [202, { ok: true }];
+}
+
+function postItem(dashboard: Dashboard, route: ItemRoute, payload: unknown): [number, unknown] {
+  const { action, id, kind } = route;
+  if (!action) throw new HttpError(404, 'Not found');
+  if (dashboard.jobs.get(id)?.running && action !== 'stop')
+    throw new HttpError(409, 'An action is already running; wait for settlement');
+  if (action === 'delete' || action === 'reset') {
+    const { expected } = parseRequest(lifecycleBody, payload);
+    staleLifecycle(dashboard, route, expected);
+    const lifecycle = new TaskLifecycle(dashboard.store);
+    return [200, action === 'delete' ? lifecycle.delete(kind, id, expected) : lifecycle.reset(kind, id, expected)];
+  }
+  return kind === 'kickoffs'
+    ? kickoffAction(dashboard, id, action, payload)
+    : taskAction(dashboard, id, action, payload);
+}
+
+/** Lifecycle actions name the state they were decided on; a different current state is a conflict. */
+function staleLifecycle(dashboard: Dashboard, route: ItemRoute, expected: string): void {
+  if (route.kind === 'kickoffs') {
+    const view = dashboard.kickoffs.view(route.id);
+    if (!view.taskId && view.turnKey !== expected)
+      throw new StaleStateError('Planning state changed; refresh before managing this task');
+    return;
+  }
+  const view = guidedTaskView(dashboard.store, route.id);
+  if (!view.task.deletedAt && guidedDecisionKey(view.state, view.questionKey) !== expected)
+    throw new StaleStateError('Task changed; refresh before managing it');
+}
+
+function securityHeaders(response: ServerResponse): void {
+  response.setHeader('Cache-Control', 'no-store');
+  response.setHeader('X-Content-Type-Options', 'nosniff');
+  response.setHeader('Referrer-Policy', 'no-referrer');
+  response.setHeader(
+    'Content-Security-Policy',
+    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  );
+}
+
 /** Loopback dashboard. Workers use the same durable controller as the CLI. */
 export async function startUi(options: UiOptions) {
   const store = new Store(options.db),
@@ -41,16 +289,11 @@ export async function startUi(options: UiOptions) {
     kickoffs = new Kickoffs(store);
   const token = randomBytes(32).toString('hex'),
     jobs = new Map<string, Job>();
-  let cachedState: { revision: string; value: unknown } | null = null;
-  const cachedViews = new Map<string, { revision: string; value: unknown }>();
+  let cachedState: { revision: string; value: { tasks: unknown; kickoffs: unknown } } | null = null;
   let origin = '';
-  const json = (response: ServerResponse, code: number, body: unknown) => {
-    response.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
-    response.end(JSON.stringify(body));
-  };
-  const launch = (id: string, action: string, payload: unknown) => {
-    if (jobs.get(id)?.running) throw new Error('An action is already running for this item');
-    const job: Job = { running: true, error: null, action, startedAt: new Date().toISOString() };
+  const launch = (id: string, work: WorkerAction) => {
+    if (jobs.get(id)?.running) throw new HttpError(409, 'An action is already running for this item');
+    const job: Job = { running: true, error: null, action: work.action, startedAt: new Date().toISOString() };
     jobs.set(id, job);
     const child = spawn(process.execPath, [fileURLToPath(new URL('./ui-worker.js', import.meta.url))], {
       windowsHide: true,
@@ -71,64 +314,41 @@ export async function startUi(options: UiOptions) {
       job.running = false;
       if (code !== 0) job.error = output.trim() || job.error || `Worker exited (${code})`;
     });
-    child.stdin.end(JSON.stringify({ db: store.path, id, action, payload, settings: currentSettings() }));
+    child.stdin.end(JSON.stringify({ db: store.path, id, ...work, settings: currentSettings() }));
   };
-  async function body(request: IncomingMessage): Promise<Record<string, any>> {
-    if (request.headers['content-type'] !== 'application/json') throw new Error('Use application/json');
-    let bytes = 0;
-    const chunks: Buffer[] = [];
-    for await (const chunk of request) {
-      bytes += chunk.length;
-      if (bytes > serverLimits.requestBytes)
-        throw new Error(`Request exceeds ${formatBytes(serverLimits.requestBytes)}`);
-      chunks.push(chunk);
+  const dashboard: Dashboard = { store, tasks, kickoffs, jobs, cachedViews: new Map(), launch };
+  const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    securityHeaders(response);
+    if (
+      request.headers.host !== new URL(origin).host ||
+      (request.headers.origin && request.headers.origin !== origin)
+    ) {
+      json(response, 403, { error: 'Local origin required' });
+      return;
     }
-    const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Request must be an object');
-    return value as Record<string, any>;
-  }
-  const server = createServer((request, response) => {
-    void (async () => {
-      response.setHeader('Cache-Control', 'no-store');
-      response.setHeader('X-Content-Type-Options', 'nosniff');
-      response.setHeader('Referrer-Policy', 'no-referrer');
-      response.setHeader(
-        'Content-Security-Policy',
-        "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-      );
-      if (
-        request.headers.host !== new URL(origin).host ||
-        (request.headers.origin && request.headers.origin !== origin)
-      ) {
-        json(response, 403, { error: 'Local origin required' });
-        return;
-      }
-      const path = new URL(request.url ?? '/', origin).pathname;
-      const assets: Record<string, [string, string]> = {
-        '/': ['src/ui/index.html', 'text/html'],
-        '/app.js': ['src/ui/app.js', 'text/javascript'],
-        '/app.css': ['src/ui/app.css', 'text/css'],
-        '/favicon.svg': ['src/ui/favicon.svg', 'image/svg+xml'],
-        '/markdown.js': ['src/ui/markdown.js', 'text/javascript'],
-        '/vendor/markdown-it.js': ['node_modules/markdown-it/dist/browser/markdown-it.umd.min.js', 'text/javascript'],
-      };
-      if (request.method === 'GET' && assets[path]) {
-        const [file, mime] = assets[path];
-        response.writeHead(200, { 'Content-Type': `${mime}; charset=utf-8` });
-        response.end(readFileSync(new URL(`../../../${file}`, import.meta.url)));
-        return;
-      }
-      const supplied = Buffer.from(request.headers.authorization?.replace(/^Bearer /, '') ?? '');
-      if (supplied.length !== token.length || !timingSafeEqual(supplied, Buffer.from(token))) {
-        json(response, 401, { error: 'Open the complete local dashboard link printed by Grampus' });
-        return;
-      }
-      if (request.method === 'GET' && path === '/api/state') {
+    const url = new URL(request.url ?? '/', origin);
+    const path = url.pathname;
+    const asset = request.method === 'GET' ? assets[path] : undefined;
+    if (asset) {
+      const [file, mime] = asset;
+      response.writeHead(200, { 'Content-Type': `${mime}; charset=utf-8` });
+      response.end(readFileSync(new URL(`../../../${file}`, import.meta.url)));
+      return;
+    }
+    const supplied = Buffer.from(request.headers.authorization?.replace(/^Bearer /, '') ?? '');
+    if (supplied.length !== token.length || !timingSafeEqual(supplied, Buffer.from(token))) {
+      json(response, 401, { error: 'Open the complete local dashboard link printed by Grampus' });
+      return;
+    }
+    const groups = itemRoute.exec(path)?.groups;
+    const route = groups ? routeSchema.parse(groups) : null;
+    if (request.method === 'GET') {
+      if (path === '/api/state') {
         const revision = store.revision();
         if (cachedState?.revision !== revision)
           cachedState = { revision, value: { tasks: store.guidedSummaries(), kickoffs: kickoffs.list() } };
         json(response, 200, {
-          ...(cachedState.value as object),
+          ...cachedState.value,
           jobs: Object.fromEntries(jobs),
           journal: store.path,
           application: versionInformation(currentSettings().dashboardPort),
@@ -136,270 +356,19 @@ export async function startUi(options: UiOptions) {
         });
         return;
       }
-      const match = /^\/api\/(tasks|kickoffs)\/([a-f0-9-]+)(?:\/([a-z-]+))?$/.exec(path);
-      if (match && request.method === 'GET' && match[1] === 'tasks' && match[3] === 'events') {
-        if (store.get<Task>(match[2]!).deletedAt) throw new Error('This task was deleted');
-        json(response, 200, {
-          events: store.events(match[2]!).map(event => ({
-            sequence: event.sequence,
-            at: event.at,
-            type: event.type,
-            data: {
-              note: outputExcerpt(
-                (event.data as { note?: string } | null)?.note ?? '',
-                serverLimits.eventNoteCharacters,
-              ),
-            },
-          })),
-        });
-        return;
-      }
-      if (match && request.method === 'GET' && match[1] === 'tasks' && match[3] === 'report') {
-        if (store.get<Task>(match[2]!).deletedAt) throw new Error('This task was deleted');
-        json(response, 200, { report: renderReport(store, match[2]!) });
-        return;
-      }
-      if (match && request.method === 'GET' && match[1] === 'tasks' && match[3] === 'check-output') {
-        const task = store.get<Task>(match[2]!);
-        if (task.deletedAt) throw new Error('This task was deleted');
-        const params = new URL(request.url!, origin).searchParams;
-        const check = store.check<RepositoryCheck>(params.get('checkId') ?? '');
-        if (store.execution<Execution>(check.executionId).taskId !== task.id)
-          throw new Error('Check belongs to another task');
-        const stream = params.get('stream') ?? 'stderr',
-          offset = Number(params.get('offset') ?? 0);
-        if (!['stdout', 'stderr'].includes(stream) || !Number.isSafeInteger(offset) || offset < 0)
-          throw new Error('Invalid log page');
-        json(
-          response,
-          200,
-          readCheckLog(
-            check,
-            stream as 'stdout' | 'stderr',
-            offset,
-            checkOutputLimits.maxPageCharacters,
-            params.get('raw') === '1',
-          ),
-        );
-        return;
-      }
-      if (match && request.method === 'GET' && match[1] === 'tasks' && !match[3]) {
-        if (store.get<Task>(match[2]!).deletedAt) throw new Error('This task was deleted');
-        const revision = store.revision(),
-          cached = cachedViews.get(match[2]!);
-        if (cached?.revision === revision) {
-          json(response, 200, cached.value);
-          return;
-        }
-        const view = guidedTaskView(store, match[2]!);
-        let scopeFiles: { path: string; content: string | null }[] = [],
-          scopeError: string | null = null;
-        if (view.state.status === 'awaiting_scope' && view.workspace?.path && view.state.snapshot) {
-          try {
-            const slice = view.state.plan.slices[view.state.sliceIndex]!;
-            const selection = [
-              ...new Set([...(view.state.policy?.files ?? slice.scope.files), ...(slice.scope.delete ?? [])]),
-            ];
-            const current = {
-              ...view.state.snapshot,
-              diff: view.state.snapshot.diff.filter(change => selection.includes(change.path)),
-            };
-            scopeFiles = view.state.policy
-              ? editingScopeFiles({ cwd: view.workspace.path, snapshot: current, policy: view.state.policy })
-              : boundedRepositoryFiles(view.workspace.path, current, selection);
-          } catch (error) {
-            scopeError = error instanceof Error ? error.message : String(error);
-          }
-        }
-        // Never serialize the full hashed file inventory, delivery snapshot or report on a poll.
-        const historyChecks = store
-          .executions<Execution>()
-          .filter(
-            execution =>
-              execution.taskId === view.task.id &&
-              execution.version === view.state.version &&
-              execution.sliceIndex === view.state.sliceIndex,
-          )
-          .flatMap(execution => store.checks<RepositoryCheck>(execution.id));
-        const failed = historyChecks.findLast(check => check.phase === 'failed');
-        const note =
-          view.state.note.length > serverLimits.stateNoteSummaryThreshold && failed
-            ? `Check ${failed.spec.name} failed.\n${checkIssue(failed)}\nRetained check: ${failed.id}`
-            : outputExcerpt(view.state.note, serverLimits.stateNoteCharacters);
-        const compactState = {
-          ...view.state,
-          note,
-          feedback: '',
-          snapshot: view.state.snapshot
-            ? { ...view.state.snapshot, files: [], index: '', totalFiles: view.state.snapshot.files.length }
-            : null,
-        };
-        const events = store.events(match[2]!);
-        const value = {
-          ...view,
-          state: compactState,
-          task: { ...view.task, guided: compactState },
-          checks: historyChecks.map(check => ({
-            id: check.id,
-            executionId: check.executionId,
-            purpose: check.purpose,
-            spec: check.spec,
-            phase: check.phase,
-            error: check.error,
-            toolPid: check.toolPid,
-            supervisorPid: check.supervisorPid,
-            dispatch: check.dispatch,
-            issue: check.phase === 'failed' ? checkIssue(check) : null,
-            result: check.result
-              ? {
-                  reason: check.result.reason,
-                  exitCode: check.result.exitCode,
-                  outputTruncated: check.result.outputTruncated,
-                  outputUnavailable: check.result.outputUnavailable,
-                  stdoutCharacters: check.result.stdout.length,
-                  stderrCharacters: check.result.stderr.length,
-                }
-              : null,
-          })),
-          implementations: view.implementations.map(run => ({ id: run.id, phase: run.phase, error: run.error })),
-          deliveries: view.deliveries.map(delivery => ({ ...delivery, request: null })),
-          scopeFiles,
-          scopeError,
-          eventCount: events.length,
-          events: events.slice(-serverLimits.recentEvents).map(event => ({
-            sequence: event.sequence,
-            at: event.at,
-            type: event.type,
-            data: {
-              note: outputExcerpt(
-                (event.data as { note?: string } | null)?.note ?? '',
-                serverLimits.eventNoteCharacters,
-              ),
-            },
-          })),
-          report: null,
-        };
-        if (cachedViews.size >= 4) cachedViews.delete(cachedViews.keys().next().value!);
-        cachedViews.set(match[2]!, { revision, value });
-        json(response, 200, value);
-        return;
-      }
-      if (request.method !== 'POST') {
-        json(response, 404, { error: 'Not found' });
-        return;
-      }
-      const payload = await body(request);
-      if (path === '/api/references/suggest') {
-        json(response, 200, { suggestions: suggestReferenceFolders(String(payload['request'] ?? '')) });
-        return;
-      }
-      if (path === '/api/repositories/inspect') {
-        const inspected = kickoffs.inspect(payload as Parameters<Kickoffs['inspect']>[0]);
-        json(response, 200, { repo: inspected.repo, base: inspected.base, context: inspected.context });
-        return;
-      }
-      if (path === '/api/repositories/files') {
-        json(response, 200, kickoffs.search(payload as Parameters<Kickoffs['search']>[0]));
-        return;
-      }
-      if (path === '/api/kickoffs') {
-        const id = kickoffs.create(payload as Parameters<Kickoffs['create']>[0]);
-        json(response, 201, { id });
-        return;
-      }
-      if (path === '/api/tasks') {
-        const task = tasks.create(payload['plan']);
-        json(response, 201, { id: task.id });
-        return;
-      }
-      if (!match || !match[3]) {
-        json(response, 404, { error: 'Not found' });
-        return;
-      }
-      const [, kind, id, action] = match;
-      if (jobs.get(id!)?.running && action !== 'stop')
-        throw new Error('An action is already running; wait for settlement');
-      if (action === 'delete' || action === 'reset') {
-        const lifecycle = new TaskLifecycle(store);
-        const result =
-          action === 'delete'
-            ? lifecycle.delete(kind as 'tasks' | 'kickoffs', id!, payload['expected'])
-            : lifecycle.reset(kind as 'tasks' | 'kickoffs', id!, payload['expected']);
-        json(response, 200, result);
-        return;
-      }
-      if (kind === 'kickoffs') {
-        const view = kickoffs.view(id!);
-        if (action === 'context') {
-          json(response, 200, kickoffs.changeContext(id!, payload['files'], payload['expected']));
-          return;
-        }
-        if (action === 'references') {
-          json(
-            response,
-            200,
-            kickoffs.changeContext(id!, view.config.files, payload['expected'], payload['references']),
-          );
-          return;
-        }
-        if (action === 'stop') {
-          if (!view.session.run) throw new Error('Planner has not started or has already settled; refresh its state');
-          new Sessions(store).stop(id!, view.session.run.id, 'User requested a stop in the dashboard');
-          json(response, 200, { ok: true });
-          return;
-        }
-        if (action === 'prepare') {
-          if (typeof payload['digest'] !== 'string')
-            throw new Error('Preparing approval requires the displayed proposal digest');
-          json(response, 201, { id: kickoffs.prepare(id!, payload['digest']) });
-          return;
-        }
-        if (action !== 'plan' && action !== 'planner-recover') throw new Error('Unknown kickoff action');
-        if (action === 'plan' && payload['expected'] !== view.turnKey)
-          throw new Error('Planning state changed; inspect the current discussion');
-        launch(id!, action, payload);
-      } else {
-        const view = guidedTaskView(store, id!);
-        if (action === 'stop') {
-          tasks.stop(id!);
-          json(response, 200, { ok: true });
-          return;
-        }
-        // Every decision names the exact state displayed to the user. A stale tab cannot authorize new bytes.
-        const expected = guidedDecisionKey(view.state, view.questionKey);
-        if (payload['expected'] !== expected)
-          throw new Error('Task changed since you inspected it; refresh before taking this action');
-        if (action === 'approve') {
-          const approved = new GuidedTasks(store, { expectedState: payload['expected'] }).approve(
-            id!,
-            payload['version'],
-            payload['digest'],
-          );
-          if (approved.plan.workflowPolicy.mode === 'automatic') {
-            launch(id!, 'run', { expected: guidedDecisionKey(approved) });
-            json(response, 202, { ok: true });
-          } else json(response, 200, { ok: true });
-          return;
-        }
-        if (
-          ![
-            'run',
-            'authorize',
-            'assess',
-            'answer',
-            'retry',
-            'rerun-checks',
-            'revise',
-            'recover',
-            'release-workspace',
-          ].includes(action)
-        )
-          throw new Error('Unknown task action');
-        launch(id!, action, payload);
-      }
-      json(response, 202, { ok: true });
-    })().catch(error => {
-      if (!response.headersSent) json(response, 400, { error: error instanceof Error ? error.message : String(error) });
+      if (!route) throw new HttpError(404, 'Not found');
+      json(response, 200, getItem(dashboard, route, url));
+      return;
+    }
+    if (request.method !== 'POST') throw new HttpError(404, 'Not found');
+    const payload = await readBody(request);
+    const [status, body] = route ? postItem(dashboard, route, payload) : postRoot(dashboard, path, payload);
+    json(response, status, body);
+  };
+  const server = createServer((request, response) => {
+    handle(request, response).catch((error: unknown) => {
+      const { status, body } = errorResponse(error);
+      if (!response.headersSent) json(response, status, body);
       else response.end();
     });
   });

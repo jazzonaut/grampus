@@ -3,59 +3,26 @@ import { hostname } from 'node:os';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { Session } from './sessions.js';
 import type { Task } from '../domain/workflow.js';
-import type { Workspace } from '../repository/workspaces.js';
 import type { Store } from '../persistence/store.js';
 import { currentProcessStartedAt } from '../process/process-identity.js';
+import type { Execution, ExecutionLease } from '../persistence/records.js';
+import { systemErrorCode } from '../process/boundary.js';
 
-export interface Execution {
-  sliceIndex: number;
-  id: string;
-  taskId: string;
-  version: number;
-  attemptId: string;
-  workspaceId: string;
-  sessionId: string;
-  role: 'implementation' | 'review';
-  phase: 'open' | 'closed';
-  headAtCreation: string;
-  artifact: string | null;
-  fallbackReason: string | null;
-}
-
-export interface ExecutionLease {
-  executionId: string;
-  sessionId: string;
-  runId: string;
-  controllerPid: number;
-  /** Null when the creation time could not be observed; recovery then stays conservative. */
-  controllerStartedAt: string | null;
-  host: string;
-  kind:
-    | 'conversation'
-    | 'snapshot'
-    | 'check'
-    | 'submission'
-    | 'simplification'
-    | 'verification'
-    | 'completion'
-    | 'delivery'
-    | 'implementation';
-  readOnlyRecovery?: true;
-}
+export type { Execution, ExecutionLease } from '../persistence/records.js';
 
 function canonical(path: string, allowMissing = false): string {
   let value: string;
   try {
     value = realpathSync.native(path);
   } catch (error) {
-    if (!allowMissing || (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    if (!allowMissing || systemErrorCode(error) !== 'ENOENT') throw error;
     value = resolve(path);
   }
   return process.platform === 'win32' ? value.toLowerCase() : value;
 }
 
 export function assertTaskExecutionIdle(store: Store, taskId: string): void {
-  if (store.workspaces<Workspace>().some(workspace => workspace.taskId === taskId && store.lease(workspace.id))) {
+  if (store.workspaces().some(workspace => workspace.taskId === taskId && store.lease(workspace.id))) {
     throw new Error('Workspace has an active or uncertain execution lease');
   }
 }
@@ -67,10 +34,10 @@ export function claimExecution(
   runId: string,
   kind: ExecutionLease['kind'] = 'conversation',
 ): void {
-  const execution = store.executionForSession<Execution>(session.id);
+  const execution = store.executionForSession(session.id);
   if (!execution) {
     const cwd = canonical(session.cwd);
-    for (const workspace of store.workspaces<Workspace>()) {
+    for (const workspace of store.workspaces()) {
       if (workspace.phase === 'released' || !workspace.path || workspace.host !== hostname()) continue;
       const part = relative(canonical(workspace.path, true), cwd);
       if (part === '' || (part !== '..' && !part.startsWith(`..${sep}`) && !isAbsolute(part))) {
@@ -80,7 +47,7 @@ export function claimExecution(
     return;
   }
   const task = store.get<Task>(execution.taskId);
-  const workspace = store.workspace<Workspace>(execution.workspaceId);
+  const workspace = store.workspace(execution.workspaceId);
   if (
     execution.phase !== 'open' ||
     execution.version !== task.version ||
@@ -119,7 +86,7 @@ export function claimExecution(
   if (store.lease(workspace.id)) throw new Error('Workspace already has an active or uncertain execution lease');
   const directory = canonical(workspace.path);
   if (
-    store.sessions<Session>().some(other => {
+    store.sessions().some(other => {
       if (other.id === session.id || !other.run) return false;
       if (other.run.host !== hostname()) return false;
       const part = relative(directory, canonical(other.cwd, true));
@@ -150,9 +117,9 @@ export function claimExecution(
 }
 
 export function requireExecutionLease(store: Store, session: Session, runId: string): Execution | null {
-  const execution = store.executionForSession<Execution>(session.id);
+  const execution = store.executionForSession(session.id);
   if (!execution) return null;
-  const lease = store.lease<ExecutionLease>(execution.workspaceId);
+  const lease = store.lease(execution.workspaceId);
   if (lease?.executionId !== execution.id || lease.runId !== runId || lease.sessionId !== session.id) {
     throw new Error('Execution lease no longer matches this run');
   }
@@ -186,17 +153,18 @@ export function settleExecution(
   const execution = requireExecutionLease(store, session, runId);
   if (!execution) return;
   const task = store.get<Task>(execution.taskId);
-  const current = task.version === execution.version && task.attempt?.id === execution.attemptId;
-  if (current && execution.role === 'implementation') {
+  const attempt = task.attempt;
+  const current = task.version === execution.version && attempt?.id === execution.attemptId;
+  if (current && attempt && execution.role === 'implementation') {
     if (!exitConfirmed) {
       task.phase = 'recovery_required';
-      task.attempt!.outcome = 'uncertain';
+      attempt.outcome = 'uncertain';
     } else if (outcome === 'interrupted' || task.phase === 'stop_requested') {
       task.phase = 'stopped';
-      task.attempt!.outcome = 'stopped';
+      attempt.outcome = 'stopped';
     } else if (outcome === 'failed') {
       task.phase = 'failed';
-      task.attempt!.outcome = 'failed';
+      attempt.outcome = 'failed';
     }
     store.save(task.id, task);
   }

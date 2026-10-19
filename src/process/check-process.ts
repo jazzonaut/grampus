@@ -5,17 +5,24 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import type { CheckReceipt } from '../verification/check-recovery.js';
+import { z } from 'zod';
 import { commandLimits, processLimits } from '../config/limits.js';
+import { supervisorMessageSchema } from './supervisor-protocol.js';
 
-export interface CheckProcessResult {
-  reason: string;
-  exitCode: number | null;
-  exitConfirmed: boolean;
-  stdout: string;
-  stderr: string;
-  outputTruncated: boolean;
-  outputUnavailable?: boolean;
-}
+/**
+ * How a supervised process ended, with bounded output previews. It is recorded in check, implementation
+ * and delivery journal records, which validate it with this schema when they are read back.
+ */
+export const checkProcessResultSchema = z.object({
+  reason: z.string(),
+  exitCode: z.number().nullable(),
+  exitConfirmed: z.boolean(),
+  stdout: z.string(),
+  stderr: z.string(),
+  outputTruncated: z.boolean(),
+  outputUnavailable: z.boolean().exactOptional(),
+});
+export type CheckProcessResult = z.infer<typeof checkProcessResultSchema>;
 export interface CheckProcessOptions {
   /** Zero disables the runtime deadline for agent workers. */
   file: string;
@@ -125,32 +132,22 @@ export async function runCheckProcess(options: CheckProcessOptions): Promise<Che
     lines.on('line', line => {
       try {
         if (line.length > commandLimits.protocolBytes || receivedResult) throw new Error('Invalid check protocol');
-        const message = JSON.parse(line) as {
-          type: string;
-          pid?: number;
-          reason?: string;
-          exitCode?: number;
-          exitConfirmed?: boolean;
-        };
-        if (message.type === 'started' && Number.isSafeInteger(message.pid) && message.pid! > 0) {
+        // Any line that is not a valid `started` or `result` message fails the protocol below.
+        const message = supervisorMessageSchema.parse(JSON.parse(line));
+        if (message.type === 'started') {
           if (options.timeoutMs === 0 && !stopping) clearTimeout(deadline);
-          options.started('tool', message.pid!);
-        } else if (
-          message.type === 'result' &&
-          typeof message.reason === 'string' &&
-          Number.isInteger(message.exitCode) &&
-          typeof message.exitConfirmed === 'boolean'
-        ) {
+          options.started('tool', message.pid);
+        } else {
           receivedResult = true;
           result = {
             ...result,
             reason: message.reason,
-            exitCode: message.exitCode!,
+            exitCode: message.exitCode,
             exitConfirmed: message.exitConfirmed,
           };
           clearTimeout(deadline);
           deadline = setTimeout(fail, processLimits.supervisorReportMs);
-        } else throw new Error('Invalid check protocol');
+        }
       } catch {
         fail();
       }

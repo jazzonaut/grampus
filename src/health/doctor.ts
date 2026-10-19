@@ -1,6 +1,10 @@
 import { command, RpcProcess } from '../process/process.js';
 import { orcaExecutable } from '../repository/orca.js';
 import { applicationVersion } from '../config/runtime.js';
+import { parseJson } from '../process/boundary.js';
+import { accountReadSchema, parseCodexResponse } from '../providers/codex-protocol.js';
+import { claudeAuthStatusSchema, parseClaudeMessage } from '../providers/claude-protocol.js';
+import { orcaCurrentSchema, orcaEnvelopeSchema, orcaJson, parseOrca } from '../repository/orca-protocol.js';
 
 export interface Capability {
   component: string;
@@ -34,7 +38,11 @@ export async function doctor(includeOrca: boolean): Promise<Capability[]> {
           clientInfo: { name: 'grampus', title: 'Grampus', version: applicationVersion },
         });
         rpc.notify('initialized');
-        const result = await rpc.request<{ account: { type: string } | null }>('account/read', { refreshToken: false });
+        const result = parseCodexResponse(
+          'account/read',
+          accountReadSchema,
+          await rpc.request('account/read', { refreshToken: false }),
+        );
         return {
           version,
           protocol: 'app-server stdio handshake verified',
@@ -48,11 +56,14 @@ export async function doctor(includeOrca: boolean): Promise<Capability[]> {
     inspect('claude', async () => {
       const executable = process.env.GRAMPUS_CLAUDE_COMMAND ?? 'claude';
       const version = await command(executable, ['--version']);
-      const auth = JSON.parse(await command(executable, ['auth', 'status'])) as {
-        loggedIn: boolean;
-        authMethod?: string;
-        apiProvider?: string;
-      };
+      const auth = parseClaudeMessage(
+        'auth status',
+        claudeAuthStatusSchema,
+        parseJson(await command(executable, ['auth', 'status']), {
+          kind: 'provider-protocol',
+          source: 'claude auth status',
+        }),
+      );
       // Deliberately exclude email, org identity, filesystem paths and credentials.
       return {
         version,
@@ -68,15 +79,16 @@ export async function doctor(includeOrca: boolean): Promise<Capability[]> {
       inspect('orca', async () => {
         const executable = orcaExecutable();
         const version = await command(executable, ['--version']);
-        const response = JSON.parse(await command(executable, ['worktree', 'current', '--json'])) as {
-          ok: boolean;
-          result?: { worktree?: { id: string } };
-          error?: unknown;
-        };
+        const response = parseOrca(
+          'worktree current',
+          orcaEnvelopeSchema,
+          orcaJson('worktree current', await command(executable, ['worktree', 'current', '--json'])),
+        );
         if (!response.ok) throw new Error('Orca could not resolve the current worktree');
+        const current = parseOrca('worktree current', orcaCurrentSchema, response.result);
         return {
           version,
-          currentWorktreeRecognized: Boolean(response.result?.worktree?.id),
+          currentWorktreeRecognized: Boolean(current.worktree?.id),
           agentLifecycle: 'not tested',
         };
       }),

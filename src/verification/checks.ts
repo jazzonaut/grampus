@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { statSync } from 'node:fs';
 import type { Store } from '../persistence/store.js';
+import type { CheckSpec, RepositoryCheck } from '../persistence/records.js';
 import { commandLimits, formatBytes } from '../config/limits.js';
 import { Sessions } from '../execution/sessions.js';
 import { Workflow, activeCriteria, type Task } from '../domain/workflow.js';
@@ -14,42 +15,14 @@ import {
   type CheckProcessOptions,
   type CheckProcessResult,
 } from '../process/check-process.js';
-import { allocateReceipt, readReceipt, requireDeadController, type CheckReceipt } from './check-recovery.js';
+import { allocateReceipt, readReceipt, requireDeadController } from './check-recovery.js';
 import { captureRepository } from '../repository/repository-evidence.js';
-import { assertAcceptance, validateExpectations, type AcceptanceExpectations } from '../domain/acceptance.js';
-import { prepareEditing, validateEditPolicy, verifyEditingScope, type EditPolicy } from '../execution/edit-policy.js';
+import { assertAcceptance, validateExpectations } from '../domain/acceptance.js';
+import { prepareEditing, validateEditPolicy, verifyEditingScope } from '../execution/edit-policy.js';
 import { lensOutcome, parseQualityAssessment, type QualityAssessment } from '../domain/quality-passes.js';
 
-export interface CheckSpec {
-  name: string;
-  file: string;
-  args: string[];
-  timeoutMs: number;
-  artifact: string;
-  instructionsDigest: string;
-  criteria?: string[];
-  expectedStdout?: string;
-  expectations?: AcceptanceExpectations;
-  preparation?: { scope?: Pick<EditPolicy, 'files' | 'create' | 'delete'> };
-}
+export type { CheckSpec, RepositoryCheck } from '../persistence/records.js';
 export type { QualityAssessment } from '../domain/quality-passes.js';
-export interface RepositoryCheck {
-  failureKind?: 'acceptance';
-  id: string;
-  executionId: string;
-  phase: 'running' | 'passed' | 'failed' | 'interrupted' | 'recovery_required';
-  spec: CheckSpec;
-  before: RepositorySnapshot | null;
-  after: RepositorySnapshot | null;
-  supervisorPid: number | null;
-  toolPid: number | null;
-  result: CheckProcessResult | null;
-  error: string | null;
-  purpose: 'validation' | 'verification' | 'preparation';
-  dispatch: 'not_requested' | 'requested';
-  /** Allocated just before dispatch; absent when the check stopped first. */
-  receipt?: CheckReceipt;
-}
 
 function validate(spec: CheckSpec): void {
   if (!spec || typeof spec.name !== 'string' || !spec.name.trim() || spec.name.length > commandLimits.nameCharacters)
@@ -132,11 +105,11 @@ export class Checks {
     private readonly workspaces = new Workspaces(store),
   ) {}
   get(id: string): RepositoryCheck {
-    return this.store.check<RepositoryCheck>(id);
+    return this.store.check(id);
   }
 
   private claim(executionId: string, runId: string, kind: ExecutionLease['kind']): Execution {
-    const execution = this.store.execution<Execution>(executionId);
+    const execution = this.store.execution(executionId);
     const session = new Sessions(this.store).get(execution.sessionId);
     if (session.run || ['running', 'stop_requested', 'recovery_required'].includes(session.phase))
       throw new Error('Reconcile the linked session first');
@@ -145,7 +118,7 @@ export class Checks {
   }
 
   private fenced(execution: Execution, runId: string): void {
-    const lease = this.store.lease<ExecutionLease>(execution.workspaceId);
+    const lease = this.store.lease(execution.workspaceId);
     if (lease?.executionId !== execution.id || lease.runId !== runId)
       throw new Error('Check no longer owns the workspace lease');
   }
@@ -181,11 +154,11 @@ export class Checks {
     );
     const runId = randomUUID();
     const execution = this.store.transaction(() => {
-      const execution = this.store.execution<Execution>(executionId);
+      const execution = this.store.execution(executionId);
       if (execution.role !== 'implementation') throw new Error('Assess quality through the implementation execution');
       const task = this.store.get<Task>(execution.taskId);
       if (assessment.reviewId) {
-        const review = this.store.execution<Execution>(assessment.reviewId),
+        const review = this.store.execution(assessment.reviewId),
           session = new Sessions(this.store).get(review.sessionId);
         const verdict = session.lastReply?.lenses?.find(item => item.lens === assessment.pass);
         if (
@@ -251,7 +224,7 @@ export class Checks {
       });
     } finally {
       this.store.transaction(() => {
-        if (this.store.lease<ExecutionLease>(execution.workspaceId)?.runId === runId) this.release(execution, runId);
+        if (this.store.lease(execution.workspaceId)?.runId === runId) this.release(execution, runId);
       });
     }
   }
@@ -271,7 +244,7 @@ export class Checks {
     const purpose = spec.preparation ? 'preparation' : spec.criteria ? 'verification' : 'validation';
     const execution = this.store.transaction(() => {
       if (purpose === 'verification') {
-        const execution = this.store.execution<Execution>(executionId);
+        const execution = this.store.execution(executionId);
         const task = this.store.get<Task>(execution.taskId);
         new Workflow(this.store).record(task.id, {
           id: `${id}:requested`,
@@ -281,7 +254,7 @@ export class Checks {
           kind: 'verification',
           outcome: 'skipped',
           source: 'controller',
-          criteria: spec.criteria!,
+          criteria: spec.criteria ?? [],
           summary: 'Acceptance check requested; a new verified result is pending',
         });
       }
@@ -293,8 +266,8 @@ export class Checks {
         purpose === 'verification' &&
         (task.attempt?.outcome !== 'succeeded' ||
           !['awaiting_verification', 'awaiting_decision'].includes(task.phase) ||
-          spec.criteria!.length !== activeCriteria(task).length ||
-          !activeCriteria(task).every(item => spec.criteria!.includes(item)))
+          (spec.criteria ?? []).length !== activeCriteria(task).length ||
+          !activeCriteria(task).every(item => (spec.criteria ?? []).includes(item)))
       ) {
         throw new Error(
           'Verification requires submitted implementation and an exact mapping of all approved criteria for the current slice',
@@ -327,7 +300,7 @@ export class Checks {
         throw new Error('Repository or instructions changed; inspect a fresh snapshot before dispatch');
       if (spec.preparation?.scope)
         prepareEditing({
-          cwd: this.workspaces.get(execution.workspaceId).path!,
+          cwd: this.workspaces.path(execution.workspaceId),
           snapshot: check.before,
           policy: { ...spec.preparation.scope, artifact: spec.artifact, instructionsDigest: spec.instructionsDigest },
         });
@@ -353,14 +326,14 @@ export class Checks {
           this.store.saveCheck(id, executionId, check);
           this.store.appendExecution(executionId, 'check.dispatch_requested', {
             checkId: id,
-            artifact: check.before!.artifact,
+            artifact: check.before?.artifact,
           });
         });
         dispatched = true;
         check.result = await runner({
           file: spec.file,
           args: spec.args,
-          cwd: this.workspaces.get(execution.workspaceId).path!,
+          cwd: this.workspaces.path(execution.workspaceId),
           timeoutMs: spec.timeoutMs,
           receipt: check.receipt,
           ...(signal ? { signal } : {}),
@@ -380,7 +353,7 @@ export class Checks {
         if (spec.preparation?.scope)
           verifyEditingScope(
             {
-              cwd: this.workspaces.get(execution.workspaceId).path!,
+              cwd: this.workspaces.path(execution.workspaceId),
               snapshot: check.before,
               policy: {
                 ...spec.preparation.scope,
@@ -418,7 +391,8 @@ export class Checks {
       else if (purpose !== 'verification') {
         const task = this.store.get<Task>(execution.taskId);
         task.phase = 'recovery_required';
-        task.attempt!.outcome = 'uncertain';
+        if (!task.attempt) throw new Error('Check task has no current attempt');
+        task.attempt.outcome = 'uncertain';
         this.store.save(task.id, task);
       }
       this.store.saveCheck(id, executionId, check);
@@ -438,15 +412,17 @@ export class Checks {
 
   private recordVerification(execution: Execution, check: RepositoryCheck): void {
     const task = this.store.get<Task>(execution.taskId);
+    const artifact = task.attempt?.artifact;
+    if (!artifact) throw new Error('Verification requires a submitted artifact');
     new Workflow(this.store).record(task.id, {
       id: check.id,
       attemptId: execution.attemptId,
       version: execution.version,
-      artifact: task.attempt!.artifact!,
+      artifact,
       kind: 'verification',
       source: 'controller',
       outcome: check.phase === 'passed' ? 'passed' : check.phase === 'interrupted' ? 'skipped' : 'failed',
-      criteria: check.spec.criteria!,
+      criteria: check.spec.criteria ?? [],
       summary: `Acceptance check ${check.spec.name}: ${check.phase}. Output/file expectations and criterion mapping supplied by the caller; command and actual result retained in check ${check.id}.`,
     });
   }
@@ -454,9 +430,10 @@ export class Checks {
   recover(id: string): RepositoryCheck {
     return this.store.transaction(() => {
       const check = this.get(id);
-      const execution = this.store.execution<Execution>(check.executionId);
+      const execution = this.store.execution(check.executionId);
       this.fenced(execution, id);
-      const lease = this.store.lease<ExecutionLease>(execution.workspaceId)!;
+      const lease = this.store.lease(execution.workspaceId);
+      if (!lease) throw new Error('Check no longer owns its workspace');
       if (!['check', 'verification'].includes(lease.kind) || !['running', 'recovery_required'].includes(check.phase))
         throw new Error('Check does not need recovery');
       requireDeadController(lease);
@@ -513,7 +490,7 @@ export class Checks {
       });
     } finally {
       this.store.transaction(() => {
-        if (this.store.lease<ExecutionLease>(execution.workspaceId)?.runId === runId) this.release(execution, runId);
+        if (this.store.lease(execution.workspaceId)?.runId === runId) this.release(execution, runId);
       });
     }
   }
@@ -532,7 +509,7 @@ export class Checks {
         check.purpose === 'preparation'
       )
         throw new Error('Finish requires a passing check from this implementation; preparation is not validation');
-      const latest = this.store.checks<RepositoryCheck>(executionId).at(-1);
+      const latest = this.store.checks(executionId).at(-1);
       if (latest?.id !== checkId)
         throw new Error('Use the latest check; newer failed or interrupted checks cannot be bypassed');
       const snapshot = await this.capture(execution);
@@ -566,7 +543,7 @@ export class Checks {
       });
     } finally {
       this.store.transaction(() => {
-        if (this.store.lease<ExecutionLease>(execution.workspaceId)?.runId === runId) this.release(execution, runId);
+        if (this.store.lease(execution.workspaceId)?.runId === runId) this.release(execution, runId);
       });
     }
   }

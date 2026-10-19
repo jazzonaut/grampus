@@ -7,6 +7,12 @@ import { checkOutputLimits } from '../config/limits.js';
 
 const limits = checkOutputLimits;
 
+/** Control characters removed from plain output; tab, line feed and carriage return are kept. */
+function strippedControl(character: string): boolean {
+  const code = character.charCodeAt(0);
+  return code <= 0x08 || code === 0x0b || code === 0x0c || (code >= 0x0e && code <= 0x1f) || code === 0x7f;
+}
+
 /** Page durable logs with bounded memory, even beyond the journal's preview (`commandLimits.previewBytes`). */
 export function readCheckLog(
   check: RepositoryCheck,
@@ -67,7 +73,7 @@ export function readCheckLog(
           continue;
         }
         carriage = false;
-        if (!/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(char)) parts.push(char);
+        if (!strippedControl(char)) parts.push(char);
       }
       text = parts.join('');
     }
@@ -77,8 +83,8 @@ export function readCheckLog(
     if (
       boundary > begin &&
       boundary < text.length &&
-      /[\ud800-\udbff]/.test(text[boundary - 1]!) &&
-      /[\udc00-\udfff]/.test(text[boundary]!)
+      /[\ud800-\udbff]/.test(text.charAt(boundary - 1)) &&
+      /[\udc00-\udfff]/.test(text.charAt(boundary))
     )
       boundary += boundary - begin === 1 ? 1 : -1;
     if (boundary > begin) content += text.slice(begin, boundary);
@@ -126,7 +132,7 @@ function summaryStream(check: RepositoryCheck, stream: 'stdout' | 'stderr'): str
     const bytes = Buffer.alloc(limits.summaryTailBytes),
       count = readSync(fd, bytes, 0, bytes.length, Math.max(0, size - bytes.length));
     let start = 0;
-    while (start < count && (bytes[start]! & 0xc0) === 0x80) start++;
+    while (start < count && ((bytes[start] ?? 0) & 0xc0) === 0x80) start++;
     return (
       preview.slice(0, limits.summaryHeadCharacters) +
       '\n… retained log tail …\n' +
@@ -144,7 +150,9 @@ export function plainOutput(value: string): string {
   return stripVTControlCharacters(value)
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+    .split('')
+    .filter(character => !strippedControl(character))
+    .join('');
 }
 
 export function outputExcerpt(value: string, limit: number = limits.excerptCharacters): string {

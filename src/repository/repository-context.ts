@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { basename } from 'node:path';
 import { deliveryGit, deliveryGitInput } from './delivery-git.js';
 import { contextLimits, formatBytes, repositoryLimits } from '../config/limits.js';
+import { z } from 'zod';
 
 const contextBudget = `Select up to ${contextLimits.files} text files, ${formatBytes(contextLimits.fileBytes)} each and ${formatBytes(contextLimits.bytes)} total.`;
 export interface RepositoryEntry {
@@ -50,15 +51,15 @@ export function pinnedRepository(repo: string, base: string, subtree = ''): Pinn
     .split('\0')
     .filter(Boolean)
     .map(entry => {
-      const match = /^(100644|100755) blob ([a-f0-9]+)\s+(\d+)\t([\s\S]+)$/.exec(entry);
-      if (!match) throw new Error('Repository context requires regular files; symlinks and submodules are unsupported');
-      const path = match[4]!;
+      const [, oid, size, path] = /^(?:100644|100755) blob ([a-f0-9]+)\s+(\d+)\t([\s\S]+)$/.exec(entry) ?? [];
+      if (!oid || !size || !path)
+        throw new Error('Repository context requires regular files; symlinks and submodules are unsupported');
       if (path.includes('\ufffd')) throw new Error('Repository paths must be valid UTF-8');
-      const bytes = Number(match[3]);
+      const bytes = Number(size);
       totalBytes += bytes;
       const directory = path.includes('/') ? path.slice(0, path.indexOf('/')) + '/' : '(root)';
       directories.set(directory, (directories.get(directory) ?? 0) + 1);
-      return { path, oid: match[2]!, bytes };
+      return { path, oid, bytes };
     });
   const tree: PinnedRepository = {
     entries,
@@ -75,8 +76,9 @@ export function pinnedRepository(repo: string, base: string, subtree = ''): Pinn
     cache.size &&
     (cache.size >= repositoryLimits.cacheEntries || cachedBytes + bytes > repositoryLimits.cacheBytes)
   ) {
-    const oldest = cache.keys().next().value!;
-    cachedBytes -= cache.get(oldest)!.bytes;
+    const [oldest, entry] = cache.entries().next().value ?? [];
+    if (oldest === undefined || !entry) break;
+    cachedBytes -= entry.bytes;
     cache.delete(oldest);
   }
   if (bytes <= repositoryLimits.cacheBytes) {
@@ -86,15 +88,21 @@ export function pinnedRepository(repo: string, base: string, subtree = ''): Pinn
   return tree;
 }
 
-export function contextPaths(value: unknown): string[] {
-  if (
-    !Array.isArray(value) ||
-    value.length > contextLimits.files ||
-    value.some(path => typeof path !== 'string' || !path || path.includes('\0')) ||
-    new Set(value).size !== value.length
+/** Context file selections come from plans and dashboard forms; only distinct exact paths are accepted. */
+const contextPathsSchema = z
+  .array(
+    z
+      .string()
+      .min(1)
+      .refine(path => !path.includes('\0')),
   )
+  .max(contextLimits.files)
+  .refine(paths => new Set(paths).size === paths.length);
+export function contextPaths(value: unknown): string[] {
+  const parsed = contextPathsSchema.safeParse(value);
+  if (!parsed.success)
     throw new Error(`Context files must be at most ${contextLimits.files} distinct exact repository paths`);
-  return [...value] as string[];
+  return parsed.data;
 }
 export const instructionPath = (path: string) => ['AGENTS.md', 'CLAUDE.md'].includes(basename(path));
 

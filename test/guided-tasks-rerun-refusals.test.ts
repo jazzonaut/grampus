@@ -28,7 +28,8 @@ test(
     await assert.rejects(tasks.rerunChecks(task.id, draft), /Task changed since you inspected it/);
     await assert.rejects(tasks.rerunChecks(task.id, 'not-a-key'), /Task changed since you inspected it/);
 
-    const workspace = f.store.workspaces<any>().find(item => item.taskId === task.id).path;
+    const workspace = f.store.workspaces().find(item => item.taskId === task.id)?.path;
+    assert.ok(workspace, 'The task has a workspace');
     writeFileSync(join(workspace, 'greeting.js'), "console.log('edited by hand');\n");
     await assert.rejects(tasks.rerunChecks(task.id, key), /workspace changed since the check ran/);
     const unchanged = tasks.get(task.id);

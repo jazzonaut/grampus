@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import { gitText } from './delivery-git.js';
 import { pinnedRepository } from './repository-context.js';
 import type { RepositoryAccess } from './repository-tools.js';
 import type { RepositorySnapshot } from './artifacts.js';
+import { z } from 'zod';
 import { formatBytes, referenceLimits, repositoryLimits } from '../config/limits.js';
 
 export interface ReferenceFolder {
@@ -92,18 +93,31 @@ export function inspectReference(path: string, base?: string | null): ReferenceF
     totalFiles: snapshot.files.length,
   };
 }
+/**
+ * A reference selection from a plan, a kickoff or the dashboard: an absolute path, or a previously
+ * inspected folder whose digest must still match. Only path, base and digest are trusted; the folder is
+ * always inspected again.
+ */
+const referenceSelectionSchema = z.union([
+  z.string(),
+  z.strictObject({
+    path: z.string(),
+    repo: z.unknown().optional(),
+    base: z.string().nullish(),
+    prefix: z.unknown().optional(),
+    digest: z.string().optional(),
+    totalFiles: z.unknown().optional(),
+  }),
+]);
 export function normalizeReferences(value: unknown): ReferenceFolder[] {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > referenceLimits.folders)
-    throw new Error(`Select at most ${referenceLimits.folders} reference folders`);
-  const references = value.map(item => {
+  const selection = z.array(z.unknown()).max(referenceLimits.folders).safeParse(value);
+  if (!selection.success) throw new Error(`Select at most ${referenceLimits.folders} reference folders`);
+  const references = selection.data.map(entry => {
+    const parsed = referenceSelectionSchema.safeParse(entry);
+    if (!parsed.success) throw new Error('Invalid reference folder');
+    const item = parsed.data;
     if (typeof item === 'string') return inspectReference(item);
-    if (
-      !item ||
-      typeof item !== 'object' ||
-      Object.keys(item).some(key => !['path', 'repo', 'base', 'prefix', 'digest', 'totalFiles'].includes(key))
-    )
-      throw new Error('Invalid reference folder');
     const reference = inspectReference(item.path, item.base);
     if (item.digest !== undefined && item.digest !== reference.digest)
       throw new Error(`Reference folder changed: ${reference.path}`);

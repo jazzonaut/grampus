@@ -272,6 +272,8 @@ export const serverLimits = {
   stateNoteSummaryThreshold: 4000,
   /** Recent events included in a task polling response. */
   recentEvents: 30,
+  /** Task polling views cached by journal revision; the oldest is dropped first. */
+  cachedTaskViews: 4,
   /** Characters of a tool argument shown in live planner progress. */
   progressTextCharacters: 180,
   /** Node HTTP request timeout. */
@@ -324,4 +326,23 @@ export const processLimits = {
   toolOutputBytes: 4 * MiB,
   /** Deadline for one Orca CLI call. */
   orcaTimeoutMs: 120_000,
+} as const;
+
+/**
+ * Validation of data crossing a process, file or network boundary (`process/boundary.ts`). These bound
+ * what a schema failure or an unrecognised message may write into errors and the journal.
+ */
+export const boundaryLimits = {
+  /** Schema issues named in one boundary error; the rest are counted. */
+  reportedIssues: 8,
+  /** Characters of a sanitised excerpt of an unrecognised or malformed message. */
+  excerptCharacters: 600,
+  /** Characters kept from each string value inside an excerpt. */
+  excerptStringCharacters: 80,
+  /** Object and array nesting kept inside an excerpt. */
+  excerptDepth: 4,
+  /** Entries kept from each object or array inside an excerpt. */
+  excerptEntries: 12,
+  /** Distinct unrecognised provider message types journaled per provider session; later ones are counted. */
+  unrecognizedMessageTypes: 32,
 } as const;

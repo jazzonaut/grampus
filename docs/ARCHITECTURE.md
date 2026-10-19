@@ -216,7 +216,9 @@ review never share a conversation, and arbitration always starts fresh.
 
 Both adapters return the same validated reply: `kind` is `message`, `question` or `review`, with
 question ids, findings (`blocking` or `suggestion`, with evidence) and, for reviews, one
-assessment per requested quality lens (`lenses`). Malformed replies fail the turn.
+assessment per requested quality lens (`lenses`). Malformed replies fail the turn. The reply contract
+is pinned in `providers/reply-schema.ts`; see [External boundaries](#external-boundaries) for how
+provider protocol messages are validated.
 
 - **Codex** (`providers/codex.ts`) runs the installed `codex app-server` over stdio JSON-RPC
   (`process/process.ts`), forcing ChatGPT login and refusing other authentication. Threads start or resume
@@ -320,7 +322,40 @@ workflow engine.
   controller rechecks it, so a stale tab cannot approve a changed plan or authorize different bytes.
 - Actions run in separate Node worker processes (`server/ui-worker.ts`) using the same controller, so
   restarting the server is never evidence that work stopped. Polling responses are cached by journal
-  revision and exclude large snapshots.
+  revision and exclude large snapshots (`server/task-poll.ts`).
+- Every route parses its body with its own schema (`server/api-schemas.ts`); unknown fields are ignored
+  because the browser posts whole forms. Failures map to statuses by error class
+  (`server/errors.ts`): 400 with field-level `issues` for an invalid body or a controller refusal,
+  404 for an unknown route or record, 409 when the decision key, turn key or proposal digest no
+  longer matches the current state or an action is already running, 413 and 415 for oversized or
+  non-JSON bodies. A stale key that orchestration itself detects inside its transaction (a race after
+  the server's check) is still a plain refusal (400).
+
+## External boundaries
+
+Every value that crosses a process, file or network boundary is parsed with a zod schema beside the
+module that owns the contract, and a mismatch is a categorised `BoundaryError` (`process/boundary.ts`)
+carrying its kind, source and field-level issues, never an `undefined` discovered later. Issues name
+fields, not values, and are bounded.
+
+| Boundary | Schema module | On mismatch |
+| --- | --- | --- |
+| Codex app-server responses and notifications | `providers/codex-protocol.ts` | `ProtocolError` (provider, method). Control notifications and responses fail the turn; malformed progress or usage is journaled as `protocol.malformed` and skipped; unknown methods are journaled once per session as `protocol.unrecognized` with a sanitised excerpt and ignored |
+| Claude Agent SDK messages | `providers/claude-protocol.ts` | `ProtocolError` for init and result; unknown message types are `protocol.unrecognized`. The known type list is checked against the pinned SDK at compile time |
+| Structured agent replies | `providers/reply-schema.ts` | `agent-reply` error; the turn fails |
+| JSON-RPC envelope | `process/process.ts` | The transport fails |
+| Supervisor output, check host request, completion receipts, process identity | `process/supervisor-protocol.ts` | Supervisor protocol failure (`supervisor_lost`), refused receipt, or an unknown process observation |
+| Worker request and result files | `execution/worker-files.ts` | The worker stops before any provider or Git work; a bad result is the run's error |
+| Journal records owned by the execution layer | `persistence/records.ts` | `journal-record` error naming the table. Records are validated in place so their stored bytes, which fences compare, are unchanged. Task and guided state records are validated by domain and orchestration |
+| Orca CLI JSON | `repository/orca-protocol.ts` | `orca-output` error naming the command |
+| Git plumbing output | `repository/git-output.ts` | `git-output` error |
+| Repository tool arguments from agents | `repository/repository-tool-arguments.ts` | The tool call fails with a message the agent can act on |
+| MCP configuration files | `providers/integrations.ts` | The file is refused; unsupported server transports are not carried over |
+| Dashboard request bodies and worker requests | `server/api-schemas.ts` | 400 with issues |
+| CLI options and input files | `cli-input.ts` | `cli-input` error naming the argument or file |
+
+Unrecognised-message excerpts are bounded by `boundaryLimits` in `config/limits.ts`: strings are
+shortened, secret-looking keys redacted, nesting and entries capped and control characters removed.
 
 ## Configuration
 
@@ -354,11 +389,14 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | Folder | Files | Responsibility |
 | --- | --- | --- |
 | `/` | `cli.ts` | Command parsing and entry point (`dist/src/cli.js`, also the installed launcher target); Ctrl+C handling |
+| | `cli-input.ts` | Validated CLI option values and input files |
 | `config/` | `runtime.ts` | Application root, version, installed or development channel, data directory, update |
 | | `limits.ts` | Fixed, documented bounds bound into approval, evidence or recovery; not configurable |
 | | `settings.ts` | Operational settings, their defaults and the validated optional `<data directory>/config.json` |
 | | `environment.d.ts` | Typed declarations of the environment variables Grampus reads |
 | `persistence/` | `store.ts` | SQLite schema, version check, transactions and journal access |
+| | `records.ts` | Schemas of the execution-layer journal records, validated on every read |
+| | `errors.ts` | `RecordNotFoundError` and `StaleStateError` |
 | `domain/` | `workflow.ts`, `workflow-policy.ts` | Briefs, versions, attempts, evidence, gates, slices and completion; workflow policy validation |
 | | `guided-plan.ts` | Plan normalization, slice file simulation and approval digest |
 | | `quality-passes.ts` | Quality pass definitions, built-ins, plan selection and lens assessments |
@@ -377,23 +415,28 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `executions.ts`, `execution-state.ts` | Execution bindings, leases and settlement |
 | | `edit-policy.ts`, `implementations.ts`, `implementation-worker.ts` | Edit scope, patch authorization and supervised editing |
 | | `deliveries.ts`, `delivery-worker.ts`, `delivery-operation.ts` | Local commit delivery and verification |
+| | `worker-files.ts` | Validated worker request files and implementation results |
 | | `agent-timeout.ts` | Opt-in provider deadlines for low-level session and implementation commands; guided turns have none |
 | `providers/` | `types.ts`, `index.ts` | Provider contract, reply validation, usage, connector |
-| | `codex.ts` | Codex app-server threads, turns, approvals and dynamic tools |
-| | `claude.ts`, `claude-repository.ts`, `claude-files.ts` | Claude SDK sessions, repository MCP server, scoped delete tool |
+| | `reply-schema.ts` | Structured reply, usage and turn result schemas; the provider output format |
+| | `codex.ts`, `codex-protocol.ts` | Codex app-server threads, turns, approvals and dynamic tools; the pinned app-server protocol |
+| | `claude.ts`, `claude-protocol.ts`, `claude-repository.ts`, `claude-files.ts` | Claude SDK sessions and the validated SDK fields, repository MCP server, scoped delete tool |
 | | `integrations.ts` | MCP carry-over into worktrees |
-| `repository/` | `workspaces.ts`, `orca.ts` | Git and Orca worktree lifecycle and identity |
-| | `artifacts.ts`, `repository-evidence.ts` | Snapshots, artifact digests, instructions and review context |
-| | `repository-context.ts`, `repository-tools.ts` | Pinned inventories, cache and the shared agent read tools |
+| `repository/` | `workspaces.ts`, `orca.ts`, `orca-protocol.ts` | Git and Orca worktree lifecycle and identity; the pinned Orca CLI JSON |
+| | `artifacts.ts`, `snapshot-schema.ts`, `repository-evidence.ts` | Snapshots, artifact digests, instructions and review context |
+| | `git-output.ts` | Parsers for the Git plumbing output that snapshots and delivery read |
+| | `repository-context.ts`, `repository-tools.ts`, `repository-tool-arguments.ts` | Pinned inventories, cache, the shared agent read tools and their argument schemas |
 | | `reference-folders.ts`, `installed-dependency.ts` | Reference roots and dependency source reads |
 | | `delivery-git.ts` | Raw Git plumbing for delivery and reconciliation |
 | `process/` | `process.ts`, `process-identity.ts` | Shell-free subprocesses, JSON-RPC, process creation times |
-| | `check-process.ts`, `check-host.ts` | Supervisor control and its detached host |
+| | `boundary.ts` | Categorised boundary errors, schema parsing helpers and sanitised excerpts |
+| | `check-process.ts`, `check-host.ts`, `supervisor-protocol.ts` | Supervisor control, its detached host and the pinned supervisor and receipt formats |
 | | `native/check.cs`, `native/check.ps1`, `native/process.ps1` | Job Object helper and process identity queries |
 | `verification/` | `checks.ts`, `check-evidence.ts`, `check-output.ts`, `check-recovery.ts` | Checks and submission, check feedback, log paging, receipts |
 | `reporting/` | `report.ts`, `task-usage.ts` | Markdown report; per-task usage aggregation |
 | `health/` | `doctor.ts` | Readiness checks |
 | `server/` | `ui-server.ts`, `ui-worker.ts` | Loopback dashboard server and action workers |
+| | `api-schemas.ts`, `errors.ts`, `task-poll.ts` | Request body and worker request schemas, error-to-status mapping, the compact task poll |
 | `ui/` | `index.html`, `app.js`, `app.css`, `markdown.js`, `favicon.svg` | Browser client, served as static files |
 | `probes/` | `*-probe.ts`, `multifile-fixture.ts`, `probe-interruption.ts` | Opt-in live and scale probes and their fixtures |
 | | `demo.ts` | Synthetic demo |

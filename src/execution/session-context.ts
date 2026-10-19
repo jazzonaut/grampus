@@ -11,7 +11,7 @@ export function sessionContinuation(
   policy: WorkflowPolicy = currentSettings().defaultWorkflowPolicy,
 ) {
   const peers = store
-    .sessions<Session>()
+    .sessions()
     .filter(item => item.provider === session.provider && item.providerSessionId === session.providerSessionId);
   const events = peers
     .flatMap(item => store.sessionEvents(item.id, ['turn.requested', 'context.updated']))

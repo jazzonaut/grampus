@@ -23,35 +23,40 @@ export function claudeRepositoryTools(
   ownsTurn: () => boolean,
 ) {
   const invoke = repositoryTools(access, emit, ownsTurn);
-  const schemas = [
-    { query: z.string().optional(), offset: z.number().int().nonnegative().optional(), root: z.string().optional() },
-    {
+  // The input shapes advertised to Claude, by tool name; repository-tool-arguments.ts enforces them again.
+  const schemas = {
+    grampus_list_files: {
+      query: z.string().optional(),
+      offset: z.number().int().nonnegative().optional(),
+      root: z.string().optional(),
+    },
+    grampus_read_file: {
       path: z.string(),
       mode: z.enum(['lines', 'characters']).optional(),
       offset: z.number().int().nonnegative().optional(),
       limit: pageLimit(),
       root: z.string().optional(),
     },
-    {
+    grampus_search: {
       query: z.string().min(1),
       path: z.string().optional(),
       offset: z.number().int().nonnegative().optional(),
       root: z.string().optional(),
     },
-    { path: z.string(), reason: z.string() },
-    {
+    grampus_suggest_reference_folder: { path: z.string(), reason: z.string() },
+    grampus_read_changes: {
       path: z.string().optional(),
       side: z.enum(['before', 'after']).optional(),
       offset: z.number().int().nonnegative().optional(),
       limit: pageLimit(),
     },
-    {
+    grampus_read_check: {
       checkId: z.string().optional(),
       stream: z.enum(['stdout', 'stderr', 'spec']).optional(),
       offset: z.number().int().nonnegative().optional(),
       limit: pageLimit(),
     },
-    {
+    grampus_read_dependency: {
       package: z.string(),
       path: z.string().optional(),
       from: z.string().optional(),
@@ -59,23 +64,27 @@ export function claudeRepositoryTools(
       offset: z.number().int().nonnegative().optional(),
       limit: pageLimit(),
     },
-  ];
-  return repositoryToolDefinitions.map((def, index) =>
-    tool(
+  };
+  const named = (name: string): name is keyof typeof schemas => Object.hasOwn(schemas, name);
+  return repositoryToolDefinitions.map(def => {
+    if (!named(def.name)) throw new Error(`Repository tool ${def.name} has no Claude input schema`);
+    return tool(
       def.name,
       def.description,
-      schemas[index]!,
-      async input => {
+      schemas[def.name],
+      input => {
         try {
-          return { content: [{ type: 'text' as const, text: JSON.stringify(invoke(def.name, input)) }] };
+          return Promise.resolve({
+            content: [{ type: 'text' as const, text: JSON.stringify(invoke(def.name, input)) }],
+          });
         } catch (error) {
-          return {
+          return Promise.resolve({
             isError: true,
             content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }],
-          };
+          });
         }
       },
       { annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false } },
-    ),
-  );
+    );
+  });
 }

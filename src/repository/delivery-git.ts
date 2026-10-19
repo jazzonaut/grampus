@@ -1,6 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import type { RepositorySnapshot } from './artifacts.js';
+import type { DeliveryRequest } from '../persistence/records.js';
+import { blobCheckLine, indexEntry, lsTreeEntry } from './git-output.js';
 import { processLimits, repositoryLimits } from '../config/limits.js';
 
 /** Used inside the supervised writer, and for read-only delivery reconciliation. */
@@ -42,7 +44,11 @@ export function verifyTree(cwd: string, snapshot: RepositorySnapshot, tree?: str
       .filter(Boolean)
       .map(entry => [entry.slice(entry.indexOf('\t') + 1), entry.slice(0, 6)]),
   );
-  const expected = new Map(snapshot.files.filter(file => file.sha256 !== null).map(file => [file.path, file]));
+  const expected = new Map(
+    snapshot.files.flatMap(file =>
+      file.sha256 === null ? [] : [[file.path, { executable: file.executable, sha256: file.sha256 }] as const],
+    ),
+  );
   const entries = deliveryGit(cwd, ...(tree ? ['ls-tree', '-r', '-z', tree] : ['ls-files', '--stage', '-z']))
     .toString('utf8')
     .split('\0')
@@ -50,17 +56,14 @@ export function verifyTree(cwd: string, snapshot: RepositorySnapshot, tree?: str
   if (entries.length !== expected.size) throw new Error('Delivery tree has different paths from the checked artifact');
   const blobs: { oid: string; sha256: string }[] = [];
   for (const entry of entries) {
-    const tab = entry.indexOf('\t');
-    const path = entry.slice(tab + 1);
-    const parts = entry.slice(0, tab).split(' ');
-    const [mode, oid] = tree ? [parts[0], parts[2]] : parts;
+    const { mode, oid, path, stage } = tree ? { ...lsTreeEntry(entry), stage: '0' } : indexEntry(entry);
     const file = expected.get(path);
     const wantedMode =
       process.platform === 'win32' ? (oldModes.get(path) ?? '100644') : file?.executable ? '100755' : '100644';
-    if (!file || !['100644', '100755'].includes(mode ?? '') || mode !== wantedMode || (!tree && parts[2] !== '0')) {
+    if (!file || !['100644', '100755'].includes(mode) || mode !== wantedMode || stage !== '0') {
       throw new Error('Delivery tree path or file mode differs from the checked artifact');
     }
-    blobs.push({ oid: oid!, sha256: file.sha256! });
+    blobs.push({ oid, sha256: file.sha256 });
     expected.delete(path);
   }
   if (!blobs.length) return;
@@ -76,10 +79,10 @@ export function verifyTree(cwd: string, snapshot: RepositorySnapshot, tree?: str
     .split('\n');
   if (sizes.length !== blobs.length) throw new Error('Delivery blob inventory is incomplete');
   const metadata = blobs.map((blob, index) => {
-    const match = /^([a-f0-9]+) blob (\d+)$/.exec(sizes[index]!);
-    if (!match || match[1] !== blob.oid || Number(match[2]) > repositoryLimits.fileBytes)
+    const checked = blobCheckLine(sizes[index]);
+    if (checked?.oid !== blob.oid || checked.bytes > repositoryLimits.fileBytes)
       throw new Error('Delivery blob inventory is invalid or oversized');
-    return { ...blob, bytes: Number(match[2]) };
+    return { ...blob, bytes: checked.bytes };
   });
   let batch: typeof metadata = [],
     bytes = 0;
@@ -115,16 +118,7 @@ export function verifyTree(cwd: string, snapshot: RepositorySnapshot, tree?: str
   verify();
 }
 
-export interface DeliveryRequest {
-  id: string;
-  cwd: string;
-  branch: string;
-  base: string;
-  message: string;
-  snapshot: RepositorySnapshot;
-  mode?: 'commit' | 'no_change';
-  orca?: { database: string; executionId: string; workspaceId: string; identityKey: string };
-}
+export type { DeliveryRequest } from '../persistence/records.js';
 /** No-change delivery proves raw HEAD/index/worktree equality without staging. */
 export function verifyNoChange(request: DeliveryRequest): void {
   if (

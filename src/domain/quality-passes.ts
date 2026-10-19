@@ -80,7 +80,8 @@ export const qualityPassDefinitionSchema = z.strictObject({
   instructions: boundedText('Quality pass instructions', qualityLimits.instructionsBytes),
 });
 
-const lensAssessmentsSchema = z
+/** A reviewer's lens assessments: at most one per lens, bounded by the number of passes a plan may select. */
+export const lensAssessmentsSchema = z
   .array(
     z.strictObject({
       lens: qualityPassIdSchema,
@@ -101,7 +102,7 @@ const lensAssessmentsSchema = z
 /** A recorded quality assessment. Its summary bound is the recorded-assessment bound. */
 export const qualityAssessmentSchema = z.strictObject({
   pass: qualityPassIdSchema,
-  reviewId: z.string().optional(),
+  reviewId: z.string().exactOptional(),
   artifact: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   instructionsDigest: z.string().regex(/^[a-f0-9]{64}$/),
   outcome: z.enum(['passed', 'failed', 'skipped']),
@@ -160,8 +161,7 @@ export function parseLensAssessments(value: unknown): LensAssessment[] {
 export function parseQualityAssessment(value: unknown, message: string): QualityAssessment {
   const parsed = qualityAssessmentSchema.safeParse(value);
   if (!parsed.success) throw new Error(`${message}: ${describe(parsed.error)}`);
-  const { reviewId, ...rest } = parsed.data;
-  return { ...rest, ...(reviewId === undefined ? {} : { reviewId }) };
+  return parsed.data;
 }
 
 /** The evidence outcome a reviewer's lens verdict stands for. */

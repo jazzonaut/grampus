@@ -34,7 +34,12 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   typescript-eslint `strictTypeChecked`, zod validation at every external boundary
   (provider events, journal payloads, API bodies, plan files), discriminated unions instead
   of `any` and casts, TSDoc on exported surfaces. Recovery, artifact binding and no-replay
-  semantics stay unchanged; the existing tests are the safety net.
+  semantics stay unchanged; the existing tests are the safety net. Boundary validation is done for
+  provider protocols, agent replies, supervisor output and receipts, worker files, execution-layer
+  journal records, Orca and Git output, dashboard bodies and CLI input
+  ([ARCHITECTURE.md](ARCHITECTURE.md#external-boundaries)); `no-explicit-any` and
+  `no-non-null-assertion` are errors. Task and guided state records and journal event payloads are
+  still read unvalidated by domain and orchestration.
 - **Central configuration.** Done 19 October 2026. Fixed limits are in `src/config/limits.ts` and
   operational settings in `src/config/settings.ts`; an optional validated `config.json` in the data
   directory overrides ports, usage polling, the default check timeout and the default workflow
