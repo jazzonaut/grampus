@@ -414,3 +414,15 @@ export const guidanceLimits = {
   /** Recent messages on the task screen; the complete history remains in the journal. */
   historyMessages: 24,
 } as const;
+
+/** Bounded text sent to the optional Orca desktop; never provider or verification evidence. */
+export const orcaPresentationLimits = {
+  titleCharacters: 120,
+  commentCharacters: 300,
+} as const;
+
+/** Local desktop discovery is bounded before any access token is used. */
+export const desktopLimits = {
+  discoveryBytes: 16 * KiB,
+  responseBytes: 16 * KiB,
+};

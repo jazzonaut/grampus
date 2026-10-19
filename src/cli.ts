@@ -16,6 +16,9 @@ import { runDemo } from './probes/demo.js';
 import { renderReport } from './reporting/report.js';
 import { Sessions, runSession } from './execution/sessions.js';
 import { Workspaces } from './repository/workspaces.js';
+import { OrcaCli } from './repository/orca.js';
+import { awaitDesktopPermit, ensureDesktop } from './server/desktop-launch.js';
+import { desktopProfile, desktopResponds, desktopRequest, readDesktopEndpoint } from './server/desktop-discovery.js';
 import { Executions } from './execution/executions.js';
 import { Checks } from './verification/checks.js';
 import { Deliveries } from './execution/deliveries.js';
@@ -49,7 +52,9 @@ const help = `Grampus - local agent controller
   --version, -v                  Show version and build
   version [--json]               Show version, installation and data locations
   update [--source <checkout>]   Install a new snapshot from the recorded checkout (--yes)
-  ui                             Open the local task dashboard (--port, optional --db)
+  ui [--orca]                    Open the dashboard in your browser, or inside Orca (--port, optional --db)
+  open [--orca]                  Start or reconnect to the background dashboard
+  close                          Close the dashboard when its actions have settled
 
   doctor [--orca]                 Check the executables Grampus runs and store the result; no inference
   demo                           Run a synthetic workflow in a fresh temporary database
@@ -126,6 +131,7 @@ const options = {
   'answers-file': { type: 'string' },
   port: { type: 'string' },
   'no-open': { type: 'boolean' },
+  background: { type: 'boolean' },
   version: { type: 'boolean', short: 'v' },
   source: { type: 'string' },
   yes: { type: 'boolean' },
@@ -223,18 +229,30 @@ function versionCommand(invocation: Invocation): void {
  */
 async function uiCommand(invocation: Invocation): Promise<void> {
   const { values } = invocation;
+  if (values.background) await awaitDesktopPermit();
   const listen = port(values.port ?? String(currentSettings().dashboardPort));
+  const db = values.db ?? defaultDatabasePath();
   const { startUi } = await import('./server/ui-server.js');
   const ui = await startUi({
-    db: values.db ?? defaultDatabasePath(),
+    db,
     port: listen,
     health: () => doctor(),
     settingsDirectory: defaultDataDirectory(),
+    orca: new OrcaCli(),
+    desktop: desktopProfile(defaultDataDirectory(), db),
   });
-  console.log(
-    `${versionLabel()}\nGrampus dashboard: ${ui.url}\nJournal: ${ui.store.path}\nKeep this terminal open. Ctrl+C closes the dashboard after active actions settle.`,
-  );
-  if (!values['no-open'] && process.platform === 'win32') {
+  if (values.background) console.log(`${versionLabel()} background dashboard started`);
+  else
+    console.log(
+      `${versionLabel()}\nGrampus dashboard: ${ui.url}\nJournal: ${ui.store.path}\nKeep this terminal open. Ctrl+C closes the dashboard after active actions settle.`,
+    );
+  if (!values['no-open'] && values.orca) {
+    try {
+      await new OrcaCli().openDashboard(process.cwd(), ui.url);
+    } catch {
+      console.error('Could not open Orca. The dashboard is running; open the link above in your browser.');
+    }
+  } else if (!values['no-open'] && process.platform === 'win32') {
     // Opens the default browser without a shell, so the URL is never interpreted as a command line.
     const { execFile } = await import('node:child_process');
     execFile('rundll32.exe', ['url.dll,FileProtocolHandler', ui.url], { windowsHide: true }, error => {
@@ -252,6 +270,37 @@ async function uiCommand(invocation: Invocation): Promise<void> {
   };
   process.on('SIGINT', close);
   process.on('SIGTERM', close);
+}
+
+/** Native launchers use a short-lived command; the detached controller keeps its own logs and lifetime. */
+async function desktopCommand(invocation: Invocation): Promise<void> {
+  const { values, action } = invocation;
+  const profile = desktopProfile(defaultDataDirectory(), values.db ?? defaultDatabasePath());
+  if (action === 'close') {
+    const endpoint = readDesktopEndpoint(profile);
+    if (!endpoint || !(await desktopResponds(endpoint)))
+      throw new Error('No authenticated dashboard is available to close');
+    await desktopRequest(endpoint, true);
+    print({ ok: true, closing: true });
+    return;
+  }
+  const result = await ensureDesktop({ profile, port: port(values.port ?? String(currentSettings().dashboardPort)) });
+  if (!result.endpoint.url) throw new Error('Dashboard readiness is unconfirmed');
+  if (!values['no-open']) {
+    if (values.orca) await new OrcaCli().openDashboard(values.cwd ?? process.cwd(), result.endpoint.url);
+    else if (process.platform === 'win32') {
+      const { execFile } = await import('node:child_process');
+      await new Promise<void>((resolve, reject) => {
+        execFile(
+          'rundll32.exe',
+          ['url.dll,FileProtocolHandler', result.endpoint.url ?? ''],
+          { windowsHide: true },
+          error => (error ? reject(new Error('Could not open the dashboard browser')) : resolve()),
+        );
+      });
+    }
+  }
+  print({ ok: true, started: result.started });
 }
 
 /**
@@ -740,6 +789,7 @@ async function main(): Promise<void> {
   if (values.version || action === 'version') versionCommand(invocation);
   else if (action === 'update') await updateInstallation(values.source, values.yes);
   else if (action === 'ui') await uiCommand(invocation);
+  else if (action === 'open' || action === 'close') await desktopCommand(invocation);
   else if (action === 'doctor') await doctorCommand(invocation);
   else if (action === 'demo') demoCommand(invocation);
   else if (action.startsWith('task-')) await taskCommand(invocation);

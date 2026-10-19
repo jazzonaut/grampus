@@ -2,13 +2,14 @@
 // these functions resolve, and `doctor` and session records report the same values, so a health result
 // always describes the program a turn would start.
 //
-// Codex is found on PATH (or through `GRAMPUS_CODEX_COMMAND`). Only native executables are accepted,
-// because the adapters spawn without a shell: an npm script shim is never run. When the only `codex` on
-// PATH is such a shim, the native binary its npm package vendors is used instead. Claude is the
-// executable bundled with the pinned Agent SDK, resolved the way the SDK resolves it, unless
-// `GRAMPUS_CLAUDE_COMMAND` names another one.
+// Both providers are pinned dependencies, so a provider update is a deliberate Grampus change rather than
+// whatever a standalone install updated itself to overnight. Codex is the native binary vendored by the
+// pinned `@openai/codex` package, never a `codex` on PATH; Claude is the executable bundled with the
+// pinned Agent SDK, resolved the way the SDK resolves it. `GRAMPUS_CODEX_COMMAND` and
+// `GRAMPUS_CLAUDE_COMMAND` name another native executable; the adapters spawn without a shell, so an npm
+// script shim is never run.
 import { execFileSync } from 'node:child_process';
-import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs';
+import { accessSync, constants, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, extname, isAbsolute, join, resolve } from 'node:path';
@@ -18,8 +19,8 @@ import { processLimits } from '../config/limits.js';
 import type { Provider } from './types.js';
 
 /**
- * Where an executable came from: an environment override, a PATH search, the native binary vendored by
- * the npm package whose script shim is on PATH, or the pinned SDK package.
+ * Where an executable came from: an environment override or a pinned package (`bundled`). `path` and
+ * `npm-vendored` are no longer resolved; they stay valid because journals already record them on sessions.
  */
 export const executableSourceSchema = z.enum(['environment', 'path', 'npm-vendored', 'bundled']);
 export type ExecutableSource = z.infer<typeof executableSourceSchema>;
@@ -80,17 +81,6 @@ export function findExecutable(name: string): string | null {
   return null;
 }
 
-/** On Windows, the first script shim for `name` on PATH, which a shell would run; never run here. */
-function scriptShim(name: string): string | null {
-  if (windows)
-    for (const directory of (process.env.PATH ?? '').split(delimiter))
-      for (const extension of ['.cmd', '.bat', '.ps1']) {
-        const shim = directory ? join(directory, `${name}${extension}`) : '';
-        if (shim && existsSync(shim)) return shim;
-      }
-  return null;
-}
-
 /** The Rust target triples of the Windows Codex binaries the npm package vendors, by Node architecture. */
 const codexWindowsTargets: Readonly<Partial<Record<string, string>>> = {
   x64: 'x86_64-pc-windows-msvc',
@@ -98,8 +88,8 @@ const codexWindowsTargets: Readonly<Partial<Record<string, string>>> = {
 };
 
 /**
- * The native `codex.exe` vendored by an npm installation whose shims are in `directory` (an npm global
- * prefix), found by fixed paths rather than by running the shim's launcher script. The platform package
+ * The native `codex.exe` vendored by an npm installation under `directory` (the folder holding its
+ * `node_modules`), found by fixed paths rather than by running the package's launcher script. The platform package
  * is looked for nested under `@openai/codex` (current npm) and flattened beside it, then in the older
  * single-package layout; each keeps the binary under `vendor/<target>/bin` or `vendor/<target>/codex`.
  * Only these exact names are tried, so npm's `.codex-XXXX` staging folders from an interrupted
@@ -139,23 +129,21 @@ function configured(provider: Provider, value: string, variable: string): Provid
   };
 }
 
-/** The `codex` program every Codex connection and `doctor` start. */
+/** The `codex` program every Codex connection and `doctor` start: the override, else the pinned package's binary. */
 export function codexExecutable(): ProviderExecutable {
   const override = process.env.GRAMPUS_CODEX_COMMAND;
   if (override) return configured('codex', override, 'GRAMPUS_CODEX_COMMAND');
-  const path = findExecutable('codex');
-  if (path) return { provider: 'codex', command: path, path, source: 'path', problem: null };
-  const shim = scriptShim('codex');
-  const vendored = shim ? npmVendoredCodex(dirname(shim)) : null;
-  if (vendored) return { provider: 'codex', command: vendored, path: vendored, source: 'npm-vendored', problem: null };
+  // node_modules/@openai/codex/package.json, three folders below the prefix npmVendoredCodex searches.
+  const manifest = createRequire(import.meta.url).resolve('@openai/codex/package.json');
+  const path = npmVendoredCodex(resolve(dirname(manifest), '..', '..', '..'));
   return {
     provider: 'codex',
-    command: 'codex',
-    path: null,
-    source: 'path',
-    problem: shim
-      ? `Only the script shim ${shim} is on PATH and no native codex.exe was found in its npm package; Grampus starts native executables without a shell. Reinstall Codex or set GRAMPUS_CODEX_COMMAND to the native codex.exe`
-      : 'codex was not found on PATH; install it or set GRAMPUS_CODEX_COMMAND',
+    command: path ?? 'codex',
+    path,
+    source: 'bundled',
+    problem: path
+      ? null
+      : `The pinned @openai/codex package has no native Codex binary for ${process.platform}-${process.arch}; reinstall dependencies or set GRAMPUS_CODEX_COMMAND`,
   };
 }
 

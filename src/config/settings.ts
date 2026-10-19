@@ -30,10 +30,18 @@ import { defaultDashboardPort } from './runtime.js';
 export interface Settings {
   /** Loopback port of the dashboard server; `--port` still overrides it for one launch. */
   dashboardPort: number;
+  /** Deadline for a background dashboard to publish an authenticated endpoint. */
+  dashboardStartupMs: number;
+  /** Deadline for a local dashboard discovery or shutdown request. */
+  dashboardProbeMs: number;
+  /** Interval between background dashboard readiness observations. */
+  dashboardPollMs: number;
   /** How often Claude usage is sampled during a turn; the final result always replaces the samples. */
   usagePollIntervalMs: number;
   /** Minimum interval between display-only workspace observations in the dashboard. */
   liveChangesIntervalMs: number;
+  /** Interval between journal observations for optional Orca worktree card updates. */
+  orcaSyncIntervalMs: number;
   /**
    * Longest time streamed provider output is held in memory before it is journaled as one
    * `output.delta` event. Display-only text written in this interval is lost if the process dies.
@@ -72,8 +80,12 @@ export const settingsFileName = 'config.json';
 export function defaultSettings(): Settings {
   return {
     dashboardPort: defaultDashboardPort,
+    dashboardStartupMs: 30_000,
+    dashboardProbeMs: 2000,
+    dashboardPollMs: 100,
     usagePollIntervalMs: 15_000,
     liveChangesIntervalMs: 5000,
+    orcaSyncIntervalMs: 5000,
     outputFlushIntervalMs: 1000,
     outputFlushBytes: 8 * KiB,
     defaultPreparationTimeoutMs: 600_000,
@@ -97,8 +109,12 @@ export function defaultSettings(): Settings {
 /** Allowed range of each top-level integer setting; the schema enforces it and the Settings screen shows it. */
 export const settingRanges = {
   dashboardPort: { min: 1, max: 65_535 },
+  dashboardStartupMs: { min: 1000, max: 120_000 },
+  dashboardProbeMs: { min: 100, max: 30_000 },
+  dashboardPollMs: { min: 50, max: 1000 },
   usagePollIntervalMs: { min: 1000, max: 600_000 },
   liveChangesIntervalMs: { min: 1000, max: 600_000 },
+  orcaSyncIntervalMs: { min: 1000, max: 600_000 },
   outputFlushIntervalMs: { min: 100, max: 60_000 },
   outputFlushBytes: { min: 1 * KiB, max: 1 * MiB },
   defaultPreparationTimeoutMs: { min: commandLimits.minTimeoutMs, max: commandLimits.maxTimeoutMs },
@@ -115,8 +131,12 @@ const bounded = (range: { min: number; max: number }) => z.number().int().min(ra
 const overridesSchema = z
   .strictObject({
     dashboardPort: bounded(settingRanges.dashboardPort).optional(),
+    dashboardStartupMs: bounded(settingRanges.dashboardStartupMs).optional(),
+    dashboardProbeMs: bounded(settingRanges.dashboardProbeMs).optional(),
+    dashboardPollMs: bounded(settingRanges.dashboardPollMs).optional(),
     usagePollIntervalMs: bounded(settingRanges.usagePollIntervalMs).optional(),
     liveChangesIntervalMs: bounded(settingRanges.liveChangesIntervalMs).optional(),
+    orcaSyncIntervalMs: bounded(settingRanges.orcaSyncIntervalMs).optional(),
     outputFlushIntervalMs: bounded(settingRanges.outputFlushIntervalMs).optional(),
     outputFlushBytes: bounded(settingRanges.outputFlushBytes).optional(),
     defaultPreparationTimeoutMs: bounded(settingRanges.defaultPreparationTimeoutMs).optional(),

@@ -1,8 +1,9 @@
+// Verifies installation isolation, activation and prerequisites using temporary installations.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -11,6 +12,27 @@ const installerUrl = new URL('../../scripts/install.mjs', import.meta.url);
 const installer = await import(installerUrl.href);
 const launcher = fileURLToPath(new URL('../../scripts/installed-launch.mjs', import.meta.url));
 const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+
+function orcaInputs(directory: string) {
+  copyFileSync(
+    fileURLToPath(new URL('../../scripts/build-orca-plugin.mjs', import.meta.url)),
+    join(directory, 'scripts', 'build-orca-plugin.mjs'),
+  );
+  cpSync(fileURLToPath(new URL('../../plugins/orca', import.meta.url)), join(directory, 'plugins', 'orca'), {
+    recursive: true,
+  });
+}
+
+function orcaPackage(stage: string, root: string) {
+  const folder = join(stage, 'orca-plugin');
+  mkdirSync(folder);
+  copyFileSync(join(stage, 'plugins', 'orca', 'orca-plugin.json'), join(folder, 'orca-plugin.json'));
+  copyFileSync(join(stage, 'plugins', 'orca', 'installed.mjs'), join(folder, 'main.mjs'));
+  writeFileSync(
+    join(folder, 'launch.json'),
+    JSON.stringify({ schema: 1, installation: root, launcher: join(root, 'bin', 'launch.mjs') }),
+  );
+}
 
 test('installed launcher stays byte-identical so existing installations can update', () => {
   // activateSnapshot refuses to replace a differing bin/launch.mjs, so any edit (even formatting)
@@ -54,6 +76,7 @@ test('installed snapshots launch independently, preserve data and switch version
     data = join(root, 'local data');
   mkdirSync(join(source, 'src'), { recursive: true });
   mkdirSync(join(source, 'scripts'));
+  orcaInputs(source);
   mkdirSync(join(installRoot, 'versions'), { recursive: true });
   writeFileSync(join(source, 'package.json'), JSON.stringify({ name: 'grampus', version: '0.1.0', type: 'module' }));
   writeFileSync(join(source, 'package-lock.json'), '{}');
@@ -89,6 +112,7 @@ test('installed snapshots launch independently, preserve data and switch version
       installRoot,
     };
     writeFileSync(join(stage, 'grampus-build.json'), JSON.stringify(build));
+    orcaPackage(stage, installRoot);
     return { stage, build, token: candidate.token };
   };
   const environment: NodeJS.ProcessEnv = { ...process.env, LOCALAPPDATA: data };
@@ -155,6 +179,7 @@ test('snapshots copy the dashboard client sources but never its node_modules or 
     'scripts/installed-launch.mjs',
   ])
     writeFileSync(join(source, file), '{}');
+  orcaInputs(source);
   for (const file of [
     'web/package.json',
     'web/package-lock.json',
@@ -170,6 +195,8 @@ test('snapshots copy the dashboard client sources but never its node_modules or 
   assert.equal(existsSync(join(stage, 'web/public/favicon.svg')), true);
   assert.equal(existsSync(join(stage, 'web/node_modules')), false);
   assert.equal(existsSync(join(stage, 'web/dist')), false, 'the snapshot builds its own client');
+  assert.equal(existsSync(join(stage, 'plugins/orca/installed.mjs')), true);
+  assert.equal(existsSync(join(stage, 'scripts/build-orca-plugin.mjs')), true);
   // The build installs the client's locked dependencies, runs Vite and keeps only web/dist.
   const calls: { args: string[]; cwd: string }[] = [];
   mkdirSync(join(stage, 'web', 'node_modules'), { recursive: true });
@@ -225,11 +252,13 @@ test(
     const candidate = installer.createVersionDirectory(root, '0.1.0'),
       version = candidate.directory;
     mkdirSync(join(version, 'scripts'), { recursive: true });
+    orcaInputs(version);
     mkdirSync(join(version, 'dist', 'src'), { recursive: true });
     copyFileSync(launcher, join(version, 'scripts', 'installed-launch.mjs'));
     writeFileSync(join(version, 'package.json'), JSON.stringify({ type: 'module' }));
     writeFileSync(join(version, 'dist', 'src', 'cli.js'), `console.log(${JSON.stringify(candidate.id)});\n`);
     writeFileSync(join(version, 'grampus-build.json'), JSON.stringify({ id: candidate.id }));
+    orcaPackage(version, root);
     writeFileSync(join(root, 'current.json'), JSON.stringify({ schema: 1, release: 'previous-version' }));
     const payload = join(version, 'payload.txt');
     writeFileSync(payload, 'Held open by a reader while activating');
@@ -286,6 +315,7 @@ test('bare CLI opens the dashboard from an unrelated directory and retains expli
     db = join(root, 'explicit.sqlite');
   const child = spawn(process.execPath, [cli, '--no-open', '--port', '0', '--db', db], {
     cwd: root,
+    env: { ...process.env, GRAMPUS_HOME: join(root, 'data') },
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -359,19 +389,12 @@ test(
 );
 
 test(
-  'installer accepts an npm-installed Codex through the native binary its package vendors',
-  { skip: process.platform !== 'win32' || !['x64', 'arm64'].includes(process.arch) },
+  'installer needs no Codex of its own because the pinned package is installed into the snapshot',
+  { skip: process.platform !== 'win32' },
   t => {
-    const root = mkdtempSync(join(tmpdir(), 'grampus-install-npm-codex-'));
+    const root = mkdtempSync(join(tmpdir(), 'grampus-install-pinned-codex-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
-    // An npm global prefix: only script shims on PATH, the native binary under the platform package.
-    const prefix = join(root, 'npm');
-    const target = process.arch === 'arm64' ? 'aarch64-pc-windows-msvc' : 'x86_64-pc-windows-msvc';
-    const vendored = join(prefix, 'node_modules', '@openai', 'codex', 'node_modules', '@openai');
-    const bin = join(vendored, `codex-win32-${process.arch}`, 'vendor', target, 'bin');
-    mkdirSync(bin, { recursive: true });
-    writeFileSync(join(prefix, 'codex.cmd'), '@echo off\r\nexit /b 1\r\n');
-    copyFileSync(process.execPath, join(bin, 'codex.exe'));
+    // PATH holds Git only: no codex, shim or override anywhere.
     const git = execFileSync('where.exe', ['git.exe'], { encoding: 'utf8' }).split(/\r?\n/)[0] ?? '';
     // A held lock stops the installer right after the dependency checks, before any build.
     const destination = join(root, 'installed');
@@ -390,7 +413,7 @@ test(
       {
         env: {
           ...env,
-          PATH: [prefix, join(git, '..')].join(';'),
+          PATH: join(git, '..'),
           npm_execpath: join(process.execPath, '..', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
           GRAMPUS_CLAUDE_COMMAND: process.execPath,
         },
@@ -400,7 +423,7 @@ test(
       },
     );
     assert.doesNotMatch(result.stderr, /Installation refused/);
-    assert.match(result.stdout, /OK Codex CLI/);
+    assert.doesNotMatch(result.stdout, /Codex CLI/);
     assert.match(result.stderr, /Another installation may be running/);
   },
 );

@@ -24,7 +24,8 @@ scope changes, exhausted repair allowances and anything it cannot prove.
 - Node.js 24 or later (Grampus uses the built-in `node:sqlite`), npm and Git.
 - Windows PowerShell 5.1 or later. The check and delivery supervisor is compiled at
   runtime with `Add-Type`.
-- Codex CLI, logged in with a ChatGPT subscription.
+- A Codex login with a ChatGPT subscription (`codex login`). Grampus runs its own pinned Codex,
+  so the version of any Codex you have installed does not matter.
 - Claude Code, logged in with a Claude subscription (Pro, Max, Team or Enterprise).
 - Optional: a running local Orca app, if you want task worktrees created and tracked by Orca.
 

@@ -102,7 +102,8 @@ export type ActionId =
   | 'update-references'
   | 'stop-planning'
   | 'recover-planning'
-  | 'save-settings';
+  | 'save-settings'
+  | 'open-orca';
 
 /** Visual weight: one `primary` per decision at most; `danger` hides or discards work. */
 export type ActionKind = 'primary' | 'secondary' | 'danger';
@@ -707,6 +708,8 @@ export interface TaskDetailV1 {
   apiVersion: ApiVersion;
   revision: string;
   id: string;
+  /** Navigation and display failures of the optional Orca desktop, never workflow evidence. */
+  orca: { open: ActionView; problem: string | null } | null;
   header: {
     title: string;
     /** Markdown. */

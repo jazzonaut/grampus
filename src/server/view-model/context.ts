@@ -5,6 +5,7 @@ import type { QualityPassDefinition } from '../../domain/quality-passes.js';
 import type { Stall } from '../../health/stalls.js';
 import type { RunnerPool } from '../../orchestration/guided/runner-pool.js';
 import type { StallV1 } from '../api-types.js';
+import type { OrcaPresentationStatus } from '../../repository/orca-presentation.js';
 import { providerLabel } from './status.js';
 
 /** An action worker this dashboard started (the server's in-memory job). */
@@ -26,6 +27,8 @@ export interface ViewContext {
   qualityPasses: readonly QualityPassDefinition[];
   /** The guided runner pool when the request was answered; a full pool disables actions that start work. */
   pool: RunnerPool;
+  /** Present only when the dashboard has an Orca desktop connection configured. */
+  orca?: ((id: string) => OrcaPresentationStatus | null) | undefined;
 }
 
 /**

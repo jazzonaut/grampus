@@ -269,12 +269,65 @@ anything, pins the base ref to a commit and never replays creation.
 - **Orca** (`repository/orca.ts`): one `worktree create` call with `--no-parent --setup skip`, without
   launching an agent. Grampus records Orca's worktree id and stable instance identity, and every
   later operation re-verifies that identity. Orca owns the worktree lifecycle; Grampus never edits
-  Orca metadata or applies raw Git lifecycle writes to Orca worktrees. Remote Orca hosts are
+  Orca metadata directly or applies raw Git lifecycle writes to Orca worktrees. Remote Orca hosts are
   refused.
 
 Recovery adopts a created worktree only when its identity, clean pinned base and approved version
 all match. An unused failed standalone reservation can be released (metadata only). Worktree removal
 is not automated.
+
+`repository/orca-presentation.ts` projects guided journal facts onto ready, adopted local
+Orca worktrees while the dashboard is open. It uses supported `worktree set` calls for
+the display name, comment, board status and unread marker. The creation reservation's
+name and comment are untouched until its identity has been adopted. Every changed card
+is preceded by an exact instance, repository, path, branch and archive check; a second
+journal observation discards a snapshot that changed during that check. No CLI call runs
+inside a journal transaction. A slow scan never overlaps itself, and shutdown waits for
+settlement before closing the journal.
+
+The projection is disposable, never completion evidence. `completed` requires both
+guided completion and the controller's delivered task phase for the approved version,
+with no pending operation or owner. Each new attention observation marks unread once;
+Grampus never clears unread. Failed card writes may be retried because they only assign
+display values; provider dispatch and Git writes retain their no-replay rules. Projection
+errors stay outside workflow state and appear on the task page. The dashboard restart
+rebuilds the view from the journal. Closed dashboards leave the last observed card intact.
+
+`grampus ui --orca` opens and focuses a local embedded browser tab. The authenticated
+`POST /api/tasks/:id/open-orca` route opens the task in its exact recorded workspace,
+including during an active action. It accepts no caller-supplied URL or workspace selector.
+Browser creation must return a validated page id before focus, and navigation is never
+automatically replayed. Task links carry the per-launch token and task route in the
+fragment; the client stores the token and replaces the fragment with the task route.
+Raw navigation errors are withheld because they can contain that token. Remote overrides
+are refused for dashboard navigation. Native agent conversations remain **Planned**.
+
+The native command plugin in `plugins/orca/` runs the short-lived `grampus open --orca`
+or `grampus close` commands. `scripts/build-orca-plugin.mjs` packages it for a specific
+Node, launcher and Orca CLI. `server/desktop-launch.ts` serialises startup using a
+separate SQLite mutex, records the child's PID before its IPC startup permit, and
+reconnects only after authenticated instance proof. A live or unverifiable owner blocks
+replacement. The detached dashboard owns its lifetime; neither a plugin reload nor
+closing Orca kills it. This does not add workflow records or change the journal schema.
+
+Install and update build the production package inside the immutable snapshot, then
+publish it at `<installation directory>/orca-plugin` before changing `current.json`.
+Publication or selection failure restores the preceding package. The installed
+`plugins/orca/installed.mjs` entry resolves `current.json` on each command and loads
+that snapshot's command worker. This also works when Orca copied the package into
+its own plugin directory. Unselected snapshots cannot change command behaviour;
+the stable `bin/launch.mjs` launcher selects the application independently of the
+checkout. Orca installation and enablement remain explicit through its supported UI.
+
+`server/desktop-discovery.ts` validates private, bounded local endpoint receipts,
+bound to application, journal, host and process identity. Installed snapshots share
+their installation identity so a new launcher can reconnect to a still-running build.
+`server/desktop-service.ts` shares graceful shutdown between foreground signals and
+the authenticated `/api/desktop/close` route. New actions are refused once shutdown is
+accepted, and active dashboard jobs prevent shutdown. `/api/desktop` proves identity
+without returning the access token. Shutdown retires only that instance's receipt.
+Browser reuse refreshes authentication through the token fragment before focusing the
+exact page id. See [ORCA.md](ORCA.md) for setup and operation.
 
 ## Executions, sessions and leases
 
@@ -307,13 +360,15 @@ is pinned in `providers/reply-schema.ts`; see [External boundaries](#external-bo
 provider protocol messages are validated.
 
 - **Codex** (`providers/codex.ts`) runs `codex app-server` over stdio JSON-RPC
-  (`process/process.ts`), forcing ChatGPT login and refusing other authentication. The executable is
-  the native `codex` on PATH or `GRAMPUS_CODEX_COMMAND`, resolved by `providers/executables.ts`; the
-  working directory is never searched and npm script shims are never run. When the first `codex` on PATH
-  is an npm shim (`codex.cmd`), the native `codex.exe` its package vendors for this architecture is used
-  (source `npm-vendored`), found by fixed paths under the shim's `node_modules/@openai`: the platform
-  package nested in `@openai/codex` or flattened beside it, binary in `vendor/<target>/bin` or
-  `vendor/<target>/codex`; npm's `.codex-XXXX` staging folders are ignored. Threads start or resume
+  (`process/process.ts`), forcing ChatGPT login and refusing other authentication. Codex is pinned:
+  the executable is the native `codex.exe` vendored by the exact `@openai/codex` dependency (source
+  `bundled`), or `GRAMPUS_CODEX_COMMAND`, resolved by `providers/executables.ts`. A `codex` on PATH is
+  never used, so a standalone or desktop Codex updating itself does not change what Grampus runs. The
+  binary is found by fixed paths under the package's `node_modules/@openai`: the platform package
+  nested in `@openai/codex` or flattened beside it, binary in `vendor/<target>/bin` or
+  `vendor/<target>/codex`; npm's `.codex-XXXX` staging folders are ignored and the package's script
+  launcher is never run. Sessions recorded before pinning keep their `path` or `npm-vendored` source.
+  Threads start or resume
   with `approvalPolicy: untrusted` and a read-only sandbox, and the controller verifies both before
   inference. Resume requests set `excludeTurns: true`: Codex retains the conversation history but
   returns metadata without saved turns, keeping unused history out of the bounded RPC response.
@@ -323,7 +378,7 @@ provider protocol messages are validated.
   requests are declined. Server requests are answered only through the request handler and validated
   by their own schemas; they are never treated as notifications, so they are not reported as protocol
   drift, while a request method Grampus does not know is refused and journaled once as
-  `protocol.unrecognized`. Codex is not version-pinned.
+  `protocol.unrecognized`.
 - **Claude** (`providers/claude.ts`) uses the pinned `@anthropic-ai/claude-agent-sdk` and its bundled
   executable, unless `GRAMPUS_CLAUDE_COMMAND` overrides it. `providers/executables.ts` resolves the
   bundled executable from the SDK's platform package the way the SDK does, and the adapter passes that
@@ -746,6 +801,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `integrations.ts` | MCP carry-over into worktrees |
 | | `executables.ts` | The Codex and Claude programs the adapters and `doctor` run, and the provider runtime recorded on sessions |
 | `repository/` | `workspaces.ts`, `orca.ts`, `orca-protocol.ts` | Git and Orca worktree lifecycle and identity; the pinned Orca CLI JSON |
+| | `orca-presentation.ts` | Disposable journal projection onto Orca cards and verified desktop navigation |
 | | `artifacts.ts`, `snapshot-schema.ts`, `repository-evidence.ts` | Snapshots, artifact digests, instructions and review context |
 | | `git-output.ts` | Parsers for the Git plumbing output that snapshots and delivery read |
 | | `repository-context.ts`, `repository-tools.ts`, `repository-tool-arguments.ts` | Pinned inventories, cache, the shared agent read tools and their argument schemas |

@@ -7,6 +7,34 @@ The command opens your browser on Windows and prints the link; keep its terminal
 you work. The dashboard works in a normal browser or Orca's embedded browser. The footer shows
 the version, channel, build and journal.
 
+For daily Orca use, the [native Grampus plugin](ORCA.md) starts or reconnects to the
+dashboard in the background with one command or assigned shortcut. No terminal needs
+to remain open. Its **Stop Dashboard** command refuses while dashboard work is active.
+
+Run `grampus ui --orca` to open the dashboard in Orca's embedded browser, or
+`npm run ui -- --orca` from a checkout. `--no-open` suppresses navigation. If Orca
+cannot open the page, the server stays available at the printed browser link.
+
+While the dashboard is open, adopted local Orca worktrees display the task title,
+current stage and slice on their cards. A new approval, question, block or recovery
+state marks the worktree unread once per observation; polling does not keep marking
+the same state unread and Grampus never clears your unread indicator. Waiting cards
+use `todo`, active work uses `in-progress`, quality assessment, review and acceptance
+use `in-review`, and verified final delivery uses `completed`. These are the default
+Orca board status ids; a runtime that refuses them reports a card update problem.
+The refresh interval is `orcaSyncIntervalMs` (five seconds by default).
+
+**Open workspace in Orca** on an Orca task opens or reuses a browser tab with that task
+inside its recorded workspace and brings it into view. Navigation remains available
+during a run. The access token travels only in the local URL fragment and is removed
+before the task route is displayed. No token is put on a worktree card. Desktop failures
+are separate from task failures; card problems appear beside the navigation button.
+Updates resume while the dashboard is open, including for tasks driven by the CLI.
+With no dashboard running, cards retain their last observed state.
+
+Orca remains a display and worktree host. Agents are still Grampus-owned supervised
+processes. **Planned:** native Orca conversation and control integration.
+
 ## Screens
 
 The sidebar lists **New task**, the overview, every task and planning conversation with its

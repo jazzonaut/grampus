@@ -19,6 +19,28 @@ async function open(routes: Parameters<typeof fakeServer>[0]) {
 }
 
 describe('TaskPage', () => {
+  it('opens the server-provided Orca action without waiting for a workflow change', async () => {
+    const view: TaskDetailV1 = {
+      ...mockTask,
+      orca: {
+        open: mockAction('open-orca', 'Open workspace in Orca', {
+          path: '/api/tasks/task-1/open-orca',
+          expected: null,
+        }),
+        problem: 'Orca card update unavailable. Task progress remains in Grampus.',
+      },
+    };
+    const { wrapper, sent } = await open({
+      '/api/v1/tasks/task-1': view,
+      'POST /api/tasks/task-1/open-orca': status(200, { ok: true, settled: true }),
+    });
+    expect(wrapper.text()).toContain(view.orca?.problem);
+    await wrapper.get('[data-action="open-orca"] button').trigger('click');
+    await flushPromises();
+    expect(posts(sent)).toEqual([{ method: 'POST', path: '/api/tasks/task-1/open-orca', body: {} }]);
+    expect(wrapper.find('[data-notice="requested"]').exists()).toBe(false);
+    expect(wrapper.get('[data-action="open-orca"] button').attributes('disabled')).toBeUndefined();
+  });
   it('draws the summary, workflow, decisions, results, usage and details from the task view', async () => {
     const { wrapper } = await open({});
     expect(wrapper.get('h1').text()).toBe('Add retry to the export job');

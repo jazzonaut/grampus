@@ -2,7 +2,7 @@
 // sessions, the stored and validated health record, staleness, and the provider version change warning.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -33,6 +33,7 @@ import type { HealthReport, IntegrationHealth } from '../src/health/health-recor
 import { doctor } from '../src/health/doctor.js';
 import type { Session } from '../src/persistence/records.js';
 import { currentSettings } from '../src/config/settings.js';
+import { applicationRoot } from '../src/config/runtime.js';
 
 function directory(t: { after: (fn: () => void) => void }): string {
   const root = mkdtempSync(join(tmpdir(), 'grampus-health-'));
@@ -123,21 +124,23 @@ test('provider executables come from the override or the pinned SDK, and session
 });
 
 test(
-  'PATH search finds native Codex executables only and explains an npm shim',
-  { skip: process.platform !== 'win32' },
+  'Codex is the binary the pinned npm package vendors, never a codex on PATH',
+  { skip: process.platform !== 'win32' || !['x64', 'arm64'].includes(process.arch) },
   t => {
-    const shims = directory(t);
-    writeFileSync(join(shims, 'codex.cmd'), '@echo off\r\n');
-    environment(t, { GRAMPUS_CODEX_COMMAND: undefined, PATH: shims });
-    const missing = codexExecutable();
-    assert.equal(missing.path, null);
-    assert.equal(missing.command, 'codex');
-    assert.match(missing.problem ?? '', /script shim .*codex\.cmd.*no native codex\.exe.*GRAMPUS_CODEX_COMMAND/);
-    assert.equal(providerRuntime('codex').version, null);
+    // A native codex.exe on PATH, as a standalone or desktop install leaves, is ignored.
     const native = directory(t);
-    writeFileSync(join(native, 'codex.exe'), ''); // Found by name and type; never run here.
-    environment(t, { PATH: `${shims};${native}` });
-    assert.equal(codexExecutable().path, join(native, 'codex.exe'));
+    fakeExecutable(native, 'codex.exe');
+    environment(t, { GRAMPUS_CODEX_COMMAND: undefined, PATH: native });
+    const codex = codexExecutable();
+    assert.equal(codex.source, 'bundled');
+    assert.equal(codex.problem, null);
+    assert.match(codex.path ?? '', /node_modules[\\/]@openai[\\/]codex-win32-(x64|arm64)[\\/]vendor[\\/].*codex\.exe$/);
+    assert.equal(codex.command, codex.path);
+    const manifest = JSON.parse(readFileSync(join(applicationRoot, 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>;
+    };
+    const pinned = manifest.dependencies['@openai/codex'];
+    assert.equal(providerRuntime('codex').version, pinned, 'the vendored binary reports the pinned version');
     environment(t, { GRAMPUS_CODEX_COMMAND: join(native, 'absent.exe') });
     assert.match(codexExecutable().problem ?? '', /GRAMPUS_CODEX_COMMAND names .*absent\.exe/);
   },
@@ -188,43 +191,6 @@ test('the native Codex binary an npm installation vendors is found by fixed path
   assert.equal(npmVendoredCodex(staging, 'x64'), null);
   assert.equal(npmVendoredCodex('relative-prefix', 'x64'), null);
 });
-
-test(
-  'a Codex npm shim on PATH resolves to its vendored native binary, which sessions record',
-  { skip: process.platform !== 'win32' || !['x64', 'arm64'].includes(process.arch) },
-  t => {
-    const target = process.arch === 'x64' ? 'x86_64-pc-windows-msvc' : 'aarch64-pc-windows-msvc';
-    const prefix = directory(t);
-    // The three shims npm writes. Resolution only looks for them; none is ever run.
-    writeFileSync(join(prefix, 'codex.cmd'), '@echo off\r\nexit /b 1\r\n');
-    writeFileSync(join(prefix, 'codex.ps1'), 'exit 1\r\n');
-    writeFileSync(join(prefix, 'codex'), '#!/bin/sh\nexit 1\n');
-    const binary = fakeExecutable(...nestedVendor(prefix, process.arch), target, 'bin', 'codex.exe');
-    environment(t, { GRAMPUS_CODEX_COMMAND: undefined, PATH: prefix });
-    assert.deepEqual(codexExecutable(), {
-      provider: 'codex',
-      command: binary,
-      path: binary,
-      source: 'npm-vendored',
-      problem: null,
-    });
-    // The empty fake reports no version; the record still names the binary and where it came from.
-    assert.deepEqual(providerRuntime('codex'), {
-      executable: binary,
-      source: 'npm-vendored',
-      version: null,
-      sdkVersion: null,
-    });
-    // A native codex.exe on PATH, even after the shim's directory, is preferred to the vendored one.
-    const native = directory(t);
-    const onPath = fakeExecutable(native, 'codex.exe');
-    environment(t, { PATH: `${prefix};${native}` });
-    assert.deepEqual([codexExecutable().path, codexExecutable().source], [onPath, 'path']);
-    // The override still wins over both.
-    environment(t, { GRAMPUS_CODEX_COMMAND: process.execPath });
-    assert.equal(codexExecutable().source, 'environment');
-  },
-);
 
 test('integration status ignores untested rows and details are sanitised and bounded', () => {
   assert.equal(integrationStatus([]), 'untested');

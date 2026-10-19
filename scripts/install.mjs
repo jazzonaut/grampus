@@ -1,3 +1,4 @@
+// Owns isolated snapshot construction and atomic selection, including the local Orca plugin package.
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import {
@@ -12,7 +13,6 @@ import {
   realpathSync,
   renameSync,
   rmSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -36,39 +36,12 @@ const run = (file, args, options = {}) =>
     ...options,
   });
 
+/** The Rust target triple of the native Codex binary each Windows architecture's package vendors. */
+const codexTargets = { x64: 'x86_64-pc-windows-msvc', arm64: 'aarch64-pc-windows-msvc' };
+
 export function requireNode(version = process.versions.node) {
   if (!/^\d+\.\d+\.\d+/.test(version) || Number(version.split('.')[0]) < 24)
     throw new Error(`Node.js 24 or later is required (found ${version}).`);
-}
-
-/**
- * The Codex program Grampus will run, found as `codexExecutable` in src/providers/executables.ts finds it
- * (the installer cannot import uncompiled sources): the override, else a native `codex` on PATH, else the
- * native binary vendored by the npm package whose script shim is first on PATH. Spawning the name alone
- * would refuse an npm installation, because a shell-free spawn never runs its `.cmd` shim.
- */
-export function codexCommand(env = process.env) {
-  if (env.GRAMPUS_CODEX_COMMAND) return env.GRAMPUS_CODEX_COMMAND;
-  const directories = (env.PATH ?? '').split(';').filter(Boolean);
-  const file = path => existsSync(path) && statSync(path).isFile();
-  for (const directory of directories)
-    for (const name of ['codex.com', 'codex.exe']) if (file(join(directory, name))) return join(directory, name);
-  const shim = directories.find(directory =>
-    ['codex.cmd', 'codex.bat', 'codex.ps1'].some(name => existsSync(join(directory, name))),
-  );
-  const target = { x64: 'x86_64-pc-windows-msvc', arm64: 'aarch64-pc-windows-msvc' }[process.arch];
-  if (shim && target && isAbsolute(shim)) {
-    const scope = join(shim, 'node_modules', '@openai'),
-      platformPackage = `codex-win32-${process.arch}`;
-    for (const vendor of [
-      join(scope, 'codex', 'node_modules', '@openai', platformPackage, 'vendor'),
-      join(scope, platformPackage, 'vendor'),
-      join(scope, 'codex', 'vendor'),
-    ])
-      for (const folder of ['bin', 'codex'])
-        if (file(join(vendor, target, folder, 'codex.exe'))) return join(vendor, target, folder, 'codex.exe');
-  }
-  return 'codex';
 }
 
 /** Check external prerequisites before creating any installation files. No inference or login prompts. */
@@ -114,7 +87,9 @@ export function checkDependencies() {
     return run(process.execPath, [npmCli, '--version']).trim();
   });
   inspect('Git', () => run('git', ['--version']).trim());
-  inspect('Codex CLI', () => run(codexCommand(), ['--version']).trim());
+  // Codex is a pinned dependency installed into the snapshot; only an override is an external prerequisite.
+  if (process.env.GRAMPUS_CODEX_COMMAND)
+    inspect('Codex CLI', () => run(process.env.GRAMPUS_CODEX_COMMAND, ['--version']).trim());
   inspect('Claude Code CLI', () => run(process.env.GRAMPUS_CLAUDE_COMMAND ?? 'claude', ['--version']).trim());
   if (failures.length)
     throw new Error(
@@ -167,7 +142,15 @@ function sourceFiles(source) {
     } else if (stat.isFile()) files.push(path);
     else throw new Error(`Unsupported installation input: ${path}`);
   };
-  for (const path of ['package.json', 'package-lock.json', 'tsconfig.json', 'src', 'scripts/installed-launch.mjs'])
+  for (const path of [
+    'package.json',
+    'package-lock.json',
+    'tsconfig.json',
+    'src',
+    'scripts/installed-launch.mjs',
+    'scripts/build-orca-plugin.mjs',
+    'plugins/orca',
+  ])
     walk(path);
   // The dashboard client's sources; its node_modules and dist are never copied.
   if (existsSync(join(source, 'web'))) walk('web', webSkipped);
@@ -290,11 +273,17 @@ export function buildSnapshot(source, root, stage, npmCli) {
     'dist/src/execution/delivery-worker.js',
     'dist/src/execution/implementation-worker.js',
     `node_modules/@anthropic-ai/claude-agent-sdk-win32-${process.arch}/claude.exe`,
+    `node_modules/@openai/codex-win32-${process.arch}/vendor/${codexTargets[process.arch]}/bin/codex.exe`,
   ]) {
     if (!existsSync(join(stage, file))) throw new Error(`Snapshot is missing a required runtime asset: ${file}`);
   }
   if (!readdirSync(join(stage, 'web', 'dist', 'assets')).some(name => name.endsWith('.js')))
     throw new Error('Snapshot is missing a required runtime asset: web/dist/assets/*.js');
+  run(
+    process.execPath,
+    [join(stage, 'scripts', 'build-orca-plugin.mjs'), '--installed', root, '--out', join(stage, 'orca-plugin')],
+    { cwd: stage },
+  );
   return build;
 }
 
@@ -378,8 +367,66 @@ export function activateSnapshot(root, stage, build) {
   // A scanner/reader may still hold a file without FILE_SHARE_DELETE on Windows.
   const pointer = join(root, `.current-${randomUUID()}.json`);
   writeFileSync(pointer, JSON.stringify({ schema: 1, release: build.id }) + '\n', { flag: 'wx' });
-  renameSync(pointer, join(root, 'current.json'));
+  let restorePlugin;
+  try {
+    restorePlugin = publishOrcaPlugin(root, stage);
+    renameSync(pointer, join(root, 'current.json'));
+  } catch (error) {
+    restorePlugin?.();
+    throw error;
+  } finally {
+    if (existsSync(pointer)) unlinkSync(pointer);
+  }
   return stage;
+}
+
+function replaceFile(file, content) {
+  if (content === null) {
+    if (existsSync(file)) unlinkSync(file);
+    return;
+  }
+  const temporary = `${file}.${randomUUID()}`;
+  try {
+    writeFileSync(temporary, content, { flag: 'wx' });
+    renameSync(temporary, file);
+  } finally {
+    if (existsSync(temporary)) unlinkSync(temporary);
+  }
+}
+
+// Stage all bytes before touching the public package. The bootstrap resolves current.json on every
+// invocation, so a package copied into Orca follows only selected snapshots. A publication failure
+// restores the preceding package and never changes the installation selection.
+function publishOrcaPlugin(root, stage) {
+  const folder = join(root, 'orca-plugin');
+  if (!inside(canonical(root), canonical(folder))) throw new Error('Orca plugin folder is outside the installation.');
+  const config = readJson(join(stage, 'orca-plugin', 'launch.json'));
+  if (config.schema !== 1 || config.installation !== root || config.launcher !== join(root, 'bin', 'launch.mjs'))
+    throw new Error('Orca plugin does not target this installation.');
+  const files = ['orca-plugin.json', 'main.mjs', 'launch.json'].map(name => ({
+    target: join(folder, name),
+    content: readFileSync(join(stage, 'orca-plugin', name)),
+    previous: existsSync(join(folder, name)) ? readFileSync(join(folder, name)) : null,
+  }));
+  mkdirSync(folder, { recursive: true });
+  const restore = () => {
+    const failures = [];
+    for (const file of files) {
+      try {
+        replaceFile(file.target, file.previous);
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length) throw new AggregateError(failures, 'Orca plugin restoration failed; inspect its folder.');
+  };
+  try {
+    for (const file of files) replaceFile(file.target, file.content);
+  } catch (error) {
+    restore();
+    throw error;
+  }
+  return restore;
 }
 
 async function main() {
@@ -416,7 +463,7 @@ async function main() {
     const addToPath = !values['no-path'] && (owner?.addToPath ?? true);
     const previous = existsSync(join(root, 'current.json')) ? readJson(join(root, 'current.json')).release : null;
     console.log(
-      `\n${previous ? 'Update' : 'Install'} Grampus ${readJson(join(sourceRoot, 'package.json')).version}\nSource: ${sourceRoot}\nDestination: ${root}\nCurrent build: ${previous ?? 'none'}\nAdd command to user PATH: ${addToPath ? 'yes' : 'no'}\nInstalled dashboard: port 4317; development: port 4318\nTask data is separate from development. Existing task data is preserved.\nThis copies the current checkout, including local changes; it does not fetch or pull.`,
+      `\n${previous ? 'Update' : 'Install'} Grampus ${readJson(join(sourceRoot, 'package.json')).version}\nSource: ${sourceRoot}\nDestination: ${root}\nCurrent build: ${previous ?? 'none'}\nAdd command to user PATH: ${addToPath ? 'yes' : 'no'}\nOrca plugin package: ${join(root, 'orca-plugin')}\nInstalled dashboard: port 4317; development: port 4318\nTask data is separate from development. Existing task data is preserved.\nThis copies the current checkout, including local changes; it does not fetch or pull.`,
     );
     if (prompt && !/^y(es)?$/i.test((await prompt.question('\nContinue? [y/N]: ')).trim())) {
       console.log('Cancelled.');
@@ -448,6 +495,9 @@ async function main() {
         `\nInstalled Grampus ${build.version} · build ${build.id}\nOpen a new terminal, then run grampus.\nVersion: grampus version\nUpdate from this checkout: grampus update\nPrevious version folders are retained; updates do not change already-running processes.`,
       );
       if (!addToPath) console.log(`Command location: ${join(root, 'bin', 'grampus.cmd')}`);
+      console.log(
+        `Orca plugin: ${join(root, 'orca-plugin')}\nInstall this folder once in Orca Settings → Plugins and enable Grampus.`,
+      );
     } finally {
       try {
         if (candidate && existsSync(candidate.directory)) {

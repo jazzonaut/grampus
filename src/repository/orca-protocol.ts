@@ -1,5 +1,5 @@
 // Pins the JSON contract of the Orca CLI (`orca ... --json`) that Grampus relies on: the response
-// envelope, `repo show`, `worktree create|list|show` and `worktree current` (doctor). Orca is not
+// envelope, `repo show`, `worktree create|list|show`, `worktree current` (doctor) and `tab create`. Orca is not
 // version-pinned. A response that does not match is a `BoundaryError` of kind `orca-output` naming the
 // command and fields, and the operation stops: Grampus never guesses an Orca identity, path or host.
 // Identity invariants that go beyond shape (local host, key format, id prefixes) are checked by orca.ts.
@@ -54,6 +54,12 @@ export const orcaWorktreeListSchema = z.object({
 
 /** `worktree current` (doctor only). */
 export const orcaCurrentSchema = z.object({ worktree: z.looseObject({ id: z.string().optional() }).nullish() });
+
+/** `tab create`: the page handle is required before a subsequent focus operation. */
+export const orcaTabCreatedSchema = z.object({ browserPageId: text });
+
+/** `tab list`: page ids, rather than changing tab indices, bind subsequent navigation. */
+export const orcaTabsSchema = z.object({ tabs: z.array(z.object({ browserPageId: text, url: z.string() })) });
 
 /** Parse Orca output for `command`, or throw a categorised error naming it. */
 export function parseOrca<S extends z.ZodType>(

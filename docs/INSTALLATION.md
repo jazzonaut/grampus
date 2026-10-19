@@ -8,7 +8,9 @@ npm run install:local
 
 The interactive installer checks dependencies, asks for a destination and shows an
 installation summary before confirmation. It requires Windows, Node.js 24+ with
-`node:sqlite`, npm, Git, Windows PowerShell 5.1+, Codex CLI and Claude Code CLI.
+`node:sqlite`, npm, Git, Windows PowerShell 5.1+ and Claude Code CLI. Codex is a pinned
+dependency installed into the snapshot, so no Codex CLI is required; you only need a Codex
+ChatGPT login (`codex login`), which any Codex install shares.
 Missing or unusable dependencies refuse installation before any installation files
 or PATH changes. Install those tools separately; Grampus does not install them.
 CLI checks use `--version`, with no model inference. Subscription authentication is
@@ -31,6 +33,15 @@ grampus doctor
 All existing CLI commands work after `grampus`, without `npm start --`. The command
 preserves your current directory, so relative brief and repository paths still work.
 Keep its terminal open while using the dashboard.
+
+For a background dashboard, use `grampus open --orca` and `grampus close`, or install
+the [Orca command plugin](ORCA.md) for daily use without a terminal. Every install
+and update builds the package at `<installation directory>\orca-plugin` and prints
+its path. For the default installation, select
+`%LOCALAPPDATA%\Programs\Grampus\orca-plugin` in Orca Settings → Plugins, then
+review and enable **Grampus**. This Orca setup is needed once; updates keep the
+same path and the installed plugin follows the selected Grampus version. Orca
+itself is optional and is not installed or enabled by the Grampus installer.
 
 The installer copies the current source, including uncommitted and untracked source
 files, into a new version directory. It installs dependencies from the lockfile
@@ -95,6 +106,11 @@ active work and close the old dashboard before starting the new version. Install
 task data is preserved. Grampus refuses a journal with a different schema rather
 than changing it.
 
+The Orca package is built inside the new snapshot and published before selection.
+If publishing or selecting fails, its previous files are restored and the previous
+version remains selected. The plugin resolves selection for each command; merely
+building an unselected version cannot change the version it uses.
+
 Older version directories are retained; no automatic cleanup is provided. An interrupted
 installer may leave `install.lock`; inspect its recorded PID and remove the lock
 only after that installer has exited, then rerun. This does not alter task recovery.
@@ -117,7 +133,7 @@ The destination must be outside the checkout and either empty or an installation
 owned by Grampus. Installation paths cannot contain semicolons, quotes, `%`, `!`
 or newlines. Existing `GRAMPUS_CODEX_COMMAND` and `GRAMPUS_CLAUDE_COMMAND` overrides
 are honored; each must name a native executable, not a shell command or npm batch shim. Without an
-override, a Codex installed with npm is run through the native binary its package vendors.
+override, Grampus runs its own pinned Codex and never a `codex` on PATH.
 The installer serializes updates to one destination and never overwrites arbitrary
 existing directories. This distribution is for local Windows use. Published release
 downloads, a bundled Node runtime and macOS and Linux installers are **Planned**.

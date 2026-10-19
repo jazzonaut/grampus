@@ -24,7 +24,7 @@ import type {
   StageState,
   TaskDetailV1,
 } from '../api-types.js';
-import { resolvingActionIds, taskActions, type TaskActionFacts } from './actions.js';
+import { action, resolvingActionIds, taskActions, type TaskActionFacts } from './actions.js';
 import { poolFullReason, stallView, type ViewContext } from './context.js';
 import { planView } from './plan.js';
 import { pendingScopeFiles } from './scope.js';
@@ -427,6 +427,23 @@ function details(facts: TaskFacts): DetailsV1 {
   };
 }
 
+/** Navigation is available only for an adopted Orca workspace and a configured desktop adapter. */
+function orcaView(facts: TaskFacts, context: ViewContext): TaskDetailV1['orca'] {
+  const { task, workspace } = facts.view;
+  if (!context.orca || workspace?.adapter !== 'orca' || workspace.phase !== 'ready' || !workspace.orca?.identityKey)
+    return null;
+  return {
+    open: action({
+      id: 'open-orca',
+      label: 'Open workspace in Orca',
+      kind: 'secondary',
+      description: 'Open this task in its Orca workspace. Grampus continues to control the task.',
+      path: `/api/tasks/${task.id}/open-orca`,
+    }),
+    problem: context.orca(task.id)?.problem ?? null,
+  };
+}
+
 /** `GET /api/v1/tasks/:id`. */
 export function taskDetail(facts: TaskFacts, context: ViewContext, revision: string): TaskDetailV1 {
   const { view } = facts,
@@ -439,6 +456,7 @@ export function taskDetail(facts: TaskFacts, context: ViewContext, revision: str
     apiVersion: 1,
     revision,
     id: task.id,
+    orca: orcaView(facts, context),
     header: {
       title: task.brief.title,
       outcome: task.brief.outcome,

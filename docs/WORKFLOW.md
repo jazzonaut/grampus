@@ -18,6 +18,12 @@ revision still needs approval of its new version and digest. During planning, **
 creates an unapproved task. It does not start implementation. Planning token usage is visible before
 conversion, with live, partial and unknown measurements labelled explicitly.
 
+For local Orca worktrees, the open dashboard also projects the task title, stage, slice
+and attention onto the workspace card. Only verified final delivery is shown as completed.
+**Open workspace in Orca** opens the task in that workspace without starting another agent.
+These are display operations; they do not approve, pause, resume or complete work, and their
+failure never changes the controller's outcome ([Orca desktop integration](DASHBOARD.md)).
+
 Questions, scope changes, uncertain process exits, check timeouts and other infrastructure
 failures, mutating checks, prerequisite failures, exhausted allowances and repairs that leave
 the failing artifact unchanged stop for attention. Each stop records a typed reason code beside its note, for example

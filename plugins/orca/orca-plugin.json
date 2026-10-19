@@ -1,0 +1,18 @@
+{
+  "manifestVersion": 1,
+  "id": "grampus",
+  "publisher": "grampus",
+  "name": "Grampus",
+  "version": "0.1.0",
+  "description": "Open or reconnect to the local Grampus controller inside Orca.",
+  "engines": { "orca": ">=1.4.0" },
+  "pluginApi": 1,
+  "main": "main.mjs",
+  "contributes": {
+    "commands": [
+      { "id": "open", "title": "Grampus: Open", "context": "global" },
+      { "id": "stop", "title": "Grampus: Stop Dashboard", "context": "global" }
+    ]
+  },
+  "capabilities": []
+}

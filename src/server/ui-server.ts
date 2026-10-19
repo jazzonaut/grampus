@@ -17,6 +17,8 @@ import { guidedTaskView } from '../orchestration/guided-status.js';
 import { renderReport } from '../reporting/report.js';
 import { Kickoffs } from '../orchestration/kickoff.js';
 import { Sessions } from '../execution/sessions.js';
+import { OrcaPresentation } from '../repository/orca-presentation.js';
+import type { OrcaDesktopClient } from '../repository/orca.js';
 import { checkOutputLimits, formatBytes, serverLimits, stallLimits } from '../config/limits.js';
 import { currentSettings, saveSettingsFile } from '../config/settings.js';
 import { TaskLifecycle } from '../orchestration/task-lifecycle.js';
@@ -38,6 +40,8 @@ import type {
 import { defaultClientDirectory, missingClientPage, readClientFile } from './static-client.js';
 import { HealthMonitor, healthView, type HealthCheck } from '../health/health.js';
 import { StallWatchdog } from '../health/stalls.js';
+import { desktopIdentity, type DesktopProfile } from './desktop-discovery.js';
+import { DesktopService } from './desktop-service.js';
 import {
   approveTaskBody,
   createKickoffBody,
@@ -148,6 +152,10 @@ export interface UiOptions {
    * own). Without it the screen shows a disabled form, so tests never touch a developer's settings.
    */
   settingsDirectory?: string;
+  /** Optional Orca desktop client. The CLI installs it; tests use an isolated fake or omit it. */
+  orca?: OrcaDesktopClient;
+  /** Publishes a private receipt for start-or-reconnect; omitted by isolated HTTP tests. */
+  desktop?: DesktopProfile;
 }
 
 const itemRoute = /^\/api\/(?<kind>tasks|kickoffs)\/(?<id>[a-f0-9-]+)(?:\/(?<action>[a-z-]+))?$/;
@@ -208,6 +216,8 @@ interface Dashboard {
   now: () => number;
   /** Null when the dashboard was started without a settings file to edit. */
   settingsDirectory: string | null;
+  orca: OrcaPresentation | null;
+  accessUrl: () => string;
 }
 
 /** The built client: index.html, the favicon and hashed assets; a short explanation while it is unbuilt. */
@@ -373,9 +383,23 @@ function taskAction(dashboard: Dashboard, id: string, action: string, payload: u
   return [202, { ok: true }];
 }
 
-function postItem(dashboard: Dashboard, route: ItemRoute, payload: unknown): [number, unknown] {
+async function postItem(dashboard: Dashboard, route: ItemRoute, payload: unknown): Promise<[number, unknown]> {
   const { action, id, kind } = route;
   if (!action) throw new HttpError(404, 'Not found');
+  if (kind === 'tasks' && action === 'open-orca') {
+    liveTask(dashboard.store, id);
+    parseRequest(z.strictObject({}), payload);
+    if (!dashboard.orca) throw new HttpError(503, 'Orca navigation is unavailable in this dashboard');
+    try {
+      await dashboard.orca.open(id, `${dashboard.accessUrl()}!/tasks/${id}`);
+    } catch {
+      throw new HttpError(
+        503,
+        'Could not open the Orca workspace. Inspect its identity and local Orca runtime before trying again.',
+      );
+    }
+    return [200, { ok: true, settled: true }];
+  }
   if (dashboard.jobs.get(id)?.running && !['stop', 'pause', 'guidance', 'cancel-guidance'].includes(action))
     throw new HttpError(409, 'An action is already running; wait for settlement');
   if (action === 'delete' || action === 'reset') {
@@ -483,6 +507,30 @@ async function healthRoute(dashboard: Dashboard, url: URL): Promise<unknown> {
   return healthView(dashboard.store, dashboard.now());
 }
 
+/** Native desktop routes share the token and origin guard; shutdown responds before closing HTTP. */
+async function desktopRoute(
+  desktop: DesktopService,
+  request: IncomingMessage,
+  response: ServerResponse,
+  path: string,
+): Promise<boolean> {
+  if (request.method === 'GET' && path === '/api/desktop') {
+    if (!desktop.endpoint) throw new HttpError(404, 'Desktop discovery is not configured');
+    json(response, 200, desktopIdentity(desktop.endpoint));
+    return true;
+  }
+  if (request.method === 'POST' && path === '/api/desktop/close') {
+    const body = parseRequest(z.strictObject({ instance: z.string() }), await readBody(request));
+    desktop.prepareClose(body.instance);
+    response.once('finish', () => {
+      void desktop.close().catch(() => console.error('Dashboard shutdown did not settle'));
+    });
+    json(response, 200, { ok: true });
+    return true;
+  }
+  return false;
+}
+
 /** Loopback dashboard. Workers use the same durable controller as the CLI. */
 export async function startUi(options: UiOptions) {
   const store = new Store(options.db),
@@ -498,8 +546,33 @@ export async function startUi(options: UiOptions) {
   const stallTimer = watchStalls(stalls);
   const launch = (id: string, work: WorkerAction) => launchWorker(store, jobs, health !== null, id, work);
   const settingsDirectory = options.settingsDirectory ?? null;
-  const dashboard: Dashboard = { store, tasks, kickoffs, jobs, launch, stalls, health, now, settingsDirectory };
-  const apiV1 = createApiV1({ store, kickoffs, jobs, stalls, now, settingsDirectory });
+  const orca = options.orca ? new OrcaPresentation(store, options.orca) : null;
+  const accessUrl = () => `${origin}/#${token}`;
+  const desktop = new DesktopService(
+    options.desktop ?? null,
+    () => [...jobs.values()].some(job => job.running),
+    async () => {
+      clearInterval(stallTimer);
+      await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
+      await health?.settled();
+      await orca?.close();
+      store.close();
+    },
+  );
+  const dashboard: Dashboard = {
+    store,
+    tasks,
+    kickoffs,
+    jobs,
+    launch,
+    stalls,
+    health,
+    now,
+    settingsDirectory,
+    orca,
+    accessUrl,
+  };
+  const apiV1 = createApiV1({ store, kickoffs, jobs, stalls, now, settingsDirectory, orca });
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     securityHeaders(response);
     if (
@@ -517,6 +590,8 @@ export async function startUi(options: UiOptions) {
     const supplied = Buffer.from(request.headers.authorization?.replace(/^Bearer /, '') ?? '');
     if (supplied.length !== token.length || !timingSafeEqual(supplied, Buffer.from(token)))
       throw new HttpError(401, 'Open the complete local dashboard link printed by Grampus');
+    desktop.assertOpen();
+    if (await desktopRoute(desktop, request, response, path)) return;
     const groups = itemRoute.exec(path)?.groups;
     const route = groups ? routeSchema.parse(groups) : null;
     if (request.method === 'GET') {
@@ -535,7 +610,9 @@ export async function startUi(options: UiOptions) {
     }
     if (request.method !== 'POST') throw new HttpError(404, 'Not found');
     const payload = await readBody(request);
-    const [status, body] = route ? postItem(dashboard, route, payload) : postRoot(dashboard, path, payload);
+    // Body delivery can span an accepted shutdown. Recheck before any mutation or worker dispatch.
+    desktop.assertOpen();
+    const [status, body] = route ? await postItem(dashboard, route, payload) : postRoot(dashboard, path, payload);
     json(response, status, body);
   };
   const server = createServer((request, response) => {
@@ -549,28 +626,28 @@ export async function startUi(options: UiOptions) {
   server.headersTimeout = serverLimits.headersTimeoutMs;
   try {
     origin = `http://127.0.0.1:${await listenForBrowsers(server, options.port ?? currentSettings().dashboardPort)}`;
+    desktop.publish(accessUrl());
   } catch (error) {
     clearInterval(stallTimer);
+    if (server.listening) await new Promise<void>(resolve => server.close(() => resolve()));
     store.close();
     throw error;
   }
   // In the background: the dashboard is usable at once and shows the stored result until the check settles.
   void health?.refreshIfStale();
+  orca?.start();
   return {
     server,
     store,
-    url: `${origin}/#${token}`,
+    url: accessUrl(),
+    /** The private desktop receipt, when discovery was configured. */
+    endpoint: desktop.endpoint,
+    /** Display-only Orca reconciliation; tests can await a scan without advancing the workflow. */
+    orca,
     /** Stall detection of this dashboard; tests call `scan` with an injected clock. */
     stalls,
     /** The action worker this dashboard last started for a task or planning conversation, if any. */
     job: (id: string): Readonly<Job> | null => jobs.get(id) ?? null,
-    close: async () => {
-      if ([...jobs.values()].some(job => job.running))
-        throw new Error('An action is still running; stop it and wait for settlement before closing');
-      clearInterval(stallTimer);
-      await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
-      await health?.settled();
-      store.close();
-    },
+    close: () => desktop.close(),
   };
 }

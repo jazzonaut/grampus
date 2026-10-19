@@ -59,20 +59,22 @@ const accessRequired = ref(false);
 export const needsAccessLink = readonly(accessRequired);
 
 /**
- * Moves a token from the URL fragment into session storage and strips the fragment.
+ * Moves a token from the URL fragment into session storage and removes it from the address.
+ * An Orca link may append `!/tasks/<id>`; only that task route survives token removal.
  *
  * Call once before the first request, and again on `hashchange` so pasting a fresh link into a
  * tab that is already open works. Returns whether a new token was taken from the fragment.
  */
 export function bootstrapToken(): boolean {
-  const fragment = window.location.hash.slice(1);
+  const [fragment = '', target = ''] = window.location.hash.slice(1).split('!');
   if (!tokenPattern.test(fragment)) {
     // Keep an earlier refusal: an unrelated fragment does not make a refused token valid.
     if (readToken() === '') accessRequired.value = true;
     return false;
   }
   window.sessionStorage.setItem(tokenStorageKey, fragment);
-  window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
+  const route = /^\/tasks\/[a-f0-9-]+$/.test(target) ? `#${target}` : '';
+  window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + route);
   accessRequired.value = false;
   return true;
 }

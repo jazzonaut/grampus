@@ -1,6 +1,6 @@
-// Owns the Orca CLI client: preflight, `worktree create`, `list` and `show`, and the identity checks on what
-// Orca reports (local host only, `wt2:local:<instance>` keys, repository-prefixed ids). It must never retry
-// a mutation, edit Orca metadata or accept a remote or partial view.
+// Owns the Orca CLI client: workspace lifecycle and identity checks, plus optional desktop presentation.
+// Workspace creation is never replayed; local instance keys and complete listings fence recovery.
+// Card updates use the supported CLI, never Orca metadata files or provider/terminal input.
 import { execFile } from 'node:child_process';
 import { isAbsolute } from 'node:path';
 import { processLimits } from '../config/limits.js';
@@ -12,6 +12,8 @@ import {
   orcaWorktreeListSchema,
   orcaWorktreeResultSchema,
   orcaWorktreeSchema,
+  orcaTabCreatedSchema,
+  orcaTabsSchema,
   parseOrca,
 } from './orca-protocol.js';
 
@@ -48,6 +50,21 @@ export interface OrcaCreateRequest {
   name: string;
   baseCommit: string;
   marker: string;
+}
+
+/** Display-only metadata copied from Grampus; none of it establishes workflow success. */
+export interface OrcaCard {
+  title: string;
+  comment: string;
+  status: 'todo' | 'in-progress' | 'in-review' | 'completed';
+  attention: boolean;
+}
+
+/** Optional desktop operations, separate from worktree lifecycle and provider execution. */
+export interface OrcaDesktopClient {
+  show(repository: string, identityKey: string): Promise<OrcaWorktree>;
+  setCard(repository: string, identityKey: string, card: OrcaCard): Promise<void>;
+  openDashboard(repository: string, url: string, identityKey?: string): Promise<void>;
 }
 
 /** The Orca operations `Workspaces` relies on; `OrcaCli` is the implementation. Each call throws on refusal. */
@@ -217,5 +234,50 @@ export class OrcaCli implements OrcaWorkspaceClient {
   async show(repository: string, identityKey: string): Promise<OrcaWorktree> {
     const result = await this.request(repository, 'worktree show', ['--worktree', `identity:${identityKey}`]);
     return worktree('worktree show', parseOrca('worktree show', orcaWorktreeResultSchema, result).worktree);
+  }
+
+  /** Updates only the named instance's presentation. Never clears a person's unread indicator. */
+  async setCard(repository: string, identityKey: string, card: OrcaCard): Promise<void> {
+    await this.request(repository, 'worktree set', [
+      '--worktree',
+      `identity:${identityKey}`,
+      '--display-name',
+      card.title,
+      '--comment',
+      card.comment,
+      '--workspace-status',
+      card.status,
+      ...(card.attention ? ['--unread'] : []),
+    ]);
+  }
+
+  /** Reauthenticates an existing dashboard tab or opens one, then focuses its exact page handle. */
+  async openDashboard(repository: string, url: string, identityKey?: string): Promise<void> {
+    if (process.env.ORCA_PAIRING_CODE || process.env.ORCA_ENVIRONMENT)
+      throw new Error('The dashboard requires the local Orca desktop without remote overrides');
+    const destination = new URL(url);
+    if (destination.protocol !== 'http:' || destination.hostname !== '127.0.0.1')
+      throw new Error('Orca dashboard navigation requires a loopback Grampus URL');
+    const target = identityKey ? ['--worktree', `identity:${identityKey}`] : [];
+    const { tabs } = parseOrca('tab list', orcaTabsSchema, await this.request(repository, 'tab list', target));
+    const tab = tabs.find(tab => {
+      try {
+        const address = new URL(tab.url);
+        return address.origin === destination.origin && address.pathname === destination.pathname;
+      } catch {
+        return false;
+      }
+    });
+    if (tab) {
+      await this.request(repository, 'goto', [...target, '--page', tab.browserPageId, '--url', url]);
+      await this.request(repository, 'tab switch', [...target, '--page', tab.browserPageId, '--focus']);
+      return;
+    }
+    const created = parseOrca(
+      'tab create',
+      orcaTabCreatedSchema,
+      await this.request(repository, 'tab create', [...target, '--url', url]),
+    );
+    await this.request(repository, 'tab switch', [...target, '--page', created.browserPageId, '--focus']);
   }
 }

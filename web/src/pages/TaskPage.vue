@@ -138,6 +138,15 @@ watch(
     <p v-else-if="!view" class="text-sm text-muted" role="status">Loading the task…</p>
     <template v-if="view && !missing">
       <TaskHeader :header="view.header" />
+      <div v-if="view.orca" class="flex flex-col items-start gap-2">
+        <ActionButton
+          :action="view.orca.open"
+          :busy="actions.busy.value"
+          :sending="actions.sending.value === view.orca.open.id"
+          @run="run(view.orca.open)"
+        />
+        <p v-if="view.orca.problem" class="text-sm text-muted" role="status">{{ view.orca.problem }}</p>
+      </div>
       <TaskFacts :task="view" />
       <ActionNoticeBar :notice="actions.notice.value" @dismiss="actions.dismiss()" />
       <section aria-labelledby="workflow-heading" class="flex flex-col gap-2">

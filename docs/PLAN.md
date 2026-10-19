@@ -152,6 +152,17 @@ The controller stops before another agent turn when allowance is exhausted or to
 unknown. Active turns settle normally and can exceed the token threshold. The task screen, CLI and
 report expose the totals; raising them requires a revised plan and fresh approval.
 
+Orca desktop visibility is implemented: `ui --orca`, journal-derived worktree cards and
+attention markers while the dashboard is open, and verified navigation to the task in
+its Orca workspace. Provider processes remain Grampus-owned ([DASHBOARD.md](DASHBOARD.md)).
+
+The native Orca command plugin and background start-or-reconnect launcher are implemented.
+Install and update generate the production package at `<installation directory>\orca-plugin`;
+one-time Orca enablement adds Open and Stop Dashboard commands, with assignable shortcuts.
+The installed entry follows atomic snapshot selection, including when Orca copies its package;
+application/journal-bound discovery and process receipts prevent duplicate live controllers
+([ORCA.md](ORCA.md)). A native task-summary panel remains **Planned**.
+
 **Planned:** a finding disposition ledger and native Orca conversation/control integration.
 
 ## Known issues from real use

@@ -521,6 +521,7 @@ export const mockReviseAction = mockAction('revise', "Revise this task's plan", 
 });
 
 export const mockTask: TaskDetailV1 = {
+  orca: null,
   apiVersion: 1,
   revision: 'r7',
   id: 'task-1',

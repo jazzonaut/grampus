@@ -23,6 +23,27 @@ export interface SettingsFacts {
 
 const integerSettings: readonly (IntegerSpec & { key: IntegerSetting })[] = [
   {
+    key: 'dashboardStartupMs',
+    label: 'Background dashboard startup deadline (ms)',
+    meaning: 'How long a launcher waits for an authenticated dashboard. An uncertain process is never restarted.',
+  },
+  {
+    key: 'dashboardProbeMs',
+    label: 'Dashboard discovery deadline (ms)',
+    meaning: 'Deadline for a local authenticated discovery or shutdown request.',
+  },
+  {
+    key: 'dashboardPollMs',
+    label: 'Dashboard startup observation interval (ms)',
+    meaning: 'Interval between observations while a background dashboard starts.',
+  },
+  {
+    key: 'orcaSyncIntervalMs',
+    label: 'Orca card refresh interval (ms)',
+    meaning:
+      'Interval between journal observations for Orca worktree cards while the dashboard is open. No agent calls.',
+  },
+  {
     key: 'liveChangesIntervalMs',
     label: 'Live changes refresh interval (ms)',
     meaning: 'Interval between display-only workspace observations while the task is visible. No agent calls.',

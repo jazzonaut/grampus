@@ -121,6 +121,15 @@ export function useActions(options: ActionsOptions) {
         clearPatience();
         notice.value = { kind: 'pool', actionId: action.id, message: approvedWaitingMessage };
         announce(approvedWaitingMessage);
+      } else if (
+        typeof response === 'object' &&
+        response !== null &&
+        'settled' in response &&
+        response.settled === true
+      ) {
+        clearPatience();
+        notice.value = null;
+        announce(`${action.label}: completed.`);
       } else requested(action);
       options.accepted?.(action, response);
       await options.refresh();

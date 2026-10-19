@@ -16,6 +16,7 @@ import type { Store } from '../persistence/store.js';
 import type { Kickoffs } from '../orchestration/kickoff.js';
 import { guidedSnapshot } from '../orchestration/guided/snapshots.js';
 import { Workspaces } from '../repository/workspaces.js';
+import type { OrcaPresentation } from '../repository/orca-presentation.js';
 import { readLiveChanges } from './live-changes.js';
 import { runnerPool } from '../orchestration/guided/runner-pool.js';
 import { describeIssues } from '../process/boundary.js';
@@ -37,6 +38,8 @@ export interface ApiV1Dashboard {
   now: () => number;
   /** The data directory whose `config.json` the Settings screen edits, or null when there is none. */
   settingsDirectory: string | null;
+  /** The optional desktop projector, separate from workflow and provider health. */
+  orca?: OrcaPresentation | null;
 }
 
 const route =
@@ -113,6 +116,7 @@ export function createApiV1(dashboard: ApiV1Dashboard) {
     stall: id => dashboard.stalls.stall(id),
     qualityPasses,
     pool: runnerPool(store),
+    orca: dashboard.orca ? id => dashboard.orca?.status(id) ?? null : undefined,
   });
   const liveTask = (id: string): TaskFacts => {
     const task = store.get(id);

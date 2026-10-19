@@ -36,8 +36,12 @@ test('without config.json the built-in defaults apply and nothing is created', t
   const settings = loadSettings(root);
   assert.deepEqual(settings, {
     dashboardPort: defaultDashboardPort,
+    dashboardStartupMs: 30_000,
+    dashboardProbeMs: 2000,
+    dashboardPollMs: 100,
     usagePollIntervalMs: 15_000,
     liveChangesIntervalMs: 5000,
+    orcaSyncIntervalMs: 5000,
     outputFlushIntervalMs: 1000,
     outputFlushBytes: 8192,
     defaultPreparationTimeoutMs: 600_000,

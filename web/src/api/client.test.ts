@@ -14,6 +14,19 @@ beforeEach(() => {
 });
 
 describe('bootstrapToken', () => {
+  it('opens an Orca task link after removing its access token', () => {
+    window.history.replaceState(null, '', `/#${token}!/tasks/a1b2-c3d4`);
+    expect(bootstrapToken()).toBe(true);
+    expect(window.sessionStorage.getItem(tokenStorageKey)).toBe(token);
+    expect(window.location.hash).toBe('#/tasks/a1b2-c3d4');
+    expect(window.location.href).not.toContain(token);
+  });
+
+  it('refuses a navigation target outside task routes', () => {
+    window.history.replaceState(null, '', `/#${token}!https://example.invalid`);
+    expect(bootstrapToken()).toBe(true);
+    expect(window.location.hash).toBe('');
+  });
   it('moves the fragment token into session storage and strips it from the address', () => {
     window.history.replaceState(null, '', `/?view=demo#${token}`);
 

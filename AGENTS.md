@@ -68,8 +68,10 @@ is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
   `state.stopReason.code`. Keep the existing `note` text; the dashboard and tests read it.
 - Test files over about 10 s are listed in `scripts/slow-tests.json` and skipped by `npm test`.
   Keep each test file under about 45 s; tests within one file run sequentially.
-- Codex is driven through `codex app-server` JSON-RPC and is not version-pinned. Claude runs
-  through the pinned `@anthropic-ai/claude-agent-sdk`, which bundles its own executable unless
-  `GRAMPUS_CLAUDE_COMMAND` is set.
+- Both providers are pinned dependencies. Codex is driven through `codex app-server` JSON-RPC from the
+  native binary of the pinned `@openai/codex` package; Claude runs through the pinned
+  `@anthropic-ai/claude-agent-sdk` and its bundled executable. `GRAMPUS_CODEX_COMMAND` and
+  `GRAMPUS_CLAUDE_COMMAND` override them. Upgrading either is a deliberate change: re-record the
+  protocol fixtures (`test/fixtures/protocol/`) and run the live probes.
 - The installed application (`%LOCALAPPDATA%\Programs\Grampus`) and its journal are separate
   from a development checkout. Never modify them from development work.
