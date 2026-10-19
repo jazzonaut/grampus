@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +11,16 @@ const installerUrl = new URL('../../scripts/install.mjs', import.meta.url);
 const installer = await import(installerUrl.href);
 const launcher = fileURLToPath(new URL('../../scripts/installed-launch.mjs', import.meta.url));
 const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+
+test('installed launcher stays byte-identical so existing installations can update', () => {
+  // activateSnapshot refuses to replace a differing bin/launch.mjs, so any edit (even formatting)
+  // blocks every update of an existing installation. Change it only with an installer migration.
+  const content = readFileSync(launcher, 'utf8').replaceAll('\r\n', '\n');
+  assert.equal(
+    createHash('sha256').update(content).digest('hex'),
+    '2e8e6538b613ecc65b6235ae7df15c1c36dbfdc3c33595273232a5c56d35473f',
+  );
+});
 
 test('installer rejects unsupported Node versions and unsafe destinations', t => {
   for (const version of ['18.20.0', '22.15.0', '23.9.0', 'invalid'])

@@ -5,3 +5,4 @@ package-lock.json
 src/process/native/
 eslint-suppressions.json
 .claude/
+scripts/installed-launch.mjs
