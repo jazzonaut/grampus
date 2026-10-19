@@ -13,6 +13,7 @@ import {
 import { requiredQualityLenses, type Task } from '../src/domain/workflow.js';
 import { parseReply } from '../src/providers/types.js';
 import { reviewPrompt, qualityPassPrompt } from '../src/orchestration/guided/prompts.js';
+import { planningQualityInstructions } from '../src/orchestration/prompts/planning-quality.js';
 
 const custom: QualityPassDefinition = {
   id: 'error-handling',
@@ -107,11 +108,14 @@ test('a guided task gates on its selected lenses; low-level tasks keep the simpl
 });
 
 test('prompts carry the approved lens and edit pass instructions verbatim', () => {
+  const command = { name: 'Check', file: 'node', args: [], timeoutMs: 1000 };
+  const checks = { validation: command, acceptance: { ...command, expectedStdout: 'ok' } };
   const prompt = reviewPrompt({
     arbitrating: false,
     verdicts: '[]',
     priorFindings: [],
     lenses: [builtInQualityPasses[0]!, custom],
+    checks,
   });
   assert.ok(prompt.includes(builtInQualityPasses[0]!.instructions));
   assert.ok(prompt.includes(custom.instructions));
@@ -119,9 +123,28 @@ test('prompts carry the approved lens and edit pass instructions verbatim', () =
   assert.match(prompt, /source-text searches/);
   assert.match(prompt, /conformance/);
   assert.match(
-    reviewPrompt({ arbitrating: false, verdicts: '[]', priorFindings: [], lenses: [] }),
+    reviewPrompt({ arbitrating: false, verdicts: '[]', priorFindings: [], lenses: [], checks }),
     /No quality lenses are selected/,
   );
+  // The reviewer judges the approved checks it is shown, not whether acceptance has already run.
+  const acceptance = {
+    name: 'Smoke acceptance',
+    file: 'node',
+    args: ['accept.js'],
+    timeoutMs: 1000,
+    expectedStdout: 'accepted\n',
+  };
+  const withChecks = reviewPrompt({
+    arbitrating: false,
+    verdicts: '[]',
+    priorFindings: [],
+    lenses: [],
+    checks: { validation: { name: 'Unit checks', file: 'node', args: ['--test'], timeoutMs: 1000 }, acceptance },
+  });
+  assert.ok(withChecks.includes(JSON.stringify(acceptance)));
+  assert.match(withChecks, /acceptance runs after a passing review/i);
+  assert.match(withChecks, /absence is not a finding/);
+  assert.match(planningQualityInstructions, /cannot record the results of validation or acceptance/);
   const refactor = builtInQualityPasses[2]!;
   const edit = qualityPassPrompt({ pass: refactor, slicePreparation: undefined });
   assert.ok(edit.includes(refactor.instructions));

@@ -8,6 +8,10 @@ New plans default to automatic execution within their exact approved file scope:
 4. Independently review correctness and maintainability, assessing each selected quality
    lens. Repair concrete blocking findings and failed lenses within the allowance and obtain
    a new verdict. Validation, review and acceptance draw from one shared repair allowance.
+   The reviewer is shown the slice's approved validation and acceptance commands and judges
+   whether they will establish each criterion; acceptance has not run yet, so its absence is
+   never a finding. A criterion that needs the results of a later check is raised as a
+   question rather than a blocker, because no repair can resolve it.
 5. Verify acceptance. Repairs invalidate earlier validation, review and acceptance.
 6. Deliver the verified local commit and continue to the next slice.
 

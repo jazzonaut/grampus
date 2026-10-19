@@ -24,7 +24,7 @@ import {
 } from '../context.js';
 import { required, type GuidedState } from '../state.js';
 import { reviewPrompt } from '../prompts.js';
-import { automatic } from '../specs.js';
+import { automatic, currentSlice } from '../specs.js';
 import { withGuidance } from '../guidance.js';
 
 /** The requested turns of the review session; a review step's result is its one new turn. */
@@ -326,6 +326,7 @@ export const reviewStage: StageHandler = {
           verdicts,
           lenses: selectedLenses(state.plan.quality),
           priorFindings: priorBlockingFindings(context, state),
+          checks: currentSlice(state),
         }),
         state,
       ),
