@@ -9,7 +9,14 @@ const command = { name: 'Fixture check', file: process.execPath, args: ['-e', ''
 /** A minimal normalised plan for one no-change slice. It is never dispatched. */
 export function planRecord(fields: Partial<GuidedPlan> = {}): GuidedPlan {
   return {
-    workflowPolicy: { mode: 'automatic', repairRounds: 2, maxSessionTurns: 6, maxContextTokens: 120_000 },
+    workflowPolicy: {
+      mode: 'automatic',
+      repairRounds: 2,
+      maxSessionTurns: 6,
+      maxContextTokens: 120_000,
+      maxTaskTurns: 20,
+      maxTaskTokens: 0,
+    },
     quality: { passes: [] },
     context: { files: [], inventoryDigest: 'fixture', totalFiles: 0, totalBytes: 0, exploration: true },
     brief: { title: 'Fixture', outcome: 'Fixture outcome', criteria: ['Fixture criterion'], plan: 'Fixture plan' },

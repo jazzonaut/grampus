@@ -737,6 +737,8 @@ export interface TaskDetailV1 {
   liveChangesIntervalMs: number;
   /** Shared allowance and recent decisions for the current slice. */
   repairs: RepairsV1;
+  /** The approved task-wide dispatch allowance, rendered from the same ledger as the controller gate. */
+  spending: SpendingV1;
   /** Bounded human proposals and their assignment history; none changes the approved plan. */
   guidance: GuidanceV1;
   results: ResultsV1;
@@ -806,6 +808,16 @@ export interface GuidanceV1 {
   draftKey: string;
   compose: ActionView | null;
   messages: GuidanceMessageV1[];
+}
+
+/** Display text for a task-wide allowance; active turns may overshoot token thresholds. */
+export interface SpendingV1 {
+  status: 'available' | 'turn_limit' | 'token_limit' | 'usage_unknown';
+  statusLabel: string;
+  turnsLabel: string;
+  tokensLabel: string;
+  explanation: string;
+  note: string;
 }
 
 // ---------------------------------------------------------------------------------------------------

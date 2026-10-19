@@ -5,6 +5,7 @@ import type { Store } from '../persistence/store.js';
 import { Workflow, activeSlice } from '../domain/workflow.js';
 import { explorationSummary } from '../repository/repository-tools.js';
 import { taskUsage, usageLines, usageTable } from './task-usage.js';
+import { spendingLines, spendingStatus } from '../orchestration/guided/spending.js';
 
 // Encode all user/provider prose, including newlines, so it cannot inject report structure.
 function prose(value: string): string {
@@ -42,6 +43,7 @@ export function renderReport(store: Store, id: string): string {
     `Requirements version: ${task.version}; approved version: ${task.approvedVersion ?? 'none'}  `,
     // Provider totals, turns and interventions only; the per-stage lines are the table further down.
     ...usageLines(usage).slice(0, usage.providers.length + 2),
+    ...(task.guided ? spendingLines(spendingStatus(usage, task.guided.plan.workflowPolicy)) : []),
     '',
     prose(task.brief.outcome),
     '',

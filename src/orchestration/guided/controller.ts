@@ -40,6 +40,7 @@ import {
 } from './state.js';
 import { GuidedStopError, errorReasonCode, stopReason } from './stop-reasons.js';
 import { createGuidance, requireGuidanceSpace, selectGuidance, type GuidanceTarget } from './guidance.js';
+import { isSpendingStop, spendingStop } from './spending.js';
 
 const draftNote = 'Inspect the brief, selected files, commands, expected output and pinned base before approving.';
 
@@ -438,6 +439,17 @@ export class GuidedTasks {
           });
         });
       }
+      const budget = spendingStop(this.store, id, current);
+      if (budget)
+        return this.change(
+          id,
+          token,
+          'guided.spending_blocked',
+          state => {
+            markStopped(state, 'blocked', budget.reason);
+          },
+          { spending: budget.spending },
+        );
       return this.change(id, token, 'guided.step_requested', state => {
         const guidance = selectGuidance(state);
         state.guidance = guidance.remaining;
@@ -706,6 +718,8 @@ export class GuidedTasks {
    * implementation; anything else starts a new implementation attempt with the failure as feedback.
    */
   async retry(id: string, signal?: AbortSignal): Promise<GuidedState> {
+    if (isSpendingStop(this.current(id).stopReason?.code))
+      throw new Error('Revise the task spending policy and obtain fresh approval before retrying');
     const allowed: Status[] = ['blocked', 'awaiting_scope', 'awaiting_assessment'];
     if (!allowed.includes(this.current(id).status))
       throw new Error('Retry requires a settled checkpoint or failure; recover uncertain work first');

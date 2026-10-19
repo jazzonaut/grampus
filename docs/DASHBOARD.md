@@ -106,6 +106,10 @@ shown.
 - **Automatic repairs:** the current slice's shared allowance, used and remaining rounds, and recent
   controller decisions with their trigger, progress assessment, remaining allowance and evidence
   identities. The timeline keeps the full history. Review progress is labelled as an agent assessment.
+- **Task spending allowance:** used and remaining task-wide agent turns and the optional token
+  threshold, including linked planning and every plan version. Unknown token headroom is explicit.
+  These limits stop the next agent turn; active work settles normally and may exceed the token
+  threshold. Budget stops offer plan revision and fresh approval. A retry cannot reset spend.
 - **Measured usage:** per-provider tokens (input, output, cache read and cache write) and
   estimated cost, how complete each figure is and the last observation time, then turns,
   failed and stopped turns and wall time per stage, and a line with total turns, repair attempts
@@ -149,7 +153,7 @@ the fields.
 | **Rerun checks** | Shown only when a validation or acceptance check stopped for an infrastructure reason (timeout, interruption, lost output, abnormal exit or runner error) on an unchanged change. Runs the same check again with no agent turn and no new attempt; refused if the workspace changed since |
 | **Retry preparation** | Reruns a failed preparation step in the same attempt |
 | **Recover saved work** | Runs the same conservative receipt checks as `task-recover` after a controller exits |
-| **Revise this task's plan** | At a settled point, edit the name, outcome, approach, workflow mode, repair and conversation limits, review repairs and arbitration, quality passes (chosen and ordered), or (advanced) the plan JSON with files, checks, criteria and remaining slices. Needs fresh approval |
+| **Revise this task's plan** | At a settled point, edit the name, outcome, approach, workflow mode, repair, task spending and conversation limits, review repairs and arbitration, quality passes (chosen and ordered), or (advanced) the plan JSON with files, checks, criteria and remaining slices. Needs fresh approval |
 | **Release unused reservation** | Clears a failed standalone worktree reservation once Git exit and absence of files are confirmed. Deletes nothing |
 | **Reset task** | Restarts planning from the original request in a fresh conversation and baseline. The old task is hidden |
 | **Delete task** | Hides the task. Workspace files, commits and history are kept |

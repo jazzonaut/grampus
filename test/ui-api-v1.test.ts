@@ -84,6 +84,9 @@ test('overview, task detail and timeline have the v1 shape and no inventories or
   assert.equal(detail.apiVersion, 1);
   assert.equal(detail.id, task.id);
   assert.equal(detail.header.title, 'Guided greeting');
+  assert.equal(detail.spending.status, 'available');
+  assert.match(detail.spending.turnsLabel, /0 of 20/);
+  assert.match(detail.spending.tokensLabel, /Token threshold disabled/);
   assert.ok(detail.workflow.length >= 6);
   assert.equal(detail.details.scope, null);
   assert.doesNotMatch(text, /"files":\[\{"path"/, 'no snapshot file inventory');

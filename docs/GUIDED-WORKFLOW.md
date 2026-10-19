@@ -181,6 +181,18 @@ delivered slice definitions must not change. The new digest binds the retained
 workspace content, so changes made before the first revised execution block it.
 Fresh approval is required.
 
+## Task spending limits
+
+New plans approve 20 task-wide provider turns and no token threshold by default. Set
+`workflowPolicy.maxTaskTurns` and `workflowPolicy.maxTaskTokens` (0 disables the token gate) in the
+plan before approval. Counts include linked planning, retries, all slices and all plan versions.
+Grampus checks before each agent turn; an active turn finishes normally and may exceed the token
+threshold. Missing token usage stops further turns when a token threshold is enabled.
+
+`task-show` and the report display the allowance. A spending stop requires `task-revise` with a
+higher cumulative total or an explicit token-policy change, followed by fresh approval. Retrying
+or restarting never resets it. See [spending semantics](WORKFLOW.md#task-wide-spending-allowances).
+
 ## Queue guidance
 
 Save a JSON file such as `guidance.json`:

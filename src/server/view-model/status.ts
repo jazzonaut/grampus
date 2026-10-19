@@ -36,6 +36,21 @@ const recovery = (label: string, why: string) => blocked('recovery', label, why)
 
 /** Every stop reason code in UI language. Exhaustive: a new code fails to compile until it is described. */
 export const stopPresentation: Readonly<Record<StopReasonCode, StopPresentation>> = {
+  TASK_TURN_LIMIT: wait(
+    'blocked',
+    'Task turn allowance exhausted',
+    'Revise the approved task-wide allowance before another agent turn.',
+  ),
+  TASK_TOKEN_LIMIT: wait(
+    'blocked',
+    'Task token threshold reached',
+    'Revise the approved task-wide threshold before another agent turn.',
+  ),
+  TASK_USAGE_UNKNOWN: wait(
+    'blocked',
+    'Task token usage unknown',
+    'Inspect incomplete usage, then revise and approve the token policy before another agent turn.',
+  ),
   GUIDANCE_PENDING: wait(
     'blocked',
     'Guidance needs a decision',

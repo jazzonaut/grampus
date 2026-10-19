@@ -57,9 +57,9 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   share one approved slice allowance (three by default, up to ten). Continued blocking reviews
   must resolve preceding blockers with explicit identities and evidence; stalled or unknown
   progress stops or uses approved arbitration. Decisions are journaled with their reasons and
-  budget. The current journal schema 4 refuses other versions without migration ([WORKFLOW.md](WORKFLOW.md)).
+  budget. The current journal schema 5 refuses other versions without migration ([WORKFLOW.md](WORKFLOW.md)).
 - **No backwards compatibility.** Done 18 October 2026. Legacy plan formats, digests, fields,
-  migrations and `task-automate` are removed from code and docs. The current schema is version 4; an older
+  migrations and `task-automate` are removed from code and docs. The current schema is version 5; an older
   journal is refused with a clear message and never modified. The new version uses a fresh
   journal file, so older installed snapshots can still finish their own tasks.
 
@@ -138,7 +138,7 @@ the trigger, progress assessment, remaining budget and result/artifact identitie
 in the timeline. New plans default to three automatic repairs; explicit approved allowances remain
 bound to their plan. **Pause after this step** lets the current operation settle before stopping;
 **Continue task** resumes the same attempt. Failures and uncertain operations retain their failure or
-recovery reason. Persisted pause and guidance use schema 4; older journals are refused without migration.
+recovery reason. Persisted pause, guidance and task spending policy use schema 5; older journals are refused without migration.
 The installed application and its journal are separate from this checkout.
 
 Queued human guidance is implemented. Messages are bound to the approved version and slice,
@@ -146,8 +146,13 @@ assigned atomically to the next matching agent step, and visible with cancellati
 history. They survive pauses and restart without changing approval or starting extra turns.
 Unassigned guidance stops delivery for an explicit decision. Recovery never replays uncertain input.
 
-**Planned:** task-wide spending allowances, a finding disposition ledger,
-and native Orca conversation/control integration.
+Task-wide spending allowances are implemented. New plans default to 20 requested provider turns,
+with an optional token threshold. The ledger spans linked planning, retries, all slices and revisions.
+The controller stops before another agent turn when allowance is exhausted or token headroom is
+unknown. Active turns settle normally and can exceed the token threshold. The task screen, CLI and
+report expose the totals; raising them requires a revised plan and fresh approval.
+
+**Planned:** a finding disposition ledger and native Orca conversation/control integration.
 
 ## Known issues from real use
 

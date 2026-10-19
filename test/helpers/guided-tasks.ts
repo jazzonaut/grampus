@@ -9,7 +9,7 @@ import { Store } from '../../src/persistence/store.js';
 import { GuidedTasks } from '../../src/orchestration/guided/controller.js';
 import type { GuidedServices } from '../../src/orchestration/guided/state.js';
 import { runCheckProcess, type CheckProcessOptions } from '../../src/process/check-process.js';
-import type { Reply } from '../../src/providers/types.js';
+import type { Reply, Usage } from '../../src/providers/types.js';
 import type { LensAssessment } from '../../src/domain/quality-passes.js';
 
 export const windows = { skip: process.platform !== 'win32' };
@@ -28,13 +28,13 @@ export function resolvedFindings(prompt: string): NonNullable<Reply['priorFindin
 }
 
 /** A fake provider process; checks, repository evidence and delivery still use their real paths. */
-export async function inlineImplementation(options: CheckProcessOptions, source: string) {
+export async function inlineImplementation(options: CheckProcessOptions, source: string, usage: Usage | null = null) {
   writeFileSync(join(options.cwd, 'greeting.js'), source);
   writeFileSync(
     join(options.receipt!.directory, 'result.json'),
     JSON.stringify({
       id: options.receipt!.checkId,
-      result: { status: 'completed', reply: message, usage: null, error: null },
+      result: { status: 'completed', reply: message, usage, error: null },
     }),
   );
   return { reason: 'exited', exitCode: 0, exitConfirmed: true, stdout: '', stderr: '', outputTruncated: false };

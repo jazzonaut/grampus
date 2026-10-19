@@ -42,7 +42,14 @@ test('without config.json the built-in defaults apply and nothing is created', t
     outputFlushBytes: 8192,
     defaultPreparationTimeoutMs: 600_000,
     defaultCheckTimeoutMs: 300_000,
-    defaultWorkflowPolicy: { mode: 'automatic', repairRounds: 3, maxSessionTurns: 6, maxContextTokens: 120_000 },
+    defaultWorkflowPolicy: {
+      mode: 'automatic',
+      repairRounds: 3,
+      maxSessionTurns: 6,
+      maxContextTokens: 120_000,
+      maxTaskTurns: 20,
+      maxTaskTokens: 0,
+    },
     qualityPasses: [],
     defaultQualityPasses: ['simplification'],
     maxConcurrentTasks: 2,
@@ -65,7 +72,14 @@ test('a valid partial override merges over the defaults, including the nested wo
     dashboardPort: 4400,
     usagePollIntervalMs: 5000,
     defaultCheckTimeoutMs: 300_000,
-    defaultWorkflowPolicy: { mode: 'supervised', repairRounds: 1, maxSessionTurns: 6, maxContextTokens: 120_000 },
+    defaultWorkflowPolicy: {
+      mode: 'supervised',
+      repairRounds: 1,
+      maxSessionTurns: 6,
+      maxContextTokens: 120_000,
+      maxTaskTurns: 20,
+      maxTaskTokens: 0,
+    },
   });
   assert.deepEqual(loadSettings(dataDirectory(t, {})), defaultSettings());
 });
@@ -89,6 +103,8 @@ test('invalid types, out-of-range values and malformed JSON are refused with the
     { usagePollIntervalMs: 2.5 },
     { defaultCheckTimeoutMs: 600_001 },
     { defaultWorkflowPolicy: { repairRounds: 11 } },
+    { defaultWorkflowPolicy: { maxTaskTurns: 0 } },
+    { defaultWorkflowPolicy: { maxTaskTokens: -1 } },
     { defaultWorkflowPolicy: { mode: 'unattended' } },
     { maxConcurrentTasks: 0 },
     { maxConcurrentTasks: 5 },
@@ -128,7 +144,14 @@ test('the output flush interval must be shorter than the stall warning, includin
 test('injected settings supply new-plan defaults and a worker round trip keeps them exact', t => {
   const injected = {
     ...defaultSettings(),
-    defaultWorkflowPolicy: { mode: 'supervised' as const, repairRounds: 0, maxSessionTurns: 3, maxContextTokens: 9000 },
+    defaultWorkflowPolicy: {
+      mode: 'supervised' as const,
+      repairRounds: 0,
+      maxSessionTurns: 3,
+      maxContextTokens: 9000,
+      maxTaskTurns: 20,
+      maxTaskTokens: 0,
+    },
   };
   t.after(() => useSettings(defaultSettings()));
   useSettings(injected);

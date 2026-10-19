@@ -1,5 +1,5 @@
 // Owns the workflow policy a guided plan approves: automatic or supervised mode, the shared repair
-// allowance and the provider conversation thresholds. Normalisation fills omitted fields from the
+// allowance, task spending limits and provider conversation thresholds. Normalisation fills omitted fields from the
 // configured defaults once, so the approved digest binds the effective values, not the defaults.
 import { z } from 'zod';
 import { workflowPolicyBounds } from '../config/limits.js';
@@ -11,10 +11,23 @@ export const workflowPolicySchema = z.object({
   repairRounds: z.number(),
   maxSessionTurns: z.number(),
   maxContextTokens: z.number(),
+  maxTaskTurns: z.number().int().min(workflowPolicyBounds.maxTaskTurns.min).max(workflowPolicyBounds.maxTaskTurns.max),
+  maxTaskTokens: z
+    .number()
+    .int()
+    .min(workflowPolicyBounds.maxTaskTokens.min)
+    .max(workflowPolicyBounds.maxTaskTokens.max),
 });
 export type WorkflowPolicy = z.infer<typeof workflowPolicySchema>;
 
-const policyKeys = ['mode', 'repairRounds', 'maxSessionTurns', 'maxContextTokens'] as const;
+const policyKeys = [
+  'mode',
+  'repairRounds',
+  'maxSessionTurns',
+  'maxContextTokens',
+  'maxTaskTurns',
+  'maxTaskTokens',
+] as const;
 
 /**
  * Validates a plan's `workflowPolicy` input. Omitted fields come from the configured default policy
@@ -46,5 +59,7 @@ export function normalizeWorkflowPolicy(value: unknown): WorkflowPolicy {
     repairRounds: bounded('repairRounds'),
     maxSessionTurns: bounded('maxSessionTurns'),
     maxContextTokens: bounded('maxContextTokens'),
+    maxTaskTurns: bounded('maxTaskTurns'),
+    maxTaskTokens: bounded('maxTaskTokens'),
   };
 }

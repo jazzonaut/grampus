@@ -140,6 +140,8 @@ interface Run {
   last: Counters | null;
   /** Whether the latest snapshot is final rather than an interim sample. */
   complete: boolean;
+  /** Terminal counters only. Retained live values cannot prove a missing final field is complete. */
+  final: Counters | null;
   updatedAt: string | null;
   /** Usage this turn added; null fields are unknown. Filled in by `attribute`. */
   delta: Counters;
@@ -197,6 +199,7 @@ function sessionRuns(store: Store, sessionId: string): Run[] {
         first: null,
         last: null,
         complete: false,
+        final: null,
         updatedAt: null,
         delta: nulls(),
       });
@@ -206,14 +209,24 @@ function sessionRuns(store: Store, sessionId: string): Run[] {
     if (!run) continue;
     if (event.type === 'usage.updated') {
       const usage = usageEvent.safeParse(event.data).data?.data;
-      if (usage) observe(run, usage, event);
+      if (usage) {
+        observe(run, usage, event);
+        // Recovery may append an explicit final snapshot after an interrupted result.
+        if (run.status !== null && usage.complete === true) run.final = counters(field => numeric(usage[field]));
+      }
       continue;
     }
     const result = resultEvent.safeParse(event.data).data?.result;
     if (!result || run.status !== null) continue;
     run.status = result.status;
     run.settledAt = event.at;
-    if (result.usage) observe(run, result.usage, event);
+    const finalUsage = result.usage;
+    if (finalUsage) {
+      observe(run, finalUsage, event);
+      run.final = counters(field => numeric(finalUsage[field]));
+    }
+    // A last live sample cannot prove final spend when the terminal result has no usage.
+    else run.complete = false;
   }
   const current = runs.at(-1);
   if (current && current.status === null && (session.phase === 'running' || session.phase === 'stop_requested'))
@@ -268,7 +281,9 @@ function sum(rows: Run[], field: UsageField): number | null {
 function incompleteFields(rows: Run[]): UsageField[] {
   return usageFields.filter(
     field =>
-      rows.some(run => !run.complete) ||
+      rows.some(
+        run => !run.complete || (run.delta[field] !== null && (run.final === null || run.final[field] === null)),
+      ) ||
       (rows.some(run => run.delta[field] !== null) && rows.some(run => run.delta[field] === null)),
   );
 }

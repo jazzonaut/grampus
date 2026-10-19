@@ -37,6 +37,8 @@ describe('TaskPage', () => {
     expect(wrapper.find('[data-panel="decisions"] [data-decision="revise"]').exists()).toBe(false);
     expect(wrapper.find('[data-panel="decisions"] [data-decision="report"]').exists()).toBe(false);
     expect(wrapper.find('[data-panel="report"]').exists()).toBe(false); // Created when Details > Report opens.
+    expect(wrapper.get('[data-panel="spending"]').text()).toContain(mockTask.spending.turnsLabel);
+    expect(wrapper.get('[data-panel="spending"]').text()).toContain(mockTask.spending.tokensLabel);
     expect(wrapper.text()).toContain('Manage task');
     // Results.
     expect(wrapper.get('[data-unresolved]').text()).toContain('1 blocking review finding');
@@ -255,6 +257,23 @@ describe('TaskPage', () => {
     expect(document.activeElement?.tagName).toBe('TEXTAREA');
     panel.open = false;
     await requestChanges.trigger('click');
+    expect(panel.open).toBe(true);
+    expect(posts(sent)).toEqual([]);
+  });
+
+  it('opens plan revision from the spending panel when the server offers it as the next step', async () => {
+    const { wrapper, sent } = await open({
+      '/api/v1/tasks/task-1': {
+        ...mockTask,
+        header: {
+          ...mockTask.header,
+          nextStep: { kind: 'human', label: 'Revise the allowance.', actionIds: ['revise'] },
+        },
+        spending: { ...mockTask.spending, status: 'turn_limit', statusLabel: 'Turn allowance exhausted' },
+      },
+    });
+    await wrapper.get('[data-panel="spending"] button').trigger('click');
+    const panel = wrapper.get('[data-decision="revise"]').element.parentElement as HTMLDetailsElement;
     expect(panel.open).toBe(true);
     expect(posts(sent)).toEqual([]);
   });

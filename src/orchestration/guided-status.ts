@@ -17,6 +17,7 @@ import { integrationSummary } from '../providers/integrations.js';
 import { taskUsage, usageLines } from '../reporting/task-usage.js';
 import { agentProgress } from './planner-progress.js';
 import { guidedSnapshot } from './guided/snapshots.js';
+import { isSpendingStop, spendingLines, spendingStatus } from './guided/spending.js';
 
 /** Builds a copy-and-paste CLI command for this journal. */
 type Command = (...args: string[]) => string;
@@ -37,6 +38,8 @@ function statusAction(state: GuidedState, id: string, command: Command, rerun: s
     case 'awaiting_answer':
       return `${command('task-answer', id)} '<answers.json>'`;
     case 'blocked':
+      if (isSpendingStop(state.stopReason?.code))
+        return `${command('task-revise', id)} ${state.version} '<revised-plan.json>'`;
       if (state.stopReason?.code === 'GUIDANCE_PENDING') return `${command('task-show', id)} --details`;
       if (state.stopReason?.code === 'USER_PAUSED') return command('task-run', id);
       return rerun ?? command('task-retry', id);
@@ -307,6 +310,7 @@ export function renderGuidedTask(store: Store, id: string, details = false): str
     '',
   ];
   if (state.status === 'draft') lines.push(...draftLines(task, state));
+  lines.push(...spendingLines(spendingStatus(view.usage, state.plan.workflowPolicy)));
   if (view.workspace) lines.push(`Workspace: ${view.workspace.path ?? '(creation not settled)'}`);
   lines.push(
     `Guidance queued: ${state.guidance.length}; assigned to the current step: ${state.pending?.guidance.length ?? 0}. Assignment does not confirm the provider received or followed it.`,

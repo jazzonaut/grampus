@@ -205,12 +205,27 @@ Assigned means a journaled step intent, not confirmed provider receipt. Draft id
 version, approval digest and slice while request keys track current decisions. Guidance routes
 remain available during an active worker without starting or interrupting one.
 
+`orchestration/guided/spending.ts` derives task-wide turn and token allowance from `taskUsage`.
+The approved workflow policy requires `maxTaskTurns` and `maxTaskTokens`. Before journaling a
+provider-capable step intent, `begin` checks the ledger in its state-change transaction; a refusal
+journals `guided.spending_blocked` and its measured snapshot without consuming guidance or dispatching.
+The gate applies to implementation, edit quality passes and review (including arbitration). Ordinary
+checks, result adoption and verified delivery remain available. There is no mutable per-attempt
+budget balance to reset; all linked sessions and plan versions continue to count.
+
+Codex input includes cache reads; Claude adds its separately reported cache reads and writes.
+Incomplete usage cannot establish token headroom. An already running turn settles normally and can
+exceed the threshold. These limits count requested Grampus provider turns, not provider-internal
+model rounds, and do not impose a dollar billing cap or govern unconverted planning conversations.
+`server/view-model/spending.ts` supplies labels from the same calculation, and the plan revision
+form changes cumulative totals only through fresh approval.
+
 ## Persistence
 
 `persistence/store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a
 15-second busy timeout ([parallel tasks](#parallel-tasks-and-concurrency)). There is one schema,
-version 4, with thirteen tables and no migrations. A new or empty
-file gets the schema; any other version, or a version 4 file missing a table, is refused with a
+version 5, with thirteen tables and no migrations. A new or empty
+file gets the schema; any other version, or a version 5 file missing a table, is refused with a
 clear error after a read-only inspection, so the file is never modified. The default journal is
 `grampus.sqlite` in the data directory.
 
@@ -708,6 +723,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `state.ts`, `keys.ts`, `stop-reasons.ts` | Guided state types; decision and question keys; typed stop reason codes |
 | | `context.ts`, `specs.ts`, `prompts.ts` | Stage handler contract and result adoption; exact leaf requests; agent prompts |
 | | `retry.ts`, `recovery.ts`, `revision.ts` | New attempts and explicit retry checks; leaf recovery; plan revision |
+| | `spending.ts` | Ledger-derived task-wide provider dispatch limits and stop evidence |
 | | `guidance.ts` | Bounded human guidance and immutable per-step prompt batches |
 | | `repair-policy.ts` | Controller finding identities, review progress checks and repair decision evidence |
 | | `rerun.ts` | Which stopped checks may be rerun without a new attempt |

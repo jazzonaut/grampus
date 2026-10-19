@@ -635,6 +635,14 @@ export const mockTask: TaskDetailV1 = {
   guidance: { draftKey: '1:digest:0', compose: null, messages: [] },
   liveChangesPath: null,
   liveChangesIntervalMs: 5000,
+  spending: {
+    status: 'available',
+    statusLabel: 'Allowance remains',
+    turnsLabel: '4 of 20 agent turns used; 16 remaining.',
+    tokensLabel: '12,000 tokens observed. Token threshold disabled; the turn allowance still applies.',
+    explanation: 'Checked before each agent turn. An active turn may exceed the token threshold.',
+    note: 'Includes linked planning and all plan versions.',
+  },
   repairs: {
     used: 1,
     allowance: 3,

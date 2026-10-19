@@ -160,6 +160,8 @@ test('a draft waits for approval of its exact version and digest', t => {
       '/plan/brief/plan',
       '/plan/workflowPolicy/mode',
       '/plan/workflowPolicy/repairRounds',
+      '/plan/workflowPolicy/maxTaskTurns',
+      '/plan/workflowPolicy/maxTaskTokens',
       '/plan/workflowPolicy/maxSessionTurns',
       '/plan/workflowPolicy/maxContextTokens',
       '/plan/reviewPolicy/arbitrator',

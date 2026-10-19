@@ -16,6 +16,12 @@ export const StopReasonCode = {
   USER_PAUSED: 'USER_PAUSED',
   /** Unassigned guidance must be resolved before delivery; it never starts another paid turn itself. */
   GUIDANCE_PENDING: 'GUIDANCE_PENDING',
+  /** Requested turns across planning, all versions and all slices reached the approved total. */
+  TASK_TURN_LIMIT: 'TASK_TURN_LIMIT',
+  /** Observed provider tokens reached the approved task total before the next agent turn. */
+  TASK_TOKEN_LIMIT: 'TASK_TOKEN_LIMIT',
+  /** A configured token threshold cannot be enforced because usage is incomplete or missing. */
+  TASK_USAGE_UNKNOWN: 'TASK_USAGE_UNKNOWN',
   /** Supervised mode: the exact file scope waits for explicit authorization. */
   SCOPE_AUTHORIZATION_REQUIRED: 'SCOPE_AUTHORIZATION_REQUIRED',
   /** Supervised mode: a human quality assessment of the selected lenses is required after submission. */

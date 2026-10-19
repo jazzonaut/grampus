@@ -14,11 +14,12 @@ const command = (spec: { name: string; file: string; args: string[]; timeoutMs: 
 /** One paragraph on the workflow policy, as approval shows it. */
 export function workflowSummary(plan: GuidedPlan): string {
   const policy = plan.workflowPolicy;
+  const spending = `Task-wide allowance: ${policy.maxTaskTurns} agent turns; ${policy.maxTaskTokens ? `${policy.maxTaskTokens.toLocaleString('en-GB')} provider tokens` : 'token threshold disabled'}. Includes linked planning, retries, all slices and plan versions. Checked before each agent turn; an active turn may exceed the token threshold.`;
   const mode =
     policy.mode === 'automatic'
       ? `Automatic workflow: implement, validate, repair, independently review and deliver within the approved scope. Up to ${policy.repairRounds} shared ${policy.repairRounds === 1 ? 'repair' : 'repairs'} per slice across validation, review and acceptance.`
       : 'Supervised workflow: pause for file authorization and quality assessment.';
-  return `${mode} Conversations resume within a slice and start fresh after ${policy.maxSessionTurns} turns or ${policy.maxContextTokens.toLocaleString('en-GB')} observed context tokens. Each slice and arbitration starts fresh.`;
+  return `${mode} ${spending} Conversations resume within a slice and start fresh after ${policy.maxSessionTurns} turns or ${policy.maxContextTokens.toLocaleString('en-GB')} observed context tokens. Each slice and arbitration starts fresh.`;
 }
 
 /**

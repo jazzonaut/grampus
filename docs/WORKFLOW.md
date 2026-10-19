@@ -135,7 +135,9 @@ The policy is part of the approved plan, visible at approval and editable in
   "mode": "automatic",
   "repairRounds": 3,
   "maxSessionTurns": 6,
-  "maxContextTokens": 120000
+  "maxContextTokens": 120000,
+  "maxTaskTurns": 20,
+  "maxTaskTokens": 0
 }
 ```
 
@@ -146,7 +148,7 @@ These are the defaults for a new plan that omits the policy or some of its field
 `mode` defaults to `automatic`. `mode: "supervised"` adds file-authorization and
 manual quality assessment checkpoints and leaves failed checks for a manual retry (see
 [the guided CLI](GUIDED-WORKFLOW.md#supervised-mode)).
-Repair rounds accept 0–10, defaulting to six. Validation, independent review and acceptance
+Repair rounds accept 0–10, defaulting to three. Validation, independent review and acceptance
 spend the same allowance for the current slice. It survives manual retry and restarts;
 a new slice or revised plan gets a new allowance. An explicit retry authorises one further
 attempt without replenishing automatic repairs. Infrastructure failures never spend it.
@@ -174,9 +176,45 @@ action and shared budget before the decision. Review dispositions remain in the 
 structured reply. This makes the choice to repair, arbitrate or stop inspectable alongside the
 existing request/result, check and usage journals.
 
-The current controller uses journal schema 4, including its persisted pause request and guidance batches. Journals from
+The current controller uses journal schema 5, including its persisted pause request, guidance batches and required task spending policy. Journals from
 other schema versions are refused without modification; there is
 no migration. Keep the previous installed build with its journal to finish an existing task.
+
+## Task-wide spending allowances
+
+New plans approve `workflowPolicy.maxTaskTurns: 20` and `maxTaskTokens: 0`. The turn allowance
+accepts 1 to 1,000 requested provider turns. The token threshold accepts 0 to 1,000,000,000;
+zero disables only the token gate. Set both in the plan or revision form, or change
+`defaultWorkflowPolicy` in settings for future plans. Approval binds the effective values.
+
+The controller checks before every implementation, edit pass, repair, independent review and
+arbitration turn. It reads the durable task usage ledger, including linked planning and all
+attempts, providers, slices and plan versions. Failed and interrupted requested turns count.
+Restarting, pausing, retrying, rotating conversations or revising the plan never resets spend.
+Planning before conversion is already spent and is included when the approved task starts;
+these limits do not control the separate planning conversation before a plan exists.
+
+A turn at the boundary finishes and settles normally. Before the next turn, exhausted turns
+stop with `TASK_TURN_LIMIT`, observed tokens at or above the threshold stop with `TASK_TOKEN_LIMIT`,
+and missing, partial or unsettled token measurements stop with `TASK_USAGE_UNKNOWN` when the token
+gate is enabled. No dispatch intent is created and queued guidance stays queued. Files and exact
+verification evidence remain available. Non-agent checks, recovery and verified local delivery
+can finish when no further agent turn is needed.
+
+The token total is Codex input plus output, and Claude input plus output plus its separate cache
+reads and writes. Codex cache reads are already part of input and are not added again. Resumed
+provider counters use the existing cumulative attribution; unknown values never establish headroom.
+A known lower bound already at the threshold still proves exhaustion.
+
+These are dispatch thresholds, not provider billing caps or predictions of the next turn's size.
+An active turn can exceed the token threshold, and the limit does not interrupt it. The number of
+provider-internal model/tool rounds within one requested Grampus turn is not a task turn count.
+Estimated cost remains visible in Usage, but no dollar cap is enforced.
+
+Budget stops offer **Revise this task's plan**. Approve a higher cumulative total (not an additional
+allowance), or explicitly change the token policy; the revised plan needs fresh approval and all
+its usual evidence gates. A manual retry cannot bypass a spending stop. The task screen, CLI,
+report and `guided.spending_blocked` journal entry show the same calculation and measurement coverage.
 
 ## Pause without interrupting work
 

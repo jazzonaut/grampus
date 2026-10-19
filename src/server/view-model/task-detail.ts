@@ -40,6 +40,7 @@ import { currentSettings } from '../../config/settings.js';
 import { recentTimeline } from './timeline.js';
 import { repairsView } from './repairs.js';
 import { guidanceView } from './guidance.js';
+import { spendingView } from './spending.js';
 import { usageView } from './usage.js';
 import { evidenceSource, workflowStages } from './workflow.js';
 
@@ -463,6 +464,7 @@ export function taskDetail(facts: TaskFacts, context: ViewContext, revision: str
     liveChangesPath:
       view.workspace?.phase === 'ready' && view.workspace.path ? `/api/v1/tasks/${task.id}/live-changes` : null,
     repairs: repairsView(facts.events, state),
+    spending: spendingView(view.usage, state.plan.workflowPolicy),
     guidance: guidanceView(
       task.id,
       state,

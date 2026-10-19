@@ -54,7 +54,7 @@ export interface RecordEvent {
   data: unknown;
 }
 
-const schemaVersion = 4;
+const schemaVersion = 5;
 const schema = `
   CREATE TABLE tasks (
     id TEXT PRIMARY KEY,

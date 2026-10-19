@@ -37,6 +37,7 @@ import { workflowPolicyBounds } from '../../config/limits.js';
 import type { GuidedPlan } from '../../domain/guided-plan.js';
 import type { QualityPassDefinition } from '../../domain/quality-passes.js';
 import type { Stage } from '../../orchestration/guided/state.js';
+import { isSpendingStop } from '../../orchestration/guided/spending.js';
 import type { ActionForm, ActionId, ActionKind, ActionView, FormField, FormOption, JsonValue } from '../api-types.js';
 import { isLive, needsRecovery, type TaskStatusFacts } from './status.js';
 
@@ -282,6 +283,23 @@ export function revisionForm(plan: GuidedPlan, available: readonly QualityPassDe
         policy.repairRounds,
         workflowPolicyBounds.repairRounds,
       ),
+      numberField(
+        'task-turns',
+        'Task-wide agent turn allowance',
+        '/plan/workflowPolicy/maxTaskTurns',
+        policy.maxTaskTurns,
+        workflowPolicyBounds.maxTaskTurns,
+      ),
+      {
+        ...numberField(
+          'task-tokens',
+          'Task-wide token threshold (0 disables)',
+          '/plan/workflowPolicy/maxTaskTokens',
+          policy.maxTaskTokens,
+          workflowPolicyBounds.maxTaskTokens,
+        ),
+        help: 'Totals include linked planning, all slices, retries and plan versions. Checked before every agent turn; an active turn may exceed the threshold. Missing token usage stops further turns when enabled.',
+      },
       numberField(
         'session-turns',
         'Start a fresh conversation after this many turns',
@@ -565,6 +583,7 @@ function settledResolving(f: TaskActionFacts): TaskActionId[] {
     case 'awaiting_answer':
       return ['answer'];
     case 'blocked':
+      if (isSpendingStop(f.stopCode)) return ['revise'];
       if (f.stopCode === 'GUIDANCE_PENDING') return [];
       if (f.stopCode === 'USER_PAUSED') return ['run'];
       if (f.stage === 'preparation' || f.stage === 'refresh') return ['retry-preparation'];

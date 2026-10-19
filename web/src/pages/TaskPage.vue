@@ -29,6 +29,7 @@ import WorkflowStrip from '../components/WorkflowStrip.vue';
 import LiveChanges from '../components/LiveChanges.vue';
 import RepairDecisions from '../components/RepairDecisions.vue';
 import GuidancePanel from '../components/GuidancePanel.vue';
+import SpendingPanel from '../components/SpendingPanel.vue';
 import { short } from '../components/format';
 
 defineOptions({ name: 'TaskPage' });
@@ -92,6 +93,10 @@ watch(
   },
 );
 const revise = computed(() => decisions.value.find(item => item.id === 'revise'));
+const revisionIsNext = computed(() => {
+  const step = view.value?.header.nextStep;
+  return step?.kind === 'human' && step.actionIds.includes('revise');
+});
 const revisionPanel = useTemplateRef<HTMLDetailsElement>('revisionPanel');
 function requestChanges(): void {
   const panel = revisionPanel.value;
@@ -169,6 +174,16 @@ watch(
         :interval-ms="view.liveChangesIntervalMs"
       />
       <RepairDecisions :repairs="view.repairs" />
+      <SpendingPanel :spending="view.spending">
+        <button
+          v-if="revise && revisionIsNext"
+          type="button"
+          class="grampus-link-button self-start"
+          @click="requestChanges"
+        >
+          {{ revise.label }}
+        </button>
+      </SpendingPanel>
       <TaskWorkspace v-model="selected" :task="view">
         <template #approval>
           <div

@@ -54,6 +54,7 @@ const summaries: Readonly<Record<string, string>> = {
   'guided.guidance_queued': 'Human guidance queued',
   'guided.guidance_cancelled': 'Queued guidance cancelled',
   'guided.guidance_waiting': 'Delivery waits for a guidance decision',
+  'guided.spending_blocked': 'Task spending policy stopped another agent turn',
   'guided.stopped_between_steps': 'Stopped between steps',
   'guided.validation_repair_requested': 'Automatic repair after a failed check',
   'guided.acceptance_repair_requested': 'Automatic repair after failed acceptance',

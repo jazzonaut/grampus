@@ -40,6 +40,10 @@ export const workflowPolicyBounds = {
   maxSessionTurns: { min: 1, max: 50 },
   /** Observed input tokens before a fresh provider conversation. */
   maxContextTokens: { min: 8000, max: 1_000_000 },
+  /** Total requested provider turns across the task, including linked planning and every version. */
+  maxTaskTurns: { min: 1, max: 1000 },
+  /** Total observed provider tokens across the task. Zero disables the token gate only. */
+  maxTaskTokens: { min: 0, max: 1_000_000_000 },
 } as const;
 
 /**

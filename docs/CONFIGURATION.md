@@ -82,8 +82,12 @@ Example:
 | --- | --- | --- | --- |
 | `mode` | `"automatic"` | `"automatic"`, `"supervised"` | Automatic runs to a verified commit; supervised stops at file authorization and quality assessment |
 | `repairRounds` | `3` | 0 to 10 | Shared automatic repair rounds per slice across validation, review and acceptance; progress checks can stop earlier |
+| `maxTaskTurns` | `20` | 1 to 1000 | Requested provider turns across linked planning, retries, slices and all plan versions; exhaustion stops before another turn |
+| `maxTaskTokens` | `0` | 0 to 1000000000 | Task token threshold; zero disables only the token gate. When enabled, missing or partial usage stops another turn. Active turns may exceed it |
 | `maxSessionTurns` | `6` | 1 to 50 | Turns before a fresh provider conversation |
 | `maxContextTokens` | `120000` | 8000 to 1000000 | Observed input tokens before a fresh provider conversation |
+
+Task spending defaults are copied into each new plan and covered by approval. See [task-wide allowances](WORKFLOW.md#task-wide-spending-allowances) for counting, unknown usage and the limits of dispatch thresholds.
 
 Each entry of `qualityPasses` is a strict object:
 
