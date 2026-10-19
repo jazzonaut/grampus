@@ -77,7 +77,7 @@ test('lens assessments are validated as part of a review reply only', () => {
   const review = { kind: 'review', text: 'Reviewed', questions: [], findings: [] };
   assert.deepEqual(parseReply({ ...review, lenses: [lens] }).lenses, [lens]);
   assert.equal(parseReply({ ...review, lenses: null }).lenses, null);
-  assert.throws(() => parseReply({ ...review, kind: 'message', lenses: [lens] }), /only a review/);
+  assert.throws(() => parseReply({ ...review, kind: 'message', lenses: [lens] }), /only a review/i);
   assert.throws(() => parseLensAssessments([lens, lens]), /assessed only once/);
   assert.throws(() => parseLensAssessments([{ ...lens, verdict: 'passed' }]), /verdict/);
   assert.throws(() => parseLensAssessments([{ ...lens, summary: ' ' }]), /Lens summary/);
