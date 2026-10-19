@@ -36,6 +36,11 @@ const recovery = (label: string, why: string) => blocked('recovery', label, why)
 
 /** Every stop reason code in UI language. Exhaustive: a new code fails to compile until it is described. */
 export const stopPresentation: Readonly<Record<StopReasonCode, StopPresentation>> = {
+  USER_PAUSED: wait(
+    'blocked',
+    'Paused',
+    'The current operation finished. Continue the task to resume its saved attempt; files and evidence are kept.',
+  ),
   APPROVAL_REQUIRED: wait(
     'approval',
     'Plan ready for approval',

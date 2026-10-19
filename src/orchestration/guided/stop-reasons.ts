@@ -12,6 +12,8 @@ export const StopReasonCode = {
   // Waiting for a person.
   /** A new or revised plan waits for approval of its exact version and digest. */
   APPROVAL_REQUIRED: 'APPROVAL_REQUIRED',
+  /** A person paused at a settled operation boundary; continuation preserves the attempt. */
+  USER_PAUSED: 'USER_PAUSED',
   /** Supervised mode: the exact file scope waits for explicit authorization. */
   SCOPE_AUTHORIZATION_REQUIRED: 'SCOPE_AUTHORIZATION_REQUIRED',
   /** Supervised mode: a human quality assessment of the selected lenses is required after submission. */

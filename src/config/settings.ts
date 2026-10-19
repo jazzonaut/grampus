@@ -32,6 +32,8 @@ export interface Settings {
   dashboardPort: number;
   /** How often Claude usage is sampled during a turn; the final result always replaces the samples. */
   usagePollIntervalMs: number;
+  /** Minimum interval between display-only workspace observations in the dashboard. */
+  liveChangesIntervalMs: number;
   /**
    * Longest time streamed provider output is held in memory before it is journaled as one
    * `output.delta` event. Display-only text written in this interval is lost if the process dies.
@@ -71,11 +73,12 @@ export function defaultSettings(): Settings {
   return {
     dashboardPort: defaultDashboardPort,
     usagePollIntervalMs: 15_000,
+    liveChangesIntervalMs: 5000,
     outputFlushIntervalMs: 1000,
     outputFlushBytes: 8 * KiB,
     defaultPreparationTimeoutMs: 600_000,
     defaultCheckTimeoutMs: 300_000,
-    defaultWorkflowPolicy: { mode: 'automatic', repairRounds: 6, maxSessionTurns: 6, maxContextTokens: 120_000 },
+    defaultWorkflowPolicy: { mode: 'automatic', repairRounds: 3, maxSessionTurns: 6, maxContextTokens: 120_000 },
     qualityPasses: [],
     defaultQualityPasses: ['simplification'],
     maxConcurrentTasks: 2,
@@ -88,6 +91,7 @@ export function defaultSettings(): Settings {
 export const settingRanges = {
   dashboardPort: { min: 1, max: 65_535 },
   usagePollIntervalMs: { min: 1000, max: 600_000 },
+  liveChangesIntervalMs: { min: 1000, max: 600_000 },
   outputFlushIntervalMs: { min: 100, max: 60_000 },
   outputFlushBytes: { min: 1 * KiB, max: 1 * MiB },
   defaultPreparationTimeoutMs: { min: commandLimits.minTimeoutMs, max: commandLimits.maxTimeoutMs },
@@ -105,6 +109,7 @@ const overridesSchema = z
   .strictObject({
     dashboardPort: bounded(settingRanges.dashboardPort).optional(),
     usagePollIntervalMs: bounded(settingRanges.usagePollIntervalMs).optional(),
+    liveChangesIntervalMs: bounded(settingRanges.liveChangesIntervalMs).optional(),
     outputFlushIntervalMs: bounded(settingRanges.outputFlushIntervalMs).optional(),
     outputFlushBytes: bounded(settingRanges.outputFlushBytes).optional(),
     defaultPreparationTimeoutMs: bounded(settingRanges.defaultPreparationTimeoutMs).optional(),

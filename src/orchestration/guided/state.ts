@@ -166,6 +166,8 @@ export const guidedStateSchema = z.object({
   pending: pendingSchema.nullable(),
   /** A persisted stop request, forwarded by the owning controller to the running leaf as an abort. */
   stopRequested: z.boolean(),
+  /** Finish the current operation, then wait for explicit continuation without aborting it. */
+  pauseRequested: z.boolean(),
   /** Lens assessments still to record on the current artifact, one per `assessment` step. */
   assessments: z.array(qualityAssessmentRecordSchema),
   /** Edit passes already applied in the current slice. */

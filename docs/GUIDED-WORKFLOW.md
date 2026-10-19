@@ -61,12 +61,17 @@ next action, questions, findings and retained results.
 `task-stop <task-id>` from another terminal requests a stop; the runner waits for its
 owned processes to settle. From a checkout, use `npm start --` in place of `grampus`.
 
+`task-pause <task-id>` lets the current operation finish, then pauses before another starts.
+The stop reason is `USER_PAUSED`. Use `task-run <task-id>` to continue the same attempt,
+keeping its files, conversations and evidence. A failure, question or uncertain settlement
+keeps its own reason instead. A requested pause is a normal CLI outcome, not a failed run.
+
 ## What stops a run
 
 - **Questions.** Answer every question id with `task-answer <task-id> answers.json`,
   where the file is a JSON object mapping ids to text.
 - **Failures beyond the shared allowance.** Validation, review and acceptance use
-  `workflowPolicy.repairRounds` (six by default, 0 to 10 approvable). Unchanged failing
+  `workflowPolicy.repairRounds` (three by default, 0 to 10 approvable). Unchanged failing
   content, unresolved prior review blockers or missing progress evidence stop early.
 - **Unresolved arbitration.** A fresh arbitrator can be selected in the approved plan.
 - **Operational problems:** preparation failures, scope errors, uncertain process exits

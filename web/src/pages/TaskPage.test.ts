@@ -162,7 +162,7 @@ describe('TaskPage', () => {
     ]);
   });
 
-  it('shows live activity with Stop, and a stall notice', async () => {
+  it('shows live activity with Stop and Pause, and sends the bound pause request', async () => {
     const working: TaskDetailV1 = {
       ...mockTask,
       header: {
@@ -190,6 +190,10 @@ describe('TaskPage', () => {
         recent: ['Read src/export.ts'],
       },
       decisions: [
+        mockAction('pause', 'Pause after this step', {
+          path: '/api/tasks/task-1/pause',
+          expected: 'decision-7',
+        }),
         {
           ...mockTask.decisions[4]!,
           id: 'stop',
@@ -199,13 +203,24 @@ describe('TaskPage', () => {
         },
       ],
     };
-    const { wrapper } = await open({ '/api/v1/tasks/task-1': working });
+    const { wrapper, sent } = await open({
+      '/api/v1/tasks/task-1': working,
+      'POST /api/tasks/task-1/pause': { ok: true },
+    });
     const activity = wrapper.get('[data-panel="activity"]');
     expect(activity.text()).toContain('Implementing the change');
     expect(activity.text()).toContain('3 repository actions · 0 MCP requests · 1 file change request');
     expect(activity.find('[data-action="stop"]').exists()).toBe(true);
+    expect(activity.find('[data-action="pause"]').exists()).toBe(true);
+    expect(wrapper.get('[data-panel="repairs"]').text()).toContain('1 of 3 allocated in this slice');
+    expect(wrapper.get('[data-panel="repairs"]').text()).toContain('retry path drops the original error');
     expect(wrapper.text()).toContain('Nothing has been stopped.');
     expect(wrapper.text()).not.toMatch(/\d+%/);
+    await activity.get('[data-action="pause"] button').trigger('click');
+    await flushPromises();
+    expect(posts(sent)).toEqual([
+      { method: 'POST', path: '/api/tasks/task-1/pause', body: { expected: 'decision-7' } },
+    ]);
   });
 
   it('explains a deleted task', async () => {

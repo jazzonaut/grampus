@@ -1,6 +1,6 @@
 // View model scenarios over real guided task journals: a repaired review through verified delivery (every
 // stage passed with its evidence source, quality passes, usage nulls, recent deliveries) and a silent
-// running check (working, stalled, stop only).
+// running check (working, stalled, stop and pause controls).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, writeFileSync } from 'node:fs';
@@ -14,7 +14,7 @@ import type { ViewContext } from '../src/server/view-model/context.js';
 import { taskDetail, taskFacts } from '../src/server/view-model/task-detail.js';
 import { overview } from '../src/server/view-model/overview.js';
 import type { TaskDetailV1 } from '../src/server/api-types.js';
-import { windows, services, fixture, review, lens } from './helpers/guided-tasks.js';
+import { windows, services, fixture, review, lens, resolvedFindings } from './helpers/guided-tasks.js';
 
 const idlePool = { active: 0, limit: 2, owners: [] };
 
@@ -54,10 +54,11 @@ test('a review repair through delivery shows every stage passed with its evidenc
     services(++edits === 1 ? "// needless explanation\nconsole.log('hello world');\n" : "console.log('hello world');\n")
       .implementationRunner!(options);
   config.connector = async () => ({
-    turn: async () => ({
+    turn: async prompt => ({
       status: 'completed' as const,
       reply: {
         ...review,
+        priorFindings: resolvedFindings(prompt),
         lenses: [
           ++reviews === 1
             ? lens('fail', 'Remove the comment that repeats the output statement.')
@@ -127,7 +128,7 @@ test('a review repair through delivery shows every stage passed with its evidenc
   assert.match(summary.recentDeliveries[0].evidence, /verified by Grampus; independent review by Claude/);
 });
 
-test('a silent running check is working, stalled and offers only a stop', windows, async t => {
+test('a silent running check is working, stalled and offers stop and pause controls', windows, async t => {
   const f = fixture(t);
   const release = join(f.root, 'release-check');
   const config = services();
@@ -188,7 +189,7 @@ test('a silent running check is working, stalled and offers only a stop', window
     assert.equal(view.header.nextStep.kind, 'automatic');
     assert.deepEqual(
       view.decisions.filter(item => item.enabled).map(item => item.id),
-      ['stop', 'recover', 'report'],
+      ['stop', 'recover', 'pause', 'report'],
     );
     const items = home(
       f,

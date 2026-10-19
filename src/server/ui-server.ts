@@ -339,6 +339,10 @@ function taskAction(dashboard: Dashboard, id: string, action: string, payload: u
   const decided = parseRequest(decisionBody, payload).expected;
   if (decided !== expected)
     throw new StaleStateError('Task changed since you inspected it; refresh before taking this action');
+  if (action === 'pause') {
+    new GuidedTasks(store, { expectedState: decided }).pause(id);
+    return [200, { ok: true }];
+  }
   if (action === 'approve') {
     const body = parseRequest(approveTaskBody, payload);
     const approved = new GuidedTasks(store, { expectedState: body.expected }).approve(id, body.version, body.digest);
@@ -360,7 +364,7 @@ function taskAction(dashboard: Dashboard, id: string, action: string, payload: u
 function postItem(dashboard: Dashboard, route: ItemRoute, payload: unknown): [number, unknown] {
   const { action, id, kind } = route;
   if (!action) throw new HttpError(404, 'Not found');
-  if (dashboard.jobs.get(id)?.running && action !== 'stop')
+  if (dashboard.jobs.get(id)?.running && action !== 'stop' && action !== 'pause')
     throw new HttpError(409, 'An action is already running; wait for settlement');
   if (action === 'delete' || action === 'reset') {
     const { expected } = parseRequest(lifecycleBody, payload);
@@ -506,7 +510,7 @@ export async function startUi(options: UiOptions) {
     if (request.method === 'GET') {
       if (path.startsWith('/api/v1/')) {
         pruneJobs(jobs);
-        json(response, 200, apiV1.get(path, url));
+        json(response, 200, await apiV1.get(path, url));
         return;
       }
       if (path === '/api/health') {

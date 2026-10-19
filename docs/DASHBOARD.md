@@ -91,6 +91,15 @@ shown.
 - **Results:** unresolved problems, criteria coverage, checks with a compact failure summary,
   the exact command and **Read stderr** / **Read stdout** (loaded in pages on request), review
   findings, quality lens verdicts and recorded assessments, edit passes and local commits.
+- **Live changes:** a visible changed-file list and selected unified diff against the task's pinned
+  base, including delivered slices plus current staged, unstaged and untracked work. Observations
+  refresh every `liveChangesIntervalMs` (five seconds by default), independently of journal updates,
+  while the task page is visible. These reads spend no model tokens and establish no gate evidence.
+  Reverted selections clear. Large previews explicitly show truncation; unavailable reads warn that
+  any retained preview is stale. Binary changes show Git's binary notice.
+- **Automatic repairs:** the current slice's shared allowance, used and remaining rounds, and recent
+  controller decisions with their trigger, progress assessment, remaining allowance and evidence
+  identities. The timeline keeps the full history. Review progress is labelled as an agent assessment.
 - **Measured usage:** per-provider tokens (input, output, cache read and cache write) and
   estimated cost, how complete each figure is and the last observation time, then turns,
   failed and stopped turns and wall time per stage, and a line with total turns, repair attempts
@@ -128,6 +137,7 @@ the fields.
 
 | Control | Effect |
 | --- | --- |
+| **Pause after this step** | Lets the current operation finish and settle, then stops before starting another. **Continue task** resumes the same attempt with its files, conversations and evidence. A failure, question or uncertain settlement keeps its own reason |
 | **Stop now** | Requests settlement of active work. It does not claim processes have already exited |
 | **Retry repair** | Starts a fresh attempt, keeping files and resuming eligible conversations. Use it after staging files mid-run |
 | **Rerun checks** | Shown only when a validation or acceptance check stopped for an infrastructure reason (timeout, interruption, lost output, abnormal exit or runner error) on an unchanged change. Runs the same check again with no agent turn and no new attempt; refused if the workspace changed since |

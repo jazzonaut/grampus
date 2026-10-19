@@ -15,6 +15,8 @@ import { RecordNotFoundError } from '../persistence/errors.js';
 import type { Store } from '../persistence/store.js';
 import type { Kickoffs } from '../orchestration/kickoff.js';
 import { guidedSnapshot } from '../orchestration/guided/snapshots.js';
+import { Workspaces } from '../repository/workspaces.js';
+import { readLiveChanges } from './live-changes.js';
 import { runnerPool } from '../orchestration/guided/runner-pool.js';
 import { describeIssues } from '../process/boundary.js';
 import type { ChangeV1, KickoffDetailV1, OverviewV1, SettingsV1, TaskDetailV1, TimelinePageV1 } from './api-types.js';
@@ -38,13 +40,13 @@ export interface ApiV1Dashboard {
 }
 
 const route =
-  /^\/api\/v1\/(?:(?<overview>overview)|(?<settings>settings)|(?<kind>tasks|kickoffs)\/(?<id>[a-f0-9-]+)(?:\/(?<sub>timeline|changes))?)$/;
+  /^\/api\/v1\/(?:(?<overview>overview)|(?<settings>settings)|(?<kind>tasks|kickoffs)\/(?<id>[a-f0-9-]+)(?:\/(?<sub>timeline|changes|live-changes))?)$/;
 const routeSchema = z.object({
   overview: z.literal('overview').optional(),
   settings: z.literal('settings').optional(),
   kind: z.enum(['tasks', 'kickoffs']).optional(),
   id: z.string().optional(),
-  sub: z.enum(['timeline', 'changes']).optional(),
+  sub: z.enum(['timeline', 'changes', 'live-changes']).optional(),
 });
 
 const timelineQuery = z.object({
@@ -57,6 +59,7 @@ const timelineQuery = z.object({
     .default(viewModelLimits.timelinePageEntries),
 });
 const changesQuery = z.object({ path: z.string({ error: 'Name the changed path' }).min(1) });
+const liveChangesQuery = z.object({ path: z.string().min(1).optional() });
 
 /** The query parsed with `schema`; an empty parameter (`?cursor=`) counts as absent. */
 function query<S extends z.ZodType>(schema: S, url: URL): z.output<S> {
@@ -145,14 +148,23 @@ export function createApiV1(dashboard: ApiV1Dashboard) {
     );
   }
 
-  function taskRoute(
+  async function taskRoute(
     context: ViewContext,
     id: string,
     revision: string,
-    sub: 'timeline' | 'changes' | undefined,
+    sub: 'timeline' | 'changes' | 'live-changes' | undefined,
     url: URL,
   ) {
     const facts = tasks.get(id, revision, () => liveTask(id));
+    if (sub === 'live-changes') {
+      const { path } = query(liveChangesQuery, url);
+      const workspaceId = facts.view.state.workspaceId;
+      if (!workspaceId || facts.view.workspace?.phase !== 'ready')
+        throw new HttpError(404, 'The task workspace is not ready for live observations');
+      const { workspace } = await new Workspaces(store).inspect(workspaceId, false);
+      if (!workspace.path) throw new HttpError(404, 'The task workspace path is unknown');
+      return readLiveChanges(workspace.path, workspace.baseCommit, path);
+    }
     if (sub === 'timeline') {
       const { cursor, limit } = query(timelineQuery, url);
       return timelinePage(id, facts.events, cursor ?? null, limit) satisfies TimelinePageV1;

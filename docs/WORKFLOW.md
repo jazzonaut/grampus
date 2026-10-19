@@ -133,7 +133,7 @@ The policy is part of the approved plan, visible at approval and editable in
 ```json
 "workflowPolicy": {
   "mode": "automatic",
-  "repairRounds": 6,
+  "repairRounds": 3,
   "maxSessionTurns": 6,
   "maxContextTokens": 120000
 }
@@ -174,8 +174,26 @@ action and shared budget before the decision. Review dispositions remain in the 
 structured reply. This makes the choice to repair, arbitrate or stop inspectable alongside the
 existing request/result, check and usage journals.
 
-This policy uses journal schema 2. Schema 1 journals are refused without modification; there is
+The current controller uses journal schema 3, including its persisted pause request. Journals from
+other schema versions are refused without modification; there is
 no migration. Keep the previous installed build with its journal to finish an existing task.
+
+## Pause without interrupting work
+
+**Pause after this step** records a request while the controller is running. The active operation
+finishes normally; after its result settles, Grampus stops before dispatching the next operation.
+The stop reason is `USER_PAUSED`, and **Continue task** resumes the same attempt, keeping the files,
+conversations and bound evidence. A pause does not consume a repair round. If the active operation
+stops for a failure, asks a question or cannot prove settlement, that failure, question or recovery
+requirement takes precedence. Nothing uncertain is marked paused or replayed. Completion needs no pause.
+
+Live changes on the task screen are observations of the worktree against the pinned task base, not
+evidence that passes any gate. The repair panel explains recent controller decisions and remaining
+shared allowance; progress attributed to a reviewer remains an agent assessment.
+
+A review or check can schedule a repair during settlement, before the pause takes effect.
+The panel labels these rounds as allocated, even if their next agent turn has not started.
+Continuing does not allocate that same round again; actual turns and usage are reported separately.
 
 ## Reuse context at settled boundaries
 

@@ -375,6 +375,8 @@ export const stallLimits = {
 
 /** The dashboard view model and its v1 API (`server/view-model/`, `server/api-v1.ts`). */
 export const viewModelLimits = {
+  /** Recent repair decisions shown on the running task. Full history remains in the journal. */
+  repairDecisions: 12,
   /** Timeline entries in one page when the request names no limit. */
   timelinePageEntries: 50,
   /** Largest timeline page a request may ask for. */
@@ -385,4 +387,16 @@ export const viewModelLimits = {
   recentDeliveries: 10,
   /** Overviews and details cached by journal revision; the oldest is dropped first. */
   cachedViews: 16,
+} as const;
+
+/** Display-only live working tree observations; never approval or verification evidence. */
+export const monitoringLimits = {
+  /** Maximum combined Git path-list output before the observation is unavailable. */
+  pathBytes: 1 * MiB,
+  /** Changed paths included in one observation; additional paths are counted explicitly. */
+  paths: 200,
+  /** One selected patch; larger patches are explicitly marked as truncated. */
+  patchBytes: 128 * KiB,
+  /** Maximum rendered patch lines, to keep a selected diff from creating unbounded browser nodes. */
+  patchLines: 1200,
 } as const;

@@ -6,6 +6,8 @@ import type { GuidedContext, SettleContext } from './context.js';
 import type { GuidedState } from './state.js';
 import { selectedLenses } from '../../domain/quality-passes.js';
 import { GuidedStopError } from './stop-reasons.js';
+import { checkOutputLimits } from '../../config/limits.js';
+import { outputExcerpt } from '../../verification/check-output.js';
 
 /** One controller-named blocker, stable for the verdict that introduced it. */
 export interface PriorFinding {
@@ -97,11 +99,13 @@ export function recordRepairDecision(
     action: 'repair' | 'arbitration' | 'stop';
     reason: string;
     resultId: string;
+    trigger: string;
     progress: keyof typeof progressDescriptions;
   },
 ): void {
   store.append(id, state.version, 'guided.repair_decided', {
     ...decision,
+    trigger: outputExcerpt(decision.trigger, checkOutputLimits.feedbackCharacters),
     sliceIndex: state.sliceIndex,
     executionId: state.executionId,
     reviewId: state.reviewId,

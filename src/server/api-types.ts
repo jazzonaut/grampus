@@ -88,6 +88,7 @@ export type ActionId =
   | 'recover'
   | 'release-workspace'
   | 'stop'
+  | 'pause'
   | 'revise'
   | 'reset'
   | 'delete'
@@ -727,6 +728,12 @@ export interface TaskDetailV1 {
   activity: ActivityV1 | null;
   /** Every action available now, primary first. Attention actions are a subset. */
   decisions: ActionView[];
+  /** Read-only live workspace observations, independent of journal revision. Null before setup. */
+  liveChangesPath: string | null;
+  /** Configured interval between live observations while this task is visible. */
+  liveChangesIntervalMs: number;
+  /** Shared allowance and recent decisions for the current slice. */
+  repairs: RepairsV1;
   results: ResultsV1;
   usage: UsageV1;
   details: DetailsV1;
@@ -739,6 +746,39 @@ export interface ChangeV1 {
   path: string;
   before: { content: string | null; encoding: string };
   after: { content: string | null; encoding: string };
+}
+
+/** A display-only observation of a changing workspace, never evidence for a workflow gate. */
+export interface LiveChangesV1 {
+  apiVersion: ApiVersion;
+  observedAt: string;
+  base: string;
+  paths: string[];
+  total: number;
+  truncated: boolean;
+  selected: { path: string; patch: string; truncated: boolean } | null;
+}
+
+/** The controller's recorded reasoning and budget at each repair decision. */
+export interface RepairDecisionV1 {
+  sequence: number;
+  at: string;
+  title: string;
+  /** Bounded check diagnostics or concrete blocking findings, quoted as display-only text. */
+  trigger: string;
+  reason: string;
+  progress: string;
+  budget: string;
+  resultId: string;
+  artifact: string | null;
+}
+
+/** Remaining automatic repair allowance; explicit manual retries remain separate decisions. */
+export interface RepairsV1 {
+  used: number;
+  allowance: number;
+  remaining: number;
+  decisions: RepairDecisionV1[];
 }
 
 // ---------------------------------------------------------------------------------------------------

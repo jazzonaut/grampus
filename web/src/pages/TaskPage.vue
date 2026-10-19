@@ -26,6 +26,8 @@ import TaskWorkspace from '../components/TaskWorkspace.vue';
 import TaskFacts from '../components/TaskFacts.vue';
 import TaskHeader from '../components/TaskHeader.vue';
 import WorkflowStrip from '../components/WorkflowStrip.vue';
+import LiveChanges from '../components/LiveChanges.vue';
+import RepairDecisions from '../components/RepairDecisions.vue';
 import { short } from '../components/format';
 
 defineOptions({ name: 'TaskPage' });
@@ -65,7 +67,7 @@ const actions = useActions({
 
 const managed = new Set(['revise', 'reset', 'delete']);
 const decisions = computed(() => view.value?.decisions ?? []);
-const stop = computed(() => decisions.value.find(item => item.id === 'stop'));
+const controls = computed(() => decisions.value.filter(item => item.id === 'stop' || item.id === 'pause'));
 /** The report is a decision only when it is the next step (a delivered task); otherwise it is under Details. */
 const reportIsNext = computed(() => {
   const step = view.value?.header.nextStep;
@@ -76,7 +78,7 @@ const queue = computed(() =>
     item =>
       !managed.has(item.id) &&
       item.id !== 'approve' &&
-      !(item.id === 'stop' && view.value?.activity) &&
+      !((item.id === 'stop' || item.id === 'pause') && view.value?.activity) &&
       !(item.id === 'report' && !reportIsNext.value),
   ),
 );
@@ -137,13 +139,15 @@ watch(
         <WorkflowStrip :stages="view.workflow" />
       </section>
       <ActivityCard v-if="view.activity" :activity="view.activity">
-        <template v-if="stop" #actions>
+        <template v-if="controls.length" #actions>
           <ActionButton
-            :action="stop"
+            v-for="control in controls"
+            :key="control.id"
+            :action="control"
             :busy="actions.busy.value"
-            :sending="actions.sending.value === 'stop'"
+            :sending="actions.sending.value === control.id"
             show-description
-            @run="run(stop)"
+            @run="run(control)"
           />
         </template>
       </ActivityCard>
@@ -156,6 +160,13 @@ watch(
         :issues-for="actions.issuesFor"
         @run="run"
       />
+      <LiveChanges
+        v-if="view.liveChangesPath"
+        :key="view.id"
+        :path="view.liveChangesPath"
+        :interval-ms="view.liveChangesIntervalMs"
+      />
+      <RepairDecisions :repairs="view.repairs" />
       <TaskWorkspace v-model="selected" :task="view">
         <template #approval>
           <div

@@ -117,6 +117,7 @@ export class GuidedTasks {
         owner: null,
         pending: null,
         stopRequested: false,
+        pauseRequested: false,
         assessments: [],
         qualityEdits: [],
         answers: null,
@@ -175,6 +176,7 @@ export class GuidedTasks {
         approvedDigest: state.approvedDigest,
         owner: state.owner,
         stopRequested: state.stopRequested,
+        pauseRequested: state.pauseRequested,
         artifact: state.snapshot?.artifact ?? null,
         instructionsDigest: state.snapshot?.instructionsDigest ?? null,
         policy: state.policy,
@@ -242,6 +244,7 @@ export class GuidedTasks {
           host: hostname(),
         };
         state.stopRequested = false;
+        if (!recover) state.pauseRequested = false;
       });
       return token;
     });
@@ -330,6 +333,16 @@ export class GuidedTasks {
       state.note = 'Stop requested; waiting for confirmed process settlement.';
     });
   }
+  /** Requests a pause at the next settled boundary without interrupting the active operation. */
+  pause(id: string): GuidedState {
+    return this.change(id, null, 'guided.pause_requested', state => {
+      this.requireExpected(state);
+      if (!state.owner) throw new Error('No guided controller is running');
+      if (state.stopRequested) throw new Error('A stop is already requested');
+      state.pauseRequested = true;
+      state.note = 'Pause requested; the current operation will finish before anything else starts.';
+    });
+  }
   /** The handler context for one owned run. */
   private context(id: string, token: string): GuidedContext {
     const context: GuidedContext = {
@@ -359,15 +372,27 @@ export class GuidedTasks {
     const state = this.current(id);
     if (state.pending) throw new Error('An earlier step needs explicit recovery; nothing will be replayed');
     const known = this.known(this.context(id, token), state);
-    return this.change(id, token, 'guided.step_requested', state => {
-      state.pending = {
-        stage: state.stage,
-        known,
-        assessment: state.assessments[0] ?? null,
-        controller: { ...required(state, 'owner') },
-      };
-      state.status = 'running';
-      state.note = `Running ${state.stage}.`;
+    return this.store.transaction(() => {
+      // This check and the dispatch intent share a transaction, so a concurrent pause cannot be lost.
+      if (this.get(id).pauseRequested) {
+        return this.change(id, token, 'guided.paused', state => {
+          state.pauseRequested = false;
+          markStopped(state, 'blocked', {
+            code: 'USER_PAUSED',
+            note: 'Paused between operations. Continue the task to resume the saved attempt.',
+          });
+        });
+      }
+      return this.change(id, token, 'guided.step_requested', state => {
+        state.pending = {
+          stage: state.stage,
+          known,
+          assessment: state.assessments[0] ?? null,
+          controller: { ...required(state, 'owner') },
+        };
+        state.status = 'running';
+        state.note = `Running ${state.stage}.`;
+      });
     });
   }
   private async perform(id: string, token: string, state: GuidedState, signal: AbortSignal) {
@@ -436,8 +461,9 @@ export class GuidedTasks {
       }
       let operationReturned = false;
       try {
-        const state = this.begin(id, token),
-          snapshot = await this.perform(id, token, state, signal);
+        const state = this.begin(id, token);
+        if (state.stopReason?.code === 'USER_PAUSED') break;
+        const snapshot = await this.perform(id, token, state, signal);
         operationReturned = true;
         this.settle(id, token, snapshot);
       } catch (error) {
@@ -489,8 +515,20 @@ export class GuidedTasks {
    */
   async run(id: string, signal?: AbortSignal): Promise<GuidedState> {
     const state = this.current(id);
-    if (state.status !== 'ready') throw new Error(`Task is ${state.status}; inspect task-show for its next action`);
-    return this.owned(id, (token, signal) => this.drive(id, token, signal), { signal, expected: 'ready' });
+    if (state.status !== 'ready' && state.stopReason?.code !== 'USER_PAUSED')
+      throw new Error(`Task is ${state.status}; inspect task-show for its next action`);
+    return this.owned(
+      id,
+      async (token, signal) => {
+        this.change(id, token, 'guided.continued', current => {
+          if (current.status !== 'ready' && current.stopReason?.code !== 'USER_PAUSED')
+            throw new Error('The task is no longer ready or paused; inspect its current stop before continuing');
+          current.status = 'ready';
+        });
+        await this.drive(id, token, signal);
+      },
+      { signal, expected: state.status },
+    );
   }
   /** Supervised mode: authorizes the displayed file scope and continues. */
   async authorize(id: string, signal?: AbortSignal): Promise<GuidedState> {

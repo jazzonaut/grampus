@@ -24,8 +24,8 @@ export function guidedQuestionKey(store: Store, state: GuidedState): string | nu
 /**
  * Everything a decision depends on: plan version and digest, position, artifact, instructions,
  * executions, the failed check on display and, for answers, the question key. The controller
- * recomputes and compares it. Runner ownership and the stop flag are not part of it, so claiming the
- * runner (which sets both) leaves the key unchanged and the inspected decision still applies.
+ * recomputes and compares it. Runner ownership and the stop/pause flags are not part of it, so claiming
+ * the runner leaves the key unchanged and the inspected decision still applies.
  */
 export function guidedDecisionKey(state: GuidedState, questionKey: string | null = null): string {
   return JSON.stringify({

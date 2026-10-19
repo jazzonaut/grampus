@@ -36,7 +36,9 @@ import {
   taskPresentation,
   type TaskPresentation,
 } from './status.js';
+import { currentSettings } from '../../config/settings.js';
 import { recentTimeline } from './timeline.js';
+import { repairsView } from './repairs.js';
 import { usageView } from './usage.js';
 import { evidenceSource, workflowStages } from './workflow.js';
 
@@ -108,6 +110,7 @@ export function taskActionFacts(facts: TaskFacts, context: ViewContext): TaskAct
     owner: state.owner !== null,
     pending: state.pending !== null,
     stopRequested: state.stopRequested || view.session?.phase === 'stop_requested',
+    pauseRequested: state.pauseRequested,
     jobRunning: job?.running ?? false,
     version: state.version,
     digest: state.digest,
@@ -227,6 +230,11 @@ function activity(facts: TaskFacts, context: ViewContext, presentation: TaskPres
 }
 
 function nextStep(facts: TaskActionFacts, presentation: TaskPresentation, title: string): NextStepV1 {
+  if (presentation.status === 'working' && facts.pauseRequested)
+    return {
+      kind: 'automatic',
+      label: 'The current operation finishes, then Grampus pauses before starting anything else.',
+    };
   if (presentation.status === 'working')
     return { kind: 'automatic', label: `${title}; Grampus continues automatically.` };
   if (presentation.status === 'stopping')
@@ -451,6 +459,10 @@ export function taskDetail(facts: TaskFacts, context: ViewContext, revision: str
     },
     workflow: taskWorkflow(facts, presentation),
     activity: current,
+    liveChangesPath:
+      view.workspace?.phase === 'ready' && view.workspace.path ? `/api/v1/tasks/${task.id}/live-changes` : null,
+    repairs: repairsView(facts.events, state),
+    liveChangesIntervalMs: currentSettings().liveChangesIntervalMs,
     decisions: taskActions(actionFacts),
     results: results(facts),
     usage: usageView(view.usage),

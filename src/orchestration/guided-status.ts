@@ -37,6 +37,7 @@ function statusAction(state: GuidedState, id: string, command: Command, rerun: s
     case 'awaiting_answer':
       return `${command('task-answer', id)} '<answers.json>'`;
     case 'blocked':
+      if (state.stopReason?.code === 'USER_PAUSED') return command('task-run', id);
       return rerun ?? command('task-retry', id);
     case 'complete':
       return command('report', id);

@@ -49,6 +49,16 @@ function reviewHistory({ store, executions }: GuidedContext, state: GuidedState)
   return verdicts;
 }
 
+/** A first verdict has no earlier blockers to resolve, so it cannot evidence review progress. */
+function decisionProgress(priorCount: number, progress: ReturnType<typeof reviewProgress>) {
+  return priorCount || progress !== 'progress' ? progress : 'initial';
+}
+
+/** Preserve the reviewer's own summary when explaining missing or unresolved progress. */
+function progressFailureNote(session: Session): string {
+  return session.lastReply?.text || 'Review did not establish resolution of earlier blockers.';
+}
+
 /**
  * Records the blocking verdict and chooses what happens next, atomically: another repair while the
  * allowance lasts and the artifact changed since the last block, otherwise one fresh arbitration if
@@ -86,7 +96,10 @@ function routeBlockingReview(
       action: canRepair ? 'repair' : arbitrate ? 'arbitration' : 'stop',
       reason: canRepair ? 'REVIEW_BLOCKING_FINDINGS' : cycle.arbitrating ? 'ARBITRATION_UNRESOLVED' : reason,
       resultId: execution.id,
-      progress,
+      trigger: blockingFindings(state, reply, execution.id)
+        .map(finding => `${finding.description}\nEvidence: ${finding.evidence}`)
+        .join('\n\n'),
+      progress: decisionProgress(prior.length, progress),
     });
     cycle.history.push({ executionId: execution.id, artifact });
     // Retained in every route, so the blocking verdict is on record before any repair or
@@ -266,13 +279,14 @@ function settleReview(context: SettleContext): StageOutcome {
         action: 'stop',
         reason: code,
         resultId: execution.id,
+        trigger: progressFailureNote(session),
         progress,
       });
       return {
         kind: 'stop',
         reason: {
           code,
-          note: session.lastReply?.text || 'Review did not establish resolution of earlier blockers.',
+          note: progressFailureNote(session),
         },
       };
     }

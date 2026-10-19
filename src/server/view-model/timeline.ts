@@ -7,6 +7,7 @@ import type { Stage } from '../../orchestration/guided/state.js';
 import { outputExcerpt } from '../../verification/check-output.js';
 import type { TimelineEntryV1, TimelinePageV1 } from '../api-types.js';
 import { humanNote, stopPresentation } from './status.js';
+import { repairDecision } from './repairs.js';
 import type { StopReasonCode } from '../../orchestration/guided/stop-reasons.js';
 
 const stageNames: Readonly<Record<Stage, string>> = {
@@ -47,6 +48,9 @@ const summaries: Readonly<Record<string, string>> = {
   'guided.recovery_blocked': 'Recovery could not prove what happened',
   'guided.workspace_released': 'Unused workspace reservation released',
   'guided.stop_requested': 'Stop requested',
+  'guided.pause_requested': 'Pause requested after the current operation',
+  'guided.paused': 'Paused between operations',
+  'guided.continued': 'Task continued',
   'guided.stopped_between_steps': 'Stopped between steps',
   'guided.validation_repair_requested': 'Automatic repair after a failed check',
   'guided.acceptance_repair_requested': 'Automatic repair after failed acceptance',
@@ -95,13 +99,14 @@ function summary(event: JournalEvent, data: z.infer<typeof eventData>): string {
 /** One event as the timeline shows it; the note is bounded and in UI language. */
 export function timelineEntry(event: JournalEvent): TimelineEntryV1 {
   const data = eventData.safeParse(event.data).data ?? {};
+  const decision = repairDecision(event);
   const note = data.note ? humanNote(outputExcerpt(data.note, serverLimits.eventNoteCharacters)).trim() : '';
   return {
     sequence: event.sequence,
     at: event.at,
     type: event.type,
-    summary: summary(event, data),
-    note: note || null,
+    summary: decision?.title ?? summary(event, data),
+    note: decision ? `${decision.trigger}\n${decision.reason} ${decision.progress} ${decision.budget}` : note || null,
     reasonCode: data.reasonCode ?? null,
   };
 }

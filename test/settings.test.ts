@@ -37,11 +37,12 @@ test('without config.json the built-in defaults apply and nothing is created', t
   assert.deepEqual(settings, {
     dashboardPort: defaultDashboardPort,
     usagePollIntervalMs: 15_000,
+    liveChangesIntervalMs: 5000,
     outputFlushIntervalMs: 1000,
     outputFlushBytes: 8192,
     defaultPreparationTimeoutMs: 600_000,
     defaultCheckTimeoutMs: 300_000,
-    defaultWorkflowPolicy: { mode: 'automatic', repairRounds: 6, maxSessionTurns: 6, maxContextTokens: 120_000 },
+    defaultWorkflowPolicy: { mode: 'automatic', repairRounds: 3, maxSessionTurns: 6, maxContextTokens: 120_000 },
     qualityPasses: [],
     defaultQualityPasses: ['simplification'],
     maxConcurrentTasks: 2,

@@ -199,7 +199,14 @@ test('action rules: live work offers stop, uncertain work offers recovery and re
 
   const working = facts({ status: 'running', owner: true, jobRunning: true });
   assert.equal(taskPresentation(working).status, 'working');
-  assert.deepEqual(ids(working), ['stop', 'revise(disabled)', 'report', 'reset(disabled)', 'delete(disabled)']);
+  assert.deepEqual(ids(working), [
+    'stop',
+    'pause',
+    'revise(disabled)',
+    'report',
+    'reset(disabled)',
+    'delete(disabled)',
+  ]);
   const stopping = facts({ status: 'running', owner: true, jobRunning: true, stopRequested: true });
   assert.equal(taskPresentation(stopping).status, 'stopping');
   assert.equal(

@@ -54,12 +54,12 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   Implementation, validation, independent review, acceptance and delivery stay mandatory and
   ordered ([WORKFLOW.md](WORKFLOW.md#quality-passes)).
 - **Progress-aware shared repairs.** Done 19 October 2026. Validation, review and acceptance
-  share one approved slice allowance (six by default, up to ten). Continued blocking reviews
+  share one approved slice allowance (three by default, up to ten). Continued blocking reviews
   must resolve preceding blockers with explicit identities and evidence; stalled or unknown
   progress stops or uses approved arbitration. Decisions are journaled with their reasons and
-  budget. Journal schema 2 refuses schema 1 without migration ([WORKFLOW.md](WORKFLOW.md)).
+  budget. The current journal schema 3 refuses other versions without migration ([WORKFLOW.md](WORKFLOW.md)).
 - **No backwards compatibility.** Done 18 October 2026. Legacy plan formats, digests, fields,
-  migrations and `task-automate` are removed from code and docs. The current schema is version 2; an older
+  migrations and `task-automate` are removed from code and docs. The current schema is version 3; an older
   journal is refused with a clear message and never modified. The new version uses a fresh
   journal file, so older installed snapshots can still finish their own tasks.
 
@@ -124,6 +124,25 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
    reason codes on the guided state and its journal events (the stop reason part of step 2).
 7. **Use it for real.** Run three to five real tasks and keep a short log of clicks,
    stops, review catches and cost. That log sets the next priorities.
+
+## Run visibility and control
+
+Implemented 19 October 2026. The task screen keeps live changed files and a selected unified diff
+visible outside the evidence tabs, refreshed every `liveChangesIntervalMs` (five seconds by default).
+These are bounded observations against the task's pinned base, including delivered slices and current
+staged, unstaged and untracked changes, never verification evidence. Binary files use Git's binary
+notice; truncated or unavailable previews are explicit. Diff drivers, clean/process filters and text conversion are disabled.
+
+The screen shows the current slice's shared repair allowance and recent controller decisions, with
+the trigger, progress assessment, remaining budget and result/artifact identities. Full history stays
+in the timeline. New plans default to three automatic repairs; explicit approved allowances remain
+bound to their plan. **Pause after this step** lets the current operation settle before stopping;
+**Continue task** resumes the same attempt. Failures and uncertain operations retain their failure or
+recovery reason. The persisted pause flag uses schema 3; older journals are refused without migration.
+The installed application and its journal are separate from this checkout.
+
+**Planned:** queued human guidance, task-wide spending allowances, a finding disposition ledger,
+and native Orca conversation/control integration. These are not provided by the first slice.
 
 ## Known issues from real use
 

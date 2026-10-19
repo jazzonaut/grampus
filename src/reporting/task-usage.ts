@@ -74,7 +74,7 @@ export interface StageUsage extends Counters {
 /**
  * Human interventions after the first approval, counted from guided journal events: answers to agent
  * questions, scope authorizations, quality assessments, retries (including preparation retries), check
- * reruns, recoveries (including releasing a workspace reservation), plan revisions, stop requests and
+ * reruns, recoveries (including releasing a workspace reservation), plan revisions, stop/pause requests and
  * approvals of revised plans. Continuing a task with `task-run` and low-level CLI commands outside the
  * guided controller are not counted.
  */
@@ -103,6 +103,7 @@ const interventionEvents: Readonly<Partial<Record<string, InterventionKind>>> = 
   'guided.workspace_released': 'recoveries',
   'guided.revised': 'revisions',
   'guided.stop_requested': 'stops',
+  'guided.pause_requested': 'stops',
   'guided.approved': 'approvals',
 };
 

@@ -631,6 +631,26 @@ export const mockTask: TaskDetailV1 = {
     },
     reportPath: '/api/tasks/task-1/report',
   },
+  liveChangesPath: null,
+  liveChangesIntervalMs: 5000,
+  repairs: {
+    used: 1,
+    allowance: 3,
+    remaining: 2,
+    decisions: [
+      {
+        sequence: 10,
+        at: '2026-10-19T09:00:00.000Z',
+        title: 'Independent review: Automatic repair',
+        trigger: 'The retry path drops the original error. Evidence: src/export.ts:42',
+        reason: 'The independent review recorded blocking findings.',
+        progress: 'This is the first observed failure.',
+        budget: '0 of 3 repair rounds allocated before this decision; 2 remaining afterwards.',
+        resultId: 'review-1',
+        artifact: 'sha256:fixture',
+      },
+    ],
+  },
   integrations: [{ name: 'linear', status: 'connected', tools: 12 }],
 };
 

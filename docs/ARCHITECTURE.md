@@ -137,7 +137,7 @@ at `assessment` before verification; a failed lens counts as a blocking finding.
 run between `implementation` and validation on the slice's first successful implementation only
 ([quality passes](WORKFLOW.md#quality-passes)). Ordinary validation and acceptance failures return to
 implementation with their evidence within `workflowPolicy.repairRounds`, shared with blocking
-review repairs (six by default, up to ten). Review can continue beyond two repairs when the
+review repairs (three by default, up to ten). Review can continue beyond two repairs when the
 artifact changes and the reviewer evidences resolution of every preceding blocker using
 controller-assigned identities. Unchanged artifacts, unresolved blockers and missing progress
 evidence stop early or go to an optional approved arbitrator. Every repair decision is journaled
@@ -170,12 +170,34 @@ One guided controller runs per task at a time, and up to `maxConcurrentTasks` ta
 uncertain shutdown. Stop requests are persisted and forwarded as an `AbortSignal` to the running
 leaf.
 
+## Display-only live monitoring and pause
+
+`server/live-changes.ts` reads the task worktree against its recorded pinned base, independently of
+journal revision. The authenticated `/api/v1/tasks/:id/live-changes` route re-verifies workspace
+identity, then reads tracked and untracked paths and at most one selected unified patch. It never
+claims a lease, runs an agent, writes the index or records workflow evidence. External diff drivers, clean/process filters
+and text conversion are disabled. Previews reject filesystem links, bound output and line counts,
+and explicitly report truncation or unavailability. Reads can race with editing and are labelled
+observations, never stable artifacts. Delivered slices remain part of the comparison with the task base.
+The visible task screen polls at `liveChangesIntervalMs`; hidden pages stop polling.
+
+`server/view-model/repairs.ts` renders recorded repair decisions with their progress assessment,
+triggering result and artifact, concrete failure diagnostics, and shared budget before and after the decision. The task screen
+keeps the remaining allowance visible; the timeline retains the full history.
+
+`GuidedTasks.pause` persists a request without aborting the active operation. Before the next dispatch,
+the controller checks that flag and journals `guided.paused` with `USER_PAUSED` in the same transaction
+as its state change, with no dispatch intent. A settled failure or human question retains its own
+reason, and uncertain settlement still requires recovery. Continuing a paused task preserves the
+attempt, conversations and evidence; a changed workspace still faces the existing artifact checks.
+Stop and pause requests both count in the usage report's stop interventions.
+
 ## Persistence
 
 `persistence/store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a
 15-second busy timeout ([parallel tasks](#parallel-tasks-and-concurrency)). There is one schema,
-version 2, with thirteen tables and no migrations. A new or empty
-file gets the schema; any other version, or a version 2 file missing a table, is refused with a
+version 3, with thirteen tables and no migrations. A new or empty
+file gets the schema; any other version, or a version 3 file missing a table, is refused with a
 clear error after a read-only inspection, so the file is never modified. The default journal is
 `grampus.sqlite` in the data directory.
 
@@ -588,12 +610,12 @@ they show the provider totals, total turns, repair attempts (implementation exec
 first `guided.approved`: `guided.answers_supplied`, `guided.scope_authorized`,
 `guided.assessment_supplied`, `guided.retry_requested`, `guided.preparation_retry_requested`,
 `guided.checks_rerun_requested`, `guided.recovery_requested`, `guided.workspace_released`,
-`guided.revised`, `guided.stop_requested` and later `guided.approved` (approvals of revised plans).
+`guided.revised`, `guided.stop_requested`, `guided.pause_requested` and later `guided.approved` (approvals of revised plans).
 Continuing a stopped task with `task-run` and low-level CLI commands are not counted. Unknown values
 stay null and never count as zero; a total that misses some turn's measurement is marked partial.
 
 Repair decisions also have a `guided.repair_decided` event: source, action, reason, triggering
-result id, execution/review ids, artifact, progress and shared budget before the decision. The
+result id, a bounded diagnostic or finding excerpt, execution/review ids, artifact, progress and shared budget before the decision. The
 linked session retains the review's individual blocker dispositions and provider usage. Tokens
 are measured per provider turn and aggregated by stage, not separately for every controller
 decision or individual tool call. Checks retain their own timings and results. These records

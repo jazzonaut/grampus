@@ -32,7 +32,7 @@ const interventionLabels: Readonly<Record<Exclude<keyof InterventionsV1, 'total'
   rerunChecks: ['check rerun', 'check reruns'],
   recoveries: ['recovery', 'recoveries'],
   revisions: ['revision', 'revisions'],
-  stops: ['stop', 'stops'],
+  stops: ['stop or pause request', 'stop or pause requests'],
   approvals: ['approval', 'approvals'],
 };
 

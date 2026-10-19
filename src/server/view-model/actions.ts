@@ -49,6 +49,8 @@ export interface PendingQuestion {
 
 /** Everything the task action rules depend on. */
 export interface TaskActionFacts extends TaskStatusFacts {
+  /** A request to finish the current operation and pause before the next one. */
+  pauseRequested: boolean;
   taskId: string;
   /** The decision key of the displayed state (`guidedDecisionKey`). */
   expected: string;
@@ -493,6 +495,23 @@ const builders = {
           ? 'The worker has not claimed the task yet; wait a moment.'
           : null,
     }),
+  pause: f =>
+    action({
+      id: 'pause',
+      label: f.pauseRequested ? 'Pause requested' : 'Pause after this step',
+      kind: 'secondary',
+      description:
+        'Finishes the current operation, then waits before starting anything else. Files, evidence and conversations are kept.',
+      path: route(f, 'pause'),
+      expected: f.expected,
+      disabledReason: f.pauseRequested
+        ? 'The current operation will finish, then the task will pause.'
+        : f.stopRequested
+          ? 'A stop is already requested.'
+          : !f.owner
+            ? 'Wait for the worker to claim the task.'
+            : null,
+    }),
   revise: f =>
     action({
       id: 'revise',
@@ -546,6 +565,7 @@ function settledResolving(f: TaskActionFacts): TaskActionId[] {
     case 'awaiting_answer':
       return ['answer'];
     case 'blocked':
+      if (f.stopCode === 'USER_PAUSED') return ['run'];
       if (f.stage === 'preparation' || f.stage === 'refresh') return ['retry-preparation'];
       return f.rerunProblem === null ? ['rerun-checks', 'retry'] : ['retry'];
     case 'running':
@@ -563,6 +583,7 @@ function settledResolving(f: TaskActionFacts): TaskActionId[] {
  */
 export function taskActions(f: TaskActionFacts): ActionView[] {
   const first = resolvingActionIds(f);
+  if (first.includes('stop') && !needsRecovery(f)) first.push('pause');
   const management: TaskActionId[] = f.stale ? [] : (['revise', 'report'] as const).filter(id => !first.includes(id));
   const busy = isLive(f) || f.pending || f.status === 'recovery_required';
   return [

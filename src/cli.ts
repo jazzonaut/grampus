@@ -69,6 +69,7 @@ const help = `Grampus - local agent controller
   task-rerun-checks <id> <decision-key>  Rerun a check stopped by a timeout or other infrastructure problem
                                   on the unchanged artifact; no agent turn or new attempt
   task-stop <id>                  Request a running guided controller to stop
+  task-pause <id>                 Finish the current operation, then pause
   task-recover <id>               Reconcile saved results; never replay provider/Git work
   task-revise <id> <version> <file.json>  Revise a settled recipe; retain files and require fresh approval
   task-release-workspace <id>     Release a proved-unused failed standalone reservation
@@ -300,6 +301,7 @@ const taskCommands = [
   'task-retry',
   'task-rerun-checks',
   'task-stop',
+  'task-pause',
   'task-recover',
 ];
 
@@ -355,6 +357,9 @@ async function guidedTaskAction(invocation: Invocation, tasks: GuidedTasks, sign
     case 'task-stop':
       tasks.stop(id);
       return id;
+    case 'task-pause':
+      tasks.pause(id);
+      return id;
     case 'task-recover':
       await tasks.recover(id);
       return id;
@@ -388,9 +393,10 @@ async function taskCommand(invocation: Invocation): Promise<void> {
           : renderGuidedTask(store, taskId, values.details),
       );
       const state = tasks.get(taskId);
-      if (!['task-new', 'task-show', 'task-approve', 'task-stop'].includes(action)) {
+      if (!['task-new', 'task-show', 'task-approve', 'task-stop', 'task-pause'].includes(action)) {
         if (signal.aborted || state.stopRequested) process.exitCode = 130;
-        else if (['blocked', 'recovery_required'].includes(state.status)) process.exitCode = 1;
+        else if (['blocked', 'recovery_required'].includes(state.status) && state.stopReason?.code !== 'USER_PAUSED')
+          process.exitCode = 1;
       }
     }),
   );

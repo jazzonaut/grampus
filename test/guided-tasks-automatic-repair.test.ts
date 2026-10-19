@@ -67,6 +67,8 @@ test('automatic work repairs a failed check with complete evidence and resumes i
   assert.equal(done.stopReason, null);
   assert.equal(implementations, 2);
   const events = f.store.events(task.id);
+  const repair = events.find(event => event.type === 'guided.repair_decided')!;
+  assert.match((repair.data as { trigger: string }).trigger, /Actual assertion at the end/);
   assert.equal(events.filter(event => event.type === 'guided.validation_repair_requested').length, 1);
   assert.ok(
     !events.some(

@@ -85,6 +85,7 @@ function settleFailure(context: SettleContext, result: RepositoryCheck): StageOu
     action: canRepair ? 'repair' : 'stop',
     reason: ineligible ?? (noProgress ? 'CHECK_NO_PROGRESS' : canRepair ? 'CHECK_FAILED' : 'CHECK_REPAIR_EXHAUSTED'),
     resultId: result.id,
+    trigger: `${result.spec.name}: ${issue}`,
     progress: ineligible
       ? 'ineligible'
       : noProgress

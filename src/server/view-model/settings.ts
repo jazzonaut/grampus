@@ -23,6 +23,11 @@ export interface SettingsFacts {
 
 const integerSettings: readonly (IntegerSpec & { key: IntegerSetting })[] = [
   {
+    key: 'liveChangesIntervalMs',
+    label: 'Live changes refresh interval (ms)',
+    meaning: 'Interval between display-only workspace observations while the task is visible. No agent calls.',
+  },
+  {
     key: 'maxConcurrentTasks',
     label: 'Tasks that may run at once',
     meaning:
