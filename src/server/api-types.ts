@@ -1,5 +1,5 @@
 // Pins the typed, versioned dashboard API (v1): the response shapes of `GET /api/v1/*` that the Vue
-// client renders. Every presentation decision (status vocabulary, labels, explanations, which actions
+// client renders, the lookup and action routes it also calls, and the error envelope every route uses. Every presentation decision (status vocabulary, labels, explanations, which actions
 // exist and why one is disabled) is made by the server view model (`server/view-model/`), so the client
 // draws these values and never re-derives business rules.
 //
@@ -611,6 +611,8 @@ export interface PlanView {
   qualitySummary: string;
   context: { files: string[]; totalFiles: number; exploration: boolean };
   preparation: { name: string; file: string; args: string[]; timeoutMs: number } | null;
+  /** A revised plan keeps the workspace files of an earlier version; its checks and reviews run again. */
+  revision: { previousVersion: number; artifact: string } | null;
   slices: PlanSliceView[];
 }
 
@@ -772,6 +774,76 @@ export interface KickoffDetailV1 {
 }
 
 // ---------------------------------------------------------------------------------------------------
+// Lookups and actions outside /api/v1/
+//
+// The client reads these unversioned routes for work that is not a view: repository inspection and file
+// search before a planning conversation exists, reference suggestions, paged check output, the report,
+// creating a planning conversation or importing a plan, and every action (`ActionView.request`).
+
+/** `POST /api/repositories/inspect` with `{ repo, request? }`: the pinned commit and suggested starting files. */
+export interface InspectRepositoryResponse {
+  /** The repository's top level, resolved. */
+  repo: string;
+  /** The pinned commit; send it back as `base` when creating the planning conversation. */
+  base: string;
+  context: {
+    inventoryDigest: string;
+    digest: string;
+    totalFiles: number;
+    totalBytes: number;
+    includedFiles: number;
+    omittedFiles: number;
+    bytes: number;
+    /** Suggested starting paths. */
+    selected: string[];
+    directories: { path: string; files: number }[];
+  };
+}
+
+/** `POST /api/repositories/files` with `{ repo, base, query?, offset? }`: one page of the pinned inventory. */
+export interface FileSearchResponse {
+  files: { path: string; oid: string; bytes: number }[];
+  matches: number;
+  offset: number;
+  /** Null on the last page. */
+  nextOffset: number | null;
+  inventoryDigest: string;
+}
+
+/** `POST /api/references/suggest` with `{ request }`: folders mentioned in the description. */
+export interface ReferenceSuggestionsResponse {
+  suggestions: { path: string; reason: string }[];
+}
+
+/** `POST /api/kickoffs` (201) and `POST /api/tasks` (201), and a reset (200): the new record. */
+export interface CreatedResponse {
+  id: string;
+}
+
+/** An action accepted by the server: 202 when a worker runs it, 200 when it settled at once. */
+export interface AcceptedResponse {
+  ok: true;
+}
+
+/** `GET /api/tasks/:id/report`: the Markdown report built from the journal. */
+export interface ReportResponse {
+  report: string;
+}
+
+/** `GET <CheckView.outputPath>&stream=&offset=`: one page of retained check output, control characters removed. */
+export interface CheckOutputPage {
+  checkId: string;
+  stream: 'stdout' | 'stderr';
+  content: string;
+  offset: number;
+  /** Null when this page reaches the end. */
+  nextOffset: number | null;
+  totalCharacters: number;
+  /** Only the journal's bounded preview was available. */
+  incomplete: boolean;
+}
+
+// ---------------------------------------------------------------------------------------------------
 // Errors
 
 /** Machine-readable error categories, mapped from the error class in `server/errors.ts`. */
@@ -787,7 +859,7 @@ export type ErrorCodeV1 =
   | 'unsupported_media_type'
   | 'unavailable';
 
-/** Every non-2xx v1 response. */
+/** Every non-2xx API response, under `/api/v1/` and on the lookup and action routes alike. */
 export interface ErrorV1 {
   error: {
     status: number;

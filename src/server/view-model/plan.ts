@@ -98,6 +98,9 @@ export function planView(plan: GuidedPlan): PlanView {
       exploration: plan.context.exploration,
     },
     preparation: plan.preparation ? command(plan.preparation) : null,
+    revision: plan.revision
+      ? { previousVersion: plan.revision.previousVersion, artifact: plan.revision.artifact }
+      : null,
     slices: plan.slices.map((_, index) => sliceView(plan, index)),
   };
 }

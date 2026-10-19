@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { icons as lucide } from '@iconify-json/lucide';
 import css from './theme.css?raw';
 import { paletteColors } from './tokens';
-import { stagePresentation, statusPresentation } from './status';
+import { healthPresentation, integrationPresentation, stagePresentation, statusPresentation } from './status';
 
 describe('theme', () => {
   it('declares every Nuxt UI colour variable from the palette in tokens.ts', () => {
@@ -14,9 +14,12 @@ describe('theme', () => {
   });
 
   it('uses only icons that exist in the bundled Lucide collection', () => {
-    const names = [...Object.values(statusPresentation), ...Object.values(stagePresentation)].map(look =>
-      look.icon.replace(/^i-lucide-/, ''),
-    );
+    const names = [
+      ...Object.values(statusPresentation),
+      ...Object.values(stagePresentation),
+      ...Object.values(healthPresentation),
+      ...Object.values(integrationPresentation),
+    ].map(look => look.icon.replace(/^i-lucide-/, ''));
     for (const name of names) expect(lucide.icons[name] ?? lucide.aliases?.[name], name).toBeDefined();
   });
 });

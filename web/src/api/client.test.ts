@@ -60,7 +60,7 @@ describe('requests', () => {
     window.sessionStorage.setItem(tokenStorageKey, token);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(401, { error: 'Open the link' })));
 
-    const error: unknown = await get('/api/state').catch((caught: unknown) => caught);
+    const error: unknown = await get('/api/v1/overview').catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).status).toBe(401);
@@ -78,21 +78,20 @@ describe('requests', () => {
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);
 
-    await expect(get('/api/state')).rejects.toMatchObject({ status: 401 });
+    await expect(get('/api/v1/overview')).rejects.toMatchObject({ status: 401 });
     expect(fetch).not.toHaveBeenCalled();
   });
 
   it('surfaces the server error message with its status', async () => {
     window.sessionStorage.setItem(tokenStorageKey, token);
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(jsonResponse(400, { error: 'Task changed since you inspected it' })),
-    );
+    const body: ErrorV1 = {
+      error: { status: 409, code: 'stale_state', message: 'Task changed since you inspected it' },
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(409, body)));
 
-    await expect(post('/api/tasks/1/approve', { expected: 'stale' })).rejects.toMatchObject({
-      status: 400,
-      message: 'Task changed since you inspected it',
-    });
+    const error: unknown = await post('/api/tasks/1/approve', { expected: 'stale' }).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ status: 409, code: 'stale_state', message: 'Task changed since you inspected it' });
+    expect((error as ApiError).stale).toBe(true);
   });
 
   it('reads the message of the typed v1 error envelope', async () => {

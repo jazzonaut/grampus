@@ -11,22 +11,17 @@
  * - `label`: accessible name of the list, default "Workflow".
  *
  * The active stage is marked `aria-current="step"`. States are passed, pending, active,
- * failed, unknown and skipped; unknown is never drawn as passed. A passed result names who
- * established it, so an agent's claim never reads like a verified check.
+ * failed, unknown and skipped; unknown is never drawn as passed. A result names who established
+ * it, so an agent's claim never reads like a verified check. The review's lens assessments are
+ * listed under it.
  */
 import UIcon from '@nuxt/ui/components/Icon.vue';
-import { stagePresentation } from '../theme/status';
-import type { EvidenceSource, StageState, WorkflowStage } from './types';
+import { evidenceLabels, stagePresentation } from '../theme/status';
+import type { StageState, WorkflowStage } from './types';
 
 defineOptions({ name: 'WorkflowStrip' });
 
 withDefaults(defineProps<{ stages: readonly WorkflowStage[]; label?: string }>(), { label: 'Workflow' });
-
-const evidenceLabels: Readonly<Record<EvidenceSource, string>> = {
-  'controller-verified': 'verified by Grampus',
-  'agent-reported': 'agent reported',
-  'human-assessed': 'your assessment',
-};
 
 // Literal class names so Tailwind finds them.
 const tone: Readonly<Record<StageState, string>> = {
@@ -46,11 +41,12 @@ const tone: Readonly<Record<StageState, string>> = {
       :key="stage.id"
       :aria-current="stage.state === 'active' ? 'step' : undefined"
       :data-state="stage.state"
-      :class="['flex min-w-0 items-center gap-2 rounded-md border bg-default px-3 py-2 text-sm', tone[stage.state]]"
+      :data-stage="stage.id"
+      :class="['flex min-w-0 items-start gap-2 rounded-md border bg-default px-3 py-2 text-sm', tone[stage.state]]"
     >
       <UIcon
         :name="stagePresentation[stage.state].icon"
-        :class="['size-4 shrink-0', stage.state === 'active' ? 'motion-safe:animate-spin' : '']"
+        :class="['mt-0.5 size-4 shrink-0', stage.state === 'active' ? 'motion-safe:animate-spin' : '']"
         aria-hidden="true"
       />
       <span class="min-w-0">
@@ -61,6 +57,15 @@ const tone: Readonly<Record<StageState, string>> = {
           }}<template v-if="stage.evidence"> · {{ evidenceLabels[stage.evidence] }}</template
           ><template v-if="stage.detail"> · {{ stage.detail }}</template>
         </span>
+        <ul v-if="stage.items?.length" class="mt-1 flex flex-col gap-0.5 text-xs" :aria-label="`${stage.label} lenses`">
+          <li v-for="item in stage.items" :key="item.id" class="flex items-center gap-1" :data-state="item.state">
+            <UIcon :name="stagePresentation[item.state].icon" class="size-3 shrink-0" aria-hidden="true" />
+            <span class="text-default">{{ item.label }}:</span>
+            {{ stagePresentation[item.state].label
+            }}<template v-if="item.evidence"> · {{ evidenceLabels[item.evidence] }}</template
+            ><template v-if="item.detail"> · {{ item.detail }}</template>
+          </li>
+        </ul>
       </span>
     </li>
   </ol>

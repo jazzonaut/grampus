@@ -1,7 +1,13 @@
 // How each status and workflow stage state looks: label, icon and semantic colour.
 // Status is never shown by colour alone, so every entry has a label and an icon.
 // The vocabularies are the server's (src/server/api-types.ts); the server decides which applies.
-import type { PresentationStatus, StageState } from '../../../src/server/api-types';
+import type {
+  EvidenceSource,
+  IntegrationStatusV1,
+  OverallHealth,
+  PresentationStatus,
+  StageState,
+} from '../../../src/server/api-types';
 import type { SemanticColor } from './tokens';
 
 /**
@@ -64,4 +70,40 @@ export const stagePresentation: Readonly<Record<StageState, Presentation>> = {
   failed: { label: 'Failed', icon: 'i-lucide-circle-x', color: 'error' },
   unknown: { label: 'Unknown', icon: 'i-lucide-circle-help', color: 'neutral' },
   skipped: { label: 'Skipped', icon: 'i-lucide-circle-slash', color: 'neutral' },
+};
+
+/** Overall integration health. Labels come from the server; these are the icon and colour. */
+export const healthPresentation: Readonly<Record<OverallHealth, Omit<Presentation, 'label'>>> = {
+  ready: { icon: 'i-lucide-shield-check', color: 'success' },
+  degraded: { icon: 'i-lucide-triangle-alert', color: 'warning' },
+  blocked: { icon: 'i-lucide-octagon-x', color: 'error' },
+  unknown: { icon: 'i-lucide-circle-help', color: 'neutral' },
+};
+
+/** One integration or capability status as `doctor` recorded it; labels come from the server. */
+export const integrationPresentation: Readonly<Record<IntegrationStatusV1, Omit<Presentation, 'label'>>> = {
+  healthy: { icon: 'i-lucide-circle-check', color: 'success' },
+  failed: { icon: 'i-lucide-circle-x', color: 'error' },
+  untested: { icon: 'i-lucide-circle-dashed', color: 'neutral' },
+  not_configured: { icon: 'i-lucide-circle-minus', color: 'neutral' },
+  auth_unavailable: { icon: 'i-lucide-key-round', color: 'warning' },
+  temporarily_unavailable: { icon: 'i-lucide-clock-alert', color: 'warning' },
+};
+
+/** Text colour classes per semantic colour, literal so Tailwind finds them. */
+export const textTone: Readonly<Record<SemanticColor, string>> = {
+  primary: 'text-primary',
+  info: 'text-info',
+  success: 'text-success',
+  warning: 'text-warning',
+  error: 'text-error',
+  reported: 'text-reported',
+  neutral: 'text-muted',
+};
+
+/** Who established a result, in words: an agent's claim never reads like a verified check. */
+export const evidenceLabels: Readonly<Record<EvidenceSource, string>> = {
+  'controller-verified': 'verified by Grampus',
+  'agent-reported': 'agent reported',
+  'human-assessed': 'your assessment',
 };

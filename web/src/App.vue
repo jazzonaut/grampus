@@ -1,42 +1,86 @@
 <script setup lang="ts">
-// Root component. Polls the server's state so the header shows whether the dashboard is
-// connected; the main area is the component gallery until real screens are built on the
-// typed view-model API.
+// Root component: the shell (header health, sidebar, footer), the open screen from the URL fragment and
+// the access-link state. The overview is polled here because the header and sidebar show it on every
+// screen; a task or planning screen polls its own view while it is open. Nothing is polled while the tab
+// is hidden or the access link is missing.
 import { computed } from 'vue';
 import UApp from '@nuxt/ui/components/App.vue';
-import { get, needsAccessLink } from './api/client';
+import type { OverviewV1 } from '../../src/server/api-types';
+import { accessMessage, get, needsAccessLink } from './api/client';
 import { usePolled } from './api/usePolled';
-import DemoPage from './pages/DemoPage.vue';
-import type { Status } from './theme/status';
+import { announcement } from './announcer';
+import { route } from './router';
+import { pollIntervalMs } from './settings';
+import AppShell from './components/AppShell.vue';
+import AppSidebar from './components/AppSidebar.vue';
+import EmptyState from './components/EmptyState.vue';
+import ErrorBanner from './components/ErrorBanner.vue';
+import HealthIndicator from './components/HealthIndicator.vue';
+import { localTime } from './components/format';
+import HealthPage from './pages/HealthPage.vue';
+import HomePage from './pages/HomePage.vue';
+import NewTaskPage from './pages/NewTaskPage.vue';
+import PlanningPage from './pages/PlanningPage.vue';
+import TaskPage from './pages/TaskPage.vue';
 
-/** The part of `GET /api/state` the shell reads. */
-interface StateSummary {
-  readonly tasks: readonly unknown[];
-  readonly application?: { readonly version?: string; readonly channel?: string };
-}
-
-const state = usePolled(() => get<StateSummary>('/api/state'), 1500, { enabled: () => !needsAccessLink.value });
-
-const connection = computed((): { status: Status; label: string } => {
-  if (needsAccessLink.value) return { status: 'blocked', label: 'Access link needed' };
-  if (state.error.value) return { status: 'unknown', label: 'Server not reachable' };
-  if (state.data.value) return { status: 'verified', label: 'Connected' };
-  return { status: 'working', label: 'Connecting' };
+const overview = usePolled(() => get<OverviewV1>('/api/v1/overview'), pollIntervalMs, {
+  enabled: () => !needsAccessLink.value,
 });
 
-const version = computed(() => {
-  const application = state.data.value?.application;
-  return application?.version ? `Grampus ${application.version} (${application.channel ?? 'unknown channel'})` : '';
+const refresh = () => overview.refresh();
+
+const connection = computed(() => {
+  if (overview.error.value && overview.error.value.status === 0) return 'unreachable';
+  return overview.data.value ? 'connected' : 'connecting';
 });
+
+const application = computed(() => overview.data.value?.application);
 </script>
 
 <template>
   <UApp>
-    <DemoPage
-      :connection="connection.status"
-      :connection-label="connection.label"
-      :access-required="needsAccessLink"
-      :version="version"
-    />
+    <AppShell :announcement="announcement">
+      <template #health>
+        <HealthIndicator v-if="!needsAccessLink" :health="overview.data.value?.health" :connection="connection" />
+      </template>
+      <template #sidebar>
+        <AppSidebar :overview="overview.data.value" :current="route" />
+      </template>
+      <ErrorBanner v-if="needsAccessLink" kind="access" :message="accessMessage" class="mx-auto max-w-3xl" />
+      <template v-else>
+        <ErrorBanner
+          v-if="overview.error.value && overview.error.value.status !== 401"
+          :message="overview.error.value.message"
+          title="The overview could not be refreshed"
+          retry-label="Try again"
+          class="mx-auto mb-4 max-w-5xl"
+          @retry="refresh"
+        />
+        <HomePage v-if="route.name === 'home'" :overview="overview.data.value" :refresh="refresh" />
+        <NewTaskPage v-else-if="route.name === 'new'" />
+        <HealthPage v-else-if="route.name === 'health'" :overview="overview.data.value" :refresh="refresh" />
+        <TaskPage v-else-if="route.name === 'task'" :id="route.id" :key="`task-${route.id}`" />
+        <PlanningPage v-else-if="route.name === 'planning'" :id="route.id" :key="`planning-${route.id}`" />
+        <EmptyState
+          v-else
+          title="This screen does not exist"
+          description="The link may be incomplete."
+          icon="i-lucide-map-pin-off"
+        >
+          <template #actions><a href="#/" class="grampus-link-button">Open the overview</a></template>
+        </EmptyState>
+      </template>
+      <template #footer>
+        <span v-if="application" data-footer>
+          Windows alpha · {{ application.name }} {{ application.version }} ({{ application.channel }})<template
+            v-if="application.build"
+          >
+            · build
+            <span :title="`Built ${localTime(application.build.builtAt)}`">{{ application.build.id }}</span></template
+          >
+          · journal <span class="font-mono">{{ application.journal }}</span>
+        </span>
+      </template>
+    </AppShell>
   </UApp>
 </template>

@@ -11,6 +11,10 @@
  * - `providers`: one row per provider (Codex, Claude).
  * - `stages`: one row per workflow stage and provider. Omit or pass `[]` to hide that table.
  * - `heading`: section heading, default "Measured usage".
+ * - `note`: the footnote on token meanings and estimated cost; the server's `UsageV1.note` when known.
+ *
+ * Slots:
+ * - `default`: further usage detail (coverage, turns, interventions) above the footnote.
  */
 import { computed, useId } from 'vue';
 import UBadge from '@nuxt/ui/components/Badge.vue';
@@ -20,9 +24,20 @@ import type { ProviderUsageRow, StageUsageRow, UsageMetric } from './types';
 defineOptions({ name: 'UsageSummary' });
 
 const props = withDefaults(
-  defineProps<{ providers: readonly ProviderUsageRow[]; stages?: readonly StageUsageRow[]; heading?: string }>(),
-  { stages: () => [], heading: 'Measured usage' },
+  defineProps<{
+    providers: readonly ProviderUsageRow[];
+    stages?: readonly StageUsageRow[];
+    heading?: string;
+    note?: string;
+  }>(),
+  {
+    stages: () => [],
+    heading: 'Measured usage',
+    note: 'Provider token counts have different meanings. Estimated cost uses provider rates; billed cost is unknown.',
+  },
 );
+
+defineSlots<{ default?: () => unknown }>();
 
 const headingId = useId();
 
@@ -130,8 +145,7 @@ function isPartial(row: Row, metric: UsageMetric): boolean {
       </table>
     </div>
     <p v-if="!tables.length" class="text-sm text-muted">No usage observations yet.</p>
-    <p class="text-xs text-muted">
-      Provider token counts have different meanings. Estimated cost uses provider rates; billed cost is unknown.
-    </p>
+    <slot />
+    <p class="text-xs text-muted">{{ note }}</p>
   </section>
 </template>
