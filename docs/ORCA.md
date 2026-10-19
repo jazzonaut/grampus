@@ -9,6 +9,10 @@ to the existing instance. It opens or focuses the dashboard in Orca's embedded b
 The dashboard still handles planning, approval, questions, guidance and recovery.
 Closing Orca or disabling the plugin does not stop Grampus or its task workers.
 
+On **New task**, **Or choose an Orca worktree** lists Orca's local worktrees grouped by
+repository, each with its full path; choosing one fills the repository folder. Orca's plugin
+API does not tell a command which worktree is focused, so the dashboard cannot preselect it.
+
 **Stop Dashboard** requests graceful shutdown. It refuses while a dashboard action is
 running. Finish or stop that task through Grampus first, then use the command again.
 Closing a dashboard never stops separately launched CLI controllers. Task files,

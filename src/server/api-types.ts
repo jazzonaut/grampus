@@ -926,6 +926,19 @@ export interface ReferenceSuggestionsResponse {
   suggestions: { path: string; reason: string }[];
 }
 
+/**
+ * `GET /api/v1/orca-worktrees`: local Orca worktrees New task offers as repository folders, grouped by
+ * repository. Choosing one only fills the folder field; nothing is decided from this list.
+ */
+export interface OrcaWorktreesV1 {
+  apiVersion: ApiVersion;
+  /** False when the dashboard has no Orca client or Orca did not answer; the choice is then not offered. */
+  available: boolean;
+  repositories: { name: string; worktrees: { path: string; label: string }[] }[];
+  /** Worktrees past the display bound: counted, not listed. */
+  omitted: number;
+}
+
 /** `POST /api/kickoffs` (201) and `POST /api/tasks` (201), and a reset (200): the new record. */
 export interface CreatedResponse {
   id: string;

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { flushPromises } from '@vue/test-utils';
 import NewTaskPage from './NewTaskPage.vue';
-import type { InspectRepositoryResponse, KickoffDetailV1 } from '../../../src/server/api-types';
+import type { InspectRepositoryResponse, KickoffDetailV1, OrcaWorktreesV1 } from '../../../src/server/api-types';
 import { mockAction, mockKickoff } from '../mock';
 import { route } from '../router';
 import { fakeServer, posts, render } from '../testing';
@@ -130,6 +130,32 @@ describe('NewTaskPage', () => {
     });
     expect(posts(sent)[3]?.body).toEqual({ expected: 'turn-0', message: '' });
     expect(route.value).toEqual({ name: 'planning', id: 'k-new' });
+  });
+
+  it('fills the repository folder from a chosen Orca worktree, telling two main worktrees apart', async () => {
+    const worktrees: OrcaWorktreesV1 = {
+      apiVersion: 1,
+      available: true,
+      omitted: 0,
+      repositories: [
+        { name: 'grampus', worktrees: [{ path: 'D:\\Stuff\\Grampus', label: 'main' }] },
+        { name: 'other', worktrees: [{ path: 'D:\\Work\\other', label: 'main' }] },
+      ],
+    };
+    fakeServer({ '/api/v1/orca-worktrees': worktrees });
+    const wrapper = await render(NewTaskPage);
+    const select = wrapper.get('[data-panel="orca-worktrees"] select');
+    expect(wrapper.find(`label[for="${select.attributes('id')}"]`).text()).toContain('Orca worktree');
+    expect(select.findAll('optgroup').map(group => group.attributes('label'))).toEqual(['grampus', 'other']);
+    await select.setValue('D:\\Work\\other');
+    expect((wrapper.get('#new-repo').element as HTMLInputElement).value).toBe('D:\\Work\\other');
+    expect((select.element as HTMLSelectElement).value).toBe('');
+  });
+
+  it('offers no Orca choice when Orca is unavailable', async () => {
+    fakeServer({ '/api/v1/orca-worktrees': { apiVersion: 1, available: false, repositories: [], omitted: 0 } });
+    const wrapper = await render(NewTaskPage);
+    expect(wrapper.find('[data-panel="orca-worktrees"]').exists()).toBe(false);
   });
 
   it('imports an authored plan and opens the task', async () => {

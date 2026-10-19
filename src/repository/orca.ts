@@ -65,6 +65,7 @@ export interface OrcaDesktopClient {
   show(repository: string, identityKey: string): Promise<OrcaWorktree>;
   setCard(repository: string, identityKey: string, card: OrcaCard): Promise<void>;
   openDashboard(repository: string, url: string, identityKey?: string): Promise<void>;
+  choices(cwd: string, limit: number): Promise<{ worktrees: OrcaWorktree[]; omitted: number }>;
 }
 
 /** The Orca operations `Workspaces` relies on; `OrcaCli` is the implementation. Each call throws on refusal. */
@@ -228,6 +229,27 @@ export class OrcaCli implements OrcaWorkspaceClient {
     const entries = result.worktrees.map(entry => worktree('worktree list', entry));
     if (entries.some(entry => entry.repoId !== repoId)) throw new Error('Orca returned a different repository');
     return entries;
+  }
+
+  /**
+   * Local worktrees across every Orca repository, at most `limit`, for a person to choose a repository
+   * folder from. Display only: unlike {@link list}, a partial listing is accepted and its remainder counted,
+   * because nothing is decided from absence here. Remote and archived worktrees are left out.
+   */
+  async choices(cwd: string, limit: number): Promise<{ worktrees: OrcaWorktree[]; omitted: number }> {
+    const result = parseOrca(
+      'worktree list',
+      orcaWorktreeListSchema,
+      await this.request(cwd, 'worktree list', ['--limit', String(limit)]),
+    );
+    const local = result.worktrees.filter(entry => {
+      const host = parseOrca('worktree list', orcaHostSchema, entry);
+      return host.hostId === 'local' && host.identity.executionHostId === 'local';
+    });
+    return {
+      worktrees: local.map(entry => worktree('worktree list', entry)).filter(entry => !entry.archived),
+      omitted: Math.max(0, result.totalCount - result.worktrees.length),
+    };
   }
 
   /** The worktree with this exact instance identity; `Workspaces.inspect` uses it to re-verify a workspace. */

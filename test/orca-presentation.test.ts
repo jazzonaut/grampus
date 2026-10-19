@@ -26,6 +26,7 @@ async function desktopFixture(t: { after(fn: () => void | Promise<void>): void }
     openDashboard: async (_, url, identity) => {
       opened.push({ url, identity });
     },
+    choices: async () => ({ worktrees: [], omitted: 0 }),
   };
   const update = (fields: Partial<GuidedState>) =>
     f.store.transaction(() => {

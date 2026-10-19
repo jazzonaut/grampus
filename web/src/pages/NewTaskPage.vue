@@ -14,6 +14,7 @@ import { announce, useNow } from '../announcer';
 import { href, navigate } from '../router';
 import ImportPlan from '../components/ImportPlan.vue';
 import NoticeBox from '../components/NoticeBox.vue';
+import OrcaWorktreePicker from '../components/OrcaWorktreePicker.vue';
 import ReferenceFolders from '../components/ReferenceFolders.vue';
 import StartingFileHints from '../components/StartingFileHints.vue';
 import { elapsedSince } from '../components/format';
@@ -119,6 +120,7 @@ async function start(): Promise<void> {
             An existing Git repository with a committed baseline. You approve the exact files agents may change before
             implementation.
           </p>
+          <OrcaWorktreePicker v-model="repo" />
         </div>
         <div class="flex flex-col gap-1">
           <label for="new-request" class="text-sm font-medium text-highlighted"

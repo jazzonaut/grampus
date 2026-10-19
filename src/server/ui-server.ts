@@ -572,7 +572,7 @@ export async function startUi(options: UiOptions) {
     orca,
     accessUrl,
   };
-  const apiV1 = createApiV1({ store, kickoffs, jobs, stalls, now, settingsDirectory, orca });
+  const apiV1 = createApiV1({ ...dashboard, orcaClient: options.orca ?? null });
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     securityHeaders(response);
     if (

@@ -1,5 +1,6 @@
 // Owns the versioned read API the Vue client consumes: `GET /api/v1/overview`, `/api/v1/tasks/:id`,
-// `/api/v1/tasks/:id/timeline`, `/api/v1/tasks/:id/changes`, `/api/v1/kickoffs/:id` and `/api/v1/settings`. The server's
+// `/api/v1/tasks/:id/timeline`, `/api/v1/tasks/:id/changes`, `/api/v1/kickoffs/:id`, `/api/v1/settings` and
+// `/api/v1/orca-worktrees`. The server's
 // usual guards (loopback, origin, bearer token) run before these routes. Journal facts are cached by
 // journal revision; the DTOs are rebuilt from them on each request because workers and stalls change
 // without a journal write; the runner pool is read once per request. Responses never carry file inventories, snapshots or raw check output.
@@ -17,14 +18,24 @@ import type { Kickoffs } from '../orchestration/kickoff.js';
 import { guidedSnapshot } from '../orchestration/guided/snapshots.js';
 import { Workspaces } from '../repository/workspaces.js';
 import type { OrcaPresentation } from '../repository/orca-presentation.js';
+import type { OrcaDesktopClient } from '../repository/orca.js';
 import { readLiveChanges } from './live-changes.js';
 import { runnerPool } from '../orchestration/guided/runner-pool.js';
 import { describeIssues } from '../process/boundary.js';
-import type { ChangeV1, KickoffDetailV1, OverviewV1, SettingsV1, TaskDetailV1, TimelinePageV1 } from './api-types.js';
+import type {
+  ChangeV1,
+  KickoffDetailV1,
+  OrcaWorktreesV1,
+  OverviewV1,
+  SettingsV1,
+  TaskDetailV1,
+  TimelinePageV1,
+} from './api-types.js';
 import { HttpError } from './errors.js';
 import type { JobView, ViewContext } from './view-model/context.js';
 import { kickoffDetail, type KickoffView } from './view-model/kickoff-detail.js';
 import { overview, overviewTasks, type UnreadableTask } from './view-model/overview.js';
+import { orcaWorktreeChoices, unavailableOrcaWorktrees } from './view-model/orca-worktrees.js';
 import { settingsView } from './view-model/settings.js';
 import { taskDetail, taskFacts, type TaskFacts } from './view-model/task-detail.js';
 import { timelinePage } from './view-model/timeline.js';
@@ -40,13 +51,16 @@ export interface ApiV1Dashboard {
   settingsDirectory: string | null;
   /** The optional desktop projector, separate from workflow and provider health. */
   orca?: OrcaPresentation | null;
+  /** The Orca client New task lists repository folder choices from; none when Orca is not configured. */
+  orcaClient?: Pick<OrcaDesktopClient, 'choices'> | null;
 }
 
 const route =
-  /^\/api\/v1\/(?:(?<overview>overview)|(?<settings>settings)|(?<kind>tasks|kickoffs)\/(?<id>[a-f0-9-]+)(?:\/(?<sub>timeline|changes|live-changes))?)$/;
+  /^\/api\/v1\/(?:(?<overview>overview)|(?<settings>settings)|(?<worktrees>orca-worktrees)|(?<kind>tasks|kickoffs)\/(?<id>[a-f0-9-]+)(?:\/(?<sub>timeline|changes|live-changes))?)$/;
 const routeSchema = z.object({
   overview: z.literal('overview').optional(),
   settings: z.literal('settings').optional(),
+  worktrees: z.literal('orca-worktrees').optional(),
   kind: z.enum(['tasks', 'kickoffs']).optional(),
   id: z.string().optional(),
   sub: z.enum(['timeline', 'changes', 'live-changes']).optional(),
@@ -187,6 +201,19 @@ export function createApiV1(dashboard: ApiV1Dashboard) {
     return taskDetail(facts, context, revision) satisfies TaskDetailV1;
   }
 
+  /** Orca is optional: a missing client or a failed listing withdraws the choice rather than failing New task. */
+  async function worktreesRoute(): Promise<OrcaWorktreesV1> {
+    const client = dashboard.orcaClient;
+    if (!client) return unavailableOrcaWorktrees;
+    try {
+      const { worktrees, omitted } = await client.choices(process.cwd(), viewModelLimits.orcaWorktreeChoices);
+      return orcaWorktreeChoices(worktrees, omitted);
+    } catch (error) {
+      console.error(`Orca worktree choices: ${sanitiseDetail(error instanceof Error ? error.message : String(error))}`);
+      return unavailableOrcaWorktrees;
+    }
+  }
+
   return {
     /** Answers a `GET /api/v1/...` path; unknown paths are 404. */
     get(path: string, url: URL): unknown {
@@ -200,6 +227,7 @@ export function createApiV1(dashboard: ApiV1Dashboard) {
           active: currentSettings(),
         }) satisfies SettingsV1;
       }
+      if (matched.worktrees) return worktreesRoute();
       const revision = store.revision();
       const context = requestContext();
       if (matched.overview) return overviewRoute(context, revision);

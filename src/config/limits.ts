@@ -391,6 +391,8 @@ export const viewModelLimits = {
   recentDeliveries: 10,
   /** Overviews and details cached by journal revision; the oldest is dropped first. */
   cachedViews: 16,
+  /** Local Orca worktrees offered as repository choices on New task; more are counted, not listed. */
+  orcaWorktreeChoices: 100,
 } as const;
 
 /** Display-only live working tree observations; never approval or verification evidence. */

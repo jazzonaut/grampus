@@ -581,6 +581,7 @@ pool read once per request; `ViewContext`) to those DTOs; nothing there writes.
 | `GET /api/v1/tasks/:id/timeline?cursor=&limit=` | `TimelinePageV1` | Journal events newest first: type, time, human summary, note, reason code; `cursor` is the journal sequence to page before |
 | `GET /api/v1/tasks/:id/changes?path=` | `ChangeV1` | One retained change, before and after |
 | `GET /api/v1/settings` | `SettingsV1` | The `config.json` path, whether the saved file differs from the settings this dashboard started with (a restart applies it), why the saved file would be refused at the next start, and the save action: one field per setting holding the stored value (empty keeps the default), bound to the file's revision |
+| `GET /api/v1/orca-worktrees` | `OrcaWorktreesV1` | Local, unarchived Orca worktrees across repositories (`orca worktree list`, at most `viewModelLimits.orcaWorktreeChoices`, the rest counted) grouped by repository with full paths, for New task to fill its folder from. Display only: `available` is false when the dashboard has no Orca client or Orca does not answer, and nothing is decided from the list |
 | `GET /api/v1/kickoffs/:id` | `KickoffDetailV1` | Discussion (answers as text, plan replies described), pending questions with suggestions, proposal and digest, context, references and suggestions, planner activity, actions, and the last failed dashboard action: this dashboard's settled worker, or else the latest journaled `dashboard.action_failed` that no later planning event or turn has superseded |
 
 - **One status vocabulary.** `working`, `awaiting_human`, `verified`, `failed`, `blocked`, `unknown`,
@@ -824,6 +825,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `actions.ts`, `status.ts`, `workflow.ts` | Which actions exist and why one is disabled; status vocabulary, stop descriptions and UI language; the workflow strip |
 | | `usage.ts`, `health.ts`, `plan.ts`, `timeline.ts`, `scope.ts`, `context.ts` | Usage with completeness; the health card; the plan for approval; timeline summaries and paging; scope file contents; the dashboard state the view model reads (workers, stalls, runner pool) |
 | | `settings.ts` | The Settings screen: one field per setting over `config.json` and whether a restart is needed |
+| | `orca-worktrees.ts` | New task's Orca repository folder choices: grouping by repository, names and labels |
 | `probes/` | `*-probe.ts`, `multifile-fixture.ts`, `probe-interruption.ts` | Opt-in live and scale probes and their fixtures |
 | | `demo.ts` | Synthetic demo |
 
