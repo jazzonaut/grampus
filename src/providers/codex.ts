@@ -246,7 +246,8 @@ export async function connectCodex(
       threadStartSchema,
       await rpc.request(
         method,
-        options.providerSessionId ? { ...params, threadId: options.providerSessionId } : params,
+        // Saved turns can exceed the RPC bound. The adapter needs only metadata; Codex retains the history.
+        options.providerSessionId ? { ...params, threadId: options.providerSessionId, excludeTurns: true } : params,
       ),
     );
     if (options.providerSessionId && thread.thread.id !== options.providerSessionId)

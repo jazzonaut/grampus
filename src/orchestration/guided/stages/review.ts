@@ -128,6 +128,8 @@ interface Verdict {
   session: Session;
   /** The review evidence recorded for this turn, if any. */
   outcome: string | undefined;
+  /** The settled evidence includes the provider error when the turn failed. */
+  summary: string | undefined;
   /** Automatic mode only: the selected lenses the reviewer failed. */
   failedLenses: LensAssessment[];
 }
@@ -149,13 +151,14 @@ function settleUnpassed(context: SettleContext, verdict: Verdict): StageOutcome 
     if (route === 'repair' || route === 'arbitration') return { kind: 'rerouted', to: route };
     code = route;
   } else code = session.phase !== 'idle' ? 'REVIEW_TURN_FAILED' : 'REVIEW_FAILED_NO_BLOCKING_FINDINGS';
+  const note =
+    (failedLenses.length ? failedLenses.map(lens => `${lens.lens}: ${lens.summary}`).join('\n') : reply?.text) ||
+    'No independent passing review. Inspect the findings, then use task-retry.';
   return {
     kind: 'stop',
     reason: {
       code,
-      note:
-        (failedLenses.length ? failedLenses.map(lens => `${lens.lens}: ${lens.summary}`).join('\n') : reply?.text) ||
-        'No independent passing review. Inspect the findings, then use task-retry.',
+      note: code === 'REVIEW_TURN_FAILED' && verdict.summary ? `${note}\n${verdict.summary}` : note,
     },
   };
 }
@@ -240,6 +243,7 @@ function settleReview(context: SettleContext): StageOutcome {
     execution,
     session,
     outcome: evidence?.outcome,
+    summary: evidence?.summary,
     failedLenses: automatic(state)
       ? (session.lastReply?.lenses ?? []).filter(
           item => item.verdict === 'fail' && selectedLenses(state.plan.quality).some(lens => lens.id === item.lens),

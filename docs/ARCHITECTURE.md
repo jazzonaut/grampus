@@ -265,7 +265,9 @@ provider protocol messages are validated.
   package nested in `@openai/codex` or flattened beside it, binary in `vendor/<target>/bin` or
   `vendor/<target>/codex`; npm's `.codex-XXXX` staging folders are ignored. Threads start or resume
   with `approvalPolicy: untrusted` and a read-only sandbox, and the controller verifies both before
-  inference. Repository tools are app-server dynamic tools. File edits arrive as
+  inference. Resume requests set `excludeTurns: true`: Codex retains the conversation history but
+  returns metadata without saved turns, keeping unused history out of the bounded RPC response.
+  Repository tools are app-server dynamic tools. File edits arrive as
   `item/fileChange/requestApproval`; the controller checks each patch against the active turn and
   the exact edit policy, journals the decision and grants single-use approval. Command execution
   requests are declined. Server requests are answered only through the request handler and validated

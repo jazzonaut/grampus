@@ -27,6 +27,9 @@ An ordinary failed test does not require a manual retry or another approval
 of the same file list. Valid tests and acceptance criteria must not be weakened to pass.
 The agent may repair a defective test when it can establish the defect with evidence.
 
+If the review turn fails, `REVIEW_TURN_FAILED` includes the recorded provider error in its stop
+note when available. A failed connection supplies no verdict and does not trigger an automatic replay.
+
 Up to `maxConcurrentTasks` guided tasks (2 by default) run this flow at once, each in its own
 worktree, and they may share a source repository. Starting another task while every slot is
 taken is refused rather than queued, and approving an automatic plan then approves it without
