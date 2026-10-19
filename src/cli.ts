@@ -21,6 +21,7 @@ import { Checks } from './verification/checks.js';
 import { Deliveries } from './execution/deliveries.js';
 import { Implementations } from './execution/implementations.js';
 import { GuidedTasks } from './orchestration/guided/controller.js';
+import { guidanceInputSchema } from './orchestration/guided/guidance.js';
 import { RunnerPoolFullError } from './orchestration/guided/runner-pool.js';
 import { guidedTaskView, renderGuidedTask } from './orchestration/guided-status.js';
 import { defaultDataDirectory, updateInstallation, versionInformation, versionLabel } from './config/runtime.js';
@@ -70,6 +71,8 @@ const help = `Grampus - local agent controller
                                   on the unchanged artifact; no agent turn or new attempt
   task-stop <id>                  Request a running guided controller to stop
   task-pause <id>                 Finish the current operation, then pause
+  task-guide <id> <guidance.json> Queue text and target for a future agent turn
+  task-cancel-guidance <id> <message-id>  Withdraw an unassigned message
   task-recover <id>               Reconcile saved results; never replay provider/Git work
   task-revise <id> <version> <file.json>  Revise a settled recipe; retain files and require fresh approval
   task-release-workspace <id>     Release a proved-unused failed standalone reservation
@@ -302,6 +305,8 @@ const taskCommands = [
   'task-rerun-checks',
   'task-stop',
   'task-pause',
+  'task-guide',
+  'task-cancel-guidance',
   'task-recover',
 ];
 
@@ -360,6 +365,14 @@ async function guidedTaskAction(invocation: Invocation, tasks: GuidedTasks, sign
     case 'task-pause':
       tasks.pause(id);
       return id;
+    case 'task-guide': {
+      const message = guidanceInputSchema.parse(readJsonFile(resolve(requiredText(second, 'guidance JSON file'))));
+      tasks.queueGuidance(id, message.text, message.target);
+      return id;
+    }
+    case 'task-cancel-guidance':
+      tasks.cancelGuidance(id, requiredText(second, 'queued message id'));
+      return id;
     case 'task-recover':
       await tasks.recover(id);
       return id;
@@ -393,7 +406,17 @@ async function taskCommand(invocation: Invocation): Promise<void> {
           : renderGuidedTask(store, taskId, values.details),
       );
       const state = tasks.get(taskId);
-      if (!['task-new', 'task-show', 'task-approve', 'task-stop', 'task-pause'].includes(action)) {
+      if (
+        ![
+          'task-new',
+          'task-show',
+          'task-approve',
+          'task-stop',
+          'task-pause',
+          'task-guide',
+          'task-cancel-guidance',
+        ].includes(action)
+      ) {
         if (signal.aborted || state.stopRequested) process.exitCode = 130;
         else if (['blocked', 'recovery_required'].includes(state.status) && state.stopReason?.code !== 'USER_PAUSED')
           process.exitCode = 1;

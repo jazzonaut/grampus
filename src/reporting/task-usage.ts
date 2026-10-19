@@ -89,6 +89,7 @@ export interface Interventions {
   revisions: number;
   stops: number;
   approvals: number;
+  guidance: number;
 }
 type InterventionKind = Exclude<keyof Interventions, 'total'>;
 
@@ -104,6 +105,8 @@ const interventionEvents: Readonly<Partial<Record<string, InterventionKind>>> = 
   'guided.revised': 'revisions',
   'guided.stop_requested': 'stops',
   'guided.pause_requested': 'stops',
+  'guided.guidance_queued': 'guidance',
+  'guided.guidance_cancelled': 'guidance',
   'guided.approved': 'approvals',
 };
 
@@ -283,6 +286,7 @@ function interventions(events: JournalEvent[]): Interventions {
     revisions: 0,
     stops: 0,
     approvals: 0,
+    guidance: 0,
   };
   const approved = events.find(event => event.type === 'guided.approved');
   if (!approved) return result;
@@ -434,7 +438,7 @@ export function usageLines(usage: TaskUsage): string[] {
         `${row.provider}: ${usageFields.map(field => `${fieldLabels[field]} ${usageValue(row, field)}`).join('; ')}; billed cost unknown. ${row.observedSessions}/${row.sessions} provider sessions have usage observations.`,
     ),
     `Provider turns: ${usage.turns} (${usage.failedTurns} failed, ${usage.interruptedTurns} interrupted, ${usage.unsettledTurns} unsettled); repair attempts: ${usage.repairAttempts}.`,
-    `Human interventions after approval: ${human.total} (answers ${human.answers}, authorizations ${human.authorizations}, assessments ${human.assessments}, retries ${human.retries}, check reruns ${human.rerunChecks}, recoveries ${human.recoveries}, revisions ${human.revisions}, stops ${human.stops}, approvals ${human.approvals}).`,
+    `Human interventions after approval: ${human.total} (answers ${human.answers}, authorizations ${human.authorizations}, assessments ${human.assessments}, retries ${human.retries}, check reruns ${human.rerunChecks}, recoveries ${human.recoveries}, revisions ${human.revisions}, stops ${human.stops}, guidance actions ${human.guidance}, approvals ${human.approvals}).`,
     ...usage.stages.map(
       row =>
         `${row.stage} (${row.provider}): ${row.turns} turns, ${row.failedTurns} failed, ${row.interruptedTurns} interrupted; wall time ${wallTime(row)}; ${usageFields.map(field => `${fieldLabels[field]} ${usageValue(row, field)}`).join('; ')}.`,

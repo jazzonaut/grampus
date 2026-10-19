@@ -55,6 +55,7 @@ export function guidedRecord(fields: Partial<GuidedState> = {}): GuidedState {
     pending: null,
     stopRequested: false,
     pauseRequested: false,
+    guidance: [],
     assessments: [],
     qualityEdits: [],
     answers: null,

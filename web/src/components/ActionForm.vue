@@ -27,7 +27,13 @@ import MarkdownView from './MarkdownView.vue';
 defineOptions({ name: 'ActionForm' });
 
 const props = withDefaults(
-  defineProps<{ action: ActionView; busy?: boolean; sending?: boolean; issues?: readonly FieldIssue[] }>(),
+  defineProps<{
+    action: ActionView;
+    busy?: boolean;
+    sending?: boolean;
+    issues?: readonly FieldIssue[];
+    draftKey?: string;
+  }>(),
   { busy: false, sending: false, issues: () => [] },
 );
 
@@ -37,7 +43,7 @@ defineSlots<{ 'field-extra'?: (props: { field: FormField; append: (line: string)
 
 const identity = computed(
   () =>
-    `${props.action.id}|${props.action.expected ?? ''}|${(props.action.form?.fields ?? []).map(f => f.name).join()}`,
+    `${props.action.id}|${props.draftKey ?? props.action.expected ?? ''}|${(props.action.form?.fields ?? []).map(f => f.name).join()}`,
 );
 const drafts = ref<FormDrafts>(initialDrafts(props.action.form));
 watch(identity, () => {

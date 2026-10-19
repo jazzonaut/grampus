@@ -12,6 +12,7 @@ import { qualityPassPrompt } from '../prompts.js';
 import { afterEditing, currentSlice, editPolicy, pendingEditPass } from '../specs.js';
 import { failureCode } from './implementation.js';
 import { keepSnapshot, requireGuidedSnapshot } from '../snapshots.js';
+import { withGuidance } from '../guidance.js';
 
 /** The pending edit pass with the policy and snapshot it runs under; a pass never runs without both. */
 function requirePass(state: GuidedState) {
@@ -37,7 +38,7 @@ export const qualityPassStage: StageHandler = {
     await new Implementations(store, workspaces).run(
       required(state, 'executionId'),
       policy,
-      qualityPassPrompt({ pass, slicePreparation: currentSlice(state).preparation }),
+      withGuidance(qualityPassPrompt({ pass, slicePreparation: currentSlice(state).preparation }), state),
       { signal, timeoutMs: 0, stage: 'quality_pass', ...(state.answers ? { answers: state.answers } : {}) },
       services.implementationRunner,
     );

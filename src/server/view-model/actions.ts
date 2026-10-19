@@ -565,6 +565,7 @@ function settledResolving(f: TaskActionFacts): TaskActionId[] {
     case 'awaiting_answer':
       return ['answer'];
     case 'blocked':
+      if (f.stopCode === 'GUIDANCE_PENDING') return [];
       if (f.stopCode === 'USER_PAUSED') return ['run'];
       if (f.stage === 'preparation' || f.stage === 'refresh') return ['retry-preparation'];
       return f.rerunProblem === null ? ['rerun-checks', 'retry'] : ['retry'];

@@ -97,6 +97,12 @@ shown.
   while the task page is visible. These reads spend no model tokens and establish no gate evidence.
   Reverted selections clear. Large previews explicitly show truncation; unavailable reads warn that
   any retained preview is stale. Binary changes show Git's binary notice.
+- **Guidance:** queue a message for the next agent, implementer/edit pass, or independent review
+  and arbitration, within the approved plan. The draft survives stage changes. Messages show queued,
+  assigned, cancelled or expired status and can be cancelled until assignment. Assignment confirms
+  only a saved step intent, not provider receipt or compliance. No extra turn starts. If no matching
+  turn remains, delivery stops until you cancel the queue or revise the plan. The panel shows up to
+  24 historical messages plus active messages; the timeline retains the full history.
 - **Automatic repairs:** the current slice's shared allowance, used and remaining rounds, and recent
   controller decisions with their trigger, progress assessment, remaining allowance and evidence
   identities. The timeline keeps the full history. Review progress is labelled as an agent assessment.

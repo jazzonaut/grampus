@@ -142,6 +142,7 @@ export function revisedState(
     reviewCycle: freshReviewCycle(),
     stopRequested: false,
     pauseRequested: false,
+    guidance: [],
     note: revisionNote,
     stopReason: stopReason('APPROVAL_REQUIRED', revisionNote),
   };

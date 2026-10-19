@@ -338,6 +338,7 @@ export const mockUsage: UsageV1 = {
     revisions: 0,
     stops: 0,
     approvals: 0,
+    guidance: 0,
   },
   note: 'Provider token counts have different meanings. Estimated cost uses provider rates; billed cost is unknown.',
 };
@@ -631,6 +632,7 @@ export const mockTask: TaskDetailV1 = {
     },
     reportPath: '/api/tasks/task-1/report',
   },
+  guidance: { draftKey: '1:digest:0', compose: null, messages: [] },
   liveChangesPath: null,
   liveChangesIntervalMs: 5000,
   repairs: {

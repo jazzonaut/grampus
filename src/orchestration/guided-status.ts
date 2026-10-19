@@ -37,6 +37,7 @@ function statusAction(state: GuidedState, id: string, command: Command, rerun: s
     case 'awaiting_answer':
       return `${command('task-answer', id)} '<answers.json>'`;
     case 'blocked':
+      if (state.stopReason?.code === 'GUIDANCE_PENDING') return `${command('task-show', id)} --details`;
       if (state.stopReason?.code === 'USER_PAUSED') return command('task-run', id);
       return rerun ?? command('task-retry', id);
     case 'complete':
@@ -307,6 +308,11 @@ export function renderGuidedTask(store: Store, id: string, details = false): str
   ];
   if (state.status === 'draft') lines.push(...draftLines(task, state));
   if (view.workspace) lines.push(`Workspace: ${view.workspace.path ?? '(creation not settled)'}`);
+  lines.push(
+    `Guidance queued: ${state.guidance.length}; assigned to the current step: ${state.pending?.guidance.length ?? 0}. Assignment does not confirm the provider received or followed it.`,
+  );
+  for (const message of state.guidance)
+    lines.push(`Guidance ${message.id} (${message.target}): ${JSON.stringify(message.text)}`);
   lines.push(
     `Repository context: ${state.plan.context.files.length}/${state.plan.context.totalFiles} initial pinned files supplied; ${state.plan.context.exploration ? 'agents can search and read repository files as needed' : 'other files are omitted from prompts, not from artifact verification'}.`,
     `Context files: ${state.plan.context.files.join(', ')}`,

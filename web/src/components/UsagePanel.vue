@@ -34,6 +34,7 @@ const interventionLabels: Readonly<Record<Exclude<keyof InterventionsV1, 'total'
   revisions: ['revision', 'revisions'],
   stops: ['stop or pause request', 'stop or pause requests'],
   approvals: ['approval', 'approvals'],
+  guidance: ['guidance action', 'guidance actions'],
 };
 
 const interventions = computed(() =>

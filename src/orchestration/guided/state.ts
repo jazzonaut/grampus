@@ -10,6 +10,8 @@ import { guidedPlanSchema } from '../../domain/guided-plan.js';
 import type { CheckProcessOptions, CheckProcessResult } from '../../process/check-process.js';
 import { stopReasonSchema } from './stop-reasons.js';
 import { snapshotRefSchema } from './snapshots.js';
+import { guidanceMessageSchema } from './guidance.js';
+import { guidanceLimits } from '../../config/limits.js';
 
 /** The ordered guided steps; `complete` is terminal and has no handler. */
 export const stageSchema = z.enum([
@@ -83,6 +85,8 @@ export const pendingSchema = z.object({
   /** The assessment an `assessment` step records: the head of the queue when the step began. */
   assessment: qualityAssessmentRecordSchema.nullable(),
   controller: ownerSchema,
+  /** The immutable human guidance assigned before this step could dispatch a provider turn. */
+  guidance: z.array(guidanceMessageSchema).max(guidanceLimits.pendingMessages),
 });
 export type Pending = z.infer<typeof pendingSchema>;
 
@@ -168,6 +172,8 @@ export const guidedStateSchema = z.object({
   stopRequested: z.boolean(),
   /** Finish the current operation, then wait for explicit continuation without aborting it. */
   pauseRequested: z.boolean(),
+  /** Unassigned human guidance for this approved version and current slice. */
+  guidance: z.array(guidanceMessageSchema).max(guidanceLimits.pendingMessages),
   /** Lens assessments still to record on the current artifact, one per `assessment` step. */
   assessments: z.array(qualityAssessmentRecordSchema),
   /** Edit passes already applied in the current slice. */

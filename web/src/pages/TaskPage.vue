@@ -28,6 +28,7 @@ import TaskHeader from '../components/TaskHeader.vue';
 import WorkflowStrip from '../components/WorkflowStrip.vue';
 import LiveChanges from '../components/LiveChanges.vue';
 import RepairDecisions from '../components/RepairDecisions.vue';
+import GuidancePanel from '../components/GuidancePanel.vue';
 import { short } from '../components/format';
 
 defineOptions({ name: 'TaskPage' });
@@ -151,6 +152,7 @@ watch(
           />
         </template>
       </ActivityCard>
+      <GuidancePanel :guidance="view.guidance" :refresh="task.refresh" />
       <DecisionQueue
         v-if="queue.length || !approval"
         :decisions="queue"

@@ -10,6 +10,7 @@ import { required } from '../state.js';
 import { implementationPrompt } from '../prompts.js';
 import { afterEditing, currentSlice, editPolicy } from '../specs.js';
 import { keepSnapshot } from '../snapshots.js';
+import { withGuidance } from '../guidance.js';
 
 /**
  * Why an implementation turn stopped. Staging is told apart from other failures by its snapshots
@@ -44,7 +45,10 @@ export const implementationStage: StageHandler = {
     await new Implementations(store, workspaces).run(
       required(state, 'executionId'),
       required(state, 'policy'),
-      implementationPrompt({ slicePreparation: currentSlice(state).preparation, feedback: state.feedback }),
+      withGuidance(
+        implementationPrompt({ slicePreparation: currentSlice(state).preparation, feedback: state.feedback }),
+        state,
+      ),
       { signal, timeoutMs: 0, ...(state.answers ? { answers: state.answers } : {}) },
       services.implementationRunner,
     );

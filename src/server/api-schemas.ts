@@ -5,6 +5,7 @@
 // Plan bodies stay `unknown` here: plan normalisation is owned by domain/guided-plan.ts.
 import { z } from 'zod';
 import { providerSchema } from '../providers/types.js';
+import { guidanceTargetSchema } from '../orchestration/guided/guidance.js';
 
 const text = z.string();
 /** The decision key, turn key or digest of the state the user inspected. */
@@ -45,6 +46,8 @@ export const prepareKickoffBody = z.object({
 });
 export const approveTaskBody = z.object({ expected, version: z.number().int().min(1), digest: text });
 export const decisionBody = z.object({ expected });
+export const queueGuidanceBody = z.object({ expected, text: z.string(), target: guidanceTargetSchema });
+export const cancelGuidanceBody = z.object({ expected, messageId: z.string().min(1) });
 /** `expected` is the revision of `config.json` the form was shown with; `overrides` is checked by config/settings.ts. */
 export const saveSettingsBody = z.object({
   expected: z.string({ error: 'Send the settings revision you edited' }),

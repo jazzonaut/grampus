@@ -104,6 +104,7 @@ test('usage keeps unknown values null and marks a total over unknown parts as pa
       revisions: 0,
       stops: 0,
       approvals: 0,
+      guidance: 0,
     },
   };
   const result = usageView(usage);

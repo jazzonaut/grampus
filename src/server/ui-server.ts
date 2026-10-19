@@ -43,6 +43,8 @@ import {
   createKickoffBody,
   createTaskBody,
   decisionBody,
+  queueGuidanceBody,
+  cancelGuidanceBody,
   inspectRepositoryBody,
   kickoffContextBody,
   kickoffReferencesBody,
@@ -343,6 +345,16 @@ function taskAction(dashboard: Dashboard, id: string, action: string, payload: u
     new GuidedTasks(store, { expectedState: decided }).pause(id);
     return [200, { ok: true }];
   }
+  if (action === 'guidance') {
+    const body = parseRequest(queueGuidanceBody, payload);
+    new GuidedTasks(store, { expectedState: decided }).queueGuidance(id, body.text, body.target);
+    return [200, { ok: true }];
+  }
+  if (action === 'cancel-guidance') {
+    const body = parseRequest(cancelGuidanceBody, payload);
+    new GuidedTasks(store, { expectedState: decided }).cancelGuidance(id, body.messageId);
+    return [200, { ok: true }];
+  }
   if (action === 'approve') {
     const body = parseRequest(approveTaskBody, payload);
     const approved = new GuidedTasks(store, { expectedState: body.expected }).approve(id, body.version, body.digest);
@@ -364,7 +376,7 @@ function taskAction(dashboard: Dashboard, id: string, action: string, payload: u
 function postItem(dashboard: Dashboard, route: ItemRoute, payload: unknown): [number, unknown] {
   const { action, id, kind } = route;
   if (!action) throw new HttpError(404, 'Not found');
-  if (dashboard.jobs.get(id)?.running && action !== 'stop' && action !== 'pause')
+  if (dashboard.jobs.get(id)?.running && !['stop', 'pause', 'guidance', 'cancel-guidance'].includes(action))
     throw new HttpError(409, 'An action is already running; wait for settlement');
   if (action === 'delete' || action === 'reset') {
     const { expected } = parseRequest(lifecycleBody, payload);

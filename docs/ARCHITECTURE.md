@@ -192,12 +192,25 @@ reason, and uncertain settlement still requires recovery. Continuing a paused ta
 attempt, conversations and evidence; a changed workspace still faces the existing artifact checks.
 Stop and pause requests both count in the usage report's stop interventions.
 
+`orchestration/guided/guidance.ts` owns version/slice-bound guidance, its fixed queue limits and
+prompt contract. Queue and cancellation writes share a transaction with their events. Only an
+implementation, edit pass or independent review dispatch can atomically select a matching batch
+into `Pending.guidance`; prompts read that immutable batch, not the later queue. A completed
+operation consumes it once. Proven absence of dispatch restores it; uncertain operations retain
+their pending intent. Delivery refuses any unassigned queue with `GUIDANCE_PENDING` rather than
+silently ignoring it. Revision clears the queue, retaining its history in the journal.
+
+`server/view-model/guidance.ts` owns form availability, cancellation and historical statuses.
+Assigned means a journaled step intent, not confirmed provider receipt. Draft identity binds to
+version, approval digest and slice while request keys track current decisions. Guidance routes
+remain available during an active worker without starting or interrupting one.
+
 ## Persistence
 
 `persistence/store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a
 15-second busy timeout ([parallel tasks](#parallel-tasks-and-concurrency)). There is one schema,
-version 3, with thirteen tables and no migrations. A new or empty
-file gets the schema; any other version, or a version 3 file missing a table, is refused with a
+version 4, with thirteen tables and no migrations. A new or empty
+file gets the schema; any other version, or a version 4 file missing a table, is refused with a
 clear error after a read-only inspection, so the file is never modified. The default journal is
 `grampus.sqlite` in the data directory.
 
@@ -610,7 +623,7 @@ they show the provider totals, total turns, repair attempts (implementation exec
 first `guided.approved`: `guided.answers_supplied`, `guided.scope_authorized`,
 `guided.assessment_supplied`, `guided.retry_requested`, `guided.preparation_retry_requested`,
 `guided.checks_rerun_requested`, `guided.recovery_requested`, `guided.workspace_released`,
-`guided.revised`, `guided.stop_requested`, `guided.pause_requested` and later `guided.approved` (approvals of revised plans).
+`guided.revised`, `guided.guidance_queued`, `guided.guidance_cancelled`, `guided.stop_requested`, `guided.pause_requested` and later `guided.approved` (approvals of revised plans).
 Continuing a stopped task with `task-run` and low-level CLI commands are not counted. Unknown values
 stay null and never count as zero; a total that misses some turn's measurement is marked partial.
 
@@ -695,6 +708,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `state.ts`, `keys.ts`, `stop-reasons.ts` | Guided state types; decision and question keys; typed stop reason codes |
 | | `context.ts`, `specs.ts`, `prompts.ts` | Stage handler contract and result adoption; exact leaf requests; agent prompts |
 | | `retry.ts`, `recovery.ts`, `revision.ts` | New attempts and explicit retry checks; leaf recovery; plan revision |
+| | `guidance.ts` | Bounded human guidance and immutable per-step prompt batches |
 | | `repair-policy.ts` | Controller finding identities, review progress checks and repair decision evidence |
 | | `rerun.ts` | Which stopped checks may be rerun without a new attempt |
 | | `snapshots.ts` | Snapshot references in guided state and access to the stored snapshots |

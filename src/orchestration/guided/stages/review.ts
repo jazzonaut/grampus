@@ -19,6 +19,7 @@ import {
 import { required, type GuidedState } from '../state.js';
 import { reviewPrompt } from '../prompts.js';
 import { automatic } from '../specs.js';
+import { withGuidance } from '../guidance.js';
 
 /** The requested turns of the review session; a review step's result is its one new turn. */
 function reviewTurnIds({ store, executions }: GuidedContext, state: GuidedState): string[] {
@@ -306,12 +307,15 @@ export const reviewStage: StageHandler = {
     await runSession(
       store,
       executions.get(required(state, 'reviewId')).sessionId,
-      reviewPrompt({
-        arbitrating: state.reviewCycle.arbitrating,
-        verdicts,
-        lenses: selectedLenses(state.plan.quality),
-        priorFindings: priorBlockingFindings(context, state),
-      }),
+      withGuidance(
+        reviewPrompt({
+          arbitrating: state.reviewCycle.arbitrating,
+          verdicts,
+          lenses: selectedLenses(state.plan.quality),
+          priorFindings: priorBlockingFindings(context, state),
+        }),
+        state,
+      ),
       { artifactReview: true, signal, timeoutMs: 0, ...(state.answers ? { answers: state.answers } : {}) },
       services.connector,
       workspaces,

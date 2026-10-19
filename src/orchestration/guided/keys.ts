@@ -38,6 +38,7 @@ export function guidedDecisionKey(state: GuidedState, questionKey: string | null
     executionId: state.executionId,
     reviewId: state.reviewId,
     failedCheckId: state.failedCheckId,
+    guidance: state.guidance.map(message => message.id),
     questionKey,
   });
 }

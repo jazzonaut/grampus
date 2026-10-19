@@ -14,6 +14,8 @@ export const StopReasonCode = {
   APPROVAL_REQUIRED: 'APPROVAL_REQUIRED',
   /** A person paused at a settled operation boundary; continuation preserves the attempt. */
   USER_PAUSED: 'USER_PAUSED',
+  /** Unassigned guidance must be resolved before delivery; it never starts another paid turn itself. */
+  GUIDANCE_PENDING: 'GUIDANCE_PENDING',
   /** Supervised mode: the exact file scope waits for explicit authorization. */
   SCOPE_AUTHORIZATION_REQUIRED: 'SCOPE_AUTHORIZATION_REQUIRED',
   /** Supervised mode: a human quality assessment of the selected lenses is required after submission. */

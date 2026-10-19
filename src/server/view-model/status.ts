@@ -36,6 +36,11 @@ const recovery = (label: string, why: string) => blocked('recovery', label, why)
 
 /** Every stop reason code in UI language. Exhaustive: a new code fails to compile until it is described. */
 export const stopPresentation: Readonly<Record<StopReasonCode, StopPresentation>> = {
+  GUIDANCE_PENDING: wait(
+    'blocked',
+    'Guidance needs a decision',
+    'No agent turn is scheduled before delivery. Cancel the queued guidance to continue, or revise the plan if it must be acted on.',
+  ),
   USER_PAUSED: wait(
     'blocked',
     'Paused',

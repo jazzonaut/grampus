@@ -51,6 +51,9 @@ const summaries: Readonly<Record<string, string>> = {
   'guided.pause_requested': 'Pause requested after the current operation',
   'guided.paused': 'Paused between operations',
   'guided.continued': 'Task continued',
+  'guided.guidance_queued': 'Human guidance queued',
+  'guided.guidance_cancelled': 'Queued guidance cancelled',
+  'guided.guidance_waiting': 'Delivery waits for a guidance decision',
   'guided.stopped_between_steps': 'Stopped between steps',
   'guided.validation_repair_requested': 'Automatic repair after a failed check',
   'guided.acceptance_repair_requested': 'Automatic repair after failed acceptance',
@@ -77,6 +80,7 @@ const eventData = z.looseObject({
   stage: z.string().exactOptional(),
   status: z.string().exactOptional(),
   action: z.string().exactOptional(),
+  message: z.object({ text: z.string() }).exactOptional(),
 });
 
 const isStage = (value: string | undefined): value is Stage => value !== undefined && value in stageNames;
@@ -100,13 +104,16 @@ function summary(event: JournalEvent, data: z.infer<typeof eventData>): string {
 export function timelineEntry(event: JournalEvent): TimelineEntryV1 {
   const data = eventData.safeParse(event.data).data ?? {};
   const decision = repairDecision(event);
+  const guidance = event.type === 'guided.guidance_queued' ? data.message?.text : null;
   const note = data.note ? humanNote(outputExcerpt(data.note, serverLimits.eventNoteCharacters)).trim() : '';
   return {
     sequence: event.sequence,
     at: event.at,
     type: event.type,
     summary: decision?.title ?? summary(event, data),
-    note: decision ? `${decision.trigger}\n${decision.reason} ${decision.progress} ${decision.budget}` : note || null,
+    note:
+      guidance ??
+      (decision ? `${decision.trigger}\n${decision.reason} ${decision.progress} ${decision.budget}` : note || null),
     reasonCode: data.reasonCode ?? null,
   };
 }

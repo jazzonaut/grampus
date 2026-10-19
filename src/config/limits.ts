@@ -400,3 +400,13 @@ export const monitoringLimits = {
   /** Maximum rendered patch lines, to keep a selected diff from creating unbounded browser nodes. */
   patchLines: 1200,
 } as const;
+
+/** Human guidance is bounded before it enters a provider prompt or a durable dispatch intent. */
+export const guidanceLimits = {
+  /** Maximum UTF-8 bytes in one human message. */
+  messageBytes: 4000,
+  /** Queued messages plus the batch assigned to the active step. */
+  pendingMessages: 8,
+  /** Recent messages on the task screen; the complete history remains in the journal. */
+  historyMessages: 24,
+} as const;

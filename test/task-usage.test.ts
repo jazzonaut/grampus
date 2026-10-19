@@ -263,6 +263,8 @@ test('human interventions count user actions after the first approval only', t =
     'guided.workspace_released',
     'guided.stop_requested',
     'guided.pause_requested',
+    'guided.guidance_queued',
+    'guided.guidance_cancelled',
     'guided.revised',
     'guided.approved',
     'guided.step_finished',
@@ -270,7 +272,7 @@ test('human interventions count user actions after the first approval only', t =
     store.append(task.id, 1, type, {});
   const { interventions } = taskUsage(store, task.id);
   assert.deepEqual(interventions, {
-    total: 12,
+    total: 14,
     answers: 1,
     authorizations: 1,
     assessments: 1,
@@ -280,6 +282,7 @@ test('human interventions count user actions after the first approval only', t =
     revisions: 1,
     stops: 2,
     approvals: 1,
+    guidance: 2,
   });
   assert.match(usageLines(taskUsage(store, task.id)).join('\n'), /unknown/, 'no provider usage yet');
 });

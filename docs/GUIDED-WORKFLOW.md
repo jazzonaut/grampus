@@ -181,6 +181,26 @@ delivered slice definitions must not change. The new digest binds the retained
 workspace content, so changes made before the first revised execution block it.
 Fresh approval is required.
 
+## Queue guidance
+
+Save a JSON file such as `guidance.json`:
+
+```json
+{ "text": "Keep the implementation direct and inspect the error path.", "target": "next_agent" }
+```
+
+```sh
+grampus task-guide <task-id> guidance.json
+grampus task-show <task-id> --details
+grampus task-cancel-guidance <task-id> <message-id>
+```
+
+Targets are `next_agent`, `implementer` (implementation and edit passes) or `reviewer`
+(independent review and arbitration). Guidance waits for a matching future turn, without starting
+one or interrupting the current turn. It cannot change approval or replace structured answers.
+Only queued messages can be cancelled. Remaining messages stop delivery with `GUIDANCE_PENDING`;
+cancel them and explicitly continue, or revise the plan. See [guidance rules](WORKFLOW.md#guide-a-future-agent-turn).
+
 ## Recover after a crash
 
 ```sh

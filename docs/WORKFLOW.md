@@ -174,7 +174,7 @@ action and shared budget before the decision. Review dispositions remain in the 
 structured reply. This makes the choice to repair, arbitrate or stop inspectable alongside the
 existing request/result, check and usage journals.
 
-The current controller uses journal schema 3, including its persisted pause request. Journals from
+The current controller uses journal schema 4, including its persisted pause request and guidance batches. Journals from
 other schema versions are refused without modification; there is
 no migration. Keep the previous installed build with its journal to finish an existing task.
 
@@ -194,6 +194,30 @@ shared allowance; progress attributed to a reviewer remains an agent assessment.
 A review or check can schedule a repair during settlement, before the pause takes effect.
 The panel labels these rounds as allocated, even if their next agent turn has not started.
 Continuing does not allocate that same round again; actual turns and usage are reported separately.
+
+## Guide a future agent turn
+
+Queue guidance from the task screen or CLI without interrupting the current turn or starting a new
+one. Choose the next agent, the implementer (including edit passes), or independent review and
+arbitration. Each message belongs to the exact approved plan version and slice. It can refine the
+approach within approval, but cannot change scope, commands, requirements or acceptance, waive a
+gate, or answer a pending structured question. Those changes still need revision or a structured answer.
+
+At dispatch, the controller atomically removes matching messages from the queue and freezes them
+in the step intent. Later messages wait for a later matching turn. You can cancel queued messages;
+assigned messages cannot be withdrawn. The history says **Assigned to a step**, which is not proof
+that a provider received or followed the guidance. Inspect the resulting work and review evidence.
+
+The queue survives pause, restart and repairs within the same slice. Revision expires unassigned
+messages. A message is at most 4,000 UTF-8 bytes; at most eight messages may be queued or assigned
+to an active step. The screen retains the latest 24 historical messages plus active messages;
+the journal retains the complete history. Queue and cancellation actions count as human interventions.
+
+If messages remain with no agent turn scheduled before delivery, Grampus stops with
+`GUIDANCE_PENDING` before any Git delivery. Cancel them and explicitly continue the same verified
+attempt, or revise the plan for further work. Once delivery starts, new guidance is refused.
+Recovery restores a frozen batch only when it proves no leaf operation dispatched. Completed
+results are adopted without sending the message again; uncertain dispatch still requires recovery.
 
 ## Reuse context at settled boundaries
 

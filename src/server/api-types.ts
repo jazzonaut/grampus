@@ -89,6 +89,8 @@ export type ActionId =
   | 'release-workspace'
   | 'stop'
   | 'pause'
+  | 'queue-guidance'
+  | 'cancel-guidance'
   | 'revise'
   | 'reset'
   | 'delete'
@@ -335,6 +337,7 @@ export interface InterventionsV1 {
   revisions: number;
   stops: number;
   approvals: number;
+  guidance: number;
 }
 
 /** The one-line usage figure of a task summary. */
@@ -734,6 +737,8 @@ export interface TaskDetailV1 {
   liveChangesIntervalMs: number;
   /** Shared allowance and recent decisions for the current slice. */
   repairs: RepairsV1;
+  /** Bounded human proposals and their assignment history; none changes the approved plan. */
+  guidance: GuidanceV1;
   results: ResultsV1;
   usage: UsageV1;
   details: DetailsV1;
@@ -779,6 +784,28 @@ export interface RepairsV1 {
   allowance: number;
   remaining: number;
   decisions: RepairDecisionV1[];
+}
+
+/** Human guidance shown literally with controller-established queue/assignment state. */
+export interface GuidanceMessageV1 {
+  id: string;
+  text: string;
+  at: string;
+  version: number;
+  slice: number;
+  targetLabel: string;
+  status: 'queued' | 'assigned' | 'cancelled' | 'expired' | 'unknown';
+  statusLabel: string;
+  detail: string;
+  cancel: ActionView | null;
+}
+
+/** Current queue, recent history and the action to add guidance without starting a turn. */
+export interface GuidanceV1 {
+  /** Preserves drafts across stage changes, but never across approved versions or slices. */
+  draftKey: string;
+  compose: ActionView | null;
+  messages: GuidanceMessageV1[];
 }
 
 // ---------------------------------------------------------------------------------------------------

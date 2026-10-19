@@ -39,6 +39,7 @@ import {
   type Status,
 } from './state.js';
 import { GuidedStopError, errorReasonCode, stopReason } from './stop-reasons.js';
+import { createGuidance, requireGuidanceSpace, selectGuidance, type GuidanceTarget } from './guidance.js';
 
 const draftNote = 'Inspect the brief, selected files, commands, expected output and pinned base before approving.';
 
@@ -118,6 +119,7 @@ export class GuidedTasks {
         pending: null,
         stopRequested: false,
         pauseRequested: false,
+        guidance: [],
         assessments: [],
         qualityEdits: [],
         answers: null,
@@ -153,7 +155,13 @@ export class GuidedTasks {
    * Saves one change and its journal event in one transaction, fenced on the ownership token. The
    * stop reason is cleared whenever the status shows progress, so it can never outlive its stop.
    */
-  private change(id: string, token: string | null, type: string, update: StateUpdate): GuidedState {
+  private change(
+    id: string,
+    token: string | null,
+    type: string,
+    update: StateUpdate,
+    details: Record<string, unknown> = {},
+  ): GuidedState {
     return this.store.transaction(() => {
       const task = this.workflow.get(id),
         state = task.guided;
@@ -163,6 +171,7 @@ export class GuidedTasks {
       if (isProgressStatus(state.status)) state.stopReason = null;
       this.store.save(id, task);
       this.store.append(id, task.version, type, {
+        ...details,
         status: state.status,
         stage: state.stage,
         sliceIndex: state.sliceIndex,
@@ -343,6 +352,42 @@ export class GuidedTasks {
       state.note = 'Pause requested; the current operation will finish before anything else starts.';
     });
   }
+  /** Queues bounded guidance without starting or interrupting a turn or changing the approved plan. */
+  queueGuidance(id: string, text: string, target: GuidanceTarget = 'next_agent'): GuidedState {
+    const message = createGuidance(this.current(id), text, target);
+    return this.change(
+      id,
+      null,
+      'guided.guidance_queued',
+      state => {
+        this.current(id);
+        this.requireExpected(state);
+        requireGuidanceSpace(state, message);
+        state.guidance.push(message);
+      },
+      { message },
+    );
+  }
+  /** Cancels only an unassigned message. Guidance frozen into an active step cannot be withdrawn. */
+  cancelGuidance(id: string, messageId: string): GuidedState {
+    return this.change(
+      id,
+      null,
+      'guided.guidance_cancelled',
+      state => {
+        this.current(id);
+        this.requireExpected(state);
+        if (!state.guidance.some(message => message.id === messageId))
+          throw new Error('This guidance is no longer queued; refresh to inspect its assignment');
+        state.guidance = state.guidance.filter(message => message.id !== messageId);
+        if (state.stopReason?.code === 'GUIDANCE_PENDING' && !state.guidance.length) {
+          state.status = 'ready';
+          state.note = 'Pending guidance cleared. Continue explicitly to deliver the verified work.';
+        }
+      },
+      { messageId },
+    );
+  }
   /** The handler context for one owned run. */
   private context(id: string, token: string): GuidedContext {
     const context: GuidedContext = {
@@ -373,8 +418,18 @@ export class GuidedTasks {
     if (state.pending) throw new Error('An earlier step needs explicit recovery; nothing will be replayed');
     const known = this.known(this.context(id, token), state);
     return this.store.transaction(() => {
+      const current = this.get(id);
+      if (current.stage === 'delivery' && current.guidance.length) {
+        return this.change(id, token, 'guided.guidance_waiting', state => {
+          state.pauseRequested = false;
+          markStopped(state, 'blocked', {
+            code: 'GUIDANCE_PENDING',
+            note: 'Guidance remains queued, but no agent turn is scheduled before delivery. Cancel it to continue, or revise the plan for more work.',
+          });
+        });
+      }
       // This check and the dispatch intent share a transaction, so a concurrent pause cannot be lost.
-      if (this.get(id).pauseRequested) {
+      if (current.pauseRequested) {
         return this.change(id, token, 'guided.paused', state => {
           state.pauseRequested = false;
           markStopped(state, 'blocked', {
@@ -384,11 +439,14 @@ export class GuidedTasks {
         });
       }
       return this.change(id, token, 'guided.step_requested', state => {
+        const guidance = selectGuidance(state);
+        state.guidance = guidance.remaining;
         state.pending = {
           stage: state.stage,
           known,
           assessment: state.assessments[0] ?? null,
           controller: { ...required(state, 'owner') },
+          guidance: guidance.assigned,
         };
         state.status = 'running';
         state.note = `Running ${state.stage}.`;
@@ -414,14 +472,20 @@ export class GuidedTasks {
   }
   /** Applies a settled step's outcome as one journaled change. */
   private apply(id: string, token: string, pending: Pending, outcome: StageOutcome, recovering: boolean): void {
-    const advance = (stage: GuidedState['stage'], update?: StateUpdate) =>
-      this.change(id, token, recovering ? 'guided.step_reconciled' : 'guided.step_finished', state => {
-        state.pending = null;
-        state.stage = stage;
-        state.status = stage === 'complete' ? 'complete' : 'ready';
-        state.note = '';
-        update?.(state);
-      });
+    const advance = (stage: GuidedState['stage'], update?: StateUpdate, details: Record<string, unknown> = {}) =>
+      this.change(
+        id,
+        token,
+        recovering ? 'guided.step_reconciled' : 'guided.step_finished',
+        state => {
+          state.pending = null;
+          state.stage = stage;
+          state.status = stage === 'complete' ? 'complete' : 'ready';
+          state.note = '';
+          update?.(state);
+        },
+        details,
+      );
     switch (outcome.kind) {
       case 'advance':
         advance(outcome.next, outcome.update);
@@ -440,7 +504,14 @@ export class GuidedTasks {
         return;
       case 'missing':
         if (!recovering) throw new GuidedStopError('RESULT_MISSING', 'The operation returned without a durable result');
-        advance(pending.stage); // Explicit recovery proves no leaf dispatch; the next task-run remains explicit.
+        // Explicit recovery proves no leaf dispatch, so the unspent batch can be restored safely.
+        advance(
+          pending.stage,
+          state => {
+            state.guidance = [...pending.guidance, ...state.guidance];
+          },
+          { restoredGuidance: pending.guidance.map(message => message.id) },
+        );
         return;
       case 'rerouted':
         return;
@@ -462,24 +533,34 @@ export class GuidedTasks {
       let operationReturned = false;
       try {
         const state = this.begin(id, token);
-        if (state.stopReason?.code === 'USER_PAUSED') break;
+        if (state.status !== 'running') break;
         const snapshot = await this.perform(id, token, state, signal);
         operationReturned = true;
         this.settle(id, token, snapshot);
       } catch (error) {
-        this.change(id, token, 'guided.step_failed', state => {
-          const note = error instanceof Error ? error.message : String(error);
-          state.note = note;
-          const pending = state.pending;
-          const recorded =
-            pending && this.known(this.context(id, token), state).some(value => !pending.known.includes(value));
-          if (pending && (operationReturned || recorded || this.unsettled(id, state)))
-            markStopped(state, 'recovery_required', { code: errorReasonCode(error, 'RECOVERY_REQUIRED'), note });
-          else {
-            markStopped(state, 'blocked', { code: errorReasonCode(error, 'UNEXPECTED_ERROR'), note });
-            state.pending = null;
-          }
-        });
+        const restoredGuidance: string[] = [];
+        this.change(
+          id,
+          token,
+          'guided.step_failed',
+          state => {
+            const note = error instanceof Error ? error.message : String(error);
+            state.note = note;
+            const pending = state.pending;
+            const recorded =
+              pending && this.known(this.context(id, token), state).some(value => !pending.known.includes(value));
+            if (pending && (operationReturned || recorded || this.unsettled(id, state)))
+              markStopped(state, 'recovery_required', { code: errorReasonCode(error, 'RECOVERY_REQUIRED'), note });
+            else {
+              markStopped(state, 'blocked', { code: errorReasonCode(error, 'UNEXPECTED_ERROR'), note });
+              // No leaf result or unsettled operation exists, so these messages were never dispatched.
+              state.guidance = [...(pending?.guidance ?? []), ...state.guidance];
+              restoredGuidance.push(...(pending?.guidance.map(message => message.id) ?? []));
+              state.pending = null;
+            }
+          },
+          { restoredGuidance },
+        );
         break;
       }
     }
