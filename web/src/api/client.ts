@@ -74,11 +74,19 @@ export interface DecisionBody {
 /** Body of a request that acts on no displayed state: creating a planning session, lookups. */
 export type UnkeyedBody = Readonly<Record<string, unknown>>;
 
+/**
+ * The message of an error body: the v1 envelope (`{ error: { status, code, message } }`, ErrorV1 in
+ * src/server/api-types.ts) or the older `{ error: message }` the action routes still answer with.
+ */
 async function errorMessage(response: Response): Promise<string> {
   try {
     const body: unknown = await response.json();
-    if (typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string')
-      return body.error;
+    if (typeof body === 'object' && body !== null && 'error' in body) {
+      const error = body.error;
+      if (typeof error === 'string') return error;
+      if (typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string')
+        return error.message;
+    }
   } catch {
     // Not JSON: fall through to the status text.
   }

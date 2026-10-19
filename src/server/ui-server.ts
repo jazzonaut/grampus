@@ -24,7 +24,8 @@ import type { Task } from '../domain/workflow.js';
 import { availableQualityPasses } from '../domain/quality-passes.js';
 import { outputExcerpt, readCheckLog } from '../verification/check-output.js';
 import { describeIssues } from '../process/boundary.js';
-import { HttpError, errorResponse } from './errors.js';
+import { HttpError, errorResponseFor } from './errors.js';
+import { createApiV1 } from './api-v1.js';
 import { eventSummary, taskPoll } from './task-poll.js';
 import { HealthMonitor, compactHealth, healthView, type HealthCheck } from '../health/health.js';
 import { StallWatchdog } from '../health/stalls.js';
@@ -439,6 +440,7 @@ export async function startUi(options: UiOptions) {
   const stallTimer = watchStalls(stalls);
   const launch = (id: string, work: WorkerAction) => launchWorker(store, jobs, health !== null, id, work);
   const dashboard: Dashboard = { store, tasks, kickoffs, jobs, cachedViews: new Map(), launch, stalls, health, now };
+  const apiV1 = createApiV1({ store, kickoffs, jobs, stalls, now });
   const state = () => {
     pruneJobs(jobs);
     const revision = store.revision();
@@ -460,8 +462,7 @@ export async function startUi(options: UiOptions) {
       request.headers.host !== new URL(origin).host ||
       (request.headers.origin && request.headers.origin !== origin)
     ) {
-      json(response, 403, { error: 'Local origin required' });
-      return;
+      throw new HttpError(403, 'Local origin required');
     }
     const url = new URL(request.url ?? '/', origin);
     const path = url.pathname;
@@ -473,13 +474,15 @@ export async function startUi(options: UiOptions) {
       return;
     }
     const supplied = Buffer.from(request.headers.authorization?.replace(/^Bearer /, '') ?? '');
-    if (supplied.length !== token.length || !timingSafeEqual(supplied, Buffer.from(token))) {
-      json(response, 401, { error: 'Open the complete local dashboard link printed by Grampus' });
-      return;
-    }
+    if (supplied.length !== token.length || !timingSafeEqual(supplied, Buffer.from(token)))
+      throw new HttpError(401, 'Open the complete local dashboard link printed by Grampus');
     const groups = itemRoute.exec(path)?.groups;
     const route = groups ? routeSchema.parse(groups) : null;
     if (request.method === 'GET') {
+      if (path.startsWith('/api/v1/')) {
+        json(response, 200, apiV1.get(path, url));
+        return;
+      }
       if (path === '/api/state') {
         json(response, 200, state());
         return;
@@ -499,7 +502,7 @@ export async function startUi(options: UiOptions) {
   };
   const server = createServer((request, response) => {
     handle(request, response).catch((error: unknown) => {
-      const { status, body } = errorResponse(error);
+      const { status, body } = errorResponseFor(request.url ?? '', error);
       if (!response.headersSent) json(response, status, body);
       else response.end();
     });

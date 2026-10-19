@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ErrorV1 } from '../../../src/server/api-types';
 import { ApiError, accessMessage, bootstrapToken, get, needsAccessLink, post, tokenStorageKey } from './client';
 
 const token = 'a'.repeat(64);
@@ -92,5 +93,13 @@ describe('requests', () => {
       status: 400,
       message: 'Task changed since you inspected it',
     });
+  });
+
+  it('reads the message of the typed v1 error envelope', async () => {
+    window.sessionStorage.setItem(tokenStorageKey, token);
+    const body: ErrorV1 = { error: { status: 404, code: 'not_found', message: 'This task was deleted' } };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(404, body)));
+
+    await expect(get('/api/v1/tasks/1')).rejects.toMatchObject({ status: 404, message: 'This task was deleted' });
   });
 });

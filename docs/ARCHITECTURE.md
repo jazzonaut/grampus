@@ -372,6 +372,49 @@ workflow engine.
   longer matches the current state or an action is already running, 413 and 415 for oversized or
   non-JSON bodies. A stale key that orchestration itself detects inside its transaction (a race after
   the server's check) is still a plain refusal (400).
+- Read routes under `/api/v1/` serve the [view model](#dashboard-view-model-and-api-v1) and answer every
+  failure, including 401 and 403, with the typed envelope `{ error: { status, code, message, issues? } }`
+  (`errorResponseV1`); the other routes keep `{ error, issues? }` until the legacy client is retired.
+
+## Dashboard view model and API v1
+
+The server decides everything the dashboard presents; the client draws it. `server/api-types.ts` pins the
+v1 response types (type declarations only, no imports, so `web/` imports it with `import type` through a
+relative path and `vue-tsc` checks the client against it). `server/view-model/` holds pure functions from
+journal facts and the dashboard's in-memory state (workers, stalls, available quality passes; `ViewContext`)
+to those DTOs; nothing there writes.
+
+| Route | DTO | Contents |
+| --- | --- | --- |
+| `GET /api/v1/overview` | `OverviewV1` | Application, health summary (`ready`, `degraded`, `blocked`, `unknown` with a reason naming the integration and capability), runner pool (guided runners owned and `maxConcurrentTasks`), the attention queue across tasks and planning conversations (kind, one-sentence reason, stop reason code, resolving actions; most urgent first), task and planning summaries, recent verified deliveries with an evidence summary |
+| `GET /api/v1/tasks/:id` | `TaskDetailV1` | Header (status, label, one-sentence explanation, note in UI language, next step: automatic, human with action ids, or none), workflow strip, current activity (no percentages), decisions, results (criteria coverage, checks with sizes for paging, findings, lens assessments, edit passes, commits, unresolved items), usage, details (approval digest, artifact, changed paths, plan, scope file contents only while authorization is pending, references, timeline head) |
+| `GET /api/v1/tasks/:id/timeline?cursor=&limit=` | `TimelinePageV1` | Journal events newest first: type, time, human summary, note, reason code; `cursor` is the journal sequence to page before |
+| `GET /api/v1/tasks/:id/changes?path=` | `ChangeV1` | One retained change, before and after |
+| `GET /api/v1/kickoffs/:id` | `KickoffDetailV1` | Discussion (answers as text, plan replies described), pending questions with suggestions, proposal and digest, context, references and suggestions, planner activity, actions |
+
+- **One status vocabulary.** `working`, `awaiting_human`, `verified`, `failed`, `blocked`, `unknown`,
+  `idle`, `complete` and `stopping` (`view-model/status.ts`). Every `StopReasonCode` has a label, a
+  one-sentence reason, an attention kind and a presentation status in one exhaustive table, so a new code
+  does not compile until it is described. Settled failures are `failed`; infrastructure stops (timeouts,
+  unconfirmed exits) and recovery are `blocked`; a stale plan is `unknown`. A controller that owns a
+  running task but was not started by this dashboard is `working` (workers outlive a dashboard restart).
+- **Trustworthy evidence labels.** Workflow stages, criteria, checks and lenses say who established a
+  result: `controller-verified` (checks, acceptance, the verified commit), `agent-reported` (implementation,
+  edit passes, the independent review and its lens verdicts) or `human-assessed` (a supervised assessment).
+  A stage stopped before a result is `unknown`, never passed.
+- **Actions in one place.** `view-model/actions.ts` decides which actions exist for a state and stop reason,
+  their labels, consequences, the decision key they carry (`expected`), the form they need and why one is
+  disabled, and documents the mapping from `ActionView.id` to the existing POST route and body. Each
+  `ActionView.request` is the exact request to send; forms list fields whose values are written at a JSON
+  pointer in the body (answers at `/answers/<id>`, a revision at `/plan/...`), so the client assembles no
+  business data. The server still re-checks every key.
+- **UI language once.** Controller notes are rewritten on the server: control characters removed and CLI
+  command names replaced (`task-retry` becomes "a repair attempt", `task-authorize` "the file authorization
+  button" and so on).
+- **Bounded and cached.** Journal facts are cached by journal revision (`viewModelLimits.cachedViews`);
+  DTOs are rebuilt per request because workers and stalls change without a journal write. Responses never
+  carry file inventories, snapshots or raw check output: check output stays on the paged
+  `/api/tasks/:id/check-output` route and file contents on `/changes`.
 
 ## External boundaries
 
@@ -502,7 +545,8 @@ still refuse what they cannot use when a turn starts.
 
 - Windows only. macOS and Linux supervision and installers are **Planned**.
 - One guided task at a time per journal. A small parallel limit is **Planned**.
-- A server-side view model for the dashboard is **Planned** ([PLAN.md](PLAN.md)).
+- The Vue dashboard client that consumes API v1 is **Planned** ([PLAN.md](PLAN.md)); the served client is
+  still `src/ui/app.js` over the older routes.
 - No background scheduler, retention cleanup, push or pull request delivery.
 
 ## Module map
@@ -564,7 +608,11 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `health.ts`, `health-record.ts` | Stored health, staleness, the compact view and version change warnings; the pinned health record |
 | | `stalls.ts` | Stall detection for running guided sessions and checks |
 | `server/` | `ui-server.ts`, `ui-worker.ts` | Loopback dashboard server and action workers |
-| | `api-schemas.ts`, `errors.ts`, `task-poll.ts` | Request body and worker request schemas, error-to-status mapping, the compact task poll |
+| | `api-schemas.ts`, `errors.ts`, `task-poll.ts` | Request body and worker request schemas, error-to-status mapping (plain and v1 envelopes), the compact task poll |
+| | `api-types.ts`, `api-v1.ts` | The typed v1 DTOs (types only, shared with `web/`); the v1 read routes and their revision cache |
+| `server/view-model/` | `overview.ts`, `task-detail.ts`, `kickoff-detail.ts` | Overview with the attention queue; task facts and the task page; the planning page |
+| | `actions.ts`, `status.ts`, `workflow.ts` | Which actions exist and why one is disabled; status vocabulary, stop descriptions and UI language; the workflow strip |
+| | `usage.ts`, `health.ts`, `plan.ts`, `timeline.ts`, `scope.ts`, `context.ts` | Usage with completeness; the health card; the plan for approval; timeline summaries and paging; scope file contents; the dashboard state the view model reads |
 | `ui/` | `index.html`, `app.js`, `app.css`, `markdown.js`, `favicon.svg` | Browser client, served as static files |
 | `probes/` | `*-probe.ts`, `multifile-fixture.ts`, `probe-interruption.ts` | Opt-in live and scale probes and their fixtures |
 | | `demo.ts` | Synthetic demo |

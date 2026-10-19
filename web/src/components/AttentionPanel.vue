@@ -4,12 +4,12 @@
  * actions that resolve it.
  *
  * Props:
- * - `items`: `AttentionItem`s (id, title, why, status, decisionKey, actions).
+ * - `items`: `AttentionItem`s from the overview (id, kind, title, why, status, actions).
  * - `busyItemId`: the item whose action request is in flight; its buttons are disabled.
  * - `heading`: panel heading, default "Needs your attention".
  *
- * Emits `action` with `{ itemId, actionId, decisionKey }`. The decision key is the one shown
- * with the item, so the server can refuse the action if the task changed in the meantime.
+ * Emits `action` with `{ itemId, actionId, expected }`. `expected` is the decision key the action
+ * was offered with, so the server can refuse it if the task changed in the meantime.
  *
  * Slots:
  * - `empty`: shown when there are no items; defaults to a short "Nothing needs you" line.
@@ -32,7 +32,8 @@ defineSlots<{ empty?: () => unknown }>();
 const baseId = useId();
 
 function choose(item: AttentionItem, actionId: string): void {
-  emit('action', { itemId: item.id, actionId, decisionKey: item.decisionKey });
+  const expected = item.actions.find(action => action.id === actionId)?.expected ?? null;
+  emit('action', { itemId: item.id, actionId, expected });
 }
 </script>
 

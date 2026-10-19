@@ -3,13 +3,11 @@
 import { z } from 'zod';
 import type { Store, JournalEvent } from '../persistence/store.js';
 import { guidedTaskView } from '../orchestration/guided-status.js';
-import { boundedRepositoryFiles } from '../repository/repository-evidence.js';
-import { editingScopeFiles } from '../execution/edit-policy.js';
 import { serverLimits } from '../config/limits.js';
 import { checkIssue, outputExcerpt } from '../verification/check-output.js';
 import type { RepositoryCheck } from '../persistence/records.js';
-import type { RepositorySnapshot } from '../repository/artifacts.js';
 import { guidedSnapshot } from '../orchestration/guided/snapshots.js';
+import { pendingScopeFiles } from './view-model/scope.js';
 
 const noteSchema = z.object({ note: z.string() });
 
@@ -23,30 +21,6 @@ export function eventSummary(event: JournalEvent) {
       note: outputExcerpt(noteSchema.safeParse(event.data).data?.note ?? '', serverLimits.eventNoteCharacters),
     },
   };
-}
-
-type TaskView = ReturnType<typeof guidedTaskView>;
-
-function scopeFiles(
-  view: TaskView,
-  snapshot: RepositorySnapshot | null,
-): { files: { path: string; content: string | null }[]; error: string | null } {
-  const { state, workspace } = view;
-  if (state.status !== 'awaiting_scope' || !workspace?.path || !snapshot) return { files: [], error: null };
-  try {
-    const slice = state.plan.slices[state.sliceIndex];
-    if (!slice) throw new Error('The current slice is missing from the plan');
-    const selection = [...new Set([...(state.policy?.files ?? slice.scope.files), ...(slice.scope.delete ?? [])])];
-    const current = { ...snapshot, diff: snapshot.diff.filter(change => selection.includes(change.path)) };
-    return {
-      files: state.policy
-        ? editingScopeFiles({ cwd: workspace.path, snapshot: current, policy: state.policy })
-        : boundedRepositoryFiles(workspace.path, current, selection),
-      error: null,
-    };
-  } catch (error) {
-    return { files: [], error: error instanceof Error ? error.message : String(error) };
-  }
 }
 
 function checkSummary(check: RepositoryCheck) {
@@ -78,7 +52,7 @@ function checkSummary(check: RepositoryCheck) {
 export function taskPoll(store: Store, id: string): object {
   const view = guidedTaskView(store, id);
   const snapshot = guidedSnapshot(store, view.state);
-  const scope = scopeFiles(view, snapshot);
+  const scope = pendingScopeFiles(view.state, view.workspace?.path ?? null, snapshot);
   const historyChecks = store
     .executions()
     .filter(

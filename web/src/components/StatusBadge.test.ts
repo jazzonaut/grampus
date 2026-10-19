@@ -24,6 +24,10 @@ describe('StatusBadge', () => {
     expect(wrapper.find('svg').exists()).toBe(true);
   });
 
+  it('lists every status the server can send', () => {
+    expect([...statuses].sort()).toEqual(Object.keys(statusPresentation).sort());
+  });
+
   it('gives every status a distinct label', () => {
     const labels = statuses.map(status => statusPresentation[status].label);
     expect(new Set(labels).size).toBe(labels.length);

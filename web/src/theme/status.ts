@@ -1,8 +1,16 @@
 // How each status and workflow stage state looks: label, icon and semantic colour.
 // Status is never shown by colour alone, so every entry has a label and an icon.
+// The vocabularies are the server's (src/server/api-types.ts); the server decides which applies.
+import type { PresentationStatus, StageState } from '../../../src/server/api-types';
 import type { SemanticColor } from './tokens';
 
-/** Statuses the dashboard can show for a task, step or piece of evidence. */
+/**
+ * Statuses the dashboard can show: the server's presentation statuses, plus `provider_reported` for
+ * evidence an agent claimed but Grampus did not verify.
+ */
+export type Status = PresentationStatus | 'provider_reported';
+
+/** Every status, in display order. `statusPresentation` is keyed by `Status`, so a new one must be described there. */
 export const statuses = [
   'working',
   'awaiting_human',
@@ -13,9 +21,8 @@ export const statuses = [
   'provider_reported',
   'idle',
   'complete',
-] as const;
-
-export type Status = (typeof statuses)[number];
+  'stopping',
+] as const satisfies readonly Status[];
 
 /** Label, icon and colour for one status or stage state. */
 export interface Presentation {
@@ -35,12 +42,20 @@ export const statusPresentation: Readonly<Record<Status, Presentation>> = {
   provider_reported: { label: 'Provider reported', icon: 'i-lucide-message-square-quote', color: 'reported' },
   idle: { label: 'Idle', icon: 'i-lucide-circle-dashed', color: 'neutral' },
   complete: { label: 'Complete', icon: 'i-lucide-circle-check-big', color: 'success' },
+  stopping: { label: 'Stopping', icon: 'i-lucide-circle-stop', color: 'warning' },
 };
 
-/** States of one workflow stage. */
-export const stageStates = ['passed', 'pending', 'active', 'failed', 'unknown', 'skipped'] as const;
+export type { StageState };
 
-export type StageState = (typeof stageStates)[number];
+/** States of one workflow stage. */
+export const stageStates = [
+  'passed',
+  'pending',
+  'active',
+  'failed',
+  'unknown',
+  'skipped',
+] as const satisfies readonly StageState[];
 
 export const stagePresentation: Readonly<Record<StageState, Presentation>> = {
   passed: { label: 'Passed', icon: 'i-lucide-circle-check', color: 'success' },

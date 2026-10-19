@@ -371,3 +371,17 @@ export const stallLimits = {
   /** How often the dashboard server looks for silent running sessions and checks. */
   scanIntervalMs: 15_000,
 } as const;
+
+/** The dashboard view model and its v1 API (`server/view-model/`, `server/api-v1.ts`). */
+export const viewModelLimits = {
+  /** Timeline entries in one page when the request names no limit. */
+  timelinePageEntries: 50,
+  /** Largest timeline page a request may ask for. */
+  timelineMaxPageEntries: 200,
+  /** Latest timeline entries embedded in a task detail. */
+  recentTimelineEntries: 3,
+  /** Latest verified deliveries listed on the overview. */
+  recentDeliveries: 10,
+  /** Overviews and details cached by journal revision; the oldest is dropped first. */
+  cachedViews: 16,
+} as const;

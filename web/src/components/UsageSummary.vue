@@ -1,25 +1,26 @@
 <script setup lang="ts">
 /**
- * UsageSummary: measured tokens and estimated cost, per provider and per workflow stage.
+ * UsageSummary: measured tokens and estimated cost, per provider and per workflow stage, drawn from
+ * the server's usage DTO (`ProviderUsageV1`, `StageUsageV1`).
  *
  * Unknown is never shown as zero. A `null` measurement reads "Unknown"; a value that is a
  * lower bound because some observations are missing carries a visible "partial" mark; cost
  * is always labelled an estimate, and billed cost is stated as unknown.
  *
  * Props:
- * - `providers`: one `UsageRow` per provider (Codex, Claude).
- * - `stages`: one `UsageRow` per workflow stage. Omit or pass `[]` to hide that table.
+ * - `providers`: one row per provider (Codex, Claude).
+ * - `stages`: one row per workflow stage and provider. Omit or pass `[]` to hide that table.
  * - `heading`: section heading, default "Measured usage".
  */
 import { computed, useId } from 'vue';
 import UBadge from '@nuxt/ui/components/Badge.vue';
-import { formatTokens, formatUsd, unknownText } from './format';
-import type { UsageMetric, UsageRow } from './types';
+import { formatTokens, formatUsd } from './format';
+import type { ProviderUsageRow, StageUsageRow, UsageMetric } from './types';
 
 defineOptions({ name: 'UsageSummary' });
 
 const props = withDefaults(
-  defineProps<{ providers: readonly UsageRow[]; stages?: readonly UsageRow[]; heading?: string }>(),
+  defineProps<{ providers: readonly ProviderUsageRow[]; stages?: readonly StageUsageRow[]; heading?: string }>(),
   { stages: () => [], heading: 'Measured usage' },
 );
 
@@ -28,27 +29,59 @@ const headingId = useId();
 const columns: readonly { metric: UsageMetric; label: string }[] = [
   { metric: 'inputTokens', label: 'Input tokens' },
   { metric: 'outputTokens', label: 'Output tokens' },
-  { metric: 'cachedInputTokens', label: 'Cached input' },
+  { metric: 'cachedInputTokens', label: 'Cache read' },
+  { metric: 'cacheWriteInputTokens', label: 'Cache write' },
   { metric: 'estimatedCostUsd', label: 'Estimated cost' },
 ];
 
+/** One drawn row: its heading, the measured values and the text of the last column. */
+interface Row {
+  readonly id: string;
+  readonly label: string;
+  readonly sublabel: string | null;
+  readonly values: Pick<ProviderUsageRow, UsageMetric | 'incomplete'>;
+  readonly last: string;
+}
+
 const tables = computed(() =>
   [
-    { caption: 'By provider', first: 'Provider', rows: props.providers },
-    { caption: 'By stage', first: 'Stage', rows: props.stages },
+    {
+      caption: 'By provider',
+      first: 'Provider',
+      lastLabel: 'Sessions measured',
+      rows: props.providers.map((row): Row => ({
+        id: row.provider,
+        label: row.label,
+        sublabel: null,
+        values: row,
+        last: `${row.observedSessions} of ${row.sessions}`,
+      })),
+    },
+    {
+      caption: 'By stage',
+      first: 'Stage',
+      lastLabel: 'Turns',
+      rows: props.stages.map((row): Row => ({
+        id: `${row.stage}:${row.provider}`,
+        label: row.label,
+        sublabel: row.providerLabel,
+        values: row,
+        last: String(row.turns),
+      })),
+    },
   ].filter(table => table.rows.length > 0),
 );
 
-function display(row: UsageRow, metric: UsageMetric): string {
-  return metric === 'estimatedCostUsd' ? formatUsd(row.estimatedCostUsd) : formatTokens(row[metric]);
+function display(row: Row, metric: UsageMetric): string {
+  return metric === 'estimatedCostUsd' ? formatUsd(row.values.estimatedCostUsd) : formatTokens(row.values[metric]);
 }
 
-function isUnknown(row: UsageRow, metric: UsageMetric): boolean {
-  return row[metric] === null;
+function isUnknown(row: Row, metric: UsageMetric): boolean {
+  return row.values[metric] === null;
 }
 
-function isPartial(row: UsageRow, metric: UsageMetric): boolean {
-  return row[metric] !== null && row.partial.includes(metric);
+function isPartial(row: Row, metric: UsageMetric): boolean {
+  return row.values[metric] !== null && row.values.incomplete.includes(metric);
 }
 </script>
 
@@ -68,12 +101,15 @@ function isPartial(row: UsageRow, metric: UsageMetric): boolean {
             <th v-for="column in columns" :key="column.metric" scope="col" class="py-1 pr-3 text-right font-medium">
               {{ column.label }}
             </th>
-            <th scope="col" class="py-1 text-right font-medium">Sessions measured</th>
+            <th scope="col" class="py-1 text-right font-medium">{{ table.lastLabel }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="row in table.rows" :key="row.id" class="border-b border-muted last:border-0">
-            <th scope="row" class="py-2 pr-3 text-left font-medium text-highlighted">{{ row.label }}</th>
+            <th scope="row" class="py-2 pr-3 text-left font-medium text-highlighted">
+              {{ row.label }}
+              <span v-if="row.sublabel" class="block text-xs font-normal text-muted">{{ row.sublabel }}</span>
+            </th>
             <td
               v-for="column in columns"
               :key="column.metric"
@@ -88,10 +124,7 @@ function isPartial(row: UsageRow, metric: UsageMetric): boolean {
                 <span class="sr-only">, a lower bound</span>
               </template>
             </td>
-            <td class="py-2 text-right text-muted tabular-nums">
-              <template v-if="row.sessions">{{ row.sessions.observed }} of {{ row.sessions.total }}</template>
-              <span v-else class="italic">{{ unknownText }}</span>
-            </td>
+            <td class="py-2 text-right text-muted tabular-nums">{{ row.last }}</td>
           </tr>
         </tbody>
       </table>

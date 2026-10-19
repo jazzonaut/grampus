@@ -6,12 +6,11 @@
  * Props:
  * - `title`: what is being decided, e.g. "Approve plan version 3".
  * - `status`: status shown beside the title, default `awaiting_human`.
- * - `decisionKey`: the key for the state displayed in this card. Every action sends it back
- *   as `expected`; the server refuses the action if the task has changed since.
- * - `actions`: the actions on offer (`SafeAction`).
+ * - `actions`: the actions on offer (`SafeAction`). Each carries the decision key of the state
+ *   displayed in this card as `expected`; the server refuses an action if the task has changed since.
  * - `busy`: disables the actions while a request is in flight.
  *
- * Emits `action` with `{ actionId, decisionKey }`.
+ * Emits `action` with `{ actionId, expected }`.
  *
  * Slots:
  * - `default`: what the user needs to inspect before deciding (plan summary, file list).
@@ -27,18 +26,21 @@ const props = withDefaults(
   defineProps<{
     title: string;
     status?: Status;
-    decisionKey: string;
     actions: readonly SafeAction[];
     busy?: boolean;
   }>(),
   { status: 'awaiting_human', busy: false },
 );
 
-const emit = defineEmits<{ action: [choice: { actionId: string; decisionKey: string }] }>();
+const emit = defineEmits<{ action: [choice: { actionId: string; expected: string | null }] }>();
 
 defineSlots<{ default?: () => unknown }>();
 
 const titleId = useId();
+
+function expectedOf(actionId: string): string | null {
+  return props.actions.find(action => action.id === actionId)?.expected ?? null;
+}
 </script>
 
 <template>
@@ -54,7 +56,7 @@ const titleId = useId();
       :actions="actions"
       :described-by="titleId"
       :busy="busy"
-      @choose="actionId => emit('action', { actionId, decisionKey: props.decisionKey })"
+      @choose="actionId => emit('action', { actionId, expected: expectedOf(actionId) })"
     />
     <p class="text-xs text-muted">
       This decision applies to the state shown here. If the task changes first, Grampus refuses it and asks you to

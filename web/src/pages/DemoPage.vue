@@ -58,9 +58,9 @@ function onAttention(choice: ActionChoice): void {
   announcement.value = `${action?.label ?? choice.actionId} chosen for ${item?.title ?? choice.itemId} (demo, nothing sent)`;
 }
 
-function onDecision(choice: { actionId: string; decisionKey: string }): void {
+function onDecision(choice: { actionId: string; expected: string | null }): void {
   const action = mockDecision.actions.find(entry => entry.id === choice.actionId);
-  announcement.value = `${action?.label ?? choice.actionId} chosen with decision key ${choice.decisionKey} (demo, nothing sent)`;
+  announcement.value = `${action?.label ?? choice.actionId} chosen with decision key ${choice.expected ?? 'none'} (demo, nothing sent)`;
 }
 
 function select(id: string): void {
@@ -126,12 +126,7 @@ function select(id: string): void {
       </section>
 
       <div class="grid gap-6 lg:grid-cols-2">
-        <DecisionCard
-          :title="mockDecision.title"
-          :decision-key="mockDecision.decisionKey"
-          :actions="mockDecision.actions"
-          @action="onDecision"
-        >
+        <DecisionCard :title="mockDecision.title" :actions="mockDecision.actions" @action="onDecision">
           <MarkdownView :source="mockPlanMarkdown" />
         </DecisionCard>
         <AttentionPanel :items="mockAttention" @action="onAttention" />

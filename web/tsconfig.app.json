@@ -6,5 +6,6 @@
     "types": ["vite/client"],
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src/**/*.ts", "src/**/*.vue"]
+  // The server's API types are imported type-only; the file has no runtime code or imports.
+  "include": ["src/**/*.ts", "src/**/*.vue", "../src/server/api-types.ts"]
 }

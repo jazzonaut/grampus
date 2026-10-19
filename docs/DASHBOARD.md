@@ -132,6 +132,12 @@ token in the URL fragment; the browser keeps it in session storage and removes i
 from the address bar. API requests need that token and the local origin. No remote
 scripts or assets are loaded. Treat the full link as access to your local controller.
 
+The dashboard reads a typed, versioned API under `/api/v1/` (overview, task, planning conversation,
+timeline and retained changes) with the same token and origin checks. The server decides every status,
+label, explanation and available action there; the client only draws them
+([ARCHITECTURE.md](ARCHITECTURE.md#dashboard-view-model-and-api-v1)). The page served today still uses
+the older routes; the Vue client that uses API v1 is **Planned**.
+
 The dashboard and CLI share the same journal. Use `--db <path>`, `--port <number>` and
 `--no-open` to change the journal, port or browser behaviour. A development checkout
 needs its `src/ui` and `src/process/native` folders alongside `dist`. One guided task runs at a
