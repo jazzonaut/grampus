@@ -101,7 +101,7 @@ async function start(): Promise<void> {
         result.
       </p>
     </header>
-    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_30rem]">
       <form class="flex flex-col gap-4 grampus-surface" novalidate @submit.prevent="start">
         <div class="flex flex-col gap-1">
           <label for="new-repo" class="text-sm font-medium text-highlighted"

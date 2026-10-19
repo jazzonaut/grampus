@@ -159,7 +159,7 @@ watch(
         @run="run(recover)"
       />
       <ViewTabs v-model="selected" :items="tabs" label="Planning views">
-        <div v-show="selected === 'conversation'" class="grid items-start gap-8 xl:grid-cols-[minmax(0,1fr)_21rem]">
+        <div v-show="selected === 'conversation'" class="grid items-start gap-8 xl:grid-cols-[minmax(0,1fr)_31.5rem]">
           <div class="flex min-w-0 flex-col gap-5">
             <div class="max-h-[60vh] overflow-y-auto pr-2">
               <DiscussionThread :messages="view.messages" :request="view.request" />
