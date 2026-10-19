@@ -31,7 +31,13 @@ const integerSettings: readonly (IntegerSpec & { key: IntegerSetting })[] = [
   {
     key: 'defaultCheckTimeoutMs',
     label: 'Check timeout for new plans (ms)',
-    meaning: 'Written into new plans for validation, acceptance and preparation commands that set no timeout.',
+    meaning: 'Written into new plans for validation and acceptance commands that set no timeout.',
+  },
+  {
+    key: 'defaultPreparationTimeoutMs',
+    label: 'Preparation timeout for new plans (ms)',
+    meaning:
+      'Written into new plans for preparation commands that set no timeout. Preparation restores dependencies in a fresh worktree without caches.',
   },
   {
     key: 'stallWarningMs',

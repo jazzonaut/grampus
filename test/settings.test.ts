@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +17,7 @@ import {
   useSettings,
 } from '../src/config/settings.js';
 import { defaultDashboardPort } from '../src/config/runtime.js';
+import { normalizeGuidedPlan } from '../src/domain/guided-plan.js';
 import { normalizeWorkflowPolicy } from '../src/domain/workflow-policy.js';
 import { StaleStateError } from '../src/persistence/errors.js';
 
@@ -38,7 +39,8 @@ test('without config.json the built-in defaults apply and nothing is created', t
     usagePollIntervalMs: 15_000,
     outputFlushIntervalMs: 1000,
     outputFlushBytes: 8192,
-    defaultCheckTimeoutMs: 120_000,
+    defaultPreparationTimeoutMs: 600_000,
+    defaultCheckTimeoutMs: 300_000,
     defaultWorkflowPolicy: { mode: 'automatic', repairRounds: 2, maxSessionTurns: 6, maxContextTokens: 120_000 },
     qualityPasses: [],
     defaultQualityPasses: ['simplification'],
@@ -223,4 +225,50 @@ test('reading reports an invalid file instead of throwing, so it can be shown an
   assert.equal(refused.settings, null);
   assert.deepEqual(refused.stored, { maxConcurrentTasks: 9 });
   assert.match(refused.problem ?? '', /"maxConcurrentTasks"/);
+});
+
+test('new plans default preparation and checks to separate timeouts, each configurable', t => {
+  const root = dataDirectory(t);
+  const repo = join(root, 'repo');
+  mkdirSync(repo);
+  const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { windowsHide: true, stdio: 'pipe' });
+  git('init', '-q');
+  writeFileSync(join(repo, 'a.txt'), 'a');
+  git('add', 'a.txt');
+  git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '-m', 'Initial');
+  const command = { file: 'node', args: ['-e', ''] };
+  const plan = () =>
+    normalizeGuidedPlan({
+      brief: { title: 'Timeouts', outcome: 'Timeouts', criteria: ['Timeouts'], plan: 'Check timeouts' },
+      workspace: { repo, path: join(root, 'workspace') },
+      preparation: command,
+      slices: [
+        {
+          scope: { files: ['a.txt'] },
+          preparation: command,
+          validation: command,
+          acceptance: { ...command, expectedStdout: '' },
+          message: 'Timeouts',
+        },
+      ],
+    });
+  const timeouts = () => {
+    const { preparation, slices } = plan();
+    const [slice] = slices;
+    return [
+      preparation?.timeoutMs,
+      slice?.preparation?.timeoutMs,
+      slice?.validation.timeoutMs,
+      slice?.acceptance.timeoutMs,
+    ];
+  };
+  t.after(() => useSettings(defaultSettings()));
+  useSettings(defaultSettings());
+  assert.deepEqual(timeouts(), [600_000, 600_000, 300_000, 300_000]);
+  useSettings({ ...defaultSettings(), defaultPreparationTimeoutMs: 90_000, defaultCheckTimeoutMs: 45_000 });
+  assert.deepEqual(timeouts(), [90_000, 90_000, 45_000, 45_000]);
+  assert.throws(
+    () => loadSettings(dataDirectory(t, { defaultPreparationTimeoutMs: 600_001 })),
+    /"defaultPreparationTimeoutMs"/,
+  );
 });

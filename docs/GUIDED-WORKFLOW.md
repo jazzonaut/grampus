@@ -32,8 +32,9 @@ A plan contains:
   and `references`. `quality.passes` lists quality pass ids or full definitions; it defaults
   to the configured `defaultQualityPasses` ([quality passes](WORKFLOW.md#quality-passes)).
 
-Commands use `name`, `file`, `args` and `timeoutMs` (default 120000 or the configured
-`defaultCheckTimeoutMs`, at most 600000; see [configuration](CONFIGURATION.md)).
+Commands use `name`, `file`, `args` and `timeoutMs` (at most 600000). An omitted timeout
+defaults to 600000 for preparation and 300000 for validation and acceptance, or the configured
+`defaultPreparationTimeoutMs` and `defaultCheckTimeoutMs` ([configuration](CONFIGURATION.md)).
 There is no shell. `file: "node"` resolves to the current Node executable; other
 executables need absolute paths. Commands run at the task worktree root.
 

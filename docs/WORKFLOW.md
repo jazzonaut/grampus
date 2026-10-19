@@ -104,7 +104,7 @@ settlement is uncertain needs recovery, not a rerun.
 A check's stdout and stderr go to its durable logs while it runs, so a timed-out check
 keeps everything it printed before it was stopped. The stop note starts with the check,
 its limit, the run time the supervisor measured and the retained output, for example
-`Validation 'Tests' exceeded its 120 s limit after 120.4 s; partial output retained (5120
+`Validation 'Tests' exceeded its 300 s limit after 300.4 s; partial output retained (5120
 bytes).` Output a command holds back itself is lost when it is stopped: an inline script
 that captures its children's output to print at the end leaves an empty log. The planner
 is therefore asked to keep each slice's single validation command focused on one tool and,

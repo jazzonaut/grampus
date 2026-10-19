@@ -24,7 +24,7 @@ import { defaultDashboardPort } from './runtime.js';
 
 /**
  * The effective operational settings of one process. None of them is bound into an approval: values
- * that a plan depends on (default timeout, workflow policy, quality passes) are copied into the plan
+ * that a plan depends on (default timeouts, workflow policy, quality passes) are copied into the plan
  * when it is normalised.
  */
 export interface Settings {
@@ -39,7 +39,12 @@ export interface Settings {
   outputFlushIntervalMs: number;
   /** Buffered streamed output size, in UTF-8 bytes, that is journaled at once without waiting. */
   outputFlushBytes: number;
-  /** Check, preparation and acceptance timeout written into new plans that omit `timeoutMs`. */
+  /**
+   * Preparation timeout written into new plans that omit `timeoutMs`. Longer than the check default
+   * because preparation restores dependencies in a fresh worktree without caches.
+   */
+  defaultPreparationTimeoutMs: number;
+  /** Validation and acceptance timeout written into new plans that omit `timeoutMs`. */
   defaultCheckTimeoutMs: number;
   /** Workflow policy for new plans that omit it, or fields of it; approved plans keep their own copy. */
   defaultWorkflowPolicy: WorkflowPolicy;
@@ -68,7 +73,8 @@ export function defaultSettings(): Settings {
     usagePollIntervalMs: 15_000,
     outputFlushIntervalMs: 1000,
     outputFlushBytes: 8 * KiB,
-    defaultCheckTimeoutMs: 120_000,
+    defaultPreparationTimeoutMs: 600_000,
+    defaultCheckTimeoutMs: 300_000,
     defaultWorkflowPolicy: { mode: 'automatic', repairRounds: 2, maxSessionTurns: 6, maxContextTokens: 120_000 },
     qualityPasses: [],
     defaultQualityPasses: ['simplification'],
@@ -84,6 +90,7 @@ export const settingRanges = {
   usagePollIntervalMs: { min: 1000, max: 600_000 },
   outputFlushIntervalMs: { min: 100, max: 60_000 },
   outputFlushBytes: { min: 1 * KiB, max: 1 * MiB },
+  defaultPreparationTimeoutMs: { min: commandLimits.minTimeoutMs, max: commandLimits.maxTimeoutMs },
   defaultCheckTimeoutMs: { min: commandLimits.minTimeoutMs, max: commandLimits.maxTimeoutMs },
   maxConcurrentTasks: { min: 1, max: 4 },
   stallWarningMs: { min: 1000, max: 86_400_000 },
@@ -100,6 +107,7 @@ const overridesSchema = z
     usagePollIntervalMs: bounded(settingRanges.usagePollIntervalMs).optional(),
     outputFlushIntervalMs: bounded(settingRanges.outputFlushIntervalMs).optional(),
     outputFlushBytes: bounded(settingRanges.outputFlushBytes).optional(),
+    defaultPreparationTimeoutMs: bounded(settingRanges.defaultPreparationTimeoutMs).optional(),
     defaultCheckTimeoutMs: bounded(settingRanges.defaultCheckTimeoutMs).optional(),
     defaultWorkflowPolicy: z
       .strictObject({

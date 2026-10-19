@@ -308,7 +308,7 @@ and a check stopped by its timeout keeps everything it printed until then (a too
 own output, for example a script that captures child output to print at the end, loses that buffer).
 The supervisor reports the tool's elapsed time in its result and receipt (`elapsedMs`). A check passes
 only with exit code zero, a settled job and unchanged repository inputs. A timed-out check stops with
-`CHECK_TIMEOUT` and a note such as `Validation 'Tests' exceeded its 120 s limit after 120.4 s; partial
+`CHECK_TIMEOUT` and a note such as `Validation 'Tests' exceeded its 300 s limit after 300.4 s; partial
 output retained (5120 bytes).` Timeouts are 100 to 600000 ms; output above 2 MiB
 combined stops the job; the journal keeps a 64 KiB preview per stream and full logs stay on disk
 (`verification/check-output.ts`). Acceptance (`domain/acceptance.ts`) also compares approved stdout, JSON, stderr and

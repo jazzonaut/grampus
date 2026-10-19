@@ -110,8 +110,9 @@ function text(value: unknown, label: string, limit: number = planLimits.textByte
     throw new Error(`${label} must be nonempty text (at most ${limit} bytes)`);
   return value;
 }
-function timeout(value: unknown): number {
-  const result = value ?? currentSettings().defaultCheckTimeoutMs;
+/** A command's timeout; an omitted one takes `fallback`, the configured default for its kind. */
+function timeout(value: unknown, fallback: number): number {
+  const result = value ?? fallback;
   const { minTimeoutMs: min, maxTimeoutMs: max } = commandLimits;
   if (typeof result !== 'number' || !Number.isSafeInteger(result) || result < min || result > max)
     throw new Error(`Timeout must be ${min}–${max} ms`);
@@ -162,14 +163,16 @@ function observations(
 
 /**
  * Normalises a validation, preparation or acceptance command. Only an acceptance command may carry
- * `expectedStdout` and `expectations`; for any other command those fields are refused as unknown.
+ * `expectedStdout` and `expectations`; for any other command those fields are refused as unknown. An
+ * omitted timeout takes `defaultTimeoutMs`, which preparation sets to its own, longer default.
  */
 function command(value: unknown, acceptance: true, defaultName?: string): AcceptanceCommand;
-function command(value: unknown, acceptance: false, defaultName?: string): GuidedCommand;
+function command(value: unknown, acceptance: false, defaultName?: string, defaultTimeoutMs?: number): GuidedCommand;
 function command(
   value: unknown,
   acceptance: boolean,
   defaultName = acceptance ? 'Acceptance' : 'Validation',
+  defaultTimeoutMs = currentSettings().defaultCheckTimeoutMs,
 ): AcceptanceCommand {
   const fields = ['name', 'file', 'args', 'timeoutMs', 'expectedStdout', 'expectations'] as const;
   const item = object(value, acceptance ? fields : fields.slice(0, 4), `${defaultName.toLowerCase()} command`);
@@ -180,7 +183,7 @@ function command(
     name: text(item.name ?? defaultName, 'Command name', planLimits.nameCharacters),
     file,
     args,
-    timeoutMs: timeout(item.timeoutMs),
+    timeoutMs: timeout(item.timeoutMs, defaultTimeoutMs),
     ...observed,
   };
 }
@@ -381,7 +384,14 @@ function normalizeSlice(raw: unknown, simulation: FileSimulation): GuidedSlice {
     mode,
     ...(item.preparation === undefined
       ? {}
-      : { preparation: command(item.preparation, false, 'Preparation after implementation') }),
+      : {
+          preparation: command(
+            item.preparation,
+            false,
+            'Preparation after implementation',
+            currentSettings().defaultPreparationTimeoutMs,
+          ),
+        }),
     validation: command(item.validation, false),
     acceptance: command(item.acceptance, true),
     message,
@@ -425,7 +435,10 @@ export function normalizeGuidedPlan(
     availableQualityPasses(settings.qualityPasses),
     settings.defaultQualityPasses,
   );
-  const preparation = value.preparation === undefined ? undefined : command(value.preparation, false, 'Preparation');
+  const preparation =
+    value.preparation === undefined
+      ? undefined
+      : command(value.preparation, false, 'Preparation', settings.defaultPreparationTimeoutMs);
   const references: ReferenceFolder[] = normalizeReferences(value.references);
   const brief = normalizeBrief(value.brief);
   const { repo, base, adapter, path: requestedPath } = pinnedWorkspace(directory, value.workspace);
