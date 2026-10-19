@@ -37,7 +37,7 @@ const next = computed(() => {
       }}<template v-if="header.slice.count > 1"> · {{ header.slice.title }}</template>
     </p>
     <div class="flex flex-wrap items-center gap-3">
-      <h1 class="text-2xl font-semibold text-highlighted">{{ header.title }}</h1>
+      <h1 class="text-3xl font-semibold tracking-tight text-highlighted">{{ header.title }}</h1>
       <StatusBadge :status="header.status" :label="header.statusLabel" size="lg" />
       <UBadge
         :label="header.mode === 'automatic' ? 'Automatic' : 'Supervised'"
@@ -49,10 +49,10 @@ const next = computed(() => {
     <p class="text-sm text-muted">
       <span class="font-mono">{{ header.repository.path }}</span>
     </p>
-    <div class="max-w-prose text-sm text-toned" data-outcome>
-      <p class="text-xs font-medium text-muted">Intended outcome</p>
-      <MarkdownView :source="header.outcome" />
-    </div>
+    <details class="text-sm text-toned" data-outcome>
+      <summary class="cursor-pointer font-medium text-muted">Intended outcome</summary>
+      <MarkdownView :source="header.outcome" class="mt-3 max-w-prose" />
+    </details>
     <p class="text-base text-default" data-explanation>{{ header.explanation }}</p>
     <p class="text-sm" data-next-step :data-kind="header.nextStep.kind">
       <strong class="text-highlighted">{{ next.prefix }}</strong> {{ next.text }}

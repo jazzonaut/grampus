@@ -11,6 +11,7 @@ import { usePolled } from './api/usePolled';
 import { announcement } from './announcer';
 import { route } from './router';
 import { pollIntervalMs } from './settings';
+import AppBreadcrumb from './components/AppBreadcrumb.vue';
 import AppShell from './components/AppShell.vue';
 import AppSidebar from './components/AppSidebar.vue';
 import EmptyState from './components/EmptyState.vue';
@@ -41,6 +42,7 @@ const application = computed(() => overview.data.value?.application);
 <template>
   <UApp>
     <AppShell :announcement="announcement">
+      <template #breadcrumb><AppBreadcrumb :current="route" :overview="overview.data.value" /></template>
       <template #health>
         <HealthIndicator v-if="!needsAccessLink" :health="overview.data.value?.health" :connection="connection" />
       </template>

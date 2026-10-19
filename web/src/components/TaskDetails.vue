@@ -13,7 +13,6 @@ import type { TaskDetailV1 } from '../../../src/server/api-types';
 import ChangesPanel from './ChangesPanel.vue';
 import EvidenceSection from './EvidenceSection.vue';
 import ExplorationSummary from './ExplorationSummary.vue';
-import PlanCard from './PlanCard.vue';
 import ReportPanel from './ReportPanel.vue';
 import TimelinePanel from './TimelinePanel.vue';
 import { formatCount, plural, short } from './format';
@@ -30,12 +29,6 @@ const details = computed(() => props.task.details);
     <h2 id="task-details-heading" class="text-base font-semibold text-highlighted">Details</h2>
     <EvidenceSection title="Timeline" :summary="plural(details.timeline.total, 'entry', 'entries')" default-open>
       <TimelinePanel :timeline="details.timeline" />
-    </EvidenceSection>
-    <EvidenceSection
-      :title="details.approval.approved ? 'Approved outcome and execution plan' : 'Plan for approval'"
-      :summary="`Version ${details.approval.version} · ${plural(details.plan.slices.length, 'slice')}`"
-    >
-      <PlanCard :plan="details.plan" :heading="details.approval.approved ? 'Approved plan' : 'Plan for approval'" />
     </EvidenceSection>
     <EvidenceSection title="Approval and artifact" :summary="`Digest ${short(details.approval.digest)}`">
       <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">

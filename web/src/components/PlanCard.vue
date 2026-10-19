@@ -1,95 +1,128 @@
 <script setup lang="ts">
-/**
- * PlanCard: a plan as it is, or will be, approved (`PlanView`): outcome, repository access, criteria,
- * approach, repository, base, workspace, agents, the workflow, review and quality policy sentences (server
- * text), quality passes with their instructions, preparation, a retained revision checkpoint and every
- * slice. Narrative text renders as Markdown; commands and paths stay literal.
- *
- * Props:
- * - `plan`: the server's `PlanView`.
- * - `heading`: e.g. "The proposed plan" or "Approved outcome and execution plan".
- */
+/** Owns compact plan review: outcome and criteria first, expandable slices and technical details. */
 import { useId } from 'vue';
-import type { PlanView, ProviderView } from '../../../src/server/api-types';
+import type { PlanView } from '../../../src/server/api-types';
 import CommandDetails from './CommandDetails.vue';
 import MarkdownView from './MarkdownView.vue';
 import PlanSlice from './PlanSlice.vue';
-import { formatCount, formatTimeout } from './format';
+import PlanPolicy from './PlanPolicy.vue';
+import SectionHeading from './SectionHeading.vue';
+import { formatCount, formatTimeout, plural, short } from './format';
 
 defineOptions({ name: 'PlanCard' });
-
 withDefaults(defineProps<{ plan: PlanView; heading?: string }>(), { heading: 'The proposed plan' });
-
 const headingId = useId();
-
-const model = (agent: ProviderView): string => agent.model ?? 'provider default';
 </script>
 
 <template>
-  <section :aria-labelledby="headingId" class="flex flex-col gap-3 text-sm" data-panel="plan">
-    <h3 :id="headingId" class="text-base font-semibold text-highlighted">{{ heading }}: {{ plan.title }}</h3>
-    <MarkdownView :source="plan.outcome" />
-    <h4 class="font-semibold text-highlighted">Repository access</h4>
-    <p class="text-toned">
-      {{
-        plan.context.exploration
-          ? 'Agents can search and read repository files as needed.'
-          : 'This plan uses selected context only.'
-      }}
-      {{ plan.context.files.length }} initial files out of {{ formatCount(plan.context.totalFiles) }}. Changes need the
-      exact file permissions below. Review includes all changed files and repository instructions.
-    </p>
-    <pre v-if="plan.context.files.length" class="grampus-code">{{ plan.context.files.join('\n') }}</pre>
-    <h4 class="font-semibold text-highlighted">Acceptance criteria</h4>
-    <ul class="list-disc pl-5">
-      <li v-for="criterion in plan.criteria" :key="criterion"><MarkdownView :source="criterion" inline /></li>
-    </ul>
-    <h4 class="font-semibold text-highlighted">Approach</h4>
-    <MarkdownView :source="plan.approach" />
-    <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-      <dt class="text-muted">Repository</dt>
-      <dd class="font-mono text-xs break-all">{{ plan.repository.path }}</dd>
-      <dt class="text-muted">Base commit</dt>
-      <dd class="font-mono text-xs break-all">{{ plan.base }}</dd>
-      <dt class="text-muted">Workspace</dt>
-      <dd class="font-mono text-xs break-all">
-        {{ plan.workspace.path ?? (plan.workspace.adapter === 'orca' ? 'Created through Orca' : 'Chosen at start') }}
-      </dd>
-      <dt class="text-muted">Agents</dt>
-      <dd>
-        {{ plan.implementer.label }} implements · {{ plan.reviewer.label }} reviews. Models:
-        {{ model(plan.implementer) }} / {{ model(plan.reviewer) }}. No automatic agent time limit.
-      </dd>
-    </dl>
-    <p class="text-toned" data-summary="workflow">{{ plan.workflowSummary }}</p>
-    <p class="text-toned" data-summary="review">{{ plan.reviewSummary }}</p>
-    <h4 class="font-semibold text-highlighted">Quality passes</h4>
-    <p class="text-toned" data-summary="quality">{{ plan.qualitySummary }}</p>
-    <ul v-if="plan.qualityPasses.length" class="flex flex-col gap-2">
-      <li v-for="pass in plan.qualityPasses" :key="pass.id" class="rounded-md border border-default p-2">
-        <p class="font-medium text-highlighted">
-          {{ pass.title }}
-          <span class="text-xs font-normal text-muted"
-            >{{ pass.kind === 'lens' ? 'Review lens' : 'Edit pass' }} · {{ pass.id }}</span
+  <section :aria-labelledby="headingId" class="flex min-w-0 flex-col gap-5 text-sm" data-panel="plan">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h2 :id="headingId" class="text-lg font-semibold text-highlighted">{{ heading }}: {{ plan.title }}</h2>
+      <span class="text-xs text-muted"
+        >{{ plan.repository.name }} · <span class="font-mono" :title="plan.base">{{ short(plan.base) }}</span> ·
+        {{ plural(plan.slices.length, 'slice') }}</span
+      >
+    </div>
+    <div class="grid items-start gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+      <div class="flex min-w-0 flex-col gap-5">
+        <section class="grampus-surface">
+          <SectionHeading title="Outcome, scope and assumptions" icon="i-lucide-target" />
+          <MarkdownView :source="plan.outcome" class="text-toned" />
+        </section>
+        <section class="grampus-surface">
+          <SectionHeading title="Acceptance criteria" icon="i-lucide-list-checks" />
+          <p class="mb-3 text-xs text-muted">Execution evidence appears in the task's Results view.</p>
+          <ol class="flex list-decimal flex-col gap-3 pl-5">
+            <li v-for="criterion in plan.criteria" :key="criterion"><MarkdownView :source="criterion" inline /></li>
+          </ol>
+        </section>
+        <section class="grampus-surface">
+          <SectionHeading title="Slice plan" icon="i-lucide-list-ordered"
+            ><span class="ml-auto text-xs text-muted">{{
+              plural(plan.slices.length, 'sequential slice')
+            }}</span></SectionHeading
           >
+          <div class="divide-y divide-default">
+            <PlanSlice v-for="(slice, index) in plan.slices" :key="index" :slice="slice" :index="index" />
+          </div>
+        </section>
+      </div>
+      <div class="flex min-w-0 flex-col gap-5">
+        <section class="grampus-surface">
+          <SectionHeading title="Implementation approach" icon="i-lucide-box" />
+          <MarkdownView :source="plan.approach" class="text-toned" />
+        </section>
+        <PlanPolicy :plan="plan" />
+      </div>
+    </div>
+    <div class="divide-y divide-default rounded-xl border border-default bg-default">
+      <details v-if="plan.preparation" class="p-4">
+        <summary class="cursor-pointer font-medium text-highlighted">
+          Preparation before implementation and checks
+          <span class="ml-2 text-xs font-normal text-muted"
+            >{{ plan.preparation.name }} · {{ formatTimeout(plan.preparation.timeoutMs) }}</span
+          >
+        </summary>
+        <p class="my-3 text-toned">Runs in the task worktree and must leave repository inputs unchanged.</p>
+        <CommandDetails :command="plan.preparation" />
+      </details>
+      <details class="p-4">
+        <summary class="cursor-pointer font-medium text-highlighted">File permissions and repository access</summary>
+        <p class="my-3 text-toned">
+          {{
+            plan.context.exploration
+              ? 'Agents can search and read repository files as needed.'
+              : 'This plan uses selected context only.'
+          }}
+          {{ plan.context.files.length }} initial files out of {{ formatCount(plan.context.totalFiles) }}. Reading
+          grants no permission to edit. Review includes all changed files and repository instructions.
         </p>
-        <MarkdownView :source="pass.instructions" class="text-toned" />
-      </li>
-    </ul>
-    <template v-if="plan.preparation">
-      <h4 class="font-semibold text-highlighted">Preparation before implementation and checks</h4>
-      <p class="text-toned">
-        {{ plan.preparation.name }} · {{ formatTimeout(plan.preparation.timeoutMs) }}. Runs in the task worktree and
-        must leave repository inputs unchanged.
-      </p>
-      <CommandDetails :command="plan.preparation" />
-    </template>
+        <p class="mb-2 break-all font-mono text-xs">{{ plan.repository.path }}</p>
+        <pre v-if="plan.context.files.length" class="grampus-code">{{ plan.context.files.join('\n') }}</pre>
+        <div v-for="(slice, index) in plan.slices" :key="index" class="mt-4">
+          <p class="mb-2 font-medium">Slice {{ index + 1 }} · {{ slice.title }}</p>
+          <dl class="grid gap-2 sm:grid-cols-3">
+            <template v-for="(paths, kind) in slice.files" :key="kind"
+              ><div>
+                <dt class="mb-1 text-xs text-muted">{{ kind }}</dt>
+                <dd>
+                  <pre class="grampus-code">{{ paths.join('\n') || '(none)' }}</pre>
+                </dd>
+              </div></template
+            >
+          </dl>
+        </div>
+      </details>
+      <details class="p-4">
+        <summary class="cursor-pointer font-medium text-highlighted">Exact commands and acceptance evidence</summary>
+        <div v-for="(slice, index) in plan.slices" :key="index" class="mt-4 flex flex-col gap-2">
+          <h3 class="font-semibold">Slice {{ index + 1 }} · {{ slice.title }}</h3>
+          <CommandDetails
+            v-if="slice.preparation"
+            :command="slice.preparation"
+            :summary="`Preparation: ${slice.preparation.name}`"
+          />
+          <CommandDetails :command="slice.validation" :summary="`Validation: ${slice.validation.name}`" />
+          <CommandDetails :command="slice.acceptance" :summary="`Acceptance: ${slice.acceptance.name}`" />
+          <p v-if="slice.acceptance.expectedStdout !== null" class="text-xs text-muted">
+            Exact expected stdout (JSON escaped)
+          </p>
+          <pre v-if="slice.acceptance.expectedStdout !== null" class="grampus-code" data-expected-stdout>{{
+            JSON.stringify(slice.acceptance.expectedStdout)
+          }}</pre>
+          <pre v-if="slice.acceptance.expectations" class="grampus-code">{{ slice.acceptance.expectations }}</pre>
+        </div>
+      </details>
+      <details class="p-4">
+        <summary class="cursor-pointer font-medium text-highlighted">Raw plan (JSON)</summary>
+        <pre class="grampus-code mt-3 max-h-96">{{ plan.rawPlan }}</pre>
+        <p class="mt-2 text-xs text-muted">Complete controller-normalised plan, covered by the approval digest.</p>
+      </details>
+    </div>
     <p v-if="plan.revision" class="text-toned">
       Retained workspace checkpoint from version {{ plan.revision.previousVersion }}:
       <code class="font-mono text-xs break-all">{{ plan.revision.artifact }}</code
       >. Earlier checks and reviews need to run again.
     </p>
-    <h4 class="font-semibold text-highlighted">Slices ({{ plan.slices.length }})</h4>
-    <PlanSlice v-for="(slice, index) in plan.slices" :key="index" :slice="slice" :index="index" />
   </section>
 </template>

@@ -16,6 +16,7 @@ import { providerSchema, type Connector, type Provider } from '../providers/type
 import { Script } from 'node:vm';
 import { explorationSummary } from '../repository/repository-tools.js';
 import { integrationSummary } from '../providers/integrations.js';
+import { planningUsage } from '../reporting/task-usage.js';
 import { plannerProgress } from './planner-progress.js';
 import {
   normalizeReferences,
@@ -251,6 +252,7 @@ export class Kickoffs {
         session,
         turnKey,
         progress: plannerProgress(events, session),
+        usage: planningUsage(this.store, id),
         integrations: integrationSummary(events),
         referenceSuggestions: this.referenceSuggestions(events, config),
         exploration: explorationSummary(events),

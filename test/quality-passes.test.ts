@@ -111,6 +111,8 @@ test('prompts carry the approved lens and edit pass instructions verbatim', () =
   assert.ok(prompt.includes(builtInQualityPasses[0]!.instructions));
   assert.ok(prompt.includes(custom.instructions));
   assert.match(prompt, /exactly one entry per lens/);
+  assert.match(prompt, /source-text searches/);
+  assert.match(prompt, /conformance/);
   assert.match(reviewPrompt({ arbitrating: false, verdicts: '[]', lenses: [] }), /No quality lenses are selected/);
   const refactor = builtInQualityPasses[2]!;
   const edit = qualityPassPrompt({ pass: refactor, slicePreparation: undefined });

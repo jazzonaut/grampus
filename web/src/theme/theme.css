@@ -6,22 +6,22 @@
  * not install that plugin and this file declares the same variables instead. The mapping must
  * match paletteColors in tokens.ts; theme.test.ts checks it.
  *
- * Accents use shade 600 in light mode (700 for amber) rather than Nuxt UI's 500, so small badge
+ * Accents use shade 600 in light mode (700 for orange and amber) rather than Nuxt UI's 500, so small badge
  * and link text keeps readable contrast on white, and shade 400 in dark mode.
  */
 @layer theme {
   :root {
-    --ui-color-primary-50: var(--color-indigo-50);
-    --ui-color-primary-100: var(--color-indigo-100);
-    --ui-color-primary-200: var(--color-indigo-200);
-    --ui-color-primary-300: var(--color-indigo-300);
-    --ui-color-primary-400: var(--color-indigo-400);
-    --ui-color-primary-500: var(--color-indigo-500);
-    --ui-color-primary-600: var(--color-indigo-600);
-    --ui-color-primary-700: var(--color-indigo-700);
-    --ui-color-primary-800: var(--color-indigo-800);
-    --ui-color-primary-900: var(--color-indigo-900);
-    --ui-color-primary-950: var(--color-indigo-950);
+    --ui-color-primary-50: var(--color-orange-50);
+    --ui-color-primary-100: var(--color-orange-100);
+    --ui-color-primary-200: var(--color-orange-200);
+    --ui-color-primary-300: var(--color-orange-300);
+    --ui-color-primary-400: var(--color-orange-400);
+    --ui-color-primary-500: var(--color-orange-500);
+    --ui-color-primary-600: var(--color-orange-600);
+    --ui-color-primary-700: var(--color-orange-700);
+    --ui-color-primary-800: var(--color-orange-800);
+    --ui-color-primary-900: var(--color-orange-900);
+    --ui-color-primary-950: var(--color-orange-950);
 
     --ui-color-info-50: var(--color-sky-50);
     --ui-color-info-100: var(--color-sky-100);
@@ -101,7 +101,7 @@
 
   :root,
   .light {
-    --ui-primary: var(--ui-color-primary-600);
+    --ui-primary: var(--ui-color-primary-700);
     --ui-info: var(--ui-color-info-600);
     --ui-success: var(--ui-color-success-600);
     --ui-warning: var(--ui-color-warning-700);

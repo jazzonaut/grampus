@@ -618,6 +618,8 @@ export interface PlanSliceView {
 
 /** The plan as it is (or will be) approved. */
 export interface PlanView {
+  /** Complete controller-normalised plan for exact inspection, never reconstructed by the client. */
+  rawPlan: string;
   title: string;
   outcome: string;
   approach: string;
@@ -788,6 +790,8 @@ export interface KickoffDetailV1 {
   references: { label: string; path: string; files: number; base: string | null }[];
   referenceSuggestions: { path: string; reason: string }[];
   activity: ActivityV1 | null;
+  /** Planning measurements from the session journal, including live observations. */
+  usage: UsageV1;
   exploration: { calls: number; readFiles: string[] };
   integrations: McpServerV1[];
   error: string | null;

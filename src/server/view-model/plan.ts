@@ -74,6 +74,7 @@ function sliceView(plan: GuidedPlan, index: number): PlanSliceView {
 /** The plan as approval and inspection show it. */
 export function planView(plan: GuidedPlan): PlanView {
   return {
+    rawPlan: JSON.stringify(plan, null, 2),
     title: plan.brief.title,
     outcome: plan.brief.outcome,
     approach: plan.brief.plan,

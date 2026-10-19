@@ -315,9 +315,22 @@ function linkedSessions(store: Store, taskId: string): string[] {
  * `Store.get` and `Store.session` do when a linked record is missing or malformed.
  */
 export function taskUsage(store: Store, taskId: string): TaskUsage {
-  const runs = linkedSessions(store, taskId)
-    .flatMap(id => sessionRuns(store, id))
-    .sort((a, b) => a.sequence - b.sequence);
+  return aggregateUsage(
+    store,
+    linkedSessions(store, taskId),
+    store.executions().filter(item => item.taskId === taskId && item.stage === 'repair').length,
+    interventions(store.events(taskId)),
+  );
+}
+
+/** Measured planning usage before or after conversion; the linked task uses the same session ledger. */
+export function planningUsage(store: Store, sessionId: string): TaskUsage {
+  return aggregateUsage(store, [sessionId], 0, interventions([]));
+}
+
+/** Shared attribution prevents conversion from changing the meaning of planning measurements. */
+function aggregateUsage(store: Store, sessionIds: string[], repairAttempts: number, human: Interventions): TaskUsage {
+  const runs = sessionIds.flatMap(id => sessionRuns(store, id)).sort((a, b) => a.sequence - b.sequence);
   attribute(runs);
   const providers = (['codex', 'claude'] as const).flatMap((provider): ProviderUsage[] => {
     const rows = runs.filter(run => run.provider === provider);
@@ -376,8 +389,8 @@ export function taskUsage(store: Store, taskId: string): TaskUsage {
     failedTurns: count('failedTurns'),
     interruptedTurns: count('interruptedTurns'),
     unsettledTurns: count('unsettledTurns'),
-    repairAttempts: store.executions().filter(item => item.taskId === taskId && item.stage === 'repair').length,
-    interventions: interventions(store.events(taskId)),
+    repairAttempts,
+    interventions: human,
   };
 }
 

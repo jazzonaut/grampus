@@ -310,8 +310,12 @@ test('a planning conversation shows its questions, then a readable proposal read
     }),
     reply({ kind: 'message', text: JSON.stringify(plan), questions: [], findings: [] }),
   ];
+  const prompts: string[] = [];
   const connector: Connector = async () => ({
-    turn: async () => replies.shift()!,
+    turn: async prompt => {
+      prompts.push(prompt);
+      return replies.shift()!;
+    },
     interrupt: async () => {},
     close: async () => {},
   });
@@ -355,6 +359,16 @@ test('a planning conversation shows its questions, then a readable proposal read
 
   await kickoffs.send(id, undefined, { greeting: 'yes' });
   const proposed = kickoffDetail(kickoffs.view(id), view, store.revision());
+  assert.equal(prompts.length, 2);
+  for (const prompt of prompts) {
+    assert.match(prompt, /observable behaviour/);
+    assert.match(prompt, /source-text searches/);
+    assert.match(prompt, /unresolved dependency/);
+    assert.match(prompt, /conformance/);
+    assert.match(prompt, /integration smoke test/);
+  }
+  assert.equal(asked.usage.headline.tokens, null);
+  assert.equal(proposed.usage.turns, 2);
   assert.equal(proposed.actionError, null, 'a later planning turn resolves the failure');
   assert.equal(proposed.statusLabel, 'Plan proposed');
   assert.equal(proposed.title, 'Verify the greeting');
@@ -370,6 +384,7 @@ test('a planning conversation shows its questions, then a readable proposal read
   assert.equal(proposed.messages[2]?.text, 'yes');
   assert.match(proposed.messages[3]?.text ?? '', /prepared a plan for “Verify the greeting”/);
   assert.equal(proposed.proposal?.plan.slices[0]?.delivery.mode, 'no_change');
+  assert.deepEqual(JSON.parse(proposed.proposal.plan.rawPlan), kickoffs.view(id).candidate);
   const prepare = proposed.actions[0]!;
   assert.equal(prepare.id, 'prepare');
   assert.deepEqual(prepare.request.body, { digest: proposed.proposal?.digest });

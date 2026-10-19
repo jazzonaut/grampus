@@ -21,14 +21,8 @@ defineOptions({ name: 'CommandDetails' });
     <div class="flex flex-col gap-1 border-t border-default px-3 py-2">
       <p class="text-xs text-muted">Executable</p>
       <pre class="grampus-code">{{ command.file }}</pre>
-      <template v-for="(arg, index) in command.args" :key="index">
-        <p class="text-xs text-muted">Argument {{ index + 1 }}</p>
-        <pre class="grampus-code">{{ arg }}</pre>
-      </template>
-      <details>
-        <summary class="cursor-pointer text-xs text-muted select-none">Exact argument array</summary>
-        <pre class="grampus-code">{{ JSON.stringify(command.args) }}</pre>
-      </details>
+      <p class="text-xs text-muted">Arguments (JSON array, preserving exact boundaries)</p>
+      <pre class="grampus-code">{{ JSON.stringify(command.args, null, 2) }}</pre>
     </div>
   </details>
 </template>

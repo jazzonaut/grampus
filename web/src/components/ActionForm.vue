@@ -80,13 +80,19 @@ defineExpose({ reset });
 <template>
   <form
     v-if="action.form"
-    class="flex flex-col gap-4"
+    :class="action.form.kind === 'settings' ? 'grid gap-6 lg:grid-cols-2' : 'flex flex-col gap-4'"
     novalidate
     :data-form="action.form.kind"
     @submit.prevent="submit"
   >
-    <div v-if="action.form.intro" class="text-sm text-toned"><MarkdownView :source="action.form.intro" /></div>
-    <div v-for="field in action.form.fields" :key="field.name" class="flex flex-col gap-2">
+    <div v-if="action.form.intro" class="col-span-full text-sm text-toned">
+      <MarkdownView :source="action.form.intro" />
+    </div>
+    <div
+      v-for="field in action.form.fields"
+      :key="field.name"
+      :class="['flex flex-col gap-2', field.input === 'json' || field.input === 'textarea' ? 'col-span-full' : '']"
+    >
       <FormFieldInput
         :field="field"
         :model-value="draftOf(field)"
@@ -95,10 +101,10 @@ defineExpose({ reset });
       />
       <slot name="field-extra" :field="field" :append="(line: string) => append(field, line)" />
     </div>
-    <p v-if="issues.length" role="alert" class="text-sm text-error">
+    <p v-if="issues.length" role="alert" class="col-span-full text-sm text-error">
       Check the {{ issues.length === 1 ? 'field' : 'fields' }} marked above; nothing was sent.
     </p>
-    <div class="flex flex-col gap-1">
+    <div class="col-span-full flex flex-col gap-1">
       <UButton
         type="submit"
         :label="action.form.submitLabel"

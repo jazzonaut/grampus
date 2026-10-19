@@ -54,6 +54,13 @@ naming: until a plan exists the sidebar shows a short title derived from the req
 sentence or line, without control characters or markup delimiters, at most 60 characters at a word
 boundary; `orchestration/task-title.ts`), and then the latest proposed plan's `brief.title`.
 
+The planning contract requires acceptance based on observable behaviour, rather than source-text
+searches or exact test names. Consequential dependency uncertainties must be resolved with available
+read tools or raised as questions before a final proposal. Claims about standards conformance and
+integration require evidence appropriate to those claims; mocked tests or metadata alone do not
+establish them. The independent reviewer challenges gaps against the approved criteria. These are
+provider instructions, not a deterministic proof of plan quality or a new controller gate.
+
 Converting a proposal creates an unapproved guided task. `domain/guided-plan.ts` normalizes the plan once
 and hashes it into an approval digest covering the brief, slices, file scopes, preparation,
 validation and acceptance commands, expected output, providers, models, workflow and review
@@ -698,6 +705,22 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | `probes/` | `*-probe.ts`, `multifile-fixture.ts`, `probe-interruption.ts` | Opt-in live and scale probes and their fixtures |
 | | `demo.ts` | Synthetic demo |
 
+The dashboard uses a shared orange accent, responsive navigation and a breadcrumb header. The overview
+puts attention items first, then recorded runner occupancy, planning and delivery counts and task rows.
+Planning separates the conversation from the proposal; switching views preserves feedback drafts.
+Repository resources and detailed usage open on demand. Planning usage is derived from the session
+journal through the same attribution logic as task usage, so converting a proposal neither resets nor
+double-counts the measurements. Live and partial counts are labelled; missing counts and cost remain
+unknown. Timing distinguishes the active turn from recorded settled provider time.
+
+Plan review shows outcome, criteria, approach, agents and quality policy with collapsed slice rows.
+File permissions, exact commands and expected output remain available for inspection, and raw JSON
+comes from the complete controller-normalised plan. Creating a task for review does not approve or
+start it. The task's approval action binds the displayed version and digest. Execution has separate
+results, plan, usage and activity/evidence views, while current decisions and stop/recovery actions
+remain prominent. A request for changes in planning returns to feedback; on an unapproved task it
+opens the existing complete-plan revision form, which still requires fresh approval.
+
 The dashboard client is its own npm project in `web/` (paths under `web/src/`), typed against
 `src/server/api-types.ts` with `import type` and checked by `vue-tsc`:
 
@@ -710,8 +733,8 @@ The dashboard client is its own npm project in `web/` (paths under `web/src/`), 
 | | `actions.ts`, `useActions.ts`, `report.ts` | `ActionView` plus typed drafts to the exact request body (JSON pointer targets); sending actions with requested, stale, waiting for a runner slot and refused states; the report download |
 | `pages/` | `HomePage`, `NewTaskPage`, `PlanningPage`, `TaskPage`, `HealthPage`, `SettingsPage` | One screen each |
 | `components/` | `ActionButton`, `ActionForm`, `FormFieldInput`, `MultiSelectField`, `DecisionCard`, `DecisionQueue`, `AttentionPanel` | Actions and server-described forms |
-| | `TaskHeader`, `WorkflowStrip`, `ActivityCard`, `ResultsPanel`, `CheckItem`, `CheckOutput`, `FindingList`, `UsagePanel`, `UsageSummary`, `TaskDetails`, `TimelinePanel`, `ChangesPanel`, `ReportPanel`, `ScopeReview`, `PlanCard`, `PlanSlice`, `CommandDetails` | Task and plan presentation |
-| | `DiscussionThread`, `PlanningContext`, `FileSearch`, `StartingFileHints`, `ReferenceFolders`, `ImportPlan` | Planning and new-task pieces |
-| | `AppShell`, `AppSidebar`, `HealthIndicator`, `HealthSummaryBar`, `TaskSummaryItem`, `StatusBadge`, `NoticeBox`, `ErrorBanner`, `EmptyState`, `EvidenceSection`, `LogViewer`, `MarkdownView`, `format.ts` | Shell and shared building blocks |
+| | `TaskHeader`, `TaskFacts`, `TaskWorkspace`, `WorkflowStrip`, `ActivityCard`, `ResultsPanel`, `CheckItem`, `CheckOutput`, `FindingList`, `UsagePanel`, `UsageSummary`, `TaskDetails`, `TimelinePanel`, `ChangesPanel`, `ReportPanel`, `ScopeReview`, `PlanCard`, `PlanPolicy`, `PlanSlice`, `CommandDetails` | Task and plan presentation |
+| | `PlanningHeader`, `PlanningResources`, `PlanningComposer`, `DiscussionThread`, `PlanningContext`, `FileSearch`, `StartingFileHints`, `ReferenceFolders`, `ImportPlan` | Planning and new-task pieces |
+| | `AppShell`, `AppSidebar`, `AppBreadcrumb`, `ViewTabs`, `SectionHeading`, `OverviewStats`, `UsageHeadline`, `HealthIndicator`, `HealthSummaryBar`, `TaskSummaryItem`, `StatusBadge`, `NoticeBox`, `ErrorBanner`, `EmptyState`, `EvidenceSection`, `LogViewer`, `MarkdownView`, `format.ts` | Shell and shared building blocks |
 | `theme/` | `status.ts`, `tokens.ts`, `theme.css`, `colorScheme.ts` | Icon, words and colour per status (never colour alone); design tokens; static Nuxt UI variables; light and dark from the system |
 

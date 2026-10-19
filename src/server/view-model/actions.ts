@@ -658,7 +658,7 @@ function editingActions(f: KickoffActionFacts): ActionView[] {
     actions.unshift(
       action({
         id: 'prepare',
-        label: 'Review for approval',
+        label: 'Create task for review',
         kind: 'primary',
         description:
           'Freezes this proposal as an unapproved task for you to inspect. It does not approve or start anything.',

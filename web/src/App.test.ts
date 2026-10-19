@@ -45,7 +45,7 @@ describe('App', () => {
     bootstrapToken();
     syncRoute();
     mounted = await render(App);
-    expect(mounted.get('h1').text()).toBe('Overview');
+    expect(mounted.get('h1').text()).toBe('Your workspace');
     expect(mounted.get('header [data-overall="degraded"]').text()).toContain('Integrations need attention');
     expect(mounted.get('nav').text()).toContain('Add retry to the export job');
     expect(mounted.get('[data-footer]').text()).toContain('Grampus 0.1.0 (development)');

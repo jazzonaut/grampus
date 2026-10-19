@@ -21,19 +21,24 @@ const headingId = useId();
 </script>
 
 <template>
-  <section :aria-labelledby="headingId" class="flex flex-col gap-3" data-panel="discussion">
+  <section :aria-labelledby="headingId" class="flex flex-col gap-5" data-panel="discussion">
     <h2 :id="headingId" class="text-base font-semibold text-highlighted">Discussion</h2>
-    <ol v-if="messages.length" class="flex flex-col gap-3">
+    <ol v-if="messages.length" class="ml-4 flex flex-col gap-7 border-l border-default pl-7">
       <li
         v-for="(message, index) in messages"
         :key="index"
         :class="[
-          'rounded-lg border px-4 py-3 text-sm',
-          message.role === 'user' ? 'border-default bg-muted md:ml-12' : 'border-primary/30 bg-default md:mr-12',
+          'relative rounded-xl border px-5 py-4 text-sm',
+          message.role === 'user' ? 'border-primary/15 bg-primary/5' : 'border-default bg-default',
         ]"
         :data-role="message.role"
       >
-        <p class="mb-1 flex flex-wrap gap-2 text-xs text-muted">
+        <span
+          class="absolute -left-12 top-3 flex size-9 items-center justify-center rounded-full border-4 border-default bg-primary text-xs font-semibold text-inverted"
+          aria-hidden="true"
+          >{{ message.role === 'user' ? 'Y' : 'G' }}</span
+        >
+        <p class="mb-3 flex flex-wrap gap-2 text-xs text-muted">
           <span class="font-semibold text-highlighted">{{ message.author }}</span>
           <time :datetime="message.at">{{ localTime(message.at) }}</time>
           <span v-if="message.kind === 'answers'">· answers</span>

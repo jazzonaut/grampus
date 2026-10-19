@@ -754,6 +754,22 @@ test('dashboard exposes live planner activity across polls without changing the 
   const turnKey = (view: KickoffDetailV1) => offered(view, 'delete').expected;
   const first = await get();
   assert.equal(first.activity?.title, 'Agent is working');
+  assert.equal(first.usage.headline.tokens, null);
+  const sample = (inputTokens: number) =>
+    emit({
+      type: 'usage.updated',
+      data: {
+        scope: 'provider-session-cumulative',
+        complete: false,
+        inputTokens,
+        outputTokens: 5,
+        cachedInputTokens: 0,
+        cacheWriteInputTokens: null,
+        estimatedCostUsd: null,
+        billedCostUsd: null,
+      },
+    });
+  sample(100);
   emit({ type: 'repository.tool_requested', data: { tool: 'grampus_read_file', arguments: { path: 'greeting.js' } } });
   emit({
     type: 'repository.tool_result',
@@ -775,11 +791,19 @@ test('dashboard exposes live planner activity across polls without changing the 
   assert.equal(updated.activity?.recent[0], 'Read greeting.js');
   assert.doesNotMatch(JSON.stringify(updated.activity), /HIDDEN/);
   assert.equal(updated.activity?.startedAt, first.activity?.startedAt);
+  assert.equal(updated.usage.headline.tokens, 105);
+  assert.equal(updated.usage.headline.completeness, 'live');
+  sample(200);
+  const measured = await get();
+  assert.equal(measured.usage.headline.tokens, 205);
+  assert.equal(turnKey(measured), turnKey(first));
   finish();
   await sending;
   const done = await get();
   assert.equal(done.activity, null);
   assert.equal(done.status, 'awaiting_human');
+  assert.equal(done.usage.headline.tokens, 205);
+  assert.equal(done.usage.headline.completeness, 'partial');
   assert.deepEqual(
     done.questions.map(question => question.id),
     ['output'],

@@ -7,7 +7,7 @@
  * Props:
  * - `id`: the task id.
  */
-import { computed, watch } from 'vue';
+import { computed, ref, useTemplateRef, watch } from 'vue';
 import type { ActionView, TaskDetailV1 } from '../../../src/server/api-types';
 import { get, needsAccessLink } from '../api/client';
 import { useActions } from '../api/useActions';
@@ -22,12 +22,11 @@ import DecisionCard from '../components/DecisionCard.vue';
 import DecisionQueue from '../components/DecisionQueue.vue';
 import EmptyState from '../components/EmptyState.vue';
 import ErrorBanner from '../components/ErrorBanner.vue';
-import EvidenceSection from '../components/EvidenceSection.vue';
-import ResultsPanel from '../components/ResultsPanel.vue';
-import TaskDetails from '../components/TaskDetails.vue';
+import TaskWorkspace from '../components/TaskWorkspace.vue';
+import TaskFacts from '../components/TaskFacts.vue';
 import TaskHeader from '../components/TaskHeader.vue';
-import UsagePanel from '../components/UsagePanel.vue';
 import WorkflowStrip from '../components/WorkflowStrip.vue';
+import { short } from '../components/format';
 
 defineOptions({ name: 'TaskPage' });
 
@@ -76,11 +75,27 @@ const queue = computed(() =>
   decisions.value.filter(
     item =>
       !managed.has(item.id) &&
+      item.id !== 'approve' &&
       !(item.id === 'stop' && view.value?.activity) &&
       !(item.id === 'report' && !reportIsNext.value),
   ),
 );
+const approval = computed(() => decisions.value.find(item => item.id === 'approve'));
+const selected = ref('results');
+watch(
+  () => view.value?.details.approval.approved,
+  approved => {
+    if (approved === false) selected.value = 'plan';
+  },
+);
 const revise = computed(() => decisions.value.find(item => item.id === 'revise'));
+const revisionPanel = useTemplateRef<HTMLDetailsElement>('revisionPanel');
+function requestChanges(): void {
+  const panel = revisionPanel.value;
+  if (!panel) return;
+  panel.open = true;
+  panel.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+}
 const lifecycle = computed(() => decisions.value.filter(item => item.id === 'reset' || item.id === 'delete'));
 
 function run(action: ActionView, drafts = {}): void {
@@ -96,7 +111,7 @@ watch(
 </script>
 
 <template>
-  <div class="mx-auto flex max-w-5xl flex-col gap-6">
+  <div class="grampus-page">
     <a :href="href({ name: 'home' })" class="text-sm text-muted hover:underline">← Overview</a>
     <EmptyState
       v-if="missing"
@@ -115,6 +130,7 @@ watch(
     <p v-else-if="!view" class="text-sm text-muted" role="status">Loading the task…</p>
     <template v-if="view && !missing">
       <TaskHeader :header="view.header" />
+      <TaskFacts :task="view" />
       <ActionNoticeBar :notice="actions.notice.value" @dismiss="actions.dismiss()" />
       <section aria-labelledby="workflow-heading" class="flex flex-col gap-2">
         <h2 id="workflow-heading" class="text-base font-semibold text-highlighted">Workflow</h2>
@@ -132,6 +148,7 @@ watch(
         </template>
       </ActivityCard>
       <DecisionQueue
+        v-if="queue.length || !approval"
         :decisions="queue"
         :task="view"
         :busy="actions.busy.value"
@@ -139,26 +156,47 @@ watch(
         :issues-for="actions.issuesFor"
         @run="run"
       />
-      <ResultsPanel :results="view.results" />
-      <UsagePanel :usage="view.usage" />
-      <TaskDetails :task="view" />
-      <EvidenceSection
-        v-if="revise"
-        :title="revise.label"
-        :summary="revise.enabled ? 'Needs fresh approval' : 'Unavailable now'"
-      >
+      <TaskWorkspace v-model="selected" :task="view">
+        <template #approval>
+          <div
+            v-if="approval"
+            class="sticky bottom-3 flex flex-wrap items-center justify-end gap-4 rounded-xl border border-default bg-default p-4 shadow-sm"
+            data-decision="approve"
+          >
+            <p class="mr-auto text-xs text-muted">
+              Approve version {{ view.details.approval.version }} ·
+              <code :title="view.details.approval.digest">{{ short(view.details.approval.digest) }}</code
+              >. Inspect the file permissions and exact commands first.
+            </p>
+            <button v-if="revise" type="button" class="grampus-link-button" @click="requestChanges">
+              Request changes
+            </button>
+            <ActionButton
+              :action="approval"
+              :busy="actions.busy.value"
+              :sending="actions.sending.value === 'approve'"
+              @run="run(approval)"
+            />
+          </div>
+        </template>
+      </TaskWorkspace>
+      <details v-if="revise" ref="revisionPanel" class="rounded-xl border border-default bg-default p-4">
+        <summary class="cursor-pointer text-sm font-medium text-highlighted">
+          {{ revise.label }} · {{ revise.enabled ? 'Needs fresh approval' : 'Unavailable now' }}
+        </summary>
         <DecisionCard
+          class="mt-4"
           :action="revise"
           :busy="actions.busy.value"
           :sending="actions.sending.value === 'revise'"
           :issues="actions.issuesFor('revise')"
           @run="drafts => revise && run(revise, drafts)"
         />
-      </EvidenceSection>
+      </details>
       <section
         v-if="lifecycle.length"
         aria-labelledby="manage-heading"
-        class="flex flex-col gap-2 rounded-lg border border-default p-4"
+        class="flex flex-col gap-2 border-t border-default pt-4"
       >
         <h2 id="manage-heading" class="text-base font-semibold text-highlighted">Manage task</h2>
         <div class="flex flex-wrap gap-4">

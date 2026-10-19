@@ -8,7 +8,7 @@
  * marks values a provider reported but Grampus has not verified.
  */
 export const paletteColors = {
-  primary: 'indigo',
+  primary: 'orange',
   info: 'sky',
   success: 'emerald',
   warning: 'amber',

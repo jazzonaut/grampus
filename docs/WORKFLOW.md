@@ -11,6 +11,13 @@ New plans default to automatic execution within their exact approved file scope:
 5. Verify acceptance. Repairs invalidate earlier validation, review and acceptance.
 6. Deliver the verified local commit and continue to the next slice.
 
+The dashboard keeps current decisions and activity above separate results, plan, usage and evidence
+views. Before approval, the plan view exposes the exact file permissions, command arguments, expected
+output and complete plan JSON. **Request changes** opens the existing full-plan revision form; any
+revision still needs approval of its new version and digest. During planning, **Create task for review**
+creates an unapproved task. It does not start implementation. Planning token usage is visible before
+conversion, with live, partial and unknown measurements labelled explicitly.
+
 Questions, scope changes, uncertain process exits, check timeouts and other infrastructure
 failures, mutating checks, prerequisite failures, exhausted allowances and repairs that leave
 the failing artifact unchanged stop for attention. Each stop records a typed reason code beside its note, for example

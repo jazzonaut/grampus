@@ -6,6 +6,7 @@ import type { Kickoffs } from '../../orchestration/kickoff.js';
 import type { ActivityV1, KickoffDetailV1, KickoffMessageV1, KickoffSummaryV1 } from '../api-types.js';
 import { kickoffActions, type KickoffActionFacts } from './actions.js';
 import type { ViewContext } from './context.js';
+import { usageView } from './usage.js';
 import { planView } from './plan.js';
 import { folderName, kickoffPresentation, providerLabel, type TaskPresentation } from './status.js';
 
@@ -47,7 +48,7 @@ function messageView(kickoff: KickoffView, message: KickoffView['messages'][numb
       author,
       at: message.at,
       kind: 'proposal',
-      text: `I’ve prepared a plan for “${kickoff.title ?? named ?? kickoffTitle(kickoff)}”. Review its scope and checks below, or ask for changes.`,
+      text: `I’ve prepared a plan for “${kickoff.title ?? named ?? kickoffTitle(kickoff)}”. Open the proposal to review its scope and checks, or ask for changes.`,
     };
   }
   return { role: 'planner', author, at: message.at, kind: 'message', text: message.text };
@@ -178,6 +179,7 @@ export function kickoffDetail(kickoff: KickoffView, context: ViewContext, revisi
     })),
     referenceSuggestions: kickoff.referenceSuggestions.map(item => ({ path: item.path, reason: item.reason })),
     activity: activity(kickoff, presentation),
+    usage: usageView(kickoff.usage),
     exploration: { calls: kickoff.exploration.calls, readFiles: [...kickoff.exploration.readFiles] },
     integrations: kickoff.integrations
       .filter(server => server.status === 'connected')

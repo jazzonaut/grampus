@@ -90,18 +90,18 @@ async function start(): Promise<void> {
 </script>
 
 <template>
-  <div class="mx-auto flex max-w-6xl flex-col gap-6">
+  <div class="grampus-page">
     <a :href="href({ name: 'home' })" class="text-sm text-muted hover:underline">← Overview</a>
     <header>
       <p class="text-xs font-medium tracking-wide text-muted uppercase">New task</p>
-      <h1 class="text-2xl font-semibold text-highlighted">What would you like to change?</h1>
+      <h1 class="text-3xl font-semibold tracking-tight text-highlighted">What would you like to change?</h1>
       <p class="mt-1 max-w-prose text-toned">
         Start with the outcome. The planner reads the committed repository and asks about details that could change the
         result.
       </p>
     </header>
     <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-      <form class="flex flex-col gap-4 rounded-lg border border-default p-4" novalidate @submit.prevent="start">
+      <form class="flex flex-col gap-4 grampus-surface" novalidate @submit.prevent="start">
         <div class="flex flex-col gap-1">
           <label for="new-repo" class="text-sm font-medium text-highlighted"
             >Repository folder <span class="sr-only">(required)</span></label
@@ -174,7 +174,7 @@ async function start(): Promise<void> {
         />
       </form>
       <aside class="flex flex-col gap-4" aria-label="About planning">
-        <section class="rounded-lg border border-default p-4 text-sm">
+        <section class="grampus-surface text-sm">
           <h2 class="font-semibold text-highlighted">Before work begins</h2>
           <p class="mt-1 text-toned">
             Planning uses your existing subscription sign-in. You review the complete plan and authorize the exact files

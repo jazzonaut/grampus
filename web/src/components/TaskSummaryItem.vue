@@ -39,31 +39,44 @@ const usage = computed(() => {
 </script>
 
 <template>
-  <li class="flex flex-col gap-1 px-4 py-3" :data-task="task.id">
-    <div class="flex flex-wrap items-center gap-2">
+  <li
+    class="grid items-start gap-3 px-5 py-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
+    :data-task="task.id"
+  >
+    <div class="min-w-0">
       <a
         :href="href({ name: 'task', id: task.id })"
         class="font-medium text-highlighted underline-offset-2 hover:underline"
+        >{{ task.title }}</a
       >
-        {{ task.title }}
-      </a>
+      <p class="mt-1 text-xs text-muted">
+        {{ task.repository.name }} · Slice {{ task.slice.index }} of {{ task.slice.count }}
+      </p>
+      <p class="mt-1 text-xs text-muted">{{ task.implementer.label }} implements, {{ task.reviewer.label }} reviews</p>
+    </div>
+    <div class="flex flex-col items-start gap-1">
       <StatusBadge :status="task.status" :label="task.statusLabel" size="sm" />
-      <span v-if="task.stalled" :title="task.stalled.message" data-stalled>
-        <UBadge
+      <p class="text-xs text-muted">
+        {{ task.stageLabel
+        }}<template v-if="task.lastActivityAt">
+          · last activity {{ elapsedSince(task.lastActivityAt, now) }} ago</template
+        >
+      </p>
+      <span v-if="task.stalled" :title="task.stalled.message" data-stalled
+        ><UBadge
           :label="`No activity for ${minutesSince(task.stalled.lastActivityAt, now)} min`"
           color="warning"
           variant="outline"
           size="sm"
           icon="i-lucide-clock-alert"
-        />
-      </span>
+      /></span>
     </div>
-    <p class="text-xs text-muted">
-      {{ task.repository.name }} · {{ task.stageLabel }} · Slice {{ task.slice.index }} of {{ task.slice.count }} ·
-      {{ task.implementer.label }} implements, {{ task.reviewer.label }} reviews<template v-if="task.lastActivityAt">
-        · last activity {{ elapsedSince(task.lastActivityAt, now) }} ago</template
-      >
-    </p>
     <p class="text-xs text-toned" data-usage>{{ usage }}</p>
+    <a
+      :href="href({ name: 'task', id: task.id })"
+      class="grampus-link-button justify-self-start"
+      :aria-label="`Open task: ${task.title}`"
+      >Open task <span aria-hidden="true">→</span></a
+    >
   </li>
 </template>

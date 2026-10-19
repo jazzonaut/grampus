@@ -42,11 +42,21 @@ describe('TaskPage', () => {
     expect(wrapper.get('[data-unresolved]').text()).toContain('1 blocking review finding');
     expect(wrapper.get('[data-check="check-1"] [data-issue]').text()).toBe('AssertionError: expected 3 retries');
     expect(wrapper.get('[data-lens="simplification"]').text()).toContain('reviewer failed it');
+    expect(wrapper.get('[data-usage-headline]').text()).toContain('195,244 tokens');
+    expect(wrapper.find('[data-panel="usage"]').exists()).toBe(false);
+    await wrapper
+      .findAll('[role="tab"]')
+      .find(button => button.text() === 'Usage')!
+      .trigger('click');
     // Usage: unknown is never 0.
     const claude = wrapper.findAll('td[data-metric="inputTokens"]').map(cell => cell.text());
     expect(claude).toContain('Unknown');
     expect(wrapper.get('[data-totals]').text()).toContain('1 human intervention after approval (1 answer)');
     expect(wrapper.get('[data-wall]').text()).toBe('1m 35s+');
+    await wrapper
+      .findAll('[role="tab"]')
+      .find(button => button.text() === 'Activity and evidence')!
+      .trigger('click');
     expect(wrapper.text()).toContain('Question asked');
   });
 
@@ -127,7 +137,11 @@ describe('TaskPage', () => {
       body: { expected: 'decision-7', version: 3, digest: 'f'.repeat(64) },
     });
     const { wrapper } = await open({
-      '/api/v1/tasks/task-1': { ...mockTask, decisions: [approve] },
+      '/api/v1/tasks/task-1': {
+        ...mockTask,
+        details: { ...mockTask.details, approval: { ...mockTask.details.approval, approved: false } },
+        decisions: [approve],
+      },
       'POST /api/tasks/task-1/approve': { ok: true, started: false },
     });
     await wrapper.get('[data-decision="approve"] button').trigger('click');
@@ -202,5 +216,31 @@ describe('TaskPage', () => {
     });
     mounted = await render(TaskPage, { id: 'task-1' });
     expect(mounted.text()).toContain('This task is not available');
+  });
+  it('opens a draft in plan review and lets the user request changes without approving', async () => {
+    const approve = mockAction('approve', 'Approve and start', {
+      kind: 'primary',
+      path: '/api/tasks/task-1/approve',
+      body: { expected: 'decision-7', version: 3, digest: 'f'.repeat(64) },
+    });
+    const revise = mockTask.decisions.find(action => action.id === 'revise')!;
+    const { wrapper, sent } = await open({
+      '/api/v1/tasks/task-1': {
+        ...mockTask,
+        details: { ...mockTask.details, approval: { ...mockTask.details.approval, approved: false } },
+        decisions: [approve, revise],
+      },
+    });
+    expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('Plan');
+    expect(wrapper.text()).not.toContain('Nothing needs your decision');
+    const requestChanges = wrapper.findAll('button').find(button => button.text() === 'Request changes')!;
+    await requestChanges.trigger('click');
+    const panel = wrapper.get('[data-decision="revise"]').element.parentElement as HTMLDetailsElement;
+    expect(panel.open).toBe(true);
+    expect(document.activeElement?.tagName).toBe('TEXTAREA');
+    panel.open = false;
+    await requestChanges.trigger('click');
+    expect(panel.open).toBe(true);
+    expect(posts(sent)).toEqual([]);
   });
 });

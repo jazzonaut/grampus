@@ -44,9 +44,9 @@ async function checkAgain(): Promise<void> {
 </script>
 
 <template>
-  <div class="mx-auto flex max-w-5xl flex-col gap-6">
+  <div class="grampus-page">
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <h1 class="text-2xl font-semibold text-highlighted">Integration health</h1>
+      <h1 class="text-3xl font-semibold tracking-tight text-highlighted">Integration health</h1>
       <UButton
         label="Check again"
         icon="i-lucide-refresh-cw"
@@ -58,11 +58,7 @@ async function checkAgain(): Promise<void> {
     </div>
     <p v-if="!overview" class="text-sm text-muted" role="status">Loading health…</p>
     <template v-else>
-      <section
-        class="flex flex-col gap-2 rounded-lg border border-default p-4"
-        aria-labelledby="overall-heading"
-        data-panel="overall"
-      >
+      <section class="flex flex-col gap-2 grampus-surface" aria-labelledby="overall-heading" data-panel="overall">
         <div class="flex items-center gap-2">
           <UIcon
             :name="healthPresentation[overview.health.overall].icon"
@@ -101,66 +97,70 @@ async function checkAgain(): Promise<void> {
       <p v-if="!overview.health.integrations.length" class="text-sm text-muted">
         No integration results are stored yet. Choose Check again.
       </p>
-      <section
-        v-for="integration in overview.health.integrations"
-        :key="integration.id"
-        :aria-labelledby="`integration-${integration.id}`"
-        class="rounded-lg border border-default p-4"
-        :data-integration="integration.id"
-      >
-        <div class="flex flex-wrap items-center gap-2">
-          <UIcon
-            :name="integrationPresentation[integration.status].icon"
-            :class="['size-4', textTone[integrationPresentation[integration.status].color]]"
-            aria-hidden="true"
-          />
-          <h2 :id="`integration-${integration.id}`" class="font-semibold text-highlighted">{{ integration.label }}</h2>
-          <span class="text-sm">{{ integration.statusLabel }}</span>
-          <span class="text-xs text-muted">{{ integration.required ? 'Required' : 'Optional' }}</span>
-          <span class="ml-auto font-mono text-xs text-muted">
-            {{ integration.version ?? 'Version unknown'
-            }}<template v-if="integration.sdkVersion"> · SDK {{ integration.sdkVersion }}</template>
-          </span>
-        </div>
-        <div class="mt-2 overflow-x-auto">
-          <table class="w-full table-fixed text-sm">
-            <caption class="sr-only">
-              {{
-                integration.label
-              }}
-              capabilities
-            </caption>
-            <thead>
-              <tr class="border-b border-default text-left text-xs text-muted">
-                <th scope="col" class="w-1/3 py-1 pr-3 font-medium">Capability</th>
-                <th scope="col" class="w-1/4 py-1 pr-3 font-medium">Status</th>
-                <th scope="col" class="py-1 font-medium">Detail</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="capability in integration.capabilities"
-                :key="capability.name"
-                class="border-b border-muted align-top last:border-0"
-                :data-capability="capability.name"
-              >
-                <th scope="row" class="py-1.5 pr-3 text-left font-medium">{{ capability.label }}</th>
-                <td class="py-1.5 pr-3">
-                  <span class="inline-flex items-center gap-1">
-                    <UIcon
-                      :name="integrationPresentation[capability.status].icon"
-                      :class="['size-3.5', textTone[integrationPresentation[capability.status].color]]"
-                      aria-hidden="true"
-                    />
-                    {{ capability.statusLabel }}
-                  </span>
-                </td>
-                <td class="py-1.5 text-xs break-words text-toned">{{ capability.detail }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <div class="grid items-start gap-5 xl:grid-cols-2">
+        <section
+          v-for="integration in overview.health.integrations"
+          :key="integration.id"
+          :aria-labelledby="`integration-${integration.id}`"
+          class="grampus-surface"
+          :data-integration="integration.id"
+        >
+          <div class="flex flex-wrap items-center gap-2">
+            <UIcon
+              :name="integrationPresentation[integration.status].icon"
+              :class="['size-4', textTone[integrationPresentation[integration.status].color]]"
+              aria-hidden="true"
+            />
+            <h2 :id="`integration-${integration.id}`" class="font-semibold text-highlighted">
+              {{ integration.label }}
+            </h2>
+            <span class="text-sm">{{ integration.statusLabel }}</span>
+            <span class="text-xs text-muted">{{ integration.required ? 'Required' : 'Optional' }}</span>
+            <span class="ml-auto font-mono text-xs text-muted">
+              {{ integration.version ?? 'Version unknown'
+              }}<template v-if="integration.sdkVersion"> · SDK {{ integration.sdkVersion }}</template>
+            </span>
+          </div>
+          <div class="mt-2 overflow-x-auto">
+            <table class="w-full table-fixed text-sm">
+              <caption class="sr-only">
+                {{
+                  integration.label
+                }}
+                capabilities
+              </caption>
+              <thead>
+                <tr class="border-b border-default text-left text-xs text-muted">
+                  <th scope="col" class="w-1/3 py-1 pr-3 font-medium">Capability</th>
+                  <th scope="col" class="w-1/4 py-1 pr-3 font-medium">Status</th>
+                  <th scope="col" class="py-1 font-medium">Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="capability in integration.capabilities"
+                  :key="capability.name"
+                  class="border-b border-muted align-top last:border-0"
+                  :data-capability="capability.name"
+                >
+                  <th scope="row" class="py-1.5 pr-3 text-left font-medium">{{ capability.label }}</th>
+                  <td class="py-1.5 pr-3">
+                    <span class="inline-flex items-center gap-1">
+                      <UIcon
+                        :name="integrationPresentation[capability.status].icon"
+                        :class="['size-3.5', textTone[integrationPresentation[capability.status].color]]"
+                        aria-hidden="true"
+                      />
+                      {{ capability.statusLabel }}
+                    </span>
+                  </td>
+                  <td class="py-1.5 text-xs break-words text-toned">{{ capability.detail }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </template>
   </div>
 </template>

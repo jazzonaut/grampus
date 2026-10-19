@@ -345,6 +345,7 @@ export const mockUsage: UsageV1 = {
 const command = { name: 'Tests', file: 'node', args: ['--test'], timeoutMs: 120_000 };
 
 export const mockPlan: PlanView = {
+  rawPlan: '{"brief":{"title":"Add retry to the export job"}}',
   title: 'Add retry to the export job',
   outcome: 'The export job retries **transient** failures up to three times.',
   approach: 'Wrap `sendBatch` in a bounded retry.',
@@ -634,6 +635,7 @@ export const mockTask: TaskDetailV1 = {
 };
 
 export const mockKickoff: KickoffDetailV1 = {
+  usage: mockUsage,
   apiVersion: 1,
   revision: 'k1',
   id: 'kickoff-1',
@@ -695,7 +697,7 @@ export const mockKickoff: KickoffDetailV1 = {
         ],
       },
     }),
-    mockAction('prepare', 'Review for approval', {
+    mockAction('prepare', 'Create task for review', {
       kind: 'primary',
       path: '/api/kickoffs/kickoff-1/prepare',
       expected: null,

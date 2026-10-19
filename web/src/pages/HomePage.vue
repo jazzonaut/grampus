@@ -15,6 +15,7 @@ import { href } from '../router';
 import ActionNoticeBar from '../components/ActionNoticeBar.vue';
 import AttentionPanel from '../components/AttentionPanel.vue';
 import EmptyState from '../components/EmptyState.vue';
+import OverviewStats from '../components/OverviewStats.vue';
 import HealthSummaryBar from '../components/HealthSummaryBar.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import TaskSummaryItem from '../components/TaskSummaryItem.vue';
@@ -51,9 +52,12 @@ const sending = computed(() =>
 </script>
 
 <template>
-  <div class="mx-auto flex max-w-5xl flex-col gap-6">
+  <div class="grampus-page">
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <h1 class="text-2xl font-semibold text-highlighted">Overview</h1>
+      <div>
+        <h1 class="text-3xl font-semibold tracking-tight text-highlighted">Your workspace</h1>
+        <p class="mt-2 text-sm text-muted">Plans, decisions and verified local delivery.</p>
+      </div>
       <div class="flex items-center gap-3">
         <p v-if="overview?.pool" class="text-sm text-muted" data-pool>
           {{ overview.pool.running }} of {{ overview.pool.limit }} guided tasks running
@@ -70,8 +74,8 @@ const sending = computed(() =>
     <template v-else>
       <AttentionPanel :items="overview.attention" :busy="actions.busy.value" :sending="sending" @run="run" />
       <ActionNoticeBar :notice="actions.notice.value" @dismiss="actions.dismiss()" />
-      <HealthSummaryBar :health="overview.health" />
-      <section aria-labelledby="tasks-heading" class="rounded-lg border border-default">
+      <OverviewStats :overview="overview" />
+      <section aria-labelledby="tasks-heading" class="min-w-0 rounded-xl border border-default bg-default">
         <h2 id="tasks-heading" class="px-4 pt-3 pb-2 font-semibold text-highlighted">
           Tasks ({{ overview.tasks.length }})
         </h2>
@@ -87,62 +91,65 @@ const sending = computed(() =>
           </EmptyState>
         </div>
       </section>
-      <section aria-labelledby="planning-heading" class="rounded-lg border border-default">
-        <h2 id="planning-heading" class="px-4 pt-3 pb-2 font-semibold text-highlighted">
-          Planning ({{ overview.planning.length }})
-        </h2>
-        <ul v-if="overview.planning.length" class="divide-y divide-default border-t border-default">
-          <li
-            v-for="item in overview.planning"
-            :key="item.id"
-            class="flex flex-wrap items-center gap-2 px-4 py-3"
-            :data-kickoff="item.id"
-          >
-            <a
-              :href="href({ name: 'planning', id: item.id })"
-              class="font-medium text-highlighted underline-offset-2 hover:underline"
-              >{{ item.title }}</a
+      <div class="grid items-start gap-5 xl:grid-cols-2">
+        <section aria-labelledby="planning-heading" class="min-w-0 rounded-xl border border-default bg-default">
+          <h2 id="planning-heading" class="px-4 pt-3 pb-2 font-semibold text-highlighted">
+            Planning ({{ overview.planning.length }})
+          </h2>
+          <ul v-if="overview.planning.length" class="divide-y divide-default border-t border-default">
+            <li
+              v-for="item in overview.planning"
+              :key="item.id"
+              class="flex flex-wrap items-center gap-2 px-4 py-3"
+              :data-kickoff="item.id"
             >
-            <StatusBadge :status="item.status" :label="item.statusLabel" size="sm" />
-            <span class="text-xs text-muted">{{ item.repository.name }} · {{ item.provider.label }}</span>
-          </li>
-        </ul>
-        <p v-else class="border-t border-default px-4 py-3 text-sm text-muted">
-          No planning conversations in progress.
-        </p>
-      </section>
-      <section aria-labelledby="deliveries-heading" class="rounded-lg border border-default">
-        <h2 id="deliveries-heading" class="px-4 pt-3 pb-2 font-semibold text-highlighted">
-          Recent verified deliveries
-        </h2>
-        <ul v-if="overview.recentDeliveries.length" class="divide-y divide-default border-t border-default">
-          <li
-            v-for="delivery in overview.recentDeliveries"
-            :key="`${delivery.taskId}:${delivery.slice.index}`"
-            class="flex flex-col gap-1 px-4 py-3 text-sm"
-          >
-            <p class="flex flex-wrap items-center gap-2">
-              <StatusBadge status="verified" size="sm" />
               <a
-                :href="href({ name: 'task', id: delivery.taskId })"
-                class="font-medium text-highlighted hover:underline"
-                >{{ delivery.taskTitle }}</a
+                :href="href({ name: 'planning', id: item.id })"
+                class="font-medium text-highlighted underline-offset-2 hover:underline"
+                >{{ item.title }}</a
               >
-              <span class="text-xs text-muted">Slice {{ delivery.slice.index }} of {{ delivery.slice.count }}</span>
-            </p>
-            <p class="text-xs text-toned">
-              <template v-if="delivery.commit"
-                >Commit <code class="font-mono">{{ short(delivery.commit) }}</code></template
-              >
-              <template v-else>Verified with no change</template>
-              · {{ localTime(delivery.deliveredAt) }} · {{ delivery.evidence }}
-            </p>
-          </li>
-        </ul>
-        <p v-else class="border-t border-default px-4 py-3 text-sm text-muted">
-          Nothing delivered yet. Deliveries are local commits verified by Grampus.
-        </p>
-      </section>
+              <StatusBadge :status="item.status" :label="item.statusLabel" size="sm" />
+              <span class="text-xs text-muted">{{ item.repository.name }} · {{ item.provider.label }}</span>
+            </li>
+          </ul>
+          <p v-else class="border-t border-default px-4 py-3 text-sm text-muted">
+            No planning conversations in progress.
+          </p>
+        </section>
+        <section aria-labelledby="deliveries-heading" class="min-w-0 rounded-xl border border-default bg-default">
+          <h2 id="deliveries-heading" class="px-4 pt-3 pb-2 font-semibold text-highlighted">
+            Recent verified deliveries
+          </h2>
+          <ul v-if="overview.recentDeliveries.length" class="divide-y divide-default border-t border-default">
+            <li
+              v-for="delivery in overview.recentDeliveries"
+              :key="`${delivery.taskId}:${delivery.slice.index}`"
+              class="flex flex-col gap-1 px-4 py-3 text-sm"
+            >
+              <p class="flex flex-wrap items-center gap-2">
+                <StatusBadge status="verified" size="sm" />
+                <a
+                  :href="href({ name: 'task', id: delivery.taskId })"
+                  class="font-medium text-highlighted hover:underline"
+                  >{{ delivery.taskTitle }}</a
+                >
+                <span class="text-xs text-muted">Slice {{ delivery.slice.index }} of {{ delivery.slice.count }}</span>
+              </p>
+              <p class="text-xs text-toned">
+                <template v-if="delivery.commit"
+                  >Commit <code class="font-mono">{{ short(delivery.commit) }}</code></template
+                >
+                <template v-else>Verified with no change</template>
+                · {{ localTime(delivery.deliveredAt) }} · {{ delivery.evidence }}
+              </p>
+            </li>
+          </ul>
+          <p v-else class="border-t border-default px-4 py-3 text-sm text-muted">
+            Nothing delivered yet. Deliveries are local commits verified by Grampus.
+          </p>
+        </section>
+      </div>
+      <HealthSummaryBar :health="overview.health" />
     </template>
   </div>
 </template>

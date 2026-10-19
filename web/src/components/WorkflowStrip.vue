@@ -27,7 +27,7 @@ withDefaults(defineProps<{ stages: readonly WorkflowStage[]; label?: string }>()
 const tone: Readonly<Record<StageState, string>> = {
   passed: 'border-success/40 text-success',
   pending: 'border-default text-muted',
-  active: 'border-info text-info ring-1 ring-info/40',
+  active: 'border-primary text-primary ring-1 ring-primary/40',
   failed: 'border-error/60 text-error',
   unknown: 'border-dashed border-accented text-muted',
   skipped: 'border-dashed border-default text-dimmed',

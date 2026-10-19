@@ -38,20 +38,18 @@ function link(item: AttentionItem): string {
 </script>
 
 <template>
-  <section
-    :aria-labelledby="`${baseId}-heading`"
-    class="rounded-lg border-2 border-warning/50 bg-warning/5"
-    data-panel="attention"
-  >
-    <h2
-      :id="`${baseId}-heading`"
-      class="flex items-center gap-2 px-4 pt-3 pb-2 text-base font-semibold text-highlighted"
-    >
+  <section :aria-labelledby="`${baseId}-heading`" class="flex flex-col gap-4" data-panel="attention">
+    <h2 :id="`${baseId}-heading`" class="flex items-center gap-2 text-lg font-semibold text-highlighted">
       Needs your attention
       <span class="text-sm font-normal text-muted">({{ items.length }})</span>
     </h2>
-    <ul v-if="items.length" class="divide-y divide-default border-t border-default">
-      <li v-for="item in items" :key="item.id" class="flex flex-col gap-2 px-4 py-3" :data-attention="item.kind">
+    <ul v-if="items.length" class="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+      <li
+        v-for="item in items"
+        :key="item.id"
+        class="flex flex-col gap-3 rounded-xl border border-warning/25 bg-warning/5 p-5"
+        :data-attention="item.kind"
+      >
         <div class="flex flex-wrap items-center gap-2">
           <StatusBadge :status="item.status" size="sm" />
           <h3 :id="`${baseId}-${item.id}`" class="font-medium text-highlighted">
@@ -81,6 +79,6 @@ function link(item: AttentionItem): string {
         </div>
       </li>
     </ul>
-    <p v-else class="border-t border-default px-4 py-3 text-sm text-muted">Nothing needs you right now.</p>
+    <p v-else class="text-sm text-muted">Nothing needs you right now.</p>
   </section>
 </template>

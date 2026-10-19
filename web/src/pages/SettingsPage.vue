@@ -65,9 +65,9 @@ async function save(drafts: FormDrafts): Promise<void> {
 </script>
 
 <template>
-  <div class="mx-auto flex max-w-3xl flex-col gap-6">
+  <div class="grampus-page">
     <div class="flex flex-col gap-1">
-      <h1 class="text-2xl font-semibold text-highlighted">Settings</h1>
+      <h1 class="text-3xl font-semibold tracking-tight text-highlighted">Settings</h1>
       <p v-if="settings?.file" class="text-sm text-muted" data-file>
         Stored in <span class="font-mono break-all">{{ settings.file }}</span>
       </p>
@@ -97,7 +97,10 @@ async function save(drafts: FormDrafts): Promise<void> {
           <li v-for="issue in failure.issues" :key="issue">{{ issue }}</li>
         </ul>
       </NoticeBox>
-      <ActionForm :action="settings.save" :busy="saving" :sending="saving" :issues="fieldIssues" @submit="save" />
+      <section class="grampus-surface max-w-4xl">
+        <h2 class="mb-5 text-lg font-semibold text-highlighted">Controller configuration</h2>
+        <ActionForm :action="settings.save" :busy="saving" :sending="saving" :issues="fieldIssues" @submit="save" />
+      </section>
     </template>
   </div>
 </template>

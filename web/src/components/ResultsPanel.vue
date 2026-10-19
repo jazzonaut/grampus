@@ -26,11 +26,7 @@ const outcomes = { passed: 'Passed', failed: 'Failed', skipped: 'Skipped' } as c
 </script>
 
 <template>
-  <section
-    :aria-labelledby="headingId"
-    class="flex flex-col gap-4 rounded-lg border border-default bg-default p-4"
-    data-panel="results"
-  >
+  <section :aria-labelledby="headingId" class="grampus-surface flex flex-col gap-5" data-panel="results">
     <h2 :id="headingId" class="text-base font-semibold text-highlighted">Results</h2>
     <div v-if="results.unresolved.length" class="flex flex-col gap-1" data-unresolved>
       <h3 class="text-sm font-semibold text-highlighted">Unresolved</h3>
@@ -72,7 +68,7 @@ const outcomes = { passed: 'Passed', failed: 'Failed', skipped: 'Skipped' } as c
       <div
         v-for="lens in results.lenses"
         :key="lens.id"
-        class="rounded-md border border-default p-2 text-sm"
+        class="border-l-2 border-default py-2 pl-4 text-sm"
         :data-lens="lens.id"
       >
         <p class="font-medium text-highlighted">
