@@ -16,7 +16,7 @@ import { renderReport } from '../reporting/report.js';
 import { Kickoffs } from '../orchestration/kickoff.js';
 import { Sessions } from '../execution/sessions.js';
 import { versionInformation } from '../config/runtime.js';
-import { checkOutputLimits, formatBytes, serverLimits } from '../config/limits.js';
+import { checkOutputLimits, formatBytes, serverLimits, stallLimits } from '../config/limits.js';
 import { currentSettings } from '../config/settings.js';
 import { TaskLifecycle } from '../orchestration/task-lifecycle.js';
 import { suggestReferenceFolders } from '../repository/reference-folders.js';
@@ -26,6 +26,8 @@ import { readCheckLog } from '../verification/check-output.js';
 import { describeIssues } from '../process/boundary.js';
 import { HttpError, errorResponse } from './errors.js';
 import { eventSummary, taskPoll } from './task-poll.js';
+import { HealthMonitor, compactHealth, healthView, type HealthCheck } from '../health/health.js';
+import { StallWatchdog } from '../health/stalls.js';
 import {
   approveTaskBody,
   createKickoffBody,
@@ -52,6 +54,14 @@ interface Job {
 export interface UiOptions {
   db: string;
   port?: number;
+  /**
+   * Integration checks (the CLI passes `doctor`). With it the dashboard checks stale health at start,
+   * serves `GET /api/health?refresh=1` and lets run workers check before a guided run. Without it the
+   * stored result is shown and a refresh is refused, so tests never start real providers.
+   */
+  health?: HealthCheck;
+  /** Clock for staleness and stall detection; tests inject one. */
+  now?: () => number;
 }
 
 const assets: Record<string, [string, string]> = {
@@ -115,6 +125,15 @@ interface Dashboard {
   jobs: Map<string, Job>;
   cachedViews: Map<string, { revision: string; value: unknown }>;
   launch: (id: string, work: WorkerAction) => void;
+  stalls: StallWatchdog;
+  /** Null when the dashboard was started without integration checks. */
+  health: HealthMonitor | null;
+  now: () => number;
+}
+
+/** A task poll with the current stall, which depends on time rather than on the journal revision. */
+function withStall(dashboard: Dashboard, id: string, poll: unknown): unknown {
+  return { ...z.looseObject({}).parse(poll), stalled: dashboard.stalls.stall(id) };
 }
 
 function json(response: ServerResponse, code: number, body: unknown): void {
@@ -154,7 +173,7 @@ function getItem(dashboard: Dashboard, route: ItemRoute, url: URL): unknown {
       throw new HttpError(404, 'Check belongs to another task');
     return readCheckLog(check, query.stream, query.offset, checkOutputLimits.maxPageCharacters, query.raw === '1');
   }
-  if (route.action === undefined) return cachedPoll(dashboard, route.id);
+  if (route.action === undefined) return withStall(dashboard, route.id, cachedPoll(dashboard, route.id));
   throw new HttpError(404, 'Not found');
 }
 
@@ -282,6 +301,60 @@ function securityHeaders(response: ServerResponse): void {
   );
 }
 
+/** Start one action worker for `id`; it reports through the job record and its exit code. */
+function launchWorker(store: Store, jobs: Map<string, Job>, health: boolean, id: string, work: WorkerAction): void {
+  if (jobs.get(id)?.running) throw new HttpError(409, 'An action is already running for this item');
+  const job: Job = { running: true, error: null, action: work.action, startedAt: new Date().toISOString() };
+  jobs.set(id, job);
+  const child = spawn(process.execPath, [fileURLToPath(new URL('./ui-worker.js', import.meta.url))], {
+    windowsHide: true,
+    stdio: ['pipe', 'ignore', 'pipe'],
+  });
+  let output = '';
+  child.stderr.on('data', (chunk: Buffer) => {
+    output = (output + chunk.toString('utf8')).slice(-serverLimits.workerErrorCharacters);
+  });
+  child.on('error', error => {
+    job.running = false;
+    job.error = error.message;
+  });
+  child.stdin.on('error', error => {
+    job.error = error.message;
+  });
+  child.on('close', code => {
+    job.running = false;
+    if (code !== 0) job.error = output.trim() || job.error || `Worker exited (${code})`;
+  });
+  child.stdin.end(
+    JSON.stringify({ db: store.path, id, ...work, settings: currentSettings(), ...(health ? { health: true } : {}) }),
+  );
+}
+
+/** Scan for stalls now and every `stallLimits.scanIntervalMs`; the timer never keeps the process alive. */
+function watchStalls(stalls: StallWatchdog): ReturnType<typeof setInterval> {
+  const scan = () => {
+    try {
+      stalls.scan();
+    } catch {
+      /* Detection is observational; the next scan tries again and the previous result stays shown. */
+    }
+  };
+  scan();
+  const timer = setInterval(scan, stallLimits.scanIntervalMs);
+  timer.unref();
+  return timer;
+}
+
+/** `GET /api/health`: the stored health, after running the checks again when `refresh=1`. */
+async function healthRoute(dashboard: Dashboard, url: URL): Promise<unknown> {
+  if (url.searchParams.get('refresh') === '1') {
+    if (!dashboard.health)
+      throw new HttpError(409, 'Health checks are not available in this dashboard; run grampus doctor');
+    await dashboard.health.refresh();
+  }
+  return healthView(dashboard.store, dashboard.now());
+}
+
 /** Loopback dashboard. Workers use the same durable controller as the CLI. */
 export async function startUi(options: UiOptions) {
   const store = new Store(options.db),
@@ -289,34 +362,31 @@ export async function startUi(options: UiOptions) {
     kickoffs = new Kickoffs(store);
   const token = randomBytes(32).toString('hex'),
     jobs = new Map<string, Job>();
-  let cachedState: { revision: string; value: { tasks: unknown; kickoffs: unknown } } | null = null;
+  let cachedState: {
+    revision: string;
+    value: { tasks: ReturnType<Store['guidedSummaries']>; kickoffs: unknown };
+  } | null = null;
   let origin = '';
-  const launch = (id: string, work: WorkerAction) => {
-    if (jobs.get(id)?.running) throw new HttpError(409, 'An action is already running for this item');
-    const job: Job = { running: true, error: null, action: work.action, startedAt: new Date().toISOString() };
-    jobs.set(id, job);
-    const child = spawn(process.execPath, [fileURLToPath(new URL('./ui-worker.js', import.meta.url))], {
-      windowsHide: true,
-      stdio: ['pipe', 'ignore', 'pipe'],
-    });
-    let output = '';
-    child.stderr.on('data', (chunk: Buffer) => {
-      output = (output + chunk.toString('utf8')).slice(-serverLimits.workerErrorCharacters);
-    });
-    child.on('error', error => {
-      job.running = false;
-      job.error = error.message;
-    });
-    child.stdin.on('error', error => {
-      job.error = error.message;
-    });
-    child.on('close', code => {
-      job.running = false;
-      if (code !== 0) job.error = output.trim() || job.error || `Worker exited (${code})`;
-    });
-    child.stdin.end(JSON.stringify({ db: store.path, id, ...work, settings: currentSettings() }));
+  const now = options.now ?? Date.now;
+  const stalls = new StallWatchdog(store, now);
+  const health = options.health ? new HealthMonitor(store, options.health, now) : null;
+  const stallTimer = watchStalls(stalls);
+  const launch = (id: string, work: WorkerAction) => launchWorker(store, jobs, health !== null, id, work);
+  const dashboard: Dashboard = { store, tasks, kickoffs, jobs, cachedViews: new Map(), launch, stalls, health, now };
+  const state = () => {
+    const revision = store.revision();
+    if (cachedState?.revision !== revision)
+      cachedState = { revision, value: { tasks: store.guidedSummaries(), kickoffs: kickoffs.list() } };
+    return {
+      ...cachedState.value,
+      tasks: cachedState.value.tasks.map(task => ({ ...task, stalled: stalls.stall(task.id) })),
+      health: compactHealth(healthView(store, now())),
+      jobs: Object.fromEntries(jobs),
+      journal: store.path,
+      application: versionInformation(currentSettings().dashboardPort),
+      qualityPasses: availableQualityPasses(currentSettings().qualityPasses),
+    };
   };
-  const dashboard: Dashboard = { store, tasks, kickoffs, jobs, cachedViews: new Map(), launch };
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     securityHeaders(response);
     if (
@@ -344,16 +414,11 @@ export async function startUi(options: UiOptions) {
     const route = groups ? routeSchema.parse(groups) : null;
     if (request.method === 'GET') {
       if (path === '/api/state') {
-        const revision = store.revision();
-        if (cachedState?.revision !== revision)
-          cachedState = { revision, value: { tasks: store.guidedSummaries(), kickoffs: kickoffs.list() } };
-        json(response, 200, {
-          ...cachedState.value,
-          jobs: Object.fromEntries(jobs),
-          journal: store.path,
-          application: versionInformation(currentSettings().dashboardPort),
-          qualityPasses: availableQualityPasses(currentSettings().qualityPasses),
-        });
+        json(response, 200, state());
+        return;
+      }
+      if (path === '/api/health') {
+        json(response, 200, await healthRoute(dashboard, url));
         return;
       }
       if (!route) throw new HttpError(404, 'Not found');
@@ -383,20 +448,27 @@ export async function startUi(options: UiOptions) {
       });
     });
   } catch (error) {
+    clearInterval(stallTimer);
     store.close();
     throw error;
   }
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Dashboard address unavailable');
   origin = `http://127.0.0.1:${address.port}`;
+  // In the background: the dashboard is usable at once and shows the stored result until the check settles.
+  void health?.refreshIfStale();
   return {
     server,
     store,
     url: `${origin}/#${token}`,
+    /** Stall detection of this dashboard; tests call `scan` with an injected clock. */
+    stalls,
     close: async () => {
       if ([...jobs.values()].some(job => job.running))
         throw new Error('An action is still running; stop it and wait for settlement before closing');
+      clearInterval(stallTimer);
       await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
+      await health?.settled();
       store.close();
     },
   };

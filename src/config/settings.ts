@@ -33,8 +33,10 @@ export interface Settings {
   defaultQualityPasses: readonly string[];
   /** Planned: guided tasks that may run at once, each in its own worktree. Not used yet. */
   maxConcurrentTasks: number;
-  /** Planned: silence after which a running turn or check is surfaced as possibly stalled. Not used yet. */
+  /** Silence after which a running turn or check of a guided task is shown as possibly stalled; nothing is stopped. */
   stallWarningMs: number;
+  /** Age after which the stored integration health is checked again at dashboard start or before a guided run. */
+  healthCheckIntervalMs: number;
 }
 
 /** File name of the optional settings file inside the data directory. */
@@ -51,6 +53,7 @@ export function defaultSettings(): Settings {
     defaultQualityPasses: ['simplification'],
     maxConcurrentTasks: 2,
     stallWarningMs: 600_000,
+    healthCheckIntervalMs: 600_000,
   };
 }
 
@@ -73,6 +76,7 @@ const overridesSchema = z
     defaultQualityPasses: z.array(z.string()).max(qualityLimits.passes).optional(),
     maxConcurrentTasks: integer(1, 16).optional(),
     stallWarningMs: integer(1000, 86_400_000).optional(),
+    healthCheckIntervalMs: integer(1000, 86_400_000).optional(),
   })
   .superRefine((value, context) => {
     for (const problem of qualitySettingsProblems(

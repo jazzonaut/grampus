@@ -94,13 +94,6 @@ export const claudeUsageSampleSchema = z.object({
 /** `mcpServerStatus()` entries. */
 export const claudeMcpStatusSchema = z.array(z.looseObject({ name: z.string(), status: z.string() }));
 
-/** `claude auth status` output, read by `doctor`. Identity fields are deliberately not kept. */
-export const claudeAuthStatusSchema = z.looseObject({
-  loggedIn: z.boolean(),
-  authMethod: z.string().optional(),
-  apiProvider: z.string().optional(),
-});
-
 /** Parse a message Grampus cannot proceed without; a mismatch is a `ProtocolError` naming the message. */
 export function parseClaudeMessage<S extends z.ZodType>(messageType: string, schema: S, value: unknown): z.output<S> {
   const result = schema.safeParse(value);

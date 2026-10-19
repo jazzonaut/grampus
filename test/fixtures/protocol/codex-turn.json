@@ -1,0 +1,291 @@
+{
+  "description": "A complete codex app-server exchange for one conversation turn as Grampus drives it: handshake, config/read, thread/start, MCP status, turn/start, a streamed agent message, token usage, turn completion with the structured reply, and the MCP status refresh after the turn. Client entries are matched as subsets of what the adapter sends; server entries are replayed in order, and a result answers the client request before it.",
+  "provenance": "Constructed from the codex-cli 0.163.0 app-server JSON Schema (codex app-server generate-json-schema) and the recorded handshake in codex-handshake.recorded.json. Re-derive it from a live run when Codex changes its protocol; the replay test then shows what broke.",
+  "recordedWith": "codex-cli 0.163.0",
+  "exchange": [
+    {
+      "client": {
+        "method": "initialize",
+        "params": { "clientInfo": { "name": "grampus" }, "capabilities": { "experimentalApi": true } }
+      }
+    },
+    {
+      "server": {
+        "result": {
+          "userAgent": "grampus/0.163.0 (Windows 10.0.26200; x86_64) unknown (grampus; 0.1.0)",
+          "codexHome": "<codex home>",
+          "platformFamily": "windows",
+          "platformOs": "windows"
+        }
+      }
+    },
+    { "client": { "method": "initialized" } },
+    { "client": { "method": "account/read", "params": { "refreshToken": false } } },
+    {
+      "server": {
+        "method": "account/updated",
+        "params": { "authMode": "chatgpt", "planType": "pro" },
+        "emittedAtMs": 1792371629659
+      }
+    },
+    { "server": { "result": { "account": { "type": "chatgpt", "email": "<email>", "planType": "pro" } } } },
+    { "client": { "method": "config/read", "params": { "includeLayers": false } } },
+    {
+      "server": {
+        "result": {
+          "config": {
+            "model": "gpt-5.5-codex",
+            "mcp_servers": { "docs": { "command": "docs-mcp", "args": null, "enabled": true } }
+          },
+          "origins": {}
+        }
+      }
+    },
+    {
+      "client": {
+        "method": "thread/start",
+        "params": {
+          "modelProvider": "openai",
+          "approvalPolicy": "untrusted",
+          "sandbox": "read-only",
+          "config": { "web_search": "disabled", "mcp_servers.docs": { "command": "docs-mcp", "enabled": true } }
+        }
+      }
+    },
+    {
+      "server": {
+        "method": "thread/started",
+        "params": {
+          "thread": {
+            "id": "019a0000-0000-7000-8000-000000000001",
+            "sessionId": "019a0000-0000-7000-8000-000000000001",
+            "cliVersion": "0.163.0",
+            "createdAt": 1792371630,
+            "updatedAt": 1792371630,
+            "cwd": "C:\\work\\repo",
+            "ephemeral": false,
+            "modelProvider": "openai",
+            "preview": "",
+            "projectId": null,
+            "source": "appServer",
+            "status": { "type": "idle" },
+            "turns": []
+          }
+        }
+      }
+    },
+    {
+      "server": {
+        "result": {
+          "thread": {
+            "id": "019a0000-0000-7000-8000-000000000001",
+            "sessionId": "019a0000-0000-7000-8000-000000000001",
+            "cliVersion": "0.163.0",
+            "createdAt": 1792371630,
+            "updatedAt": 1792371630,
+            "cwd": "C:\\work\\repo",
+            "ephemeral": false,
+            "modelProvider": "openai",
+            "preview": "",
+            "projectId": null,
+            "source": "appServer",
+            "status": { "type": "idle" },
+            "turns": []
+          },
+          "model": "gpt-5.5-codex",
+          "modelProvider": "openai",
+          "cwd": "C:\\work\\repo",
+          "approvalPolicy": "untrusted",
+          "approvalsReviewer": "user",
+          "sandbox": { "type": "readOnly", "networkAccess": false },
+          "reasoningEffort": "medium"
+        }
+      }
+    },
+    {
+      "client": {
+        "method": "mcpServerStatus/list",
+        "params": { "threadId": "019a0000-0000-7000-8000-000000000001", "detail": "toolsAndAuthOnly", "cursor": null }
+      }
+    },
+    {
+      "server": {
+        "result": {
+          "data": [
+            {
+              "name": "docs",
+              "runtimeStatus": "connected",
+              "authStatus": "unsupported",
+              "tools": { "search": { "name": "search", "inputSchema": { "type": "object" } } },
+              "resources": [],
+              "resourceTemplates": []
+            }
+          ],
+          "nextCursor": null
+        }
+      }
+    },
+    {
+      "client": {
+        "method": "turn/start",
+        "params": {
+          "threadId": "019a0000-0000-7000-8000-000000000001",
+          "input": [{ "type": "text" }],
+          "outputSchema": { "type": "object", "additionalProperties": false }
+        }
+      }
+    },
+    {
+      "server": {
+        "result": {
+          "turn": { "id": "019a0000-0000-7000-8000-000000000002", "items": [], "status": "inProgress", "error": null }
+        }
+      }
+    },
+    {
+      "server": {
+        "method": "turn/started",
+        "params": {
+          "threadId": "019a0000-0000-7000-8000-000000000001",
+          "turn": { "id": "019a0000-0000-7000-8000-000000000002", "items": [], "status": "inProgress", "error": null }
+        }
+      }
+    },
+    {
+      "server": {
+        "method": "thread/status/changed",
+        "params": {
+          "threadId": "019a0000-0000-7000-8000-000000000001",
+          "status": { "type": "active", "activeFlags": [] }
+        }
+      }
+    },
+    {
+      "server": {
+        "method": "remoteControl/status/changed",
+        "params": {
+          "status": "disabled",
+          "serverName": "<host>",
+          "installationId": "<installation>",
+          "environmentId": null
+        },
+        "emittedAtMs": 1792371630100
+      }
+    },
+    {
+      "server": {
+        "method": "item/started",
+        "params": {
+          "threadId": "019a0000-0000-7000-8000-000000000001",
+          "turnId": "019a0000-0000-7000-8000-000000000002",
+          "startedAtMs": 1792371631000,
+          "item": { "type": "agentMessage", "id": "msg_1", "text": "" }
+        }
+      }
+    },
+    {
+      "server": {
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "019a0000-0000-7000-8000-000000000001",
+          "turnId": "019a0000-0000-7000-8000-000000000002",
+          "itemId": "msg_1",
+          "delta": "{\"kind\":\"message\",\"text\":\"The parser already rejects empty input; "
+        }
+      }
+    },
+    {
+      "server": {
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "019a0000-0000-7000-8000-000000000001",
+          "turnId": "019a0000-0000-7000-8000-000000000002",
+          "itemId": "msg_1",
+          "delta": "no change is needed.\",\"questions\":[],\"findings\":[],\"lenses\":null}"
+        }
+      }
+    },
+    {
+      "server": {
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "019a0000-0000-7000-8000-000000000001",
+          "turnId": "019a0000-0000-7000-8000-000000000002",
+          "tokenUsage": {
+            "last": {
+              "inputTokens": 5200,
+              "cachedInputTokens": 4000,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 96,
+              "reasoningOutputTokens": 40,
+              "totalTokens": 5296
+            },
+            "total": {
+              "inputTokens": 5200,
+              "cachedInputTokens": 4000,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 96,
+              "reasoningOutputTokens": 40,
+              "totalTokens": 5296
+            },
+            "modelContextWindow": 272000
+          }
+        }
+      }
+    },
+    {
+      "server": {
+        "method": "item/completed",
+        "params": {
+          "threadId": "019a0000-0000-7000-8000-000000000001",
+          "turnId": "019a0000-0000-7000-8000-000000000002",
+          "completedAtMs": 1792371638000,
+          "item": {
+            "type": "agentMessage",
+            "id": "msg_1",
+            "text": "{\"kind\":\"message\",\"text\":\"The parser already rejects empty input; no change is needed.\",\"questions\":[],\"findings\":[],\"lenses\":null}",
+            "phase": "final_answer"
+          }
+        }
+      }
+    },
+    {
+      "server": {
+        "method": "turn/completed",
+        "params": {
+          "threadId": "019a0000-0000-7000-8000-000000000001",
+          "turn": {
+            "id": "019a0000-0000-7000-8000-000000000002",
+            "items": [],
+            "status": "completed",
+            "error": null,
+            "durationMs": 7000
+          }
+        }
+      }
+    },
+    {
+      "client": {
+        "method": "mcpServerStatus/list",
+        "params": { "threadId": "019a0000-0000-7000-8000-000000000001", "detail": "toolsAndAuthOnly" }
+      }
+    },
+    {
+      "server": {
+        "result": {
+          "data": [
+            {
+              "name": "docs",
+              "runtimeStatus": "connected",
+              "authStatus": "unsupported",
+              "tools": { "search": { "name": "search", "inputSchema": { "type": "object" } } },
+              "resources": [],
+              "resourceTemplates": []
+            }
+          ],
+          "nextCursor": null
+        }
+      }
+    }
+  ]
+}

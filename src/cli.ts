@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { Store, defaultDatabasePath } from './persistence/store.js';
 import { Workflow } from './domain/workflow.js';
 import { doctor } from './health/doctor.js';
+import { healthView, refreshHealth } from './health/health.js';
 import { runDemo } from './probes/demo.js';
 import { renderReport } from './reporting/report.js';
 import { Sessions, runSession } from './execution/sessions.js';
@@ -47,7 +48,7 @@ const help = `Grampus — local agent controller
   update [--source <checkout>]   Install a new snapshot from the recorded checkout (--yes)
   ui                             Open the local task dashboard (--port, optional --db)
 
-  doctor [--orca]                 Check local interfaces; no inference calls
+  doctor [--orca]                 Check the executables Grampus runs and store the result; no inference
   demo                           Run a synthetic workflow in a fresh temporary database
   create <brief.json>             Store title, outcome, criteria[], plan and optional ordered slices[]
   approve <task-id> <version>     Approve that exact brief version
@@ -203,7 +204,7 @@ async function uiCommand(invocation: Invocation): Promise<void> {
   const { values } = invocation;
   const listen = port(values.port ?? String(currentSettings().dashboardPort));
   const { startUi } = await import('./server/ui-server.js');
-  const ui = await startUi({ db: values.db ?? defaultDatabasePath(), port: listen });
+  const ui = await startUi({ db: values.db ?? defaultDatabasePath(), port: listen, health: () => doctor() });
   console.log(
     `${versionLabel()}\nGrampus dashboard: ${ui.url}\nJournal: ${ui.store.path}\nKeep this terminal open. Ctrl+C closes the dashboard after active actions settle.`,
   );
@@ -224,6 +225,29 @@ async function uiCommand(invocation: Invocation): Promise<void> {
   };
   process.on('SIGINT', close);
   process.on('SIGTERM', close);
+}
+
+/**
+ * Run every integration check, store the result as the journal's latest health and print it with any
+ * provider version change warning. Exit code 1 when a required integration is not healthy. A journal
+ * that cannot be opened does not hide the result: it is printed and the storage problem reported.
+ */
+async function doctorCommand(invocation: Invocation): Promise<void> {
+  const report = await doctor({ orca: invocation.values.orca });
+  let warnings: string[] = [];
+  try {
+    const store = new Store(invocation.values.db ?? defaultDatabasePath());
+    try {
+      await refreshHealth(store, () => Promise.resolve(report));
+      warnings = healthView(store).warnings;
+    } finally {
+      store.close();
+    }
+  } catch (error) {
+    console.error(`Health result not stored: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  print({ ...report, warnings });
+  if (report.integrations.some(item => item.required && item.status !== 'healthy')) process.exitCode = 1;
 }
 
 function demoCommand(invocation: Invocation): void {
@@ -633,11 +657,8 @@ async function main(): Promise<void> {
   if (values.version || action === 'version') versionCommand(invocation);
   else if (action === 'update') await updateInstallation(values.source, values.yes);
   else if (action === 'ui') await uiCommand(invocation);
-  else if (action === 'doctor') {
-    const capabilities = await doctor(values.orca);
-    print({ node: process.version, platform: process.platform, capabilities });
-    if (capabilities.some(item => item.status === 'unavailable')) process.exitCode = 1;
-  } else if (action === 'demo') demoCommand(invocation);
+  else if (action === 'doctor') await doctorCommand(invocation);
+  else if (action === 'demo') demoCommand(invocation);
   else if (action.startsWith('task-')) await taskCommand(invocation);
   else if (action.startsWith('workspace-')) await workspaceCommand(invocation);
   else if (action.startsWith('execution-')) await executionCommand(invocation);

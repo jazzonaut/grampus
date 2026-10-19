@@ -24,6 +24,7 @@ import {
   type Session,
   type Workspace,
 } from './records.js';
+import { healthReportSchema, type HealthReport } from '../health/health-record.js';
 
 /** The default journal for this installed or development copy. */
 export function defaultDatabasePath(): string {
@@ -117,6 +118,7 @@ const schema = `
     execution_id TEXT NOT NULL REFERENCES executions(id),
     state TEXT NOT NULL
   );
+  CREATE TABLE health (id TEXT PRIMARY KEY, state TEXT NOT NULL);
 `;
 const expectedTables = [...schema.matchAll(/CREATE TABLE (\w+)/g)].flatMap(match => (match[1] ? [match[1]] : []));
 
@@ -126,6 +128,28 @@ const eventRow = z.object({ sequence: z.number(), at: z.string(), type: z.string
 const taskEventRow = eventRow.extend({ task_id: z.string(), version: z.number() });
 const nameRow = z.object({ name: z.string() });
 const summaryRow = z.object({ id: z.string(), title: z.unknown(), status: z.unknown(), stage: z.unknown() });
+const activeWorkRow = z.object({
+  task_id: z.string(),
+  id: z.string(),
+  label: z.unknown(),
+  directory: z.string().nullable(),
+  last: z.string().nullable(),
+});
+/** The single row of the `health` table. */
+const latestHealth = 'latest';
+
+/** A running session or check of a running guided task, as stall detection sees it. */
+export interface ActiveWork {
+  taskId: string;
+  kind: 'session' | 'check';
+  id: string;
+  /** The session's provider or the check's name. */
+  label: string;
+  /** The latest event in the session's or the check's execution journal; null when there is none. */
+  lastEventAt: string | null;
+  /** A check's receipt directory, where its output logs grow; null for sessions and undispatched checks. */
+  directory: string | null;
+}
 
 type SchemaState = 'empty' | 'current' | 'foreign';
 function schemaState(db: DatabaseSync): SchemaState {
@@ -500,6 +524,83 @@ export class Store {
         'INSERT INTO deliveries(id, execution_id, state) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state',
       )
       .run(id, executionId, JSON.stringify(state));
+  }
+
+  /** The latest integration health result, validated, or null before the first check. */
+  health(): HealthReport | null {
+    const row = this.db.prepare('SELECT state FROM health WHERE id = ?').get(latestHealth);
+    return row ? record(healthReportSchema, 'health', row) : null;
+  }
+
+  /** Replace the latest integration health result. */
+  saveHealth(report: HealthReport): void {
+    this.db
+      .prepare('INSERT INTO health(id, state) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state')
+      .run(latestHealth, JSON.stringify(report));
+  }
+
+  /**
+   * The sessions of the task whose delivery was most recently accepted, in creation order: the provider
+   * programs that last carried a task through to a verified commit. Null before any delivery.
+   */
+  lastDelivery(): { taskId: string; deliveryId: string; sessions: Session[] } | null {
+    const row = this.db
+      .prepare(
+        `SELECT executions.task_id AS task_id, deliveries.id AS id FROM deliveries
+      JOIN executions ON executions.id = deliveries.execution_id
+      WHERE json_extract(deliveries.state, '$.phase') = 'delivered' ORDER BY deliveries.rowid DESC LIMIT 1`,
+      )
+      .get();
+    if (!row) return null;
+    const delivered = parseBoundary(z.object({ task_id: z.string(), id: z.string() }), row, journal('deliveries'));
+    const sessions = this.db
+      .prepare(
+        `SELECT sessions.state AS state FROM sessions JOIN executions ON executions.session_id = sessions.id
+      WHERE executions.task_id = ? ORDER BY sessions.rowid`,
+      )
+      .all(delivered.task_id)
+      .map(item => record(sessionSchema, 'sessions', item));
+    return { taskId: delivered.task_id, deliveryId: delivered.id, sessions };
+  }
+
+  /**
+   * Running provider sessions and checks of live guided tasks whose status is `running`, with the time
+   * of the latest event in their own journal (session events for a session, execution events for a
+   * check). Stall detection reads this; it is an observation, not ownership.
+   */
+  activeGuidedWork(): ActiveWork[] {
+    const live = `json_type(tasks.state, '$.guided') = 'object' AND json_extract(tasks.state, '$.deletedAt') IS NULL
+      AND json_extract(tasks.state, '$.guided.status') = 'running'`;
+    const sessions = this.db
+      .prepare(
+        `SELECT executions.task_id AS task_id, sessions.id AS id, json_extract(sessions.state, '$.provider') AS label,
+        NULL AS directory,
+        (SELECT at FROM session_events WHERE session_id = sessions.id ORDER BY sequence DESC LIMIT 1) AS last
+      FROM sessions JOIN executions ON executions.session_id = sessions.id JOIN tasks ON tasks.id = executions.task_id
+      WHERE json_extract(sessions.state, '$.phase') IN ('running', 'stop_requested') AND ${live} ORDER BY sessions.rowid`,
+      )
+      .all();
+    const checks = this.db
+      .prepare(
+        `SELECT executions.task_id AS task_id, checks.id AS id, json_extract(checks.state, '$.spec.name') AS label,
+        json_extract(checks.state, '$.receipt.directory') AS directory,
+        (SELECT at FROM execution_events WHERE execution_id = checks.execution_id ORDER BY sequence DESC LIMIT 1) AS last
+      FROM checks JOIN executions ON executions.id = checks.execution_id JOIN tasks ON tasks.id = executions.task_id
+      WHERE json_extract(checks.state, '$.phase') = 'running' AND ${live} ORDER BY checks.rowid`,
+      )
+      .all();
+    const read = (kind: ActiveWork['kind']) => (row: unknown) => {
+      const item = parseBoundary(activeWorkRow, row, journal(kind === 'session' ? 'sessions' : 'checks'));
+      return {
+        taskId: item.task_id,
+        kind,
+        id: item.id,
+        label: item.label === null ? kind : text(item.label),
+        lastEventAt: item.last,
+        directory: item.directory,
+      };
+    };
+    return [...sessions.map(read('session')), ...checks.map(read('check'))];
   }
 
   releaseLease(workspaceId: string, executionId: string, runId: string): void {

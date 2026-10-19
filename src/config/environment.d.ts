@@ -6,6 +6,8 @@ declare global {
     interface ProcessEnv {
       /** Overrides the data directory (journal, settings and check logs). */
       GRAMPUS_HOME?: string;
+      /** Searched for the native `codex`, `git` and Orca executables (case-insensitive on Windows). */
+      PATH?: string;
       /** Overrides the Codex executable used for `codex app-server` and by `doctor`. */
       GRAMPUS_CODEX_COMMAND?: string;
       /** Overrides the Claude executable instead of the one bundled with the pinned Agent SDK. */

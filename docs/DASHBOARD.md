@@ -56,6 +56,12 @@ repair allowances and operational failures stop for attention with the reason sh
 - **Progress:** the current step, elapsed and last-activity times, repository reads,
   MCP requests and file change requests. Agent activity describes what the agent
   asked for; checks and retained evidence establish results.
+- **No activity for N min:** when a running agent turn or check has journaled nothing
+  (no output, usage, tool or other event, and for a check no growing output log) for
+  `stallWarningMs` (10 minutes by default, see [CONFIGURATION.md](CONFIGURATION.md)),
+  the task shows this badge in the sidebar and a notice on its page, and the timeline
+  records one "possibly stalled" entry per silence. Nothing is stopped: wait if the step
+  is slow, or use **Stop now** if it is hung. New activity clears the badge.
 - **Failures:** a compact issue summary with the failing test or diagnostics. Full
   output is collapsed and loaded in pages with **Read stdout** and **Read stderr**.
 - **Timeline:** pinned while scrolling, showing the latest entries. **View full
@@ -93,6 +99,25 @@ Refreshing or reopening the page starts no provider calls, checks or Git writes.
 Actions run in separate worker processes, so restarting the dashboard does not stop
 them and is not evidence that they stopped. After a restart, open the newly printed
 link and select the task.
+
+## Integration health
+
+The header shows **Integrations healthy**, **Integrations need attention** or
+**Integrations not checked yet**. Open it for each integration (Codex, Claude, Git,
+Node, Windows PowerShell and Orca) with its version and a status per capability:
+executable, version, sign-in, handshake, MCP and, where relevant, SQLite or the native
+supervisor. Inference is always shown as not tested, because health checks never send a
+turn. **Check again** reruns the checks (a few seconds; no inference). The dashboard checks
+by itself when it starts and before a guided run if the stored result is older than
+`healthCheckIntervalMs` (10 minutes by default).
+
+A warning such as "Codex changed from 0.162.0 to 0.163.0 since the last successful
+delivery; capabilities are untested on this version" means the provider program differs
+from the one that last carried a task to a verified commit. Grampus does not block on it:
+run a small, low-risk task first, watch for stops caused by protocol errors, and update
+the recorded protocol fixtures if the provider changed its protocol
+([ARCHITECTURE.md](ARCHITECTURE.md#health-and-stalls)). The warning clears after the
+next successful delivery on the new version.
 
 ## Access and data
 

@@ -52,7 +52,8 @@ Example:
 | `qualityPasses` | `[]` | up to 16 definitions | Custom quality passes a plan may select by id, in addition to the built-ins (see below) |
 | `defaultQualityPasses` | `["simplification"]` | up to 6 distinct known ids, or `[]` | Quality passes selected for new plans that omit `quality` |
 | `maxConcurrentTasks` | `2` | 1 to 16 | **Planned:** guided tasks that may run at once. Accepted but not used yet |
-| `stallWarningMs` | `600000` | 1000 to 86400000 | **Planned:** silence after which a running turn or check is shown as possibly stalled. Accepted but not used yet |
+| `stallWarningMs` | `600000` | 1000 to 86400000 | Silence after which a running agent turn or check of a guided task is shown as possibly stalled (a dashboard badge and one timeline entry per silence). Nothing is stopped. Read by the dashboard server |
+| `healthCheckIntervalMs` | `600000` | 1000 to 86400000 | Age after which the stored integration health is checked again automatically, when the dashboard starts and before a guided run it starts. `grampus doctor` and **Check again** always check |
 
 `defaultWorkflowPolicy` is an object with any of these fields:
 
@@ -106,4 +107,5 @@ piece of evidence means. Repository read budgets are described in
 [REPOSITORY-CONTEXT.md](REPOSITORY-CONTEXT.md).
 
 The dashboard's own polling interval (1.5 seconds) is set in the browser client and is not
-configurable.
+configurable. The dashboard server looks for stalls every 15 seconds and bounds health checks
+(`stallLimits` and `healthLimits` in `src/config/limits.ts`).

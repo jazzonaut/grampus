@@ -9,6 +9,8 @@ import { processLimits, serverLimits } from '../config/limits.js';
 import { parseSettings, useSettings } from '../config/settings.js';
 import { parseBoundary, parseJson } from '../process/boundary.js';
 import { workerRequestSchema, type WorkerAction } from './api-schemas.js';
+import { refreshHealthIfStale } from '../health/health.js';
+import { doctor } from '../health/doctor.js';
 
 async function perform(
   tasks: GuidedTasks,
@@ -84,6 +86,8 @@ async function main() {
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
   try {
+    // Before a guided run, refresh stale integration health. It is recorded, never a gate.
+    if (request.action === 'run' && request.health) await refreshHealthIfStale(store, () => doctor()).catch(() => null);
     await perform(tasks, kickoffs, store, request.id, request, abort.signal);
   } finally {
     if (timer) clearInterval(timer);

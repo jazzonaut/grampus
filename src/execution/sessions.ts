@@ -9,6 +9,7 @@ import type { Session } from '../persistence/records.js';
 import { processLimits } from '../config/limits.js';
 import { agentTimeout } from './agent-timeout.js';
 import { connectAgent } from '../providers/index.js';
+import { providerRuntime, type ProviderRuntime } from '../providers/executables.js';
 import { Workspaces } from '../repository/workspaces.js';
 import { claimExecution, requireExecutionLease, settleExecution, stopExecution } from './execution-state.js';
 import { Workflow, activeSlice, activeCriteria, type Task } from '../domain/workflow.js';
@@ -39,13 +40,23 @@ export class Sessions {
     return this.store.session(id);
   }
 
-  create(provider: Provider, cwd: string, model: string | null = null): Session {
+  /**
+   * Create an idle session. `runtime` records the provider program a turn would start now; callers
+   * inside a transaction resolve it first, because resolving may run the executable's `--version`.
+   */
+  create(
+    provider: Provider,
+    cwd: string,
+    model: string | null = null,
+    runtime: ProviderRuntime = providerRuntime(provider),
+  ): Session {
     if (!['codex', 'claude'].includes(provider)) throw new Error('Provider must be codex or claude');
     const directory = resolve(cwd);
     if (!statSync(directory).isDirectory()) throw new Error('Session directory must exist');
     const session: Session = {
       id: randomUUID(),
       provider,
+      runtime,
       providerSessionId: null,
       model,
       cwd: directory,

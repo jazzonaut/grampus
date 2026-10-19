@@ -346,3 +346,24 @@ export const boundaryLimits = {
   /** Distinct unrecognised provider message types journaled per provider session; later ones are counted. */
   unrecognizedMessageTypes: 32,
 } as const;
+
+/**
+ * Integration health (`health/`). These bound what a health check may wait for and write into the
+ * journal; the check interval itself is the `healthCheckIntervalMs` setting.
+ */
+export const healthLimits = {
+  /** Deadline for the Claude handshake (`accountInfo` and MCP status) and for each health command. */
+  handshakeTimeoutMs: 30_000,
+  /** Characters of one capability detail; longer text is shortened after secrets are redacted. */
+  detailCharacters: 240,
+  /** Hex characters of the overall health fingerprint. */
+  fingerprintCharacters: 16,
+  /** MCP server names listed in one capability detail; the rest are counted. */
+  mcpServersListed: 8,
+} as const;
+
+/** Stall detection in the dashboard server. The silence threshold itself is the `stallWarningMs` setting. */
+export const stallLimits = {
+  /** How often the dashboard server looks for silent running sessions and checks. */
+  scanIntervalMs: 15_000,
+} as const;

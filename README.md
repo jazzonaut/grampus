@@ -80,7 +80,7 @@ checkout. Every task command accepts `--db <path>`. `grampus --help` prints the 
 | --- | --- |
 | `grampus`, `ui` | Open the dashboard (`--port`, `--db`, `--no-open`) |
 | `--version`, `version [--json]`, `update [--source <checkout>] [--yes]` | Identify the build; install a fresh snapshot |
-| `doctor [--orca]` | Check Git, Codex and Claude installation and login, and optionally Orca. No inference |
+| `doctor [--orca]` | Check the Codex and Claude executables Grampus actually runs (handshake, login, MCP), Git, Node, PowerShell and Orca, and store the result for the dashboard. No inference |
 | `demo` | Run a synthetic task in a temporary journal. Starts no agents |
 | `task-new <plan.json>`, `task-show <id> [--details\|--json]` | Store a guided plan as a draft; show progress and the next action |
 | `task-approve <id> <version> <digest>`, `task-run <id>` | Approve the exact plan; advance until input is needed |

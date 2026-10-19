@@ -9,6 +9,7 @@
 // a generic accessor for them.
 import { z } from 'zod';
 import { providerSchema } from '../providers/types.js';
+import { providerRuntimeSchema } from '../providers/executables.js';
 import { agentReplySchema, turnResultSchema } from '../providers/reply-schema.js';
 import { repositorySnapshotSchema } from '../repository/snapshot-schema.js';
 import { checkProcessResultSchema } from '../process/check-process.js';
@@ -27,6 +28,8 @@ export const sessionSchema = z.object({
   mode: z.literal('editing').exactOptional(),
   id: z.string(),
   provider: providerSchema,
+  /** The provider executable, its version and the pinned SDK version when the session was created. */
+  runtime: providerRuntimeSchema,
   providerSessionId: z.string().nullable(),
   model: z.string().nullable(),
   cwd: z.string(),
