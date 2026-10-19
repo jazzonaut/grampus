@@ -281,7 +281,10 @@ model's input history.
 Before resuming, Grampus checks the conversation's controller-turn count and latest
 observed input context. Crossing either configured threshold starts a fresh provider
 conversation. Unknown context size uses the turn limit; cumulative lifetime token
-spend is never mistaken for the active context size. Provider compaction within a
+spend is never mistaken for the active context size. A conversation is resumed only when
+a turn is known to have run on it (a completed turn or a context reading): a provider can
+assign a conversation id and refuse the first turn without saving the conversation, so
+resuming that id would only fail. Provider compaction within a
 turn remains provider-managed. Reset decisions happen between settled operations,
 never halfway through tools or uncertain recovery. Changed Codex dynamic toolsets
 also require a fresh conversation so evidence tools are actually available.

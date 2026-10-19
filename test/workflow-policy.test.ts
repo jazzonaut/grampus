@@ -62,6 +62,36 @@ test('check evidence retains the assertion after noisy output and pages durable 
   assert.equal(second.nextOffset, 3);
 });
 
+test('a provider conversation no turn ever ran on is started fresh rather than resumed', t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  const session = new Sessions(store).create('codex', process.cwd());
+  // Codex started the thread, then refused the turn's input, so it never saved the conversation.
+  session.providerSessionId = 'thread-unsaved';
+  session.toolsetVersion = agentToolsetVersion;
+  store.saveSession(session.id, session);
+  store.appendSession(session.id, 'turn.requested', { runId: 'run' });
+  store.appendSession(session.id, 'turn.result', {
+    runId: 'run',
+    result: { status: 'failed', reply: null, usage: null, error: 'Input exceeds the maximum length' },
+    exitConfirmed: true,
+  });
+  const refused = sessionContinuation(store, session);
+  assert.equal(refused.resume, false);
+  assert.match(refused.reason, /no turn ran/i);
+  // A later session on the same conversation that did complete a turn makes it resumable.
+  const peer = new Sessions(store).create('codex', process.cwd());
+  peer.providerSessionId = 'thread-unsaved';
+  peer.toolsetVersion = agentToolsetVersion;
+  store.saveSession(peer.id, peer);
+  store.appendSession(peer.id, 'turn.result', {
+    runId: 'later',
+    result: { status: 'completed', reply: null, usage: null, error: null },
+    exitConfirmed: true,
+  });
+  assert.equal(sessionContinuation(store, session).resume, true);
+});
+
 test('context rotation uses current input size, retains warm conversations and falls back to a turn limit', t => {
   const store = new Store(':memory:');
   t.after(() => store.close());

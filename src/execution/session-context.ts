@@ -9,6 +9,8 @@ import { z } from 'zod';
 
 /** The input token reading of a journaled `context.updated` event (`{ runId, data }`); unknown when absent. */
 const contextUpdateSchema = z.object({ data: z.object({ inputTokens: z.number().optional() }) });
+/** The status of a journaled `turn.result` event (`{ runId, result, exitConfirmed }`). */
+const turnResultStatusSchema = z.object({ result: z.object({ status: z.string() }) });
 
 /**
  * Decide whether the next execution may resume `session`'s provider conversation. Decide at a settled
@@ -16,6 +18,9 @@ const contextUpdateSchema = z.object({ data: z.object({ inputTokens: z.number().
  * what the provider would carry forward. Turns are counted across every Grampus session that resumed the
  * same provider conversation, since retries create new sessions on one conversation. A Codex session
  * created with an older toolset starts fresh because its thread was registered with the old tools.
+ * A conversation is resumed only with evidence that a turn ran on it (a completed turn or a context
+ * reading): a provider may assign an id and then refuse the first turn, as Codex does for oversized
+ * input, without ever saving the conversation, and resuming that id can only fail.
  * Returns the decision with a human-readable reason and the figures it was based on.
  */
 export function sessionContinuation(
@@ -27,24 +32,34 @@ export function sessionContinuation(
     .sessions()
     .filter(item => item.provider === session.provider && item.providerSessionId === session.providerSessionId);
   const events = peers
-    .flatMap(item => store.sessionEvents(item.id, ['turn.requested', 'context.updated']))
+    .flatMap(item => store.sessionEvents(item.id, ['turn.requested', 'turn.result', 'context.updated']))
     .sort((a, b) => a.sequence - b.sequence);
   const turns = events.filter(event => event.type === 'turn.requested').length;
   const context = contextUpdateSchema.safeParse(events.findLast(event => event.type === 'context.updated')?.data);
   const inputTokens = context.data?.data.inputTokens ?? null;
+  const ran =
+    context.success ||
+    events.some(
+      event =>
+        event.type === 'turn.result' &&
+        turnResultStatusSchema.safeParse(event.data).data?.result.status === 'completed',
+    );
   const outdatedTools = session.provider === 'codex' && session.toolsetVersion !== agentToolsetVersion;
   const reason = !session.providerSessionId
     ? 'No resumable provider conversation'
-    : outdatedTools
-      ? 'Start fresh to install the current evidence and dependency tools'
-      : turns >= policy.maxSessionTurns
-        ? `Conversation reached ${policy.maxSessionTurns} turns`
-        : inputTokens !== null && inputTokens >= policy.maxContextTokens
-          ? `Current context reached ${policy.maxContextTokens} input tokens`
-          : 'Continue the same slice with its existing context';
+    : !ran
+      ? 'No turn ran in the provider conversation, so it was never saved'
+      : outdatedTools
+        ? 'Start fresh to install the current evidence and dependency tools'
+        : turns >= policy.maxSessionTurns
+          ? `Conversation reached ${policy.maxSessionTurns} turns`
+          : inputTokens !== null && inputTokens >= policy.maxContextTokens
+            ? `Current context reached ${policy.maxContextTokens} input tokens`
+            : 'Continue the same slice with its existing context';
   return {
     resume:
       !!session.providerSessionId &&
+      ran &&
       !outdatedTools &&
       turns < policy.maxSessionTurns &&
       (inputTokens === null || inputTokens < policy.maxContextTokens),
