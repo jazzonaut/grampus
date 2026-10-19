@@ -10,8 +10,8 @@
  *
  * Slots:
  * - `health`: compact integration or server health indicator, right of the header.
- * - `sidebar`: the task list. Rendered inside a labelled `<nav>`.
- * - `default`: the main area. Rendered inside `<main id="main">`, the skip link target.
+ * - `sidebar`: New task, the task and planning lists. Rendered inside a labelled `<nav>`.
+ * - `default`: the open screen. Rendered inside `<main id="main">`, the skip link target.
  * - `footer`: optional version and build line under the main area.
  */
 import { useTemplateRef } from 'vue';
@@ -45,20 +45,24 @@ const slots = defineSlots<{
       class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-default focus:px-3 focus:py-2 focus:ring-2 focus:ring-primary"
       @click.prevent="skipToMain"
     >
-      Skip to task
+      Skip to main content
     </a>
     <header class="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-default bg-default px-4">
-      <div class="flex items-center gap-2 font-semibold text-highlighted">
+      <a
+        href="#/"
+        class="flex items-center gap-2 rounded-md font-semibold text-highlighted focus-visible:outline-2 focus-visible:outline-primary"
+      >
         <img :src="logo" alt="" class="size-6" width="24" height="24" />
         <span>{{ title }}</span>
-      </div>
+        <span class="hidden text-xs font-normal text-muted sm:inline">Local controller · Windows alpha</span>
+      </a>
       <div class="flex items-center gap-2">
         <slot name="health" />
       </div>
     </header>
     <div class="flex min-h-0 flex-1 flex-col md:flex-row">
       <nav
-        aria-label="Tasks"
+        aria-label="Tasks and planning"
         class="shrink-0 border-b border-default bg-muted p-3 md:w-72 md:overflow-y-auto md:border-r md:border-b-0"
       >
         <slot name="sidebar" />

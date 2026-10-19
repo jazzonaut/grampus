@@ -108,7 +108,7 @@ export function versionWarnings(report: HealthReport, delivered: readonly Sessio
   return warnings;
 }
 
-/** The health the dashboard and `/api/state` show. */
+/** The stored health with staleness and warnings: `GET /api/health`, and the source of the v1 health summaries. */
 export interface HealthView {
   /** `unknown` before the first check; `attention` when a required integration is not healthy or a warning applies. */
   status: 'healthy' | 'attention' | 'unknown';
@@ -146,21 +146,6 @@ export function healthView(store: Store, now: number = Date.now()): HealthView {
     fingerprint: report.fingerprint,
     warnings,
     integrations: report.integrations,
-  };
-}
-
-/** The health `/api/state` carries on every poll: statuses and versions, without executable paths. */
-export function compactHealth(view: HealthView) {
-  return {
-    ...view,
-    integrations: view.integrations.map(integration => ({
-      id: integration.id,
-      required: integration.required,
-      status: integration.status,
-      version: integration.version,
-      sdkVersion: integration.sdkVersion,
-      capabilities: integration.capabilities,
-    })),
   };
 }
 

@@ -31,8 +31,9 @@ export default defineConfigWithVueTs(
   },
   {
     name: 'grampus/tests',
-    files: ['src/**/*.test.ts'],
-    rules: { 'max-lines': 'off' },
+    // Tests, their typed fixtures and helpers: long data is fine, and a missing fixture should fail loudly.
+    files: ['src/**/*.test.ts', 'src/mock.ts', 'src/testing.ts'],
+    rules: { 'max-lines': 'off', '@typescript-eslint/no-non-null-assertion': 'off' },
   },
   prettier,
 );

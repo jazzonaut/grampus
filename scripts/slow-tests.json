@@ -38,5 +38,7 @@
   "slices-delivery",
   "slices-recovery",
   "ui",
+  "view-model-delivery",
+  "view-model-tasks",
   "workspaces"
 ]

@@ -35,9 +35,10 @@ Keep its terminal open while using the dashboard.
 The installer copies the current source, including uncommitted and untracked source
 files, into a new version directory. It installs dependencies from the lockfile
 using [npm ci](https://docs.npmjs.com/cli/v11/commands/npm-ci/),
-builds there, removes development dependencies, checks runtime imports and required
-assets, then selects that version. It neither uses nor modifies the checkout's
-`dist` or `node_modules`. Package downloads may use the npm registry or cache.
+builds there, removes development dependencies, installs the dashboard client's
+locked dependencies in the snapshot's `web/` folder, builds `web/dist` with Vite and removes those
+dependencies again, checks runtime imports and required assets, then selects that version. It neither uses nor modifies the checkout's
+`dist`, `node_modules`, `web/dist` or `web/node_modules`. Package downloads may use the npm registry or cache.
 Each snapshot contains its own production dependencies, UI assets and Windows
 helpers. It uses Node.js from PATH, so Node.js 24+ must remain installed.
 

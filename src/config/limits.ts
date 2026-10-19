@@ -268,16 +268,12 @@ export const serverLimits = {
   settledJobRetentionMs: 5 * 60_000,
   /** Characters of the provisional task title derived from the request before a plan exists. */
   provisionalTitleCharacters: 60,
-  /** Characters of an event note in polling responses. */
+  /** Characters of an event note in a dashboard timeline entry. */
   eventNoteCharacters: 1200,
-  /** Characters of the task note in polling responses. */
+  /** Characters of the task note in the dashboard task view. */
   stateNoteCharacters: 3000,
-  /** A failed-check note longer than this is replaced by the check's summary in polling responses. */
+  /** A failed-check note longer than this is replaced by the check's summary in the dashboard task view. */
   stateNoteSummaryThreshold: 4000,
-  /** Recent events included in a task polling response. */
-  recentEvents: 30,
-  /** Task polling views cached by journal revision; the oldest is dropped first. */
-  cachedTaskViews: 4,
   /** Characters of a tool argument shown in live planner progress. */
   progressTextCharacters: 180,
   /** Node HTTP request timeout. */
@@ -375,4 +371,18 @@ export const healthLimits = {
 export const stallLimits = {
   /** How often the dashboard server looks for silent running sessions and checks. */
   scanIntervalMs: 15_000,
+} as const;
+
+/** The dashboard view model and its v1 API (`server/view-model/`, `server/api-v1.ts`). */
+export const viewModelLimits = {
+  /** Timeline entries in one page when the request names no limit. */
+  timelinePageEntries: 50,
+  /** Largest timeline page a request may ask for. */
+  timelineMaxPageEntries: 200,
+  /** Latest timeline entries embedded in a task detail. */
+  recentTimelineEntries: 3,
+  /** Latest verified deliveries listed on the overview. */
+  recentDeliveries: 10,
+  /** Overviews and details cached by journal revision; the oldest is dropped first. */
+  cachedViews: 16,
 } as const;

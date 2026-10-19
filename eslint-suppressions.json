@@ -1,13 +1,2 @@
 {
-  "src/ui/app.js": {
-    "no-control-regex": {
-      "count": 3
-    },
-    "no-empty": {
-      "count": 4
-    },
-    "no-unused-vars": {
-      "count": 1
-    }
-  }
 }

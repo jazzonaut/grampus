@@ -4,8 +4,9 @@
 // server in a request line or Referer). The client moves it into session storage, removes it
 // from the address bar and sends it as a bearer token on every API call.
 import { readonly, ref } from 'vue';
+import type { ErrorCodeV1 } from '../../../src/server/api-types';
 
-/** Session storage key; the same key the original dashboard uses, so both share a tab's token. */
+/** Session storage key of the access token. */
 export const tokenStorageKey = 'grampus-token';
 
 /**
@@ -20,16 +21,35 @@ export const accessMessage = 'Open the complete local dashboard link printed by 
 /** Why a request failed. `status` is 0 when the server could not be reached at all. */
 export class ApiError extends Error {
   public readonly status: number;
+  /** The server's error code (`ErrorV1`), or null when it sent none. */
+  public readonly code: ErrorCodeV1 | null;
+  /** Field-level problems of an invalid request. */
+  public readonly issues: readonly string[];
 
-  public constructor(status: number, message: string) {
+  public constructor(status: number, message: string, code: ErrorCodeV1 | null = null, issues: readonly string[] = []) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
+    this.issues = issues;
   }
 
   /** The token is missing or was refused: only a fresh link from Grampus helps. */
   public get unauthorised(): boolean {
     return this.status === 401;
+  }
+
+  /**
+   * The server refused because what the page showed is no longer current (a changed decision key, turn
+   * key or proposal digest, or an action already running): refetch and let the person decide again.
+   */
+  public get stale(): boolean {
+    return this.status === 409 && !this.poolFull;
+  }
+
+  /** Every runner slot (`maxConcurrentTasks`) is taken: nothing changed or was queued; try again later. */
+  public get poolFull(): boolean {
+    return this.code === 'pool_full';
   }
 }
 
@@ -74,32 +94,45 @@ export interface DecisionBody {
 /** Body of a request that acts on no displayed state: creating a planning session, lookups. */
 export type UnkeyedBody = Readonly<Record<string, unknown>>;
 
-async function errorMessage(response: Response): Promise<string> {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/** The error a failed response carries: the typed envelope (ErrorV1 in src/server/api-types.ts) every route uses. */
+async function responseError(response: Response): Promise<ApiError> {
+  const fallback = response.statusText || `Request failed (${response.status})`;
   try {
     const body: unknown = await response.json();
-    if (typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string')
-      return body.error;
+    const error = isRecord(body) ? body['error'] : undefined;
+    if (isRecord(error) && typeof error['message'] === 'string') {
+      const issues = Array.isArray(error['issues'])
+        ? error['issues'].filter((item): item is string => typeof item === 'string')
+        : [];
+      const code = typeof error['code'] === 'string' ? (error['code'] as ErrorCodeV1) : null;
+      return new ApiError(response.status, error['message'], code, issues);
+    }
   } catch {
     // Not JSON: fall through to the status text.
   }
-  return response.statusText || `Request failed (${response.status})`;
+  return new ApiError(response.status, fallback);
 }
 
-async function request<T>(method: 'GET' | 'POST', path: string, body?: UnkeyedBody): Promise<T> {
+/** One request to the local server with the access token; the shared path of every call. */
+export async function request<T>(method: 'GET' | 'POST', path: string, body?: UnkeyedBody | null): Promise<T> {
   const token = readToken();
   if (token === '') {
     accessRequired.value = true;
     throw new ApiError(401, accessMessage);
   }
   const headers: Record<string, string> = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (body !== undefined && body !== null) headers['Content-Type'] = 'application/json';
   let response: Response;
   try {
     response = await fetch(path, {
       method,
       headers,
       cache: 'no-store',
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      ...(body === undefined || body === null ? {} : { body: JSON.stringify(body) }),
     });
   } catch {
     throw new ApiError(0, 'Cannot reach the local Grampus server. Check that its terminal is still open.');
@@ -108,12 +141,12 @@ async function request<T>(method: 'GET' | 'POST', path: string, body?: UnkeyedBo
     accessRequired.value = true;
     throw new ApiError(401, accessMessage);
   }
-  if (!response.ok) throw new ApiError(response.status, await errorMessage(response));
-  // The server's JSON is trusted to match T; a later step validates view models at this boundary.
+  if (!response.ok) throw await responseError(response);
+  // The server's JSON is trusted to match T: both sides are compiled against src/server/api-types.ts.
   return (await response.json()) as T;
 }
 
-/** GET a JSON resource from the local server, e.g. `get<StateView>('/api/state')`. */
+/** GET a JSON resource from the local server, e.g. `get<OverviewV1>('/api/v1/overview')`. */
 export function get<T>(path: string): Promise<T> {
   return request<T>('GET', path);
 }

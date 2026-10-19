@@ -71,4 +71,25 @@
   .grampus-markdown blockquote {
     @apply my-2 border-l-2 border-accented pl-3 text-toned;
   }
+  .grampus-markdown table {
+    @apply my-2 border-collapse text-sm;
+  }
+  .grampus-markdown :is(th, td) {
+    @apply border border-default px-2 py-1 text-left;
+  }
+
+  /* Literal text: commands, paths, file contents and expected output. Never rendered as Markdown. */
+  .grampus-code {
+    @apply my-0 overflow-auto rounded bg-muted px-2 py-1 font-mono text-xs break-all whitespace-pre-wrap text-default;
+  }
+
+  /* A link that looks like a secondary button, for navigation that is not an action. */
+  .grampus-link-button {
+    @apply inline-flex items-center gap-1 rounded-md border border-accented px-3 py-1.5 text-sm font-medium text-highlighted hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary;
+  }
+
+  /* Native form controls drawn like Nuxt UI inputs. */
+  .grampus-input {
+    @apply w-full rounded-md border border-default bg-default px-3 py-2 text-sm text-default placeholder:text-dimmed focus-visible:outline-2 focus-visible:outline-primary aria-[invalid=true]:border-error;
+  }
 }

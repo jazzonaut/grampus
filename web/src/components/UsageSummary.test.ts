@@ -1,16 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import { mount } from '@vue/test-utils';
 import UsageSummary from './UsageSummary.vue';
-import type { UsageRow } from './types';
+import type { ProviderUsageRow, StageUsageRow } from './types';
 
-const unmeasured: UsageRow = {
-  id: 'claude',
+const unmeasured: ProviderUsageRow = {
+  provider: 'claude',
   label: 'Claude',
   inputTokens: null,
   outputTokens: null,
   cachedInputTokens: null,
+  cacheWriteInputTokens: null,
   estimatedCostUsd: null,
-  partial: [],
+  incomplete: [],
+  sessions: 1,
+  observedSessions: 0,
+};
+
+const review: StageUsageRow = {
+  stage: 'review',
+  label: 'Review',
+  provider: 'codex',
+  providerLabel: 'Codex',
+  inputTokens: 1200,
+  outputTokens: null,
+  cachedInputTokens: null,
+  cacheWriteInputTokens: null,
+  estimatedCostUsd: null,
+  incomplete: ['inputTokens'],
+  turns: 2,
 };
 
 function cells(wrapper: ReturnType<typeof mount>, metric: string): string[] {
@@ -21,12 +38,18 @@ describe('UsageSummary', () => {
   it('shows unknown measurements as Unknown, never as 0', () => {
     const wrapper = mount(UsageSummary, { props: { providers: [unmeasured] } });
 
-    for (const metric of ['inputTokens', 'outputTokens', 'cachedInputTokens', 'estimatedCostUsd']) {
+    for (const metric of [
+      'inputTokens',
+      'outputTokens',
+      'cachedInputTokens',
+      'cacheWriteInputTokens',
+      'estimatedCostUsd',
+    ]) {
       const [text] = cells(wrapper, metric);
       expect(text).toBe('Unknown');
       expect(text).not.toMatch(/\d/);
     }
-    expect(wrapper.text()).not.toMatch(/\$0|\b0\b/);
+    expect(wrapper.text()).toContain('0 of 1');
   });
 
   it('keeps a measured zero distinct from unknown', () => {
@@ -39,18 +62,14 @@ describe('UsageSummary', () => {
     expect(cells(wrapper, 'outputTokens')).toEqual(['Unknown']);
   });
 
-  it('marks partial values as lower bounds', () => {
-    const wrapper = mount(UsageSummary, {
-      props: {
-        providers: [],
-        stages: [{ ...unmeasured, id: 'review', label: 'Review', inputTokens: 1200, partial: ['inputTokens'] }],
-      },
-    });
+  it('marks partial values as lower bounds and names the stage provider', () => {
+    const wrapper = mount(UsageSummary, { props: { providers: [], stages: [review] } });
 
     const [input] = cells(wrapper, 'inputTokens');
     expect(input).toContain('1,200');
     expect(input).toContain('partial');
     expect(input).toContain('a lower bound');
+    expect(wrapper.text()).toContain('Codex');
     expect(wrapper.text()).toContain('billed cost is unknown');
   });
 });

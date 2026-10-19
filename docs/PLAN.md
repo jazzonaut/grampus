@@ -95,6 +95,24 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
 5. **Dashboard.** Server-side view model (status, next action, attention items with
    reasons, workflow strip, usage), then a Vue 3 + Vite + Nuxt UI client that keeps the
    per-launch token, loopback binding, CSP and decision-key checks unchanged.
+   - **5a. View model and API v1.** Done 19 October 2026. `server/view-model/` makes every
+     presentation decision the legacy client duplicated (status vocabulary, stop descriptions,
+     note language, action availability, labels and disabled reasons, repair allowance and
+     automatic-mode wording, rerun eligibility, workflow strip with evidence sources, usage
+     completeness) and `server/api-types.ts` types the read routes `/api/v1/overview`,
+     `/api/v1/tasks/:id` (with `timeline` and `changes`) and `/api/v1/kickoffs/:id`. Actions
+     reuse the existing POST routes through `ActionView.request`
+     ([ARCHITECTURE.md](ARCHITECTURE.md#dashboard-view-model-and-api-v1)). The legacy screens
+     are inventoried in [history/dashboard-inventory-2026-10-19.md](history/dashboard-inventory-2026-10-19.md),
+     the parity checklist for 5b. `web/` is typed against the DTOs.
+   - **5b. Vue client.** Done 19 October 2026. `web/` (Vue 3, Vite, Nuxt UI) draws the overview with the
+     attention queue first, new task, planning conversation, task detail and health screens on API v1,
+     with forms generated from `ActionView` and no optimistic state; it is served from `web/dist` under
+     the unchanged token, origin, loopback and CSP rules and built into each installed snapshot. The
+     legacy `src/ui` client, its routes (`/api/state`, the task poll and events) and its tests are gone;
+     every route now answers errors with the typed envelope ([DASHBOARD.md](DASHBOARD.md)). The
+     runner pool is in the overview; actions that need a slot are disabled with the reason while it is
+     full, and a refused one (409 `pool_full`) or an approval left unstarted is a calm wait notice.
 6. **Guided controller structure.** Done 19 October 2026. Prompts in their own modules
    (`orchestration/guided/prompts.ts`, `orchestration/prompts/planner.ts`), one handler per stage
    with a typed outcome, structural comparison instead of `JSON.stringify` equality, and typed stop

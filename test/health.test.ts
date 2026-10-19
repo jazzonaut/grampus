@@ -21,7 +21,6 @@ import {
 } from '../src/providers/executables.js';
 import {
   HealthMonitor,
-  compactHealth,
   healthView,
   integrationStatus,
   refreshHealth,
@@ -265,7 +264,6 @@ test('the latest health is stored, validated on read, compacted for polls and re
   assert.equal(view.stale, false);
   assert.equal(healthView(store, at + interval).stale, true);
   assert.deepEqual(store.health(), await check());
-  assert.equal('executable' in (compactHealth(view).integrations[0] ?? {}), false, 'polls carry no paths');
   // A shared monitor runs one check for concurrent callers.
   const monitor = new HealthMonitor(store, check, () => at + interval);
   await Promise.all([monitor.refresh(), monitor.refresh(), monitor.refreshIfStale()]);

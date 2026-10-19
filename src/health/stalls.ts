@@ -20,7 +20,7 @@ export interface StallOwner {
   label: string;
 }
 
-/** A possibly stalled task, as the task summary and poll show it. */
+/** A possibly stalled task, as the dashboard task summary and task view show it. */
 export interface Stall {
   /** When the silence crossed the threshold: last activity plus `stallWarningMs`. */
   since: string;

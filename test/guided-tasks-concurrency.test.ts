@@ -12,6 +12,7 @@ import { guidedTaskView } from '../src/orchestration/guided-status.js';
 import { RunnerPoolFullError, runnerPool } from '../src/orchestration/guided/runner-pool.js';
 import { defaultSettings, useSettings } from '../src/config/settings.js';
 import { startUi } from '../src/server/ui-server.js';
+import type { ErrorV1, OverviewV1 } from '../src/server/api-types.js';
 import { windows, cli, git, lens, message, review, services, fixture, crashProgram } from './helpers/guided-tasks.js';
 
 /** Longest a child controller waits at the barrier, and the test waits for both children to reach it. */
@@ -122,11 +123,13 @@ test(
         const view = guidedTaskView(f.store, id);
         return guidedDecisionKey(view.state, view.questionKey);
       };
-      const state = (await (await fetch(`${url.origin}/api/state`, { headers })).json()) as { runners: unknown };
-      assert.deepEqual(state.runners, { active: 2, limit: 2, owners: [first, second] });
+      const home = (await (await fetch(`${url.origin}/api/v1/overview`, { headers })).json()) as OverviewV1;
+      assert.deepEqual(home.pool, { running: 2, limit: 2, owners: [first, second] });
       const refused = await post(`/api/tasks/${third}/run`, { expected: decision(third) });
       assert.equal(refused.status, 409);
-      assert.match(((await refused.json()) as { error: string }).error, /2 of 2 guided tasks are already running/);
+      const { error } = (await refused.json()) as ErrorV1;
+      assert.equal(error.code, 'pool_full');
+      assert.match(error.message, /2 of 2 guided tasks are already running/);
       // Approval of an automatic plan stands, but does not start it while the pool is full.
       const draft = automatic('d');
       const approved = await post(`/api/tasks/${draft.id}/approve`, {

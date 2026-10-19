@@ -122,18 +122,24 @@ export function validateDestination(destination, source) {
   return root;
 }
 
+/** Generated or installed folders of the dashboard client; the snapshot installs and builds its own. */
+const webSkipped = new Set(['node_modules', 'dist']);
+
 function sourceFiles(source) {
   const files = [];
-  const walk = path => {
+  const walk = (path, skipped = new Set()) => {
     const entry = join(source, path),
       stat = lstatSync(entry);
     if (stat.isSymbolicLink()) throw new Error(`Installation source cannot contain links: ${path}`);
-    if (stat.isDirectory()) for (const name of readdirSync(entry).sort()) walk(join(path, name));
-    else if (stat.isFile()) files.push(path);
+    if (stat.isDirectory()) {
+      for (const name of readdirSync(entry).sort()) if (!skipped.has(name)) walk(join(path, name));
+    } else if (stat.isFile()) files.push(path);
     else throw new Error(`Unsupported installation input: ${path}`);
   };
   for (const path of ['package.json', 'package-lock.json', 'tsconfig.json', 'src', 'scripts/installed-launch.mjs'])
     walk(path);
+  // The dashboard client's sources; its node_modules and dist are never copied.
+  if (existsSync(join(source, 'web'))) walk('web', webSkipped);
   if (existsSync(join(source, 'scripts/install.mjs'))) walk('scripts/install.mjs');
   for (const path of ['README.md', 'docs', 'examples']) if (existsSync(join(source, path))) walk(path);
   return files.sort();
@@ -219,9 +225,9 @@ export function buildSnapshot(source, root, stage, npmCli) {
     installRoot: root,
   };
   console.log('Installing locked build dependencies into the snapshot…');
-  const npm = args =>
+  const npm = (args, cwd = stage) =>
     run(process.execPath, [npmCli, ...args, '--ignore-scripts', '--no-audit', '--no-fund'], {
-      cwd: stage,
+      cwd,
       stdio: 'inherit',
       timeout: 300000,
       env: { ...process.env, NODE_ENV: 'development' },
@@ -234,6 +240,7 @@ export function buildSnapshot(source, root, stage, npmCli) {
     { cwd: stage, stdio: 'inherit', timeout: 120000 },
   );
   npm(['prune', '--omit=dev', '--include=optional']);
+  buildDashboardClient(stage, npm);
   writeFileSync(join(stage, 'grampus-build.json'), JSON.stringify(build, null, 2) + '\n');
   // Importing the CLI verifies its runtime imports; doctor additionally probes installed external CLIs on request.
   const info = JSON.parse(
@@ -242,12 +249,8 @@ export function buildSnapshot(source, root, stage, npmCli) {
   if (info.channel !== 'installed' || info.version !== pkg.version || info.build?.id !== id)
     throw new Error('Installed version smoke check failed.');
   for (const file of [
-    'src/ui/index.html',
-    'src/ui/app.js',
-    'src/ui/app.css',
-    'src/ui/favicon.svg',
-    'src/ui/markdown.js',
-    'node_modules/markdown-it/dist/browser/markdown-it.umd.min.js',
+    'web/dist/index.html',
+    'web/dist/favicon.svg',
     'src/process/native/check.ps1',
     'src/process/native/check.cs',
     'src/process/native/process.ps1',
@@ -259,7 +262,33 @@ export function buildSnapshot(source, root, stage, npmCli) {
   ]) {
     if (!existsSync(join(stage, file))) throw new Error(`Snapshot is missing a required runtime asset: ${file}`);
   }
+  if (!readdirSync(join(stage, 'web', 'dist', 'assets')).some(name => name.endsWith('.js')))
+    throw new Error('Snapshot is missing a required runtime asset: web/dist/assets/*.js');
   return build;
+}
+
+function viteBuild(web) {
+  run(process.execPath, [join(web, 'node_modules', 'vite', 'bin', 'vite.js'), 'build'], {
+    cwd: web,
+    stdio: 'inherit',
+    timeout: 300000,
+  });
+}
+
+/**
+ * Builds the dashboard client inside the snapshot from its copied sources and lockfile, so the installed
+ * page always matches the installed server. Only `web/dist` is kept; the client's build dependencies are
+ * removed afterwards. Type checking is a development step (`npm --prefix web run typecheck`), not repeated here.
+ * `npm(args, cwd)` runs npm; `vite(web)` runs the Vite build (tests pass their own).
+ */
+export function buildDashboardClient(stage, npm, vite = viteBuild) {
+  const web = join(stage, 'web');
+  if (!existsSync(join(web, 'package-lock.json')))
+    throw new Error('The checkout has no web/ dashboard client to build; reinstall from a complete checkout.');
+  console.log('Installing and building the dashboard client…');
+  npm(['ci', '--include=dev', '--include=optional'], web);
+  vite(web);
+  rmSync(join(web, 'node_modules'), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
 export function registerUserPath(bin) {

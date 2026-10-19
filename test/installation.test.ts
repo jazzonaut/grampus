@@ -129,6 +129,58 @@ test('installed snapshots launch independently, preserve data and switch version
   assert.equal(run(launch).message, 'second version');
 });
 
+test('snapshots copy the dashboard client sources but never its node_modules or build output', t => {
+  const root = mkdtempSync(join(tmpdir(), 'grampus-install-web-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const source = join(root, 'checkout'),
+    stage = join(root, 'stage');
+  for (const folder of ['src', 'scripts', 'web/src', 'web/public', 'web/node_modules/vite', 'web/dist/assets'])
+    mkdirSync(join(source, folder), { recursive: true });
+  for (const file of [
+    'package.json',
+    'package-lock.json',
+    'tsconfig.json',
+    'src/cli.ts',
+    'scripts/installed-launch.mjs',
+  ])
+    writeFileSync(join(source, file), '{}');
+  for (const file of [
+    'web/package.json',
+    'web/package-lock.json',
+    'web/index.html',
+    'web/src/main.ts',
+    'web/public/favicon.svg',
+  ])
+    writeFileSync(join(source, file), 'client source');
+  writeFileSync(join(source, 'web/node_modules/vite/index.js'), 'installed dependency');
+  writeFileSync(join(source, 'web/dist/assets/index-old.js'), 'stale build output');
+  installer.copySourceSnapshot(source, stage);
+  assert.equal(readFileSync(join(stage, 'web/src/main.ts'), 'utf8'), 'client source');
+  assert.equal(existsSync(join(stage, 'web/public/favicon.svg')), true);
+  assert.equal(existsSync(join(stage, 'web/node_modules')), false);
+  assert.equal(existsSync(join(stage, 'web/dist')), false, 'the snapshot builds its own client');
+  // The build installs the client's locked dependencies, runs Vite and keeps only web/dist.
+  const calls: { args: string[]; cwd: string }[] = [];
+  mkdirSync(join(stage, 'web', 'node_modules'), { recursive: true });
+  installer.buildDashboardClient(
+    stage,
+    (args: string[], cwd: string) => calls.push({ args, cwd }),
+    () => {},
+  );
+  assert.deepEqual(calls, [{ args: ['ci', '--include=dev', '--include=optional'], cwd: join(stage, 'web') }]);
+  assert.equal(existsSync(join(stage, 'web', 'node_modules')), false);
+  rmSync(join(stage, 'web', 'package-lock.json'));
+  assert.throws(
+    () =>
+      installer.buildDashboardClient(
+        stage,
+        () => {},
+        () => {},
+      ),
+    /no web\/ dashboard client/,
+  );
+});
+
 test('version commands expose development identity and isolate default data without creating a journal', t => {
   const root = mkdtempSync(join(tmpdir(), 'grampus-version-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -257,15 +309,15 @@ test('bare CLI opens the dashboard from an unrelated directory and retains expli
     });
   });
   const address = new URL(url);
-  assert.equal((await fetch(address.origin)).status, 200);
-  assert.equal((await fetch(address.origin + '/app.css')).status, 200);
-  const response = await fetch(address.origin + '/api/state', {
+  // The page itself is covered by test/ui-static.test.ts; a checkout without a web build explains itself.
+  assert.ok([200, 503].includes((await fetch(address.origin)).status));
+  const response = await fetch(address.origin + '/api/v1/overview', {
     headers: { Authorization: `Bearer ${address.hash.slice(1)}` },
   });
-  const state = await response.json();
-  assert.equal(state.journal, db);
-  assert.equal(state.application.channel, 'development');
-  assert.equal(state.application.version, '0.1.0');
+  const overview = await response.json();
+  assert.equal(overview.application.journal, db);
+  assert.equal(overview.application.channel, 'development');
+  assert.equal(overview.application.version, '0.1.0');
 });
 
 test(

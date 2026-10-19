@@ -1,73 +1,51 @@
-// Display shapes the shared components accept. They describe what is drawn, not the server's
-// records: a later step maps the typed view-model API onto them.
+// Display shapes the shared components accept. Where a component draws a server DTO, its shape is the
+// DTO itself (or the part of it the component reads), imported type-only from src/server/api-types.ts,
+// so a server change that breaks a component fails the type check.
+import type {
+  EvidenceSource,
+  ProviderUsageV1,
+  StageUsageV1,
+  StageView,
+  UsageFieldV1,
+} from '../../../src/server/api-types';
 import type { StageState, Status } from '../theme/status';
 
-export type { StageState, Status };
+export type { EvidenceSource, StageState, Status };
 
-/** One stage of a task's workflow. Stages come from data because quality passes are configurable. */
-export interface WorkflowStage {
-  readonly id: string;
-  readonly label: string;
-  readonly state: StageState;
-  /** Short extra context, e.g. "attempt 2 of 3". */
-  readonly detail?: string;
-}
-
-/** Visual weight of an action button. `danger` is for actions that discard or hide work. */
-export type ActionTone = 'primary' | 'neutral' | 'danger';
-
-/** An action the user can safely take from where they are. */
-export interface SafeAction {
-  readonly id: string;
-  readonly label: string;
-  readonly tone?: ActionTone;
-  /** Why the action is unavailable; set to disable it and explain. */
-  readonly disabledReason?: string;
-}
-
-/** Something that needs the user, with the reason and the actions that resolve it. */
-export interface AttentionItem {
-  readonly id: string;
-  readonly title: string;
-  /** Plain-language reason this needs a person. */
-  readonly why: string;
-  readonly status: Status;
-  /** The decision key displayed with this item; actions send it back as `expected`. */
-  readonly decisionKey: string;
-  readonly actions: readonly SafeAction[];
-}
-
-/** Emitted when the user picks an action. */
-export interface ActionChoice {
-  readonly itemId: string;
-  readonly actionId: string;
-  readonly decisionKey: string;
-}
+/** One stage of a task's workflow (`StageView`). Stages come from data because quality passes are configurable. */
+export type WorkflowStage = Pick<StageView, 'id' | 'label' | 'state' | 'detail'> &
+  Partial<Pick<StageView, 'evidence' | 'items'>>;
 
 /** A measured quantity in a usage row. */
-export type UsageMetric = 'inputTokens' | 'outputTokens' | 'cachedInputTokens' | 'estimatedCostUsd';
+export type UsageMetric = UsageFieldV1;
 
-/**
- * Token and cost measurements for one provider or stage. `null` means not measured and is
- * shown as "Unknown", never as 0.
- */
-export interface UsageRow {
-  readonly id: string;
-  readonly label: string;
-  readonly inputTokens: number | null;
-  readonly outputTokens: number | null;
-  readonly cachedInputTokens: number | null;
-  /** Estimated cost in US dollars from provider rates. Never a billed amount. */
-  readonly estimatedCostUsd: number | null;
-  /** Metrics whose value is a lower bound because some observations are missing. */
-  readonly partial: readonly UsageMetric[];
-  /** How many sessions reported usage, when known. */
-  readonly sessions?: { readonly observed: number; readonly total: number };
-}
+/** Usage of one provider (`ProviderUsageV1`). Null values are shown as "Unknown", never as 0. */
+export type ProviderUsageRow = Pick<
+  ProviderUsageV1,
+  | 'provider'
+  | 'label'
+  | 'inputTokens'
+  | 'outputTokens'
+  | 'cachedInputTokens'
+  | 'cacheWriteInputTokens'
+  | 'estimatedCostUsd'
+  | 'incomplete'
+  | 'sessions'
+  | 'observedSessions'
+>;
 
-/** One page of a log, as the server returns it. */
-export interface LogPage {
-  readonly text: string;
-  /** Offset to request the next page from, or null at the end. */
-  readonly nextOffset: number | null;
-}
+/** Usage of one stage on one provider (`StageUsageV1`). */
+export type StageUsageRow = Pick<
+  StageUsageV1,
+  | 'stage'
+  | 'label'
+  | 'provider'
+  | 'providerLabel'
+  | 'inputTokens'
+  | 'outputTokens'
+  | 'cachedInputTokens'
+  | 'cacheWriteInputTokens'
+  | 'estimatedCostUsd'
+  | 'incomplete'
+  | 'turns'
+>;

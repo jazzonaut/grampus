@@ -12,6 +12,7 @@ import { Store } from '../src/persistence/store.js';
 import { Kickoffs } from '../src/orchestration/kickoff.js';
 import { normalizeGuidedPlan, guidedPlanDigest } from '../src/domain/guided-plan.js';
 import type { Connector } from '../src/providers/types.js';
+import type { TaskDetailV1 } from '../src/server/api-types.js';
 import { startUi } from '../src/server/ui-server.js';
 import { repositoryTools } from '../src/repository/repository-tools.js';
 
@@ -424,20 +425,20 @@ test('dashboard inspection is paginated and polling never serializes a 100k-file
       assert.ok(response.ok);
       return response.text();
     };
-    const body = await get(`/api/tasks/${created.id}`),
-      value = JSON.parse(body);
-    assert.ok(Buffer.byteLength(body) < 24000);
-    assert.equal(value.state.snapshot.totalFiles, 100000);
-    assert.equal(value.state.snapshot.files, undefined);
-    assert.equal(value.state.snapshot.index, undefined);
-    assert.deepEqual(value.state.snapshot.diff, []);
-    assert.equal(value.report, null);
-    assert.equal(await get(`/api/tasks/${created.id}`), body);
-    const list = await get('/api/state');
-    assert.ok(Buffer.byteLength(list) < 4000);
+    const body = await get(`/api/v1/tasks/${created.id}`),
+      value = JSON.parse(body) as TaskDetailV1;
+    // The task view carries the plan twice (to show and in the revision form) but never the inventory.
+    assert.ok(Buffer.byteLength(body) < 40000, `${Buffer.byteLength(body)} bytes`);
+    assert.doesNotMatch(body, /file-99999\.js|large inventory/);
+    assert.equal(value.details.artifact.artifact, 'sha256:fixture');
+    assert.deepEqual(value.details.changes, []);
+    assert.equal(await get(`/api/v1/tasks/${created.id}`), body);
+    const list = await get('/api/v1/overview');
+    assert.ok(Buffer.byteLength(list) < 8000, `${Buffer.byteLength(list)} bytes`);
+    assert.doesNotMatch(list, /file-99999\.js/);
     task.guided!.note = 'Updated by another connection';
     f.store.save(created.id, task);
-    assert.match(await get(`/api/tasks/${created.id}`), /Updated by another connection/);
+    assert.match(await get(`/api/v1/tasks/${created.id}`), /Updated by another connection/);
   } finally {
     await ui.close();
   }

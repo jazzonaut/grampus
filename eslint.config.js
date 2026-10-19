@@ -7,7 +7,7 @@ import globals from 'globals';
 export default tseslint.config(
   // web/ is its own npm project with its own lint config (`cd web && npm run lint`); linting it from
   // here would load web/eslint.config.js and fail whenever web/node_modules is not installed.
-  { ignores: ['dist/', 'node_modules/', 'src/ui/vendor/', 'web/', '.claude/'] },
+  { ignores: ['dist/', 'node_modules/', 'web/', '.claude/'] },
   js.configs.recommended,
   {
     files: ['**/*.ts'],
@@ -47,31 +47,6 @@ export default tseslint.config(
   },
   {
     files: ['**/*.js', '**/*.mjs'],
-    languageOptions: { globals: { ...globals.node, ...globals.browser } },
-  },
-  {
-    // Browser probes are evaluated inside the loaded dashboard page, so they read and replace the
-    // page script's own top-level bindings (src/ui/app.js), including the browser's `screen`.
-    files: ['test/browser-*.probe.js'],
-    languageOptions: {
-      globals: {
-        state: 'writable',
-        detail: 'writable',
-        selected: 'writable',
-        pending: 'writable',
-        screen: 'writable',
-        refresh: 'readonly',
-        refreshSerial: 'writable',
-        render: 'readonly',
-        select: 'readonly',
-        expected: 'readonly',
-        signature: 'writable',
-        renderedKey: 'writable',
-        repositoryPreview: 'writable',
-        previewInput: 'writable',
-        fileSearch: 'writable',
-        token: 'readonly',
-      },
-    },
+    languageOptions: { globals: globals.node },
   },
 );
