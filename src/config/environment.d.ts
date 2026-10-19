@@ -26,6 +26,8 @@ declare global {
       ANTHROPIC_API_KEY?: string;
       /** Windows per-user application data root for the default data directory. */
       LOCALAPPDATA?: string;
+      /** Windows roaming application data root, required by the Orca CLI to locate its runtime. */
+      APPDATA?: string;
       /** XDG state root for the default data directory on Linux. */
       XDG_STATE_HOME?: string;
       /** Windows system root for locating PowerShell. */

@@ -1,7 +1,7 @@
 // Orca's Node worker owns only native commands. Grampus owns process discovery, approvals and tasks.
 import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 function configuration(supplied) {
   const value = supplied ?? JSON.parse(readFileSync(new URL('./launch.json', import.meta.url), 'utf8'));
@@ -36,6 +36,36 @@ function run(file, args, config, options = {}) {
   });
 }
 
+// Orca strips app data variables from its worker environment. Query Windows known folders so
+// redirected user profiles work too, and forward only the two public paths the child CLIs require.
+async function commandEnvironment(config) {
+  const env = { ...process.env, ORCA_CLI_COMMAND: config.orca };
+  const folders = ['APPDATA', 'LOCALAPPDATA'];
+  if (process.platform !== 'win32' || folders.every(key => process.env[key])) return env;
+  const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
+  if (!systemRoot || !isAbsolute(systemRoot)) throw new Error('Cannot locate Windows PowerShell for plugin startup.');
+  const paths = JSON.parse(
+    await run(
+      join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        '@{APPDATA=[Environment]::GetFolderPath("ApplicationData");LOCALAPPDATA=[Environment]::GetFolderPath("LocalApplicationData")} | ConvertTo-Json -Compress',
+      ],
+      config,
+      { env },
+    ),
+  );
+  for (const key of folders) {
+    if (process.env[key]) continue;
+    if (typeof paths[key] !== 'string' || !isAbsolute(paths[key]))
+      throw new Error('Windows did not resolve the application data folders required by Orca and Grampus.');
+    env[key] = paths[key];
+  }
+  return env;
+}
+
 /** Registers native commands. A worker reload never stops the independently owned dashboard. */
 export default function activate(orca, supplied) {
   let pending = null;
@@ -50,9 +80,7 @@ export default function activate(orca, supplied) {
       const config = configuration(supplied);
       const args = [config.launcher, action];
       if (action === 'open') args.push('--orca');
-      const result = JSON.parse(
-        await run(config.node, args, config, { env: { ...process.env, ORCA_CLI_COMMAND: config.orca } }),
-      );
+      const result = JSON.parse(await run(config.node, args, config, { env: await commandEnvironment(config) }));
       if (result.ok !== true) throw new Error('Grampus did not confirm the command.');
       return result;
     })().finally(() => {

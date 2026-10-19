@@ -62,6 +62,42 @@ test('plugin process failures expose no raw output or local access link', async 
   assert.match(error.message, /did not complete/);
 });
 
+test(
+  'Windows plugin commands restore application data paths stripped by Orca',
+  { skip: process.platform !== 'win32' },
+  async t => {
+    const f = await pluginFixture(t);
+    const expected = { APPDATA: process.env.APPDATA, LOCALAPPDATA: process.env.LOCALAPPDATA };
+    writeFileSync(
+      join(f.root, 'launcher.mjs'),
+      `import {writeFileSync} from 'node:fs';
+    if(!process.env.APPDATA || !process.env.LOCALAPPDATA) {
+      console.error('APPDATA is not set, so the Orca runtime metadata path cannot be resolved.');process.exitCode=1;
+    } else {
+      writeFileSync(${JSON.stringify(f.record)},JSON.stringify({APPDATA:process.env.APPDATA,LOCALAPPDATA:process.env.LOCALAPPDATA}));
+      console.log(JSON.stringify({ok:true}));
+    }`,
+    );
+    // Orca's real worker allowlist preserves USERPROFILE/SystemRoot, but removes both app data variables.
+    delete process.env.APPDATA;
+    delete process.env.LOCALAPPDATA;
+    t.after(() => {
+      for (const [key, value] of Object.entries(expected)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    });
+    assert.deepEqual(await f.commands.get('open')!(), { ok: true });
+    assert.deepEqual(JSON.parse(readFileSync(f.record, 'utf8')), expected);
+    process.env.APPDATA = join(f.root, 'explicit-roaming');
+    assert.deepEqual(await f.commands.get('open')!(), { ok: true });
+    assert.deepEqual(JSON.parse(readFileSync(f.record, 'utf8')), {
+      APPDATA: process.env.APPDATA,
+      LOCALAPPDATA: expected.LOCALAPPDATA,
+    });
+  },
+);
+
 test('opening Grampus reuses and reauthenticates its exact Orca browser page', async () => {
   const calls: string[][] = [];
   const cli = new OrcaCli(async (_, args) => {

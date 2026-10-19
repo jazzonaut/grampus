@@ -57,8 +57,12 @@ Stop Dashboard**, so they cannot be mistaken for an installed application.
 The package pins the Node executable, Grampus launcher and Orca CLI used on this
 machine. It is a local package, not a portable distribution. Rebuild it if those
 locations change. The plugin uses no terminal input capability and never sends
-messages to an implementation agent. Its Node worker launches only Grampus's own
-`open` and `close` commands, without a shell.
+messages to an implementation agent. Its Node worker launches Grampus's own `open`
+and `close` commands without shell interpolation. On Windows it restores missing
+`APPDATA` and `LOCALAPPDATA` values for those child processes by querying Windows
+known folders through PowerShell. Orca deliberately strips these variables from
+its plugin worker; its CLI needs `APPDATA` to find the running runtime. Existing
+values are preserved, and redirected Windows profiles use their configured paths.
 
 Orca's plugin system is experimental. The manifest and worker follow the public
 [manifest contract](https://github.com/stablyai/orca/blob/main/src/shared/plugins/plugin-manifest.ts)
