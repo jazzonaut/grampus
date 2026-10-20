@@ -63,6 +63,9 @@ sidebar show it.
 
 1. Choose **New task**, enter an existing repository folder and describe the change. With Orca
    running, **Or choose an Orca worktree** fills the folder with a worktree's full path.
+   A selected **Model profile** fixes the providers, models and reasoning effort for each role,
+   so **Planner and implementer** is hidden. Choose **Use provider defaults** to restore that
+   dropdown and its previous selection. The dropdown cannot override a selected profile.
 2. Choose **Start planning**. The planner explores the repository itself through read-only
    tools at the pinned commit; it cannot edit files or run commands. The planning card shows
    what the planner is doing, elapsed and last-activity times, repository actions, MCP requests

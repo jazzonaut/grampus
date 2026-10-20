@@ -61,8 +61,7 @@ function kickoffBody(): Record<string, unknown> {
   return {
     repo: repo.value.trim(),
     request: description.value,
-    provider: provider.value,
-    ...(modelProfile.value ? { modelProfile: modelProfile.value } : {}),
+    ...(modelProfile.value ? { modelProfile: modelProfile.value } : { provider: provider.value }),
     adapter: adapter.value,
     ...(folders.length ? { references: folders } : {}),
     ...(inspected ? { base: inspected.base, contextFiles: lines(hints.value) } : {}),
@@ -146,7 +145,7 @@ async function start(): Promise<void> {
         <ModelProfilePicker v-model="modelProfile" />
         <ReferenceFolders v-model="references" :request="description" />
         <div class="grid gap-4 sm:grid-cols-2">
-          <div class="flex flex-col gap-1">
+          <div v-if="!modelProfile" class="flex flex-col gap-1">
             <label for="new-provider" class="text-sm font-medium text-highlighted">Planner and implementer</label>
             <select id="new-provider" v-model="provider" class="grampus-input" aria-describedby="new-provider-help">
               <option value="codex">Codex</option>
