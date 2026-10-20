@@ -49,7 +49,7 @@ function fixture(_t: { after(fn: () => void): void }) {
         mode: 'no_change',
         scope: { files: [] },
         validation: { file: 'node', args: ['--check', 'greeting.js'] },
-        acceptance: { file: 'node', args: ['greeting.js'], expectedStdout: 'hello\n' },
+        acceptance: [{ file: 'node', args: ['greeting.js'], expectedStdout: 'hello\n' }],
         message: 'Confirm greeting',
       },
     ],
@@ -901,7 +901,7 @@ test('kickoff plans the full ticket across ordered slices on initial and resumed
       ],
     },
     slices: [
-      { ...f.plan.slices[0]!, acceptance: { file: 'node', args: ['--check', 'greeting.js'], expectedStdout: '' } },
+      { ...f.plan.slices[0]!, acceptance: [{ file: 'node', args: ['--check', 'greeting.js'], expectedStdout: '' }] },
       f.plan.slices[0]!,
     ],
   };
@@ -1019,8 +1019,8 @@ test('a planned acceptance check without observations is refused naming its slic
     store.close();
     f.cleanup();
   });
-  const { expectedStdout: _omitted, ...unobserved } = f.plan.slices[0]!.acceptance;
-  const plan = { ...f.plan, slices: [{ ...f.plan.slices[0]!, acceptance: unobserved }] };
+  const { expectedStdout: _omitted, ...unobserved } = f.plan.slices[0]!.acceptance[0]!;
+  const plan = { ...f.plan, slices: [{ ...f.plan.slices[0]!, acceptance: [unobserved] }] };
   let prompt = '';
   const connector: Connector = async () => ({
     turn: async sent => {

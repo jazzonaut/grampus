@@ -109,7 +109,7 @@ test('a guided task gates on its selected lenses; low-level tasks keep the simpl
 
 test('prompts carry the approved lens and edit pass instructions verbatim', () => {
   const command = { name: 'Check', file: 'node', args: [], timeoutMs: 1000 };
-  const checks = { validation: command, acceptance: { ...command, expectedStdout: 'ok' } };
+  const checks = { validation: command, acceptance: [{ ...command, expectedStdout: 'ok' }] };
   const prompt = reviewPrompt({
     arbitrating: false,
     verdicts: '[]',
@@ -139,7 +139,10 @@ test('prompts carry the approved lens and edit pass instructions verbatim', () =
     verdicts: '[]',
     priorFindings: [],
     lenses: [],
-    checks: { validation: { name: 'Unit checks', file: 'node', args: ['--test'], timeoutMs: 1000 }, acceptance },
+    checks: {
+      validation: { name: 'Unit checks', file: 'node', args: ['--test'], timeoutMs: 1000 },
+      acceptance: [acceptance],
+    },
   });
   assert.ok(withChecks.includes(JSON.stringify(acceptance)));
   assert.match(withChecks, /acceptance runs after a passing review/i);

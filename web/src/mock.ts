@@ -383,7 +383,7 @@ export const mockPlan: PlanView = {
       files: { edit: ['src/export.ts'], create: ['test/retry.test.ts'], delete: [] },
       preparation: null,
       validation: command,
-      acceptance: { ...command, name: 'Acceptance', expectedStdout: 'ok\n', expectations: null },
+      acceptance: [{ ...command, name: 'Acceptance', expectedStdout: 'ok\n', expectations: null }],
       delivery: { mode: 'commit', message: 'Add export retry' },
     },
   ],

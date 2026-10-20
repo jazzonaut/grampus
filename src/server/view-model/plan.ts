@@ -60,11 +60,11 @@ function sliceView(plan: GuidedPlan, index: number): PlanSliceView {
     },
     preparation: slice.preparation ? command(slice.preparation) : null,
     validation: command(slice.validation),
-    acceptance: {
-      ...command(slice.acceptance),
-      expectedStdout: slice.acceptance.expectedStdout ?? null,
-      expectations: slice.acceptance.expectations ? JSON.stringify(slice.acceptance.expectations, null, 2) : null,
-    },
+    acceptance: slice.acceptance.map(check => ({
+      ...command(check),
+      expectedStdout: check.expectedStdout ?? null,
+      expectations: check.expectations ? JSON.stringify(check.expectations, null, 2) : null,
+    })),
     delivery: { mode: slice.mode, message: slice.message },
   };
 }

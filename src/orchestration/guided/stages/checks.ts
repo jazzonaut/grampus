@@ -1,6 +1,7 @@
 // Owns the `validation` and `verification` (acceptance) stages: running the approved checks on the
-// current artifact and deciding whether a failure returns to the implementer or stops. A failure
-// that is not trustworthy evidence about the implementation never spends a repair.
+// current artifact and deciding whether a failure returns to the implementer or stops. A slice's
+// acceptance checks run one per step, in order, until all have passed or one fails. A failure that
+// is not trustworthy evidence about the implementation never spends a repair.
 import { activeCriteria } from '../../../domain/workflow.js';
 import { deepEqual } from '../../../domain/deep-equal.js';
 import type { RepositoryCheck } from '../../../verification/checks.js';
@@ -17,7 +18,14 @@ import {
   type StageOutcome,
 } from '../context.js';
 import { required, type GuidedState } from '../state.js';
-import { acceptanceSpec, automatic, currentSlice, validationSpec } from '../specs.js';
+import {
+  acceptancePosition,
+  automatic,
+  currentSlice,
+  dueAcceptance,
+  validationSpec,
+  type DueAcceptance,
+} from '../specs.js';
 import { recordRepairDecision } from '../repair-policy.js';
 
 /** Every check of the current execution, including preparation runs. */
@@ -25,9 +33,16 @@ export function checkIds({ store }: GuidedContext, state: GuidedState): string[]
   return store.checks(required(state, 'executionId')).map(item => item.id);
 }
 
-/** The exact approved request for `stage`, rebuilt at settlement to compare with the stored check. */
-function expectedSpec({ id, workflow }: GuidedContext, state: GuidedState, stage: string) {
-  return stage === 'validation' ? validationSpec(state) : acceptanceSpec(state, activeCriteria(workflow.get(id)));
+/**
+ * The acceptance check a verification step runs, chosen from the checks that existed before the step
+ * (`known`), so dispatch and settlement agree on it. Throws when every check has already passed, because
+ * the step that saw the last pass moves on to delivery instead.
+ */
+function stepAcceptance({ id, workflow, store }: GuidedContext, state: GuidedState, known: string[]): DueAcceptance {
+  const checks = store.checks(required(state, 'executionId')).filter(check => known.includes(check.id));
+  const due = dueAcceptance(state, activeCriteria(workflow.get(id)), checks);
+  if (!due) throw new Error('Every acceptance check has already passed on this artifact');
+  return due;
 }
 
 /**
@@ -70,9 +85,14 @@ export function repairIneligibility(state: GuidedState, result: RepositoryCheck)
  * evidence, or stops. A second failure of the same purpose on the same artifact means the last
  * repair changed nothing, so it stops early instead of spending tokens on the same content.
  */
-function settleFailure(context: SettleContext, result: RepositoryCheck): StageOutcome {
+function settleFailure(
+  context: SettleContext,
+  result: RepositoryCheck,
+  acceptance: DueAcceptance | null,
+): StageOutcome {
   const { state, pending, change, prepareRetry } = context;
   const issue = checkIssue(result);
+  const position = acceptance ? acceptancePosition(acceptance) : '';
   const cycle = structuredClone(state.repairCycle);
   const noProgress = cycle.failures.some(
     failure => failure.purpose === pending.stage && failure.artifact === state.snapshot?.artifact,
@@ -85,7 +105,7 @@ function settleFailure(context: SettleContext, result: RepositoryCheck): StageOu
     action: canRepair ? 'repair' : 'stop',
     reason: ineligible ?? (noProgress ? 'CHECK_NO_PROGRESS' : canRepair ? 'CHECK_FAILED' : 'CHECK_REPAIR_EXHAUSTED'),
     resultId: result.id,
-    trigger: `${result.spec.name}: ${issue}`,
+    trigger: `${result.spec.name}${position}: ${issue}`,
     progress: ineligible
       ? 'ineligible'
       : noProgress
@@ -115,7 +135,7 @@ function settleFailure(context: SettleContext, result: RepositoryCheck): StageOu
       ? 'Automatic repair made no content progress; inspect the issue or revise the plan.'
       : `Automatic repair allowance exhausted (${cycle.used}/${allowance}).`;
   // A timeout says first what ran out and what was kept, so the log need not be opened to find out.
-  const timeout = ineligible === 'CHECK_TIMEOUT' ? `${timeoutSummary(result)}\n` : '';
+  const timeout = ineligible === 'CHECK_TIMEOUT' ? `${timeoutSummary(result, position)}\n` : '';
   return {
     kind: 'stop',
     reason: {
@@ -127,7 +147,8 @@ function settleFailure(context: SettleContext, result: RepositoryCheck): StageOu
 
 /**
  * Adopts the one new check of this step, only if it ran under this controller with exactly the approved
- * request. A pass on validation becomes the evidence submitted with the implementation.
+ * request. A pass on validation becomes the evidence submitted with the implementation; a passed
+ * acceptance check leads to the next one, and the last to delivery.
  */
 function settleCheck(context: SettleContext): StageOutcome {
   const { state, pending, store } = context;
@@ -135,13 +156,15 @@ function settleCheck(context: SettleContext): StageOutcome {
   const result = adoptOne(store.checks(executionId), pending);
   if (!result) return { kind: 'missing' };
   requireOrigin(context, executionId, result.id, pending);
-  if (!deepEqual(result.spec, expectedSpec(context, state, pending.stage)))
+  const acceptance = pending.stage === 'validation' ? null : stepAcceptance(context, state, pending.known);
+  if (!deepEqual(result.spec, acceptance ? acceptance.spec : validationSpec(state)))
     throw mismatch('Check result differs from the approved command or acceptance expectation');
   requireSettled(result, 'Check');
-  if (result.phase !== 'passed') return settleFailure(context, result);
+  if (result.phase !== 'passed') return settleFailure(context, result, acceptance);
+  const last = !acceptance || acceptance.index === acceptance.total - 1;
   return {
     kind: 'advance',
-    next: pending.stage === 'validation' ? 'submission' : 'delivery',
+    next: pending.stage === 'validation' ? 'submission' : last ? 'delivery' : 'verification',
     update: current => {
       current.failedCheckId = null;
       if (pending.stage === 'validation') current.validationId = result.id;
@@ -159,11 +182,16 @@ export const validationStage: StageHandler = {
   settle: settleCheck,
 };
 
-/** Runs acceptance against every active criterion; a pass is the last gate before delivery. */
+/**
+ * Runs the next acceptance check against every active criterion; passing them all is the last gate
+ * before delivery.
+ */
 export const verificationStage: StageHandler = {
   known: checkIds,
-  async perform({ id, state, checks, workflow, signal }) {
-    await checks.run(required(state, 'executionId'), acceptanceSpec(state, activeCriteria(workflow.get(id))), signal);
+  async perform(context) {
+    const { state, checks, signal } = context;
+    const due = stepAcceptance(context, state, required(state, 'pending').known);
+    await checks.run(required(state, 'executionId'), due.spec, signal);
     return null;
   },
   settle: settleCheck,

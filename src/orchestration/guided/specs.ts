@@ -1,14 +1,16 @@
 // Owns the exact leaf requests a guided step dispatches: edit policy, preparation, check and
 // delivery specs, and the reviewer. Each step builds its request here before dispatch and builds it
 // again at settlement, so a result is adopted only if it answers exactly the approved request. These
-// are pure functions of the state and snapshot; nothing here dispatches work or writes the journal.
+// are pure functions of the state, snapshot and any check records passed in; nothing here dispatches
+// work or writes the journal.
 import { commandLimits } from '../../config/limits.js';
 import type { GuidedPlan, GuidedSlice } from '../../domain/guided-plan.js';
 import { selectedEditPasses, type QualityPassDefinition } from '../../domain/quality-passes.js';
 import type { EditPolicy } from '../../execution/edit-policy.js';
 import type { DeliverySpec } from '../../execution/deliveries.js';
 import type { RepositorySnapshot } from '../../repository/artifacts.js';
-import type { CheckSpec } from '../../verification/checks.js';
+import type { CheckSpec, RepositoryCheck } from '../../verification/checks.js';
+import { deepEqual } from '../../domain/deep-equal.js';
 import { required, type GuidedState, type Stage } from './state.js';
 
 /** Automatic mode authorizes scope at approval and repairs ordinary failures without a click. */
@@ -88,17 +90,54 @@ export function validationSpec(state: GuidedState): CheckSpec {
 }
 
 /**
- * The acceptance request, bound to the current artifact and the task's active criteria; throws
- * without a current snapshot.
+ * The request of the slice's acceptance check at `index`, bound to the current artifact and the task's
+ * active criteria; throws without a current snapshot or when the slice has no such check.
  */
-export function acceptanceSpec(state: GuidedState, criteria: string[]): CheckSpec {
+export function acceptanceSpec(state: GuidedState, criteria: string[], index: number): CheckSpec {
   const snapshot = required(state, 'snapshot');
+  const command = currentSlice(state).acceptance[index];
+  if (!command) throw new Error(`The current slice has no acceptance check ${index + 1}`);
   return {
-    ...currentSlice(state).acceptance,
+    ...command,
     artifact: snapshot.artifact,
     instructionsDigest: snapshot.instructionsDigest,
     criteria,
   };
+}
+
+/** The acceptance check a verification step runs: its position, the slice's count and exact request. */
+export interface DueAcceptance {
+  index: number;
+  total: number;
+  spec: CheckSpec;
+}
+
+/**
+ * The first acceptance check without a passed run of exactly its request among `checks`, or null when
+ * every one has passed. Requests bind the artifact, so only passes on the current artifact count; a
+ * repair runs in a new execution, so it starts again from the first check, while a rerun on the same
+ * artifact resumes at the check that stopped. Settlement passes only the checks that existed before
+ * the step, so the step's own result never counts towards choosing it.
+ */
+export function dueAcceptance(
+  state: GuidedState,
+  criteria: string[],
+  checks: readonly Pick<RepositoryCheck, 'phase' | 'spec'>[],
+): DueAcceptance | null {
+  const total = currentSlice(state).acceptance.length;
+  for (let index = 0; index < total; index++) {
+    const spec = acceptanceSpec(state, criteria, index);
+    if (!checks.some(check => check.phase === 'passed' && deepEqual(check.spec, spec))) return { index, total, spec };
+  }
+  return null;
+}
+
+/**
+ * How a stop or repair names an acceptance check's position, such as ` (2 of 3)`; empty for a slice
+ * with a single check, whose name alone is unambiguous.
+ */
+export function acceptancePosition({ index, total }: Pick<DueAcceptance, 'index' | 'total'>): string {
+  return total > 1 ? ` (${index + 1} of ${total})` : '';
 }
 
 /** The local delivery request for the checked artifact; throws without a current snapshot. */

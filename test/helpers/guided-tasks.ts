@@ -120,7 +120,7 @@ export function fixture(t: { after(fn: () => void): void }) {
           ],
           timeoutMs: 15000,
         },
-        acceptance: { file: 'node', args: ['greeting.js'], expectedStdout: 'hello world\n', timeoutMs: 15000 },
+        acceptance: [{ file: 'node', args: ['greeting.js'], expectedStdout: 'hello world\n', timeoutMs: 15000 }],
         message: 'Implement guided greeting',
       },
     ],

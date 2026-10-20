@@ -233,14 +233,15 @@ function seconds(milliseconds: number): string {
 /**
  * The first line of a `CHECK_TIMEOUT` stop: which check exceeded which limit, how long the supervisor
  * measured it running, and how much output it retained. Output is written to the durable logs while
- * the tool runs, so everything it printed before the kill is kept.
+ * the tool runs, so everything it printed before the kill is kept. `position` follows the name, such as
+ * ` (2 of 3)` for one of several acceptance checks.
  */
-export function timeoutSummary(check: RepositoryCheck): string {
+export function timeoutSummary(check: RepositoryCheck, position = ''): string {
   const label =
     check.purpose === 'verification' ? 'Acceptance' : check.purpose === 'preparation' ? 'Preparation' : 'Validation';
   const elapsed = check.result?.elapsedMs;
   const bytes = retainedOutputBytes(check);
-  return `${label} '${check.spec.name}' exceeded its ${seconds(check.spec.timeoutMs)} limit after ${
+  return `${label} '${check.spec.name}'${position} exceeded its ${seconds(check.spec.timeoutMs)} limit after ${
     elapsed === undefined ? 'an unmeasured time' : seconds(elapsed)
   }; ${bytes ? `partial output retained (${bytes} bytes)` : 'it printed no output before it was stopped'}.`;
 }

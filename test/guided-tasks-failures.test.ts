@@ -128,14 +128,16 @@ test(
               `const fs=require('node:fs');if(!fs.existsSync(${JSON.stringify(marker)})){fs.writeFileSync(${JSON.stringify(marker)},'attempted');process.exit(7)};require('node:assert/strict').equal(fs.existsSync('greeting.js'),false);`,
             ],
           },
-          acceptance: {
-            file: 'node',
-            args: [
-              '-e',
-              "require('node:assert/strict').equal(require('node:fs').existsSync('greeting.js'),false);console.log('absent');",
-            ],
-            expectedStdout: 'absent\n',
-          },
+          acceptance: [
+            {
+              file: 'node',
+              args: [
+                '-e',
+                "require('node:assert/strict').equal(require('node:fs').existsSync('greeting.js'),false);console.log('absent');",
+              ],
+              expectedStdout: 'absent\n',
+            },
+          ],
           message: 'Remove obsolete greeting',
         },
       ],
@@ -167,7 +169,7 @@ for (const gate of ['validation', 'acceptance'] as const)
   test(`a failing ${gate} command is retained and cannot reach delivery or replay itself`, windows, async t => {
     const f = fixture(t);
     if (gate === 'validation') f.plan.slices[0]!.validation.args = ['-e', 'process.exit(7)'];
-    else f.plan.slices[0]!.acceptance.expectedStdout = 'unexpected output\n';
+    else f.plan.slices[0]!.acceptance[0]!.expectedStdout = 'unexpected output\n';
     const id = f.create();
     await f.tasks.run(id);
     let result = await f.tasks.authorize(id);

@@ -64,7 +64,7 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   share one approved slice allowance (three by default, up to ten). Continued blocking reviews
   must resolve preceding blockers with explicit identities and evidence; stalled or unknown
   progress stops or uses approved arbitration. Decisions are journaled with their reasons and
-  budget. The current journal schema 5 refuses other versions without migration ([WORKFLOW.md](WORKFLOW.md)).
+  budget. The journal schema refuses other versions without migration ([WORKFLOW.md](WORKFLOW.md)).
 - **No backwards compatibility.** Done 18 October 2026. Legacy plan formats, digests, fields,
   migrations and `task-automate` are removed from code and docs. The current schema is version 5; an older
   journal is refused with a clear message and never modified. The new version uses a fresh
@@ -143,7 +143,7 @@ the trigger, progress assessment, remaining budget and result/artifact identitie
 in the timeline. New plans default to three automatic repairs; explicit approved allowances remain
 bound to their plan. **Pause after this step** lets the current operation settle before stopping;
 **Continue task** resumes the same attempt. Failures and uncertain operations retain their failure or
-recovery reason. Persisted pause, guidance and task spending policy use schema 5; older journals are refused without migration.
+recovery reason. Persisted pause, guidance and task spending policy are part of the journal schema (now 6); other versions are refused without migration.
 The installed application and its journal are separate from this checkout.
 
 Queued human guidance is implemented. Messages are bound to the approved version and slice,
@@ -188,6 +188,15 @@ application/journal-bound discovery and process receipts prevent duplicate live 
   checks** (`task-rerun-checks`): the same check, same artifact and attempt, no agent turn.
   Automatic repair only treats genuine check failures as implementation problems and never
   reruns on its own ([WORKFLOW.md](WORKFLOW.md#rerun-checks)).
+- **One acceptance command ran out of time.** Fixed 20 October 2026. A slice's single acceptance
+  command chained unit tests and three browser suites. Its first run failed four end-to-end tests
+  after 8.6 minutes; after a repair the same command reached the 600 s cap with three tests already
+  failed, so the stop (`CHECK_TIMEOUT`) could not spend a repair and the failure summary was never
+  printed. A slice now approves an ordered list of up to `planLimits.acceptanceChecks` named
+  acceptance commands, each with its own timeout. They run in order on one artifact, the first
+  failure stops the rest and names its position, a rerun resumes at the stopped check, a repair
+  runs them all again, and delivery needs the latest result of every one to pass. The planner is
+  asked to split slow suites into their own checks. Journal schema 6.
 
 ## Deferred until real use asks for them
 

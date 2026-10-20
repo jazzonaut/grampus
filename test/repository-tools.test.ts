@@ -455,7 +455,7 @@ test('kickoff starts without file selection, discovers its own edit scope and re
               {
                 scope: { files: [found.files[0]] },
                 validation: { file: 'node', args: ['--check', found.files[0]] },
-                acceptance: { file: 'node', args: ['src/caller.js'], expectedStdout: 'updated\n' },
+                acceptance: [{ file: 'node', args: ['src/caller.js'], expectedStdout: 'updated\n' }],
                 message: 'Update contract',
               },
             ],

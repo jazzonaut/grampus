@@ -18,16 +18,18 @@ test('guided acceptance verifies JSON values and file bytes through supervised d
       slices: [
         {
           ...f.plan.slices[0],
-          acceptance: {
-            file: 'node',
-            args: ['-e', 'console.log(JSON.stringify({ok:true, count:2}))'],
-            timeoutMs: 15000,
-            expectations: {
-              stdoutJson: { count: 2, ok: true },
-              stderr: '',
-              files: [{ path: 'greeting.js', content: source }],
+          acceptance: [
+            {
+              file: 'node',
+              args: ['-e', 'console.log(JSON.stringify({ok:true, count:2}))'],
+              timeoutMs: 15000,
+              expectations: {
+                stdoutJson: { count: 2, ok: true },
+                stderr: '',
+                files: [{ path: 'greeting.js', content: source }],
+              },
             },
-          },
+          ],
         },
       ],
     }),
@@ -161,7 +163,7 @@ test('no-change workflow runs every gate without implementation inference or a c
   plan.brief.outcome = 'Confirm the existing hello greeting';
   plan.brief.criteria = ['Print hello with a newline'];
   plan.slices[0]!.validation.args = ['greeting.js'];
-  plan.slices[0]!.acceptance.expectedStdout = 'hello\n';
+  plan.slices[0]!.acceptance[0]!.expectedStdout = 'hello\n';
   const input = { ...plan, slices: [{ ...plan.slices[0]!, scope: { files: [] }, mode: 'no_change' }] };
   const tasks = new GuidedTasks(f.store, {
     ...services(),

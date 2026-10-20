@@ -305,7 +305,8 @@ export class Checks {
 
   /**
    * Claims the workspace and journals the check request. An acceptance check first records skipped
-   * verification evidence, so an earlier pass cannot satisfy the gate while this one is pending, and
+   * verification evidence under its name, so an earlier pass of the same check cannot satisfy the gate
+   * while this one is pending, and
    * must map exactly the current slice's criteria.
    */
   private request(executionId: string, spec: CheckSpec, id: string, purpose: RepositoryCheck['purpose']): Execution {
@@ -323,6 +324,7 @@ export class Checks {
           outcome: 'skipped',
           source: 'controller',
           criteria: spec.criteria ?? [],
+          check: spec.name,
           summary: 'Acceptance check requested; a new verified result is pending',
         });
       }
@@ -526,6 +528,7 @@ export class Checks {
       source: 'controller',
       outcome: check.phase === 'passed' ? 'passed' : check.phase === 'interrupted' ? 'skipped' : 'failed',
       criteria: check.spec.criteria ?? [],
+      check: check.spec.name,
       summary: `Acceptance check ${check.spec.name}: ${check.phase}. Output/file expectations and criterion mapping supplied by the caller; command and actual result retained in check ${check.id}.`,
     });
   }

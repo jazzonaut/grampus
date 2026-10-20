@@ -31,7 +31,7 @@ test(
           mode: 'no_change',
           scope: { files: [] },
           validation: { file: 'node', args: ['--check', 'greeting.js'] },
-          acceptance: { file: 'node', args: ['greeting.js'], expectedStdout: 'hello\n' },
+          acceptance: [{ file: 'node', args: ['greeting.js'], expectedStdout: 'hello\n' }],
         },
       ],
     });

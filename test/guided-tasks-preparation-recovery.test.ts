@@ -173,7 +173,7 @@ test(
           validation: preparation(
             "require('node:assert/strict').equal(require('node:fs').readFileSync('greeting.js','utf8'),\"console.log('hello');\\n\")",
           ),
-          acceptance: { file: 'node', args: ['greeting.js'], expectedStdout: 'hello\n' },
+          acceptance: [{ file: 'node', args: ['greeting.js'], expectedStdout: 'hello\n' }],
           message: 'Verify existing greeting',
         },
       ],

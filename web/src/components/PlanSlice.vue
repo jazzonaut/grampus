@@ -64,8 +64,11 @@ defineProps<{ slice: PlanSliceView; index: number }>();
         </p>
       </div>
       <div class="flex flex-col gap-1">
-        <p class="text-xs text-muted">
-          Acceptance · {{ slice.acceptance.name }} · {{ formatTimeout(slice.acceptance.timeoutMs) }}
+        <p v-for="check in slice.acceptance" :key="check.name" class="text-xs text-muted">
+          Acceptance · {{ check.name }} · {{ formatTimeout(check.timeoutMs) }}
+        </p>
+        <p v-if="slice.acceptance.length > 1" class="text-xs text-muted">
+          Run in this order; the first failure stops the rest.
         </p>
       </div>
       <p class="text-xs text-muted">

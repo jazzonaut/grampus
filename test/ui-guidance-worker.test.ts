@@ -19,7 +19,7 @@ test('queue and cancellation keep the active dashboard worker and its check unch
         mode: 'no_change',
         scope: { files: [] },
         validation: { file: 'node', args: ['-e', 'setTimeout(() => {}, 8000)'], timeoutMs: 20000 },
-        acceptance: { file: 'node', args: ['greeting.js'], expectedStdout: 'hello\n' },
+        acceptance: [{ file: 'node', args: ['greeting.js'], expectedStdout: 'hello\n' }],
       },
     ],
   });

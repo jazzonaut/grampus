@@ -35,7 +35,9 @@ function guided(mode: 'automatic' | 'supervised', overrides: Record<string, unkn
       quality: { passes: [simplification] },
       implementation: { provider: 'codex', model: null },
       review: { provider: 'claude', model: null },
-      slices: [{ mode: 'commit', scope: { files: ['a.js'] }, validation, acceptance: validation, message: 'Deliver' }],
+      slices: [
+        { mode: 'commit', scope: { files: ['a.js'] }, validation, acceptance: [validation], message: 'Deliver' },
+      ],
     },
     sliceIndex: 0,
     stage: 'validation',

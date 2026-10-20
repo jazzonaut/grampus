@@ -8,7 +8,7 @@ import { deepEqual } from '../../domain/deep-equal.js';
 import type { Store } from '../../persistence/store.js';
 import type { StopReasonCode } from './stop-reasons.js';
 import type { GuidedState } from './state.js';
-import { acceptanceSpec, validationSpec } from './specs.js';
+import { dueAcceptance, validationSpec } from './specs.js';
 
 /**
  * Stops caused by the check's environment rather than by the implementation: the command timed out,
@@ -42,8 +42,13 @@ function checkIneligibility(store: Store, task: Task, state: GuidedState): strin
   // workspace; PID absence alone never proves settlement, so this needs recovery, not a second run.
   if (check.dispatch !== 'not_requested' && check.result?.exitConfirmed !== true)
     return 'The check process tree was not confirmed settled; recover it instead of rerunning';
-  const expected = state.stage === 'validation' ? validationSpec(state) : acceptanceSpec(state, activeCriteria(task));
-  if (!deepEqual(check.spec, expected)) return 'The retained check differs from the approved check for this step';
+  // Acceptance resumes at the first check not yet passed on this artifact, which is the stopped one.
+  const expected =
+    state.stage === 'validation'
+      ? validationSpec(state)
+      : dueAcceptance(state, activeCriteria(task), store.checks(state.executionId))?.spec;
+  if (!expected || !deepEqual(check.spec, expected))
+    return 'The retained check differs from the approved check for this step';
   // A check without a before-snapshot never observed the workspace; the controller's fresh snapshot at
   // rerun still compares it with the held artifact.
   if (check.before && check.before.artifact !== state.snapshot.artifact)

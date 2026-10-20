@@ -51,29 +51,33 @@ test(
         {
           scope: { files: ['greeting.js'] },
           validation: { file: 'node', args: ['-e', libraryCheck], timeoutMs: 15000 },
-          acceptance: { file: 'node', args: ['-e', libraryCheck], expectedStdout: 'library ok\n', timeoutMs: 15000 },
+          acceptance: [{ file: 'node', args: ['-e', libraryCheck], expectedStdout: 'library ok\n', timeoutMs: 15000 }],
           message: 'Expose greeting library',
         },
         {
           scope: { files: ['cli.js'] },
           validation: { file: 'node', args: ['-e', allCheck], timeoutMs: 15000 },
-          acceptance: {
-            file: 'node',
-            args: ['-e', allCheck],
-            expectedStdout: 'library ok\ncli ok\n',
-            timeoutMs: 15000,
-          },
+          acceptance: [
+            {
+              file: 'node',
+              args: ['-e', allCheck],
+              expectedStdout: 'library ok\ncli ok\n',
+              timeoutMs: 15000,
+            },
+          ],
           message: 'Integrate greeting CLI',
         },
         {
           scope: { files: ['notes.js'] },
           validation: { file: 'node', args: ['-e', finalCheck], timeoutMs: 15000 },
-          acceptance: {
-            file: 'node',
-            args: ['-e', finalCheck],
-            expectedStdout: 'library ok\ncli ok\nnotes ok\n',
-            timeoutMs: 15000,
-          },
+          acceptance: [
+            {
+              file: 'node',
+              args: ['-e', finalCheck],
+              expectedStdout: 'library ok\ncli ok\nnotes ok\n',
+              timeoutMs: 15000,
+            },
+          ],
           message: 'Document and verify greeting',
         },
       ],

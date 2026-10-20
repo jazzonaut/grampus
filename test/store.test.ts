@@ -26,7 +26,7 @@ test('a new journal gets the current schema at version 5 and reopens with its re
   store.close();
   const db = new DatabaseSync(path);
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get()!['user_version'], 5);
+    assert.equal(db.prepare('PRAGMA user_version').get()!['user_version'], 6);
   } finally {
     db.close();
   }
@@ -73,7 +73,7 @@ test('a journal from an older version is refused and left byte-for-byte unchange
 test('a current-version journal without the expected tables is refused', t => {
   const path = join(directory(t), 'partial.sqlite');
   const partial = new DatabaseSync(path);
-  partial.exec('CREATE TABLE tasks (id TEXT PRIMARY KEY, state TEXT NOT NULL); PRAGMA user_version = 5;');
+  partial.exec('CREATE TABLE tasks (id TEXT PRIMARY KEY, state TEXT NOT NULL); PRAGMA user_version = 6;');
   partial.close();
   const before = readFileSync(path);
   assert.throws(() => new Store(path), /created by an older Grampus version/);

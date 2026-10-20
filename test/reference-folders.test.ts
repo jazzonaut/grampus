@@ -59,7 +59,7 @@ test('reference roots expose only a selected Git subtree and keep committed cont
           {
             scope: { files: [join(f.reference, 'subfolder', 'pdf.js')] },
             validation: { file: 'node', args: [] },
-            acceptance: { file: 'node', args: [], expectedStdout: '' },
+            acceptance: [{ file: 'node', args: [], expectedStdout: '' }],
             message: 'PDF',
           },
         ],

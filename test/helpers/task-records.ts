@@ -27,7 +27,7 @@ export function planRecord(fields: Partial<GuidedPlan> = {}): GuidedPlan {
       {
         scope: { files: [] },
         validation: command,
-        acceptance: { ...command, expectedStdout: '' },
+        acceptance: [{ ...command, expectedStdout: '' }],
         message: 'Fixture delivery',
         mode: 'no_change',
       },

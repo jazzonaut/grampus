@@ -59,6 +59,8 @@ export const evidenceSchema = z.object({
   agent: agentSchema.exactOptional(),
   /** The criteria a verification covered. */
   criteria: z.array(z.string()).exactOptional(),
+  /** The name of the acceptance check a verification came from; only verification has one. */
+  check: z.string().exactOptional(),
   /** Why a review used the implementer's provider; required in that case. */
   fallbackReason: z.string().exactOptional(),
 });
@@ -133,6 +135,41 @@ export type Task = z.infer<typeof taskFieldsSchema> & { guided?: GuidedState };
  */
 export function requiredQualityLenses(task: Task): string[] {
   return task.guided ? selectedLenses(task.guided.plan.quality).map(pass => pass.id) : ['simplification'];
+}
+
+/**
+ * The acceptance checks whose latest verification must each pass before delivery: the current slice's
+ * approved checks by name for a guided task, or null for a task driven by the low-level commands,
+ * where the latest verification of any check is the gate.
+ */
+function requiredAcceptanceChecks(task: Task): string[] | null {
+  if (!task.guided) return null;
+  const slice = task.guided.plan.slices[task.slice?.index ?? 0];
+  if (!slice) throw new Error(`Task ${task.id} has no approved checks for its current slice`);
+  return slice.acceptance.map(check => check.name);
+}
+
+/**
+ * Why acceptance does not yet allow delivery. Each approved acceptance check gates on its own latest
+ * result, so a pass of one never stands in for another that failed or never ran, and every passing
+ * result must cover all active criteria. A slice with one check keeps the unnamed wording.
+ */
+function verificationBlockers(task: Task): string[] {
+  const checks = requiredAcceptanceChecks(task);
+  return (checks ?? [null]).flatMap(check => {
+    const evidence = task.evidence.findLast(
+      item => item.kind === 'verification' && (check === null || item.check === check),
+    );
+    if (evidence?.outcome !== 'passed')
+      return [
+        check === null || checks?.length === 1
+          ? 'verification has not passed'
+          : `verification '${check}' has not passed`,
+      ];
+    return activeCriteria(task).every(criterion => evidence.criteria?.includes(criterion))
+      ? []
+      : ['Verification does not cover all acceptance criteria'];
+  });
 }
 
 /** The brief's slices; throws when a task tracks slice progress without them, a corrupt record. */
@@ -249,13 +286,17 @@ function unsettled(task: Task): boolean {
   return ['running', 'stop_requested', 'recovery_required'].includes(task.phase);
 }
 
-/** Throws unless `evidence` has a known kind, outcome and source, and a pass exactly when it is `quality`. */
+/**
+ * Throws unless `evidence` has a known kind, outcome and source, a pass exactly when it is `quality`,
+ * and an acceptance check name only when it is `verification`.
+ */
 function validateEvidenceShape(evidence: Evidence): void {
   nonempty(evidence.id, 'evidence id');
   nonempty(evidence.summary, 'summary');
   if (
     !['quality', 'validation', 'review', 'verification'].includes(evidence.kind) ||
     (evidence.kind === 'quality') !== (typeof evidence.pass === 'string' && evidence.pass.trim() !== '') ||
+    (evidence.check !== undefined && (evidence.kind !== 'verification' || !evidence.check.trim())) ||
     !['passed', 'failed', 'skipped'].includes(evidence.outcome) ||
     !['controller', 'agent', 'synthetic'].includes(evidence.source)
   )
@@ -627,17 +668,11 @@ export class Workflow {
       const evidence = task.evidence.findLast(item => item.kind === 'quality' && item.pass === pass);
       if (evidence?.outcome !== 'passed') reasons.push(`${pass} assessment has not passed`);
     }
-    for (const kind of ['validation', 'review', 'verification'] as const) {
-      const evidence = task.evidence.findLast(item => item.kind === kind);
-      if (evidence?.outcome !== 'passed') reasons.push(`${kind} has not passed`);
-      if (
-        kind === 'verification' &&
-        evidence?.outcome === 'passed' &&
-        !activeCriteria(task).every(criterion => evidence.criteria?.includes(criterion))
-      ) {
-        reasons.push('Verification does not cover all acceptance criteria');
-      }
+    for (const kind of ['validation', 'review'] as const) {
+      if (task.evidence.findLast(item => item.kind === kind)?.outcome !== 'passed')
+        reasons.push(`${kind} has not passed`);
     }
+    reasons.push(...verificationBlockers(task));
     if (task.decisions.some(item => !item.accepted)) reasons.push('Provisional decisions need acceptance');
     return reasons;
   }

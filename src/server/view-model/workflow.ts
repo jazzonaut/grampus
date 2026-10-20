@@ -183,7 +183,10 @@ function stageSpecs(facts: WorkflowFacts): StageSpec[] {
       id: 'accept',
       kind: 'accept',
       label: 'Accept',
-      passed: { evidence: 'controller-verified', detail: slice?.acceptance.name ?? null },
+      passed: {
+        evidence: 'controller-verified',
+        detail: slice?.acceptance.map(check => check.name).join(', ') ?? null,
+      },
     },
     {
       id: 'deliver',

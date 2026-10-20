@@ -12,7 +12,9 @@ New plans default to automatic execution within their exact approved file scope:
    whether they will establish each criterion; acceptance has not run yet, so its absence is
    never a finding. A criterion that needs the results of a later check is raised as a
    question rather than a blocker, because no repair can resolve it.
-5. Verify acceptance. Repairs invalidate earlier validation, review and acceptance.
+5. Verify acceptance: run the slice's acceptance checks in their approved order on the same
+   artifact. The first failure stops the rest and is handled like any failed check. Repairs
+   invalidate earlier validation, review and acceptance, so every acceptance check runs again.
 6. Deliver the verified local commit and continue to the next slice.
 
 The dashboard keeps current decisions and activity above separate results, plan, usage and evidence
@@ -111,7 +113,9 @@ A validation or acceptance check that stops for an infrastructure reason on an u
 artifact can be rerun without a new implementation attempt: **Rerun checks** on the
 dashboard, or `task-rerun-checks <id> <decision-key>` with the key shown in `task-show`'s
 next action. It runs the same approved check spec again on the same execution and attempt,
-with a new check record and the usual evidence binding. No agent turn is sent.
+with a new check record and the usual evidence binding. No agent turn is sent. In a slice
+with several acceptance checks the rerun resumes at the check that stopped: checks that already
+passed on the same artifact are not repeated, and the remaining ones follow in order.
 
 It is offered after `CHECK_TIMEOUT`, `CHECK_INTERRUPTED`, `CHECK_EXIT_UNCONFIRMED`,
 `CHECK_OUTPUT_UNAVAILABLE` and `CHECK_ERROR`, and only when the retained check proves its
@@ -186,7 +190,7 @@ action and shared budget before the decision. Review dispositions remain in the 
 structured reply. This makes the choice to repair, arbitrate or stop inspectable alongside the
 existing request/result, check and usage journals.
 
-The current controller uses journal schema 5, including its persisted pause request, guidance batches and required task spending policy. Journals from
+The current controller uses journal schema 6, including its persisted pause request, guidance batches, required task spending policy and ordered acceptance checks. Journals from
 other schema versions are refused without modification; there is
 no migration. Keep the previous installed build with its journal to finish an existing task.
 

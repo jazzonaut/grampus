@@ -26,12 +26,12 @@ const guidedCommandSchema = z.object({
 });
 export type GuidedCommand = z.infer<typeof guidedCommandSchema>;
 
-/** The acceptance command and what it must observe; see domain/acceptance.ts. */
+/** An acceptance command and what it must observe; see domain/acceptance.ts. */
 const acceptanceCommandSchema = guidedCommandSchema.extend({
   expectedStdout: z.string().exactOptional(),
   expectations: acceptanceExpectationsSchema.exactOptional(),
 });
-type AcceptanceCommand = z.infer<typeof acceptanceCommandSchema>;
+export type AcceptanceCommand = z.infer<typeof acceptanceCommandSchema>;
 
 /** The exact file actions one slice may perform. */
 const sliceScopeSchema = editPolicySchema.pick({ files: true, create: true, delete: true });
@@ -41,7 +41,11 @@ const guidedSliceSchema = z.object({
   scope: sliceScopeSchema,
   preparation: guidedCommandSchema.exactOptional(),
   validation: guidedCommandSchema,
-  acceptance: acceptanceCommandSchema,
+  /**
+   * Distinctly named acceptance checks, run in this order on the same artifact. Each has its own
+   * timeout, the first failure stops the rest, and delivery needs every one to pass.
+   */
+  acceptance: z.array(acceptanceCommandSchema).min(1),
   message: z.string(),
   /** `no_change` delivers a verified unchanged head, for slices that must only be confirmed. */
   mode: z.enum(['commit', 'no_change']),
@@ -363,8 +367,8 @@ function sliceScope(value: unknown, mode: GuidedSlice['mode']): GuidedSlice['sco
 }
 
 /**
- * Runs `normalize`, prefixing any error with `label`. A plan has one command of each kind per slice,
- * so an unlabelled error would leave the planner and the person unable to tell which one to fix.
+ * Runs `normalize`, prefixing any error with `label`. A plan has several commands per slice, so an
+ * unlabelled error would leave the planner and the person unable to tell which one to fix.
  */
 function labelled<T>(label: string, normalize: () => T): T {
   try {
@@ -372,6 +376,25 @@ function labelled<T>(label: string, normalize: () => T): T {
   } catch (error) {
     throw new Error(`${label}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
+}
+
+/**
+ * A slice's ordered acceptance checks: 1 to `planLimits.acceptanceChecks` commands with distinct names,
+ * because the name is how a stop, a repair and the delivery gate say which check is meant. Errors name
+ * the slice and, for a single command, its position.
+ */
+function acceptanceChecks(value: unknown, slice: number): GuidedSlice['acceptance'] {
+  const label = `Slice ${slice} acceptance`;
+  const max = planLimits.acceptanceChecks;
+  if (!Array.isArray(value) || value.length < 1 || value.length > max)
+    throw new Error(`${label}: Acceptance requires 1–${max} checks in an ordered list`);
+  const list: unknown[] = value;
+  const checks = list.map((item, index) =>
+    labelled(list.length === 1 ? label : `${label} ${index + 1}`, () => command(item, true)),
+  );
+  const repeated = checks.find((check, index) => checks.findIndex(other => other.name === check.name) !== index);
+  if (repeated) throw new Error(`${label}: Acceptance check names must be distinct: ${repeated.name}`);
+  return checks;
 }
 
 function normalizeSlice(raw: unknown, simulation: FileSimulation, number: number): GuidedSlice {
@@ -403,7 +426,7 @@ function normalizeSlice(raw: unknown, simulation: FileSimulation, number: number
           ),
         }),
     validation: labelled(`Slice ${number} validation`, () => command(item.validation, false)),
-    acceptance: labelled(`Slice ${number} acceptance`, () => command(item.acceptance, true)),
+    acceptance: acceptanceChecks(item.acceptance, number),
     message,
   };
 }

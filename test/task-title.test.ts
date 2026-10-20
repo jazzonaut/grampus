@@ -39,7 +39,7 @@ function fixture(t: { after(fn: () => void): void }) {
         mode: 'no_change',
         scope: { files: [] },
         validation: { file: 'node', args: ['--check', 'hello.js'] },
-        acceptance: { file: 'node', args: ['hello.js'], expectedStdout: 'hello\n' },
+        acceptance: [{ file: 'node', args: ['hello.js'], expectedStdout: 'hello\n' }],
         message: 'Verify greeting',
       },
     ],

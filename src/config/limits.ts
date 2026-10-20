@@ -30,6 +30,8 @@ export const planLimits = {
   commitMessageBytes: 8192,
   /** Ordered slices in one brief; each is a separate verified delivery. */
   slices: 64,
+  /** Ordered acceptance checks in one slice; each runs under its own timeout and all must pass. */
+  acceptanceChecks: 8,
 } as const;
 
 /** Inclusive ranges for an approved workflow policy. Settings defaults must also fall inside them. */

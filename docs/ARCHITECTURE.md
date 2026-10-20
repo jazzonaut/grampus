@@ -164,6 +164,13 @@ retained record proves a settled process tree can be rerun with `GuidedTasks.rer
 fresh snapshot confirms the artifact is unchanged, with no agent turn
 ([rerun checks](WORKFLOW.md#rerun-checks)).
 
+A slice's acceptance checks run as consecutive `verification` steps. Which one is due is not stored
+in the guided state: `dueAcceptance` (`orchestration/guided/specs.ts`) derives it from the
+execution's own check records as the first approved check without a passed run of exactly its
+request. Requests bind the artifact, so a repair (a new execution) starts again from the first
+check and a rerun on the same artifact resumes at the stopped one. Verification evidence carries
+the check name, and `Workflow.sliceBlockers` gates delivery on the latest result of every name.
+
 One guided controller runs per task at a time, and up to `maxConcurrentTasks` tasks run at once
 ([parallel tasks](#parallel-tasks-and-concurrency)). Ownership has no expiry and is kept across an
 uncertain shutdown. Stop requests are persisted and forwarded as an `AbortSignal` to the running

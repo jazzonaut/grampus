@@ -276,7 +276,7 @@ test('new plans default preparation and checks to separate timeouts, each config
           scope: { files: ['a.txt'] },
           preparation: command,
           validation: command,
-          acceptance: { ...command, expectedStdout: '' },
+          acceptance: [{ ...command, expectedStdout: '' }],
           message: 'Timeouts',
         },
       ],
@@ -288,7 +288,7 @@ test('new plans default preparation and checks to separate timeouts, each config
       preparation?.timeoutMs,
       slice?.preparation?.timeoutMs,
       slice?.validation.timeoutMs,
-      slice?.acceptance.timeoutMs,
+      slice?.acceptance[0]?.timeoutMs,
     ];
   };
   t.after(() => useSettings(defaultSettings()));

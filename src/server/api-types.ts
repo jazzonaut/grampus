@@ -606,6 +606,17 @@ export interface ResultsV1 {
   unresolved: string[];
 }
 
+/** One acceptance check of a slice and what it must observe. */
+export interface PlanAcceptanceView {
+  name: string;
+  file: string;
+  args: string[];
+  timeoutMs: number;
+  expectedStdout: string | null;
+  /** Additional observations as formatted JSON, or null. */
+  expectations: string | null;
+}
+
 /** One slice of the plan. */
 export interface PlanSliceView {
   title: string;
@@ -614,15 +625,8 @@ export interface PlanSliceView {
   files: { edit: string[]; create: string[]; delete: string[] };
   preparation: { name: string; file: string; args: string[]; timeoutMs: number } | null;
   validation: { name: string; file: string; args: string[]; timeoutMs: number };
-  acceptance: {
-    name: string;
-    file: string;
-    args: string[];
-    timeoutMs: number;
-    expectedStdout: string | null;
-    /** Additional observations as formatted JSON, or null. */
-    expectations: string | null;
-  };
+  /** The acceptance checks in the order they run; at least one. */
+  acceptance: PlanAcceptanceView[];
   delivery: { mode: 'commit' | 'no_change'; message: string };
 }
 

@@ -9,6 +9,7 @@
   "desktop-launch",
   "desktop-shutdown",
   "executions",
+  "guided-tasks-acceptance-checks",
   "guided-tasks-arbitration",
   "guided-tasks-automatic-continuation",
   "guided-tasks-automatic-repair",

@@ -172,7 +172,7 @@ function planFromReply(reply: string, config: Kickoff): GuidedPlan {
 function requireValidInlineChecks(plan: GuidedPlan): void {
   const commands = [
     plan.preparation,
-    ...plan.slices.flatMap(slice => [slice.preparation, slice.validation, slice.acceptance]),
+    ...plan.slices.flatMap(slice => [slice.preparation, slice.validation, ...slice.acceptance]),
   ];
   for (const command of commands) {
     if (!command) continue;

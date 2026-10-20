@@ -103,14 +103,17 @@ const headingId = useId();
             :summary="`Preparation: ${slice.preparation.name}`"
           />
           <CommandDetails :command="slice.validation" :summary="`Validation: ${slice.validation.name}`" />
-          <CommandDetails :command="slice.acceptance" :summary="`Acceptance: ${slice.acceptance.name}`" />
-          <p v-if="slice.acceptance.expectedStdout !== null" class="text-xs text-muted">
-            Exact expected stdout (JSON escaped)
-          </p>
-          <pre v-if="slice.acceptance.expectedStdout !== null" class="grampus-code" data-expected-stdout>{{
-            JSON.stringify(slice.acceptance.expectedStdout)
-          }}</pre>
-          <pre v-if="slice.acceptance.expectations" class="grampus-code">{{ slice.acceptance.expectations }}</pre>
+          <template v-for="(check, position) in slice.acceptance" :key="check.name">
+            <CommandDetails
+              :command="check"
+              :summary="`Acceptance${slice.acceptance.length > 1 ? ` ${position + 1} of ${slice.acceptance.length}` : ''}: ${check.name}`"
+            />
+            <p v-if="check.expectedStdout !== null" class="text-xs text-muted">Exact expected stdout (JSON escaped)</p>
+            <pre v-if="check.expectedStdout !== null" class="grampus-code" data-expected-stdout>{{
+              JSON.stringify(check.expectedStdout)
+            }}</pre>
+            <pre v-if="check.expectations" class="grampus-code">{{ check.expectations }}</pre>
+          </template>
         </div>
       </details>
       <details class="p-4">

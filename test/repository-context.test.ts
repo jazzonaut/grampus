@@ -50,7 +50,7 @@ function fixture(t: { after(fn: () => void): void }) {
       {
         scope: { files: ['main.js'] },
         validation: { file: 'node', args: ['--check', 'main.js'] },
-        acceptance: { file: 'node', args: ['main.js'], expectedStdout: 'hello\n' },
+        acceptance: [{ file: 'node', args: ['main.js'], expectedStdout: 'hello\n' }],
         message: 'Greeting',
       },
     ],

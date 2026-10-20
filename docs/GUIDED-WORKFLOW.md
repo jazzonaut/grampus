@@ -26,8 +26,9 @@ A plan contains:
 - `implementation` and optional `review`: provider and model. The default implementer
   is Codex, and review always uses the other provider.
 - `slices`: one execution configuration per brief slice (one for an unsliced brief),
-  each with a file `scope` (`files`, `create`, `delete`), `validation`, `acceptance`,
-  a delivery `message`, and optional `preparation` and `mode`.
+  each with a file `scope` (`files`, `create`, `delete`), `validation`, `acceptance`
+  (an ordered list of 1 to 8 commands with distinct names), a delivery `message`, and optional
+  `preparation` and `mode`.
 - Optional `workflowPolicy`, `reviewPolicy`, `quality`, top-level `preparation`, `context`
   and `references`. `quality.passes` lists quality pass ids or full definitions; it defaults
   to the configured `defaultQualityPasses` ([quality passes](WORKFLOW.md#quality-passes)).
@@ -140,9 +141,25 @@ stops before inference rather than dropping findings. See [repair policy](WORKFL
 
 ## Acceptance observations
 
-`acceptance.expectedStdout` checks exact stdout. Exit status alone never accepts, so every acceptance
-command needs `expectedStdout`, `expectations` or both; an error names the slice
-whose command lacks them. Alternatively or additionally:
+A slice's `acceptance` is an ordered list of commands. They run one after another on the same
+artifact, each under its own `timeoutMs`, so a slow browser suite can have its own limit instead of
+sharing one with fast unit tests:
+
+```json
+"acceptance": [
+  { "name": "Unit", "file": "node", "args": ["..."], "expectedStdout": "unit-accepted\n", "timeoutMs": 120000 },
+  { "name": "Browser", "file": "node", "args": ["..."], "expectedStdout": "e2e-accepted\n", "timeoutMs": 600000 }
+]
+```
+
+The first failure stops the rest. Stops and repair decisions name the check and its position, such
+as `Acceptance 'Browser' (2 of 2)`. A rerun after an infrastructure stop resumes at the stopped
+check; a repair runs every check again. Delivery requires the latest result of each named check to
+pass and to cover every active criterion.
+
+Each command's `expectedStdout` checks exact stdout. Exit status alone never accepts, so every
+acceptance command needs `expectedStdout`, `expectations` or both; an error names the slice, and its
+position when the slice has several, whose command lacks them. Alternatively or additionally:
 
 ```json
 "expectations": {
