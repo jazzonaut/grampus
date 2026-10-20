@@ -5,6 +5,7 @@ import { gunzipSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startUi } from '../src/server/ui-server.js';
+import { currentSettings, useSettings } from '../src/config/settings.js';
 import { Kickoffs } from '../src/orchestration/kickoff.js';
 import { Sessions } from '../src/execution/sessions.js';
 import { Comparisons } from '../src/orchestration/comparisons.js';
@@ -16,6 +17,9 @@ import { fixture } from './helpers/guided-tasks.js';
 import type { ComparisonV1, ModelProfilesV1 } from '../src/server/api-types.js';
 
 test('profiles save with stale-write protection and exports preserve the full session history', async t => {
+  const previous = currentSettings();
+  useSettings({ ...previous, dashboardRequireAccessLink: true });
+  t.after(() => useSettings(previous));
   const cleanups: (() => void)[] = [],
     f = fixture({ after: fn => cleanups.push(fn) });
   const ui = await startUi({ db: f.store.path, port: 0, settingsDirectory: f.root });

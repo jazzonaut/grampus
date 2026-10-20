@@ -237,7 +237,7 @@ test('version commands expose development identity and isolate default data with
   assert.equal(info.build, null);
   assert.match(info.dataDirectory, /development/);
   assert.equal(existsSync(info.dataDirectory), false);
-  assert.match(run(['--version']), /Grampus 0\.4\.0 \(development\)/);
+  assert.match(run(['--version']), /Grampus 0\.5\.0 \(development\)/);
   assert.equal(run(['-v']), run(['--version']));
   assert.match(run(['--help']), /update.*checkout/);
   const overridden = JSON.parse(run(['version', '--json'], { ...environment, GRAMPUS_HOME: join(root, 'explicit') }));
@@ -358,7 +358,7 @@ test('bare CLI opens the dashboard from an unrelated directory and retains expli
   const overview = await response.json();
   assert.equal(overview.application.journal, db);
   assert.equal(overview.application.channel, 'development');
-  assert.equal(overview.application.version, '0.4.0');
+  assert.equal(overview.application.version, '0.5.0');
 });
 
 test(

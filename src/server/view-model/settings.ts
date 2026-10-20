@@ -182,6 +182,15 @@ function settingsFields(stored: unknown): FormField[] {
   const defaults = defaultSettings();
   const policy = storedValue(stored, 'defaultWorkflowPolicy');
   return [
+    field({
+      name: 'dashboardRequireAccessLink',
+      label: 'Require dashboard access link',
+      input: 'select',
+      target: '/overrides/dashboardRequireAccessLink',
+      value: storedValue(stored, 'dashboardRequireAccessLink'),
+      options: [option(null, 'Default (off)'), option(false, 'Off'), option(true, 'On')],
+      help: 'Require the complete per-launch link to open the dashboard. Off allows direct local access. Restart Grampus after saving.',
+    }),
     ...integerSettings.map(spec =>
       integerField(
         spec,

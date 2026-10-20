@@ -1,7 +1,14 @@
 <script setup lang="ts">
-// Owns one provider/model/effort input. Supported effort choices come from the server catalogue.
-import type { ModelAssignmentV1, ModelProfilesV1 } from '../../../src/server/api-types';
-const props = defineProps<{ label: string; modelValue: ModelAssignmentV1; efforts: ModelProfilesV1['efforts'] }>();
+// Owns one provider/model/effort input with discovered suggestions and manual model entry.
+import { useId } from 'vue';
+import type { ModelAssignmentV1, ModelProfilesV1, ProviderModelsV1 } from '../../../src/server/api-types';
+const props = defineProps<{
+  label: string;
+  modelValue: ModelAssignmentV1;
+  efforts: ModelProfilesV1['efforts'];
+  models?: ProviderModelsV1 | undefined;
+}>();
+const listId = useId();
 const emit = defineEmits<{ 'update:modelValue': [value: ModelAssignmentV1] }>();
 function provider(event: Event): void {
   const value = (event.target as HTMLSelectElement).value as ModelAssignmentV1['provider'];
@@ -31,10 +38,16 @@ function effort(event: Event): void {
       >Model
       <input
         :value="modelValue.model ?? ''"
+        :list="listId"
         class="grampus-input mt-1 w-full"
         placeholder="Provider default"
         @input="model"
       />
+      <datalist :id="listId">
+        <option v-for="choice in models?.[modelValue.provider].models" :key="choice.id" :value="choice.id">
+          {{ choice.label }}
+        </option>
+      </datalist>
     </label>
     <label class="text-xs"
       >Reasoning effort

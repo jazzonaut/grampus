@@ -1106,6 +1106,7 @@ export type {
   ModelAssignmentV1,
   ModelProfileV1,
   ModelProfilesV1,
+  ProviderModelsV1,
   ModelMetricsV1,
   RunMetricsV1,
   ComparisonSummaryV1,

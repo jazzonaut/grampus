@@ -29,9 +29,12 @@ import { defaultDashboardPort } from './runtime.js';
  * when it is normalised.
  */
 export interface Settings {
-  /** Loopback port of the dashboard server; `--port` still overrides it for one launch. */
+  /** Named role assignments available for new plans. */
   modelProfiles: readonly ModelProfile[];
+  /** Loopback port of the dashboard server; `--port` still overrides it for one launch. */
   dashboardPort: number;
+  /** Require the per-launch bearer link for browser API access. Desktop control always requires it. */
+  dashboardRequireAccessLink: boolean;
   /** Deadline for a background dashboard to publish an authenticated endpoint. */
   dashboardStartupMs: number;
   /** Deadline for a local dashboard discovery or shutdown request. */
@@ -85,6 +88,7 @@ export function defaultSettings(): Settings {
   return {
     modelProfiles: [],
     dashboardPort: defaultDashboardPort,
+    dashboardRequireAccessLink: false,
     dashboardStartupMs: 30_000,
     dashboardProbeMs: 2000,
     dashboardPollMs: 100,
@@ -140,6 +144,7 @@ const overridesSchema = z
   .strictObject({
     modelProfiles: modelProfilesSchema.optional(),
     dashboardPort: bounded(settingRanges.dashboardPort).optional(),
+    dashboardRequireAccessLink: z.boolean().optional(),
     dashboardStartupMs: bounded(settingRanges.dashboardStartupMs).optional(),
     dashboardProbeMs: bounded(settingRanges.dashboardProbeMs).optional(),
     dashboardPollMs: bounded(settingRanges.dashboardPollMs).optional(),

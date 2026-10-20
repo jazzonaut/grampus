@@ -27,6 +27,18 @@ export interface ModelProfilesV1 {
   qualityPasses: { id: string; title: string }[];
   efforts: { codex: string[]; claude: string[] };
 }
+
+/** Display-only model suggestions discovered from the local agents, independently per provider. */
+export interface ProviderModelsV1 {
+  codex: ProviderModelListV1;
+  claude: ProviderModelListV1;
+}
+
+/** An unavailable catalogue leaves manual model selection usable. Null efforts means unspecified. */
+export interface ProviderModelListV1 {
+  models: { id: string; label: string; efforts: string[] | null }[];
+  problem: string | null;
+}
 export interface ModelMetricsV1 extends UsageCounters {
   provider: string;
   stage: string;

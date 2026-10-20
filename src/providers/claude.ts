@@ -270,6 +270,11 @@ export class ClaudeSession implements AgentSession {
     return parseClaudeMessage('accountInfo', claudeAccountSchema, await this.query.accountInfo());
   }
 
+  /** The local SDK's model catalogue. A control request: no prompt or inference is sent. */
+  async supportedModels() {
+    return this.query.supportedModels();
+  }
+
   /** The MCP servers the executable loaded for this session, by name and status. */
   async mcpStatus(): Promise<{ name: string; status: string }[]> {
     return claudeMcpStatusSchema.parse(await this.query.mcpServerStatus());

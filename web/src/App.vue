@@ -2,7 +2,7 @@
 // Root component: the shell (header health, sidebar, footer), the open screen from the URL fragment and
 // the access-link state. The overview is polled here because the header and sidebar show it on every
 // screen; a task or planning screen polls its own view while it is open. Nothing is polled while the tab
-// is hidden or the access link is missing.
+// is hidden or the server has required a fresh access link.
 import { computed, defineAsyncComponent } from 'vue';
 import UApp from '@nuxt/ui/components/App.vue';
 import type { OverviewV1 } from '../../src/server/api-types';

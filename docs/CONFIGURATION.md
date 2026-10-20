@@ -63,6 +63,7 @@ Example:
 | Key | Default | Allowed | Meaning |
 | --- | --- | --- | --- |
 | `dashboardPort` | `4317` installed, `4318` development | 1 to 65535 | Loopback port of the dashboard. `--port` still overrides it for one launch. A port browsers refuse (such as 6000 or 10080) stops the dashboard from starting |
+| `dashboardRequireAccessLink` | `false` | `true`, `false` | Require the per-launch access link for the dashboard API. Off permits direct local access; loopback, host and origin checks still apply. Desktop discovery and shutdown always require their private token. Restart Grampus to apply |
 | `dashboardStartupMs` | `30000` | 1000 to 120000 | How long a background launcher waits for authenticated readiness; an uncertain process is retained |
 | `dashboardProbeMs` | `2000` | 100 to 30000 | Deadline for one authenticated local discovery or shutdown request |
 | `dashboardPollMs` | `100` | 50 to 1000 | Interval between observations while a background dashboard starts |
@@ -127,6 +128,8 @@ the definitions already in the plan.
 
 `modelProfiles` defaults to `[]` and accepts up to 32 named definitions. The dashboard's
 **Model profiles** screen edits this catalogue with provider, model and reasoning effort inputs.
+Model inputs offer suggestions discovered from the local Codex and Claude agents without an
+inference turn, and still accept a model ID typed by hand. Discovery does not write `config.json`.
 Its save preserves other settings and refuses a stale file revision. An example definition is:
 
 ```json

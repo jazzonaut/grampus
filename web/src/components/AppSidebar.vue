@@ -48,15 +48,6 @@ const item =
       :class="item"
       >Comparisons</a
     >
-    <a href="#/profiles" :aria-current="current.name === 'profiles' ? 'page' : undefined" :class="item"
-      >Model profiles</a
-    >
-    <a
-      href="#/comparisons"
-      :aria-current="current.name === 'comparisons' || current.name === 'comparison' ? 'page' : undefined"
-      :class="item"
-      >Comparisons</a
-    >
     <div class="border-t border-default pt-4">
       <h2 class="px-2 pb-1 text-xs font-semibold tracking-wide text-muted uppercase">Tasks</h2>
       <ul v-if="overview?.tasks.length" class="flex flex-col gap-0.5">

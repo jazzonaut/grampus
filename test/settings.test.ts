@@ -37,6 +37,7 @@ test('without config.json the built-in defaults apply and nothing is created', t
   assert.deepEqual(settings, {
     modelProfiles: [],
     dashboardPort: defaultDashboardPort,
+    dashboardRequireAccessLink: false,
     dashboardStartupMs: 30_000,
     dashboardProbeMs: 2000,
     dashboardPollMs: 100,
@@ -107,6 +108,7 @@ test('unknown keys are refused with the file and the key named, at the top level
 
 test('invalid types, out-of-range values and malformed JSON are refused with the file named', t => {
   for (const config of [
+    { dashboardRequireAccessLink: 'false' },
     { dashboardPort: '4400' },
     { usagePollIntervalMs: 2.5 },
     { defaultCheckTimeoutMs: 600_001 },

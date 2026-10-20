@@ -573,9 +573,12 @@ second workflow engine.
   `dashboardPort` ([CONFIGURATION.md](CONFIGURATION.md)). `server/browser-ports.ts` refuses a port on the
   Fetch standard's blocked list, which browsers would not connect to, and for port 0 exchanges a blocked
   ephemeral port for another (at most `serverLimits.ephemeralPortAttempts` tries).
-- A random 32-byte token per launch is passed in the URL fragment and required as a bearer token on
-  every API call (constant-time comparison).
-- The `Host` header must match and any `Origin` must equal the local origin.
+- Direct local dashboard access is the default. `dashboardRequireAccessLink: true` requires the
+  random 32-byte per-launch bearer token on browser API calls (constant-time comparison). Startup
+  links carry it in the URL fragment. Private desktop receipts always retain a token and discovery
+  and shutdown always require it, independently of browser access settings.
+- The `Host` header must match and any `Origin` must equal the local origin. API requests marked
+  `Sec-Fetch-Site: cross-site` are refused in both access modes.
 - Strict CSP (`default-src 'none'`, self-hosted scripts and styles only, `frame-ancestors 'none'`),
   `nosniff`, `no-referrer` and `no-store` on every response, the client's files included. Assets are
   local; there is no CDN. The client is built for this policy: no inline scripts or styles, no runtime
@@ -619,6 +622,7 @@ pool read once per request; `ViewContext`) to those DTOs; nothing there writes.
 
 | Route | DTO | Contents |
 | --- | --- | --- |
+| `GET /api/v1/provider-models` | `ProviderModelsV1` | Explicit local-agent discovery, separate from polling. Codex `model/list` and Claude `supportedModels()` run without an inference turn; bounded control deadlines and pagination refuse incomplete results. Each provider returns suggestions or an unavailable message independently |
 | `GET /api/v1/overview` | `OverviewV1` | Application, health summary (`ready`, `degraded`, `blocked`, `unknown` with a reason naming the integration and capability), runner pool (guided runners owned, `maxConcurrentTasks` and the owning task ids), the attention queue across tasks and planning conversations (kind, one-sentence reason, stop reason code, resolving actions; most urgent first), task and planning summaries, recent verified deliveries with an evidence summary. A task whose facts cannot be read is listed with status `unknown` and a `blocked` attention item naming the error category (for example a missing snapshot record), and a redacted line is logged, so it never fails the whole overview |
 | `GET /api/v1/tasks/:id` | `TaskDetailV1` | Header (status, label, one-sentence explanation, note in UI language, next step: automatic, human with action ids, or none), workflow strip, current activity (no percentages), decisions, results (criteria coverage, checks with sizes for paging, findings, lens assessments, edit passes, commits, unresolved items), usage, details (approval digest, artifact, changed paths, plan, scope file contents only while authorization is pending, references, timeline head) |
 | `GET /api/v1/tasks/:id/timeline?cursor=&limit=` | `TimelinePageV1` | Journal events newest first: type, time, human summary, note, reason code; `cursor` is the journal sequence to page before |
@@ -886,6 +890,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `reply-schema.ts` | Structured reply, usage and turn result schemas; the provider output format |
 | | `prompt-budget.ts` | The one byte budget every turn prompt shares, and its dispatch-time check |
 | | `codex.ts`, `codex-protocol.ts` | Codex app-server threads, turns, approvals and dynamic tools; the pinned app-server protocol |
+| | `model-catalogue.ts` | Bounded, inference-free model discovery from local Codex and Claude controls; independent unavailable results and manual-entry support |
 | | `claude.ts`, `claude-protocol.ts`, `claude-repository.ts`, `claude-files.ts` | Claude SDK sessions and the validated SDK fields, repository MCP server, scoped delete tool |
 | | `integrations.ts` | MCP carry-over into worktrees |
 | | `executables.ts` | The Codex and Claude programs the adapters and `doctor` run, and the provider runtime recorded on sessions |

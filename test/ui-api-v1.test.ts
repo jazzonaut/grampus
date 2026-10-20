@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { defaultSettings, useSettings } from '../src/config/settings.js';
+import { currentSettings, defaultSettings, useSettings } from '../src/config/settings.js';
 import { startUi } from '../src/server/ui-server.js';
 import { Kickoffs } from '../src/orchestration/kickoff.js';
 import { Sessions } from '../src/execution/sessions.js';
@@ -47,6 +47,9 @@ async function failure(response: Response, status: number, code: ErrorV1['error'
 }
 
 test('planning observability reads isolated activity before conversion and respects access and deletion', async t => {
+  const previous = currentSettings();
+  useSettings({ ...previous, dashboardRequireAccessLink: true });
+  t.after(() => useSettings(previous));
   const api = await dashboard(t);
   const kickoffId = new Kickoffs(api.f.store).create({
     repo: api.f.repo,
@@ -74,6 +77,9 @@ test('planning observability reads isolated activity before conversion and respe
 });
 
 test('v1 routes need the token and the local origin, and answer errors with the typed envelope', async t => {
+  const previous = currentSettings();
+  useSettings({ ...previous, dashboardRequireAccessLink: true });
+  t.after(() => useSettings(previous));
   const api = await dashboard(t);
   await failure(await api.get('/api/v1/overview', {}), 401, 'unauthorized');
   await failure(await api.get('/api/v1/overview', { Authorization: 'Bearer wrong' }), 401, 'unauthorized');

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request } from 'node:http';
 import { startUi } from '../src/server/ui-server.js';
+import { currentSettings, useSettings } from '../src/config/settings.js';
 import { Kickoffs } from '../src/orchestration/kickoff.js';
 import { Store } from '../src/persistence/store.js';
 import { GuidedTasks } from '../src/orchestration/guided/controller.js';
@@ -378,6 +379,9 @@ test('task polling refreshes live usage written by another worker without changi
 });
 
 test('task polls expose current execution activity and load complete sanitized history separately', async t => {
+  const previous = currentSettings();
+  useSettings({ ...previous, dashboardRequireAccessLink: true });
+  t.after(() => useSettings(previous));
   const f = fixture(t),
     ui = await startUi({ db: join(f.root, 'grampus.sqlite'), port: 0 });
   t.after(async () => {
@@ -572,6 +576,9 @@ test('dashboard reference selection and task reset/delete enforce displayed stat
   assert.equal(existsSync(join(f.repo, 'greeting.js')), true);
 });
 test('dashboard requires its local token and origin, rejects stale decisions, and preserves drafts over restart', async t => {
+  const previous = currentSettings();
+  useSettings({ ...previous, dashboardRequireAccessLink: true });
+  t.after(() => useSettings(previous));
   const f = fixture(t),
     db = join(f.root, 'grampus.sqlite');
   let ui = await startUi({ db, port: 0 });
@@ -616,7 +623,7 @@ test('dashboard requires its local token and origin, rejects stale decisions, an
   assert.equal((await req('/api/tasks', { plan: f.plan })).status, 201);
   const list = (await (await req('/api/v1/overview')).json()) as OverviewV1,
     id = list.tasks[0]!.id;
-  assert.equal(list.application.version, '0.4.0');
+  assert.equal(list.application.version, '0.5.0');
   assert.equal(list.application.channel, 'development');
   const view = (await (await req(`/api/v1/tasks/${id}`)).json()) as TaskDetailV1;
   assert.equal(new GuidedTasks(ui.store).get(id).status, 'draft');

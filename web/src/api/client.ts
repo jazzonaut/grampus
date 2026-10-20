@@ -1,6 +1,6 @@
-// HTTP access to the local Grampus server: the per-launch access token and typed JSON requests.
+// HTTP access to the local Grampus server: the optional per-launch token and typed JSON requests.
 //
-// The server prints a link carrying a random token in the URL fragment (never sent to the
+// When access links are enabled, the server prints a random token in the URL fragment (never sent to the
 // server in a request line or Referer). The client moves it into session storage, removes it
 // from the address bar and sends it as a bearer token on every API call.
 import { readonly, ref } from 'vue';
@@ -15,7 +15,7 @@ export const tokenStorageKey = 'grampus-token';
  */
 const tokenPattern = /^[A-Za-z0-9._~-]{32,}$/;
 
-/** Shown whenever the server refuses the token, or there is none. */
+/** Shown when the server requires an access link. */
 export const accessMessage = 'Open the complete local dashboard link printed by Grampus.';
 
 /** Why a request failed. `status` is 0 when the server could not be reached at all. */
@@ -55,7 +55,7 @@ export class ApiError extends Error {
 
 const accessRequired = ref(false);
 
-/** True after a 401 or when no token is held. Cleared when a new link supplies a token. */
+/** True after a 401. Cleared when a new link supplies a token. */
 export const needsAccessLink = readonly(accessRequired);
 
 /**
@@ -68,8 +68,7 @@ export const needsAccessLink = readonly(accessRequired);
 export function bootstrapToken(): boolean {
   const [fragment = '', target = ''] = window.location.hash.slice(1).split('!');
   if (!tokenPattern.test(fragment)) {
-    // Keep an earlier refusal: an unrelated fragment does not make a refused token valid.
-    if (readToken() === '') accessRequired.value = true;
+    // The server decides whether a token is needed. Preserve an earlier refusal until a fresh link.
     return false;
   }
   window.sessionStorage.setItem(tokenStorageKey, fragment);
@@ -119,14 +118,11 @@ async function responseError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, fallback);
 }
 
-/** One request to the local server with the access token; the shared path of every call. */
+/** One request to the local server with any held access token; the shared path of every call. */
 export async function request<T>(method: 'GET' | 'POST', path: string, body?: UnkeyedBody | null): Promise<T> {
   const token = readToken();
-  if (token === '') {
-    accessRequired.value = true;
-    throw new ApiError(401, accessMessage);
-  }
-  const headers: Record<string, string> = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   if (body !== undefined && body !== null) headers['Content-Type'] = 'application/json';
   let response: Response;
   try {
@@ -163,11 +159,17 @@ export function postUnkeyed<T>(path: string, body: UnkeyedBody): Promise<T> {
   return request<T>('POST', path, body);
 }
 
-/** Downloads a full export with the same bearer authentication as JSON requests. */
+/** Downloads a full export with the same optional bearer authentication as JSON requests. */
 export async function download(path: string, name: string): Promise<void> {
   const token = readToken();
-  if (!token) throw new ApiError(401, accessMessage);
-  const response = await fetch(path, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+  const response = await fetch(path, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    cache: 'no-store',
+  });
+  if (response.status === 401) {
+    accessRequired.value = true;
+    throw new ApiError(401, accessMessage);
+  }
   if (!response.ok) throw await responseError(response);
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement('a');

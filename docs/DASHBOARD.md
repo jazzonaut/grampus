@@ -245,10 +245,14 @@ layout works at common laptop widths.
 
 ## Access and data
 
-The server listens only on `127.0.0.1`. The startup link carries a per-launch access token in
-the URL fragment; the browser keeps it in session storage and removes it from the address bar.
-Every API request needs that token and the local origin. Pasting a fresh link into an open tab
-takes its new token. The client is a bundle built from `web/` and served from `web/dist`; no
+The server listens only on `127.0.0.1`. By default, open its local address directly without an
+access link. Enable **Require dashboard access link** in **Settings**, or set
+`"dashboardRequireAccessLink": true` in `config.json`, and restart Grampus to require a
+per-launch bearer token. With this enabled, the startup link carries the token in the URL
+fragment; the browser keeps it in session storage and removes it from the address bar.
+Pasting a fresh link into an open tab takes its new token. Host and origin checks apply in
+both modes, and cross-site browser API requests are refused. Desktop discovery and shutdown
+always require a private token. The client is a bundle built from `web/` and served from `web/dist`; no
 remote scripts, styles, fonts or icons are loaded, and the strict Content Security Policy
 (scripts, styles and connections from the dashboard itself only) applies to every response.
 Treat the full link as access to your local controller.
@@ -273,6 +277,13 @@ Advanced users can import an authored JSON plan from the new-task screen
 The sidebar's **Model profiles** screen edits named, fixed role assignments and supported reasoning
 settings. Choose a profile on **New task**; inspect its effective assignments on the plan before
 approval. Existing approved tasks retain their selected definitions when the catalogue changes.
+
+Opening **Model profiles** queries the local agents for model suggestions: Codex's `model/list`
+control and Claude's Agent SDK `supportedModels()`. **Refresh model list** queries them again.
+Discovery sends no prompt or inference turn and is separate from dashboard polling. Each role's
+model input offers suggestions for its selected provider and also accepts a model ID typed by hand.
+If one agent is unavailable, its inputs stay usable and the other agent's suggestions remain.
+These are provider catalogues, not proof of model access; a task verifies access when it runs.
 
 Task pages show a run scorecard, per-role/model usage and explicit full JSON, compressed JSON and
 metrics CSV downloads. Expand **Compare model profiles on this plan** to prepare sequential runs

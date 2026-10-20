@@ -169,6 +169,12 @@ export const qualityLimits = {
 
 /** Provider turn bounds enforced by the controller. */
 export const providerLimits = {
+  /** Models requested per Codex catalogue page. */
+  modelListPage: 100,
+  /** Maximum catalogue pages, including empty pages with a continuing cursor. */
+  modelListPages: 10,
+  /** Maximum models accepted from one provider catalogue. */
+  modelListTotal: 1000,
   /** Repository tool calls in one Codex turn. */
   turnToolCalls: 512,
   /** Native patch items tracked in one Codex turn. */

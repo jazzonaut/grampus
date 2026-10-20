@@ -6,9 +6,9 @@ import type { ActionId, ActionView, KickoffDetailV1, OverviewV1, TaskDetailV1 } 
 
 type Dashboard = Awaited<ReturnType<typeof startUi>>;
 
-/** HTTP access to one running dashboard with its token. */
+/** HTTP access, using the private desktop credential when native control routes are configured. */
 export function connect(ui: Dashboard) {
-  const url = new URL(ui.url);
+  const url = new URL(ui.endpoint?.url ?? ui.url);
   const headers = { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' };
   const raw = (path: string) => fetch(url.origin + path, { headers });
   const read = async <T>(path: string): Promise<T> => {

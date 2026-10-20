@@ -1,9 +1,18 @@
 <script setup lang="ts">
 // Owns a profile editing draft; validation and independent-review rules remain on the server.
 import { ref } from 'vue';
-import type { ModelProfileV1, ModelAssignmentV1, ModelProfilesV1 } from '../../../src/server/api-types';
+import type {
+  ModelProfileV1,
+  ModelAssignmentV1,
+  ModelProfilesV1,
+  ProviderModelsV1,
+} from '../../../src/server/api-types';
 import ModelAssignmentEditor from './ModelAssignmentEditor.vue';
-const props = defineProps<{ profile: ModelProfileV1; catalogue: ModelProfilesV1 }>();
+const props = defineProps<{
+  profile: ModelProfileV1;
+  catalogue: ModelProfilesV1;
+  models?: ProviderModelsV1 | undefined;
+}>();
 const emit = defineEmits<{ save: [profile: ModelProfileV1]; cancel: [] }>();
 const draft = ref<ModelProfileV1>(JSON.parse(JSON.stringify(props.profile)) as ModelProfileV1);
 const repair = ref(draft.value.repair !== undefined);
@@ -33,9 +42,19 @@ function save(): void {
       <input v-model="draft.id" class="grampus-input mt-1 w-full" required pattern="[a-z][a-z0-9_-]*"
     /></label>
     <label class="text-sm">Name <input v-model="draft.name" class="grampus-input mt-1 w-full" required /></label>
-    <ModelAssignmentEditor v-model="draft.planning" label="Planning" :efforts="catalogue.efforts" />
-    <ModelAssignmentEditor v-model="draft.implementation" label="Implementation" :efforts="catalogue.efforts" />
-    <ModelAssignmentEditor v-model="draft.review" label="Independent review" :efforts="catalogue.efforts" />
+    <ModelAssignmentEditor v-model="draft.planning" label="Planning" :efforts="catalogue.efforts" :models="models" />
+    <ModelAssignmentEditor
+      v-model="draft.implementation"
+      label="Implementation"
+      :efforts="catalogue.efforts"
+      :models="models"
+    />
+    <ModelAssignmentEditor
+      v-model="draft.review"
+      label="Independent review"
+      :efforts="catalogue.efforts"
+      :models="models"
+    />
     <label class="text-sm"
       ><input v-model="repair" type="checkbox" @change="draft.repair ??= { ...draft.implementation }" /> Separate repair
       assignment</label
@@ -45,6 +64,7 @@ function save(): void {
       v-model="draft.repair"
       label="Repair"
       :efforts="catalogue.efforts"
+      :models="models"
     />
     <label class="text-sm"
       ><input v-model="arbitration" type="checkbox" @change="draft.arbitration ??= { ...draft.implementation }" />
@@ -55,6 +75,7 @@ function save(): void {
       v-model="draft.arbitration"
       label="Arbitration"
       :efforts="catalogue.efforts"
+      :models="models"
     />
     <div v-for="pass in catalogue.qualityPasses" :key="pass.id" class="flex flex-col gap-2">
       <label class="text-sm"
@@ -66,6 +87,7 @@ function save(): void {
         :model-value="draft.qualityPasses?.[pass.id] ?? draft.implementation"
         :label="pass.title"
         :efforts="catalogue.efforts"
+        :models="models"
         @update:model-value="quality(pass.id, $event)"
       />
     </div>

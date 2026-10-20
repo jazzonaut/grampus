@@ -47,15 +47,28 @@ test('the settings form starts empty without config.json and a save writes only 
   assert.equal(concurrency?.value, null);
   assert.equal(concurrency?.placeholder, 'Default 2');
   assert.equal(concurrency?.target, '/overrides/maxConcurrentTasks');
+  const access = before.save.form?.fields.find(field => field.name === 'dashboardRequireAccessLink');
+  assert.equal(access?.target, '/overrides/dashboardRequireAccessLink');
+  assert.deepEqual(
+    access?.options.map(option => option.value),
+    [null, false, true],
+  );
 
-  const saved = await api.save({ expected: 'absent', overrides: { maxConcurrentTasks: 3 } });
+  const saved = await api.save({
+    expected: 'absent',
+    overrides: { maxConcurrentTasks: 3, dashboardRequireAccessLink: true },
+  });
   assert.equal(saved.status, 200);
-  assert.deepEqual(JSON.parse(readFileSync(api.file, 'utf8')), { maxConcurrentTasks: 3 });
+  assert.deepEqual(JSON.parse(readFileSync(api.file, 'utf8')), {
+    maxConcurrentTasks: 3,
+    dashboardRequireAccessLink: true,
+  });
 
   const after = await api.settings();
   assert.equal(after.restartRequired, true, 'the running dashboard still uses the settings it started with');
   assert.notEqual(after.save.expected, 'absent');
   assert.equal(after.save.form?.fields.find(field => field.name === 'maxConcurrentTasks')?.value, 3);
+  assert.equal(after.save.form?.fields.find(field => field.name === 'dashboardRequireAccessLink')?.value, true);
 });
 
 test('a save is refused when config.json changed since it was shown, or when a value is out of range', async t => {

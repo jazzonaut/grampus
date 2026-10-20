@@ -10,6 +10,7 @@ import { fixture } from './helpers/orca.js';
 import { guidedRecord, planRecord } from './helpers/task-records.js';
 import { startUi } from '../src/server/ui-server.js';
 import { connect } from './helpers/dashboard.js';
+import { currentSettings, useSettings } from '../src/config/settings.js';
 
 async function desktopFixture(t: { after(fn: () => void | Promise<void>): void }) {
   const f = fixture(t);
@@ -192,6 +193,9 @@ test('desktop writes use explicit identity and never clear unread or send provid
 });
 
 test('Orca navigation is authenticated, bound to the task workspace and independent of workflow state', async t => {
+  const previous = currentSettings();
+  useSettings({ ...previous, dashboardRequireAccessLink: true });
+  t.after(() => useSettings(previous));
   const f = await desktopFixture(t);
   const ui = await startUi({ db: f.db, port: 0, orca: f.client });
   try {
@@ -230,6 +234,9 @@ test('Orca navigation is authenticated, bound to the task workspace and independ
 });
 
 test('Orca navigation failures never expose the dashboard access token or modify the task', async t => {
+  const previous = currentSettings();
+  useSettings({ ...previous, dashboardRequireAccessLink: true });
+  t.after(() => useSettings(previous));
   const f = await desktopFixture(t);
   const ui = await startUi({
     db: f.db,

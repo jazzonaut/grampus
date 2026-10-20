@@ -3,7 +3,7 @@
   "id": "grampus",
   "publisher": "grampus",
   "name": "Grampus",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Open or reconnect to the local Grampus controller inside Orca.",
   "engines": { "orca": ">=1.4.0" },
   "pluginApi": 1,

@@ -10,6 +10,9 @@ function jsonResponse(status: number, body: unknown): Response {
 
 beforeEach(() => {
   window.sessionStorage.clear();
+  window.history.replaceState(null, '', `/#${token}`);
+  bootstrapToken();
+  window.sessionStorage.clear();
   window.history.replaceState(null, '', '/');
 });
 
@@ -48,9 +51,9 @@ describe('bootstrapToken', () => {
     expect(window.sessionStorage.getItem(tokenStorageKey)).toBe(token);
   });
 
-  it('asks for the access link when there is no token at all', () => {
+  it('lets the server decide whether a token is required', () => {
     expect(bootstrapToken()).toBe(false);
-    expect(needsAccessLink.value).toBe(true);
+    expect(needsAccessLink.value).toBe(false);
   });
 });
 
@@ -87,12 +90,12 @@ describe('requests', () => {
     expect(needsAccessLink.value).toBe(false);
   });
 
-  it('does not call the server without a token', async () => {
-    const fetch = vi.fn();
+  it('calls the server without an authorisation header when there is no token', async () => {
+    const fetch = vi.fn().mockResolvedValue(jsonResponse(200, { ok: true }));
     vi.stubGlobal('fetch', fetch);
 
-    await expect(get('/api/v1/overview')).rejects.toMatchObject({ status: 401 });
-    expect(fetch).not.toHaveBeenCalled();
+    await expect(get('/api/v1/overview')).resolves.toEqual({ ok: true });
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).has('Authorization')).toBe(false);
   });
 
   it('surfaces the server error message with its status', async () => {

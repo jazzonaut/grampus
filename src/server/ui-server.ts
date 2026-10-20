@@ -1,4 +1,4 @@
-// Owns the loopback dashboard server: the built Vue client (static-client.ts), the token-guarded JSON API
+// Owns the loopback dashboard server: the built Vue client (static-client.ts), the locally guarded JSON API
 // over the journal and the action workers it starts. The client reads `/api/v1/` (api-v1.ts) and acts
 // through the POST routes here. Request bodies are parsed by api-schemas.ts; failures map to HTTP statuses
 // and the typed error envelope in errors.ts. The server is not a second workflow engine: every decision
@@ -22,6 +22,7 @@ import { OrcaPresentation } from '../repository/orca-presentation.js';
 import type { OrcaDesktopClient } from '../repository/orca.js';
 import { checkOutputLimits, formatBytes, serverLimits, stallLimits } from '../config/limits.js';
 import { currentSettings, saveSettingsFile } from '../config/settings.js';
+import { discoverProviderModels } from '../providers/model-catalogue.js';
 import { TaskLifecycle } from '../orchestration/task-lifecycle.js';
 import { suggestReferenceFolders } from '../repository/reference-folders.js';
 import type { Task } from '../domain/workflow.js';
@@ -158,6 +159,8 @@ export interface UiOptions {
   orca?: OrcaDesktopClient;
   /** Publishes a private receipt for start-or-reconnect; omitted by isolated HTTP tests. */
   desktop?: DesktopProfile;
+  /** Inference-free local catalogue reader; tests inject isolated provider results. */
+  providerModels?: typeof discoverProviderModels;
 }
 
 const itemRoute = /^\/api\/(?<kind>tasks|kickoffs)\/(?<id>[a-f0-9-]+)(?:\/(?<action>[a-z-]+))?$/;
@@ -561,6 +564,15 @@ async function desktopRoute(
   return false;
 }
 
+/** Applies the optional browser credential and the always-required desktop credential. */
+function requireDashboardAccess(request: IncomingMessage, path: string, token: string, required: boolean): void {
+  // Native discovery and shutdown retain their private credential even with direct browser access.
+  if (!required && path !== '/api/desktop' && path !== '/api/desktop/close') return;
+  const supplied = Buffer.from(request.headers.authorization?.replace(/^Bearer /, '') ?? '');
+  if (supplied.length !== token.length || !timingSafeEqual(supplied, Buffer.from(token)))
+    throw new HttpError(401, 'Open the complete local dashboard link printed by Grampus');
+}
+
 /** Loopback dashboard. Workers use the same durable controller as the CLI. */
 export async function startUi(options: UiOptions) {
   const store = new Store(options.db),
@@ -568,6 +580,7 @@ export async function startUi(options: UiOptions) {
     kickoffs = new Kickoffs(store);
   const token = randomBytes(32).toString('hex'),
     jobs = new Map<string, Job>();
+  const requireAccessLink = currentSettings().dashboardRequireAccessLink;
   const client = options.client ?? defaultClientDirectory;
   let origin = '';
   const now = options.now ?? Date.now;
@@ -605,26 +618,29 @@ export async function startUi(options: UiOptions) {
   const apiV1 = createApiV1({ ...dashboard, orcaClient: options.orca ?? null });
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     securityHeaders(response);
+    const url = new URL(request.url ?? '/', origin);
     if (
       request.headers.host !== new URL(origin).host ||
+      (url.pathname.startsWith('/api/') && request.headers['sec-fetch-site'] === 'cross-site') ||
       (request.headers.origin && request.headers.origin !== origin)
     ) {
       throw new HttpError(403, 'Local origin required');
     }
-    const url = new URL(request.url ?? '/', origin);
     const path = url.pathname;
     if (request.method === 'GET' && !path.startsWith('/api/')) {
       serveClient(client, path, response);
       return;
     }
-    const supplied = Buffer.from(request.headers.authorization?.replace(/^Bearer /, '') ?? '');
-    if (supplied.length !== token.length || !timingSafeEqual(supplied, Buffer.from(token)))
-      throw new HttpError(401, 'Open the complete local dashboard link printed by Grampus');
+    requireDashboardAccess(request, path, token, requireAccessLink);
     desktop.assertOpen();
     if (await desktopRoute(desktop, request, response, path)) return;
     const groups = itemRoute.exec(path)?.groups;
     const route = groups ? routeSchema.parse(groups) : null;
     if (request.method === 'GET') {
+      if (path === '/api/v1/provider-models') {
+        json(response, 200, await (options.providerModels ?? discoverProviderModels)());
+        return;
+      }
       await readDashboardRoute(dashboard, apiV1, path, url, response);
       return;
     }
@@ -664,7 +680,7 @@ export async function startUi(options: UiOptions) {
   return {
     server,
     store,
-    url: accessUrl(),
+    url: requireAccessLink ? accessUrl() : `${origin}/`,
     /** The private desktop receipt, when discovery was configured. */
     endpoint: desktop.endpoint,
     /** Display-only Orca reconciliation; tests can await a scan without advancing the workflow. */

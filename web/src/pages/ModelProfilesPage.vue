@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Owns catalogue editing. Saved definitions are copied into new plans and cannot change existing runs.
-import { ref } from 'vue';
-import type { ModelProfileV1, ModelProfilesV1 } from '../../../src/server/api-types';
+import { onMounted, ref } from 'vue';
+import type { ModelProfileV1, ModelProfilesV1, ProviderModelsV1 } from '../../../src/server/api-types';
 import { get, postUnkeyed } from '../api/client';
 import { usePolled } from '../api/usePolled';
 import { pollIntervalMs } from '../settings';
@@ -11,6 +11,21 @@ const editing = ref<ModelProfileV1 | null>(null);
 const originalId = ref<string | null>(null);
 const error = ref('');
 const busy = ref(false);
+const models = ref<ProviderModelsV1>();
+const modelsBusy = ref(false);
+const modelsError = ref('');
+async function loadModels(): Promise<void> {
+  modelsBusy.value = true;
+  modelsError.value = '';
+  try {
+    models.value = await get<ProviderModelsV1>('/api/v1/provider-models');
+  } catch {
+    modelsError.value = 'Model suggestions could not be loaded. Enter a model ID manually or use the provider default.';
+  } finally {
+    modelsBusy.value = false;
+  }
+}
+onMounted(loadModels);
 function edit(profile: ModelProfileV1): void {
   originalId.value = profile.id;
   editing.value = profile;
@@ -62,6 +77,16 @@ async function remove(profile: ModelProfileV1): Promise<void> {
   <div class="grampus-page">
     <h1 class="text-3xl font-semibold">Model profiles</h1>
     <p>Choose fixed models and reasoning effort for each role. Approved tasks retain their own copy.</p>
+    <div class="flex items-center gap-3 text-sm">
+      <button type="button" class="grampus-link" :disabled="modelsBusy" @click="loadModels">Refresh model list</button>
+      <span v-if="modelsBusy" role="status">Loading model suggestions from local agents…</span>
+    </div>
+    <p class="text-sm text-muted">
+      Choose a suggested model or type its ID. Listed models are checked when a task runs.
+    </p>
+    <p v-if="modelsError" role="status" class="text-sm text-muted">{{ modelsError }}</p>
+    <p v-if="models?.codex.problem" role="status" class="text-sm text-muted">Codex: {{ models.codex.problem }}</p>
+    <p v-if="models?.claude.problem" role="status" class="text-sm text-muted">Claude: {{ models.claude.problem }}</p>
     <p v-if="error || catalogue.error.value" role="alert" class="text-error">
       {{ error || catalogue.error.value?.message }}
     </p>
@@ -72,6 +97,7 @@ async function remove(profile: ModelProfileV1): Promise<void> {
         :key="originalId ?? 'new'"
         :profile="editing"
         :catalogue="catalogue.data.value"
+        :models="models"
         @save="save"
         @cancel="editing = null"
       />
