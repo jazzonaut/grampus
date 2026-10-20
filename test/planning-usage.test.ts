@@ -63,5 +63,10 @@ test('planning reports unknown, live and settled usage without a task or double 
   assert.equal(planned.turns, 2);
   const task = new Workflow(store).create({ title: 'Plan', outcome: 'Work', criteria: ['Works'], plan: 'Implement' });
   store.append(task.id, task.version, 'guided.kickoff_linked', { sessionId: session.id });
-  assert.deepEqual(taskUsage(store, task.id), planned);
+  const { workflow: taskTiming, ...linked } = taskUsage(store, task.id);
+  const { workflow: planningTiming, ...beforeLink } = planned;
+  assert.deepEqual(linked, beforeLink);
+  assert.equal(taskTiming?.startedAt, planningTiming?.startedAt);
+  assert.equal(taskTiming?.activeMs, planningTiming?.activeMs);
+  assert.ok(taskTiming?.stages.some(row => row.stage === 'planning'));
 });

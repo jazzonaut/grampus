@@ -23,6 +23,12 @@ export interface SettingsFacts {
 
 const integerSettings: readonly (IntegerSpec & { key: IntegerSetting })[] = [
   {
+    key: 'maxReadinessConcurrency',
+    label: 'Readiness workers per task',
+    meaning:
+      'Worker ceiling for approved independent mechanical checks. Total concurrency also depends on active tasks. Set to one on resource-constrained machines.',
+  },
+  {
     key: 'claudeMaxTurns',
     label: 'Claude steps per controller turn',
     meaning:

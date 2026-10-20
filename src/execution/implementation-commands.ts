@@ -10,12 +10,14 @@ import { checkFeedback } from '../verification/check-output.js';
 import { runCheckProcess, type CheckProcessOptions, type CheckProcessResult } from '../process/check-process.js';
 import { deepEqual } from '../domain/deep-equal.js';
 import { providerLimits } from '../config/limits.js';
+import { diagnosticArguments, type DiagnosticGrammar, type DiagnosticSelection } from '../domain/diagnostics.js';
 
 /** One implementation's controller-owned command interface, also used for final automatic formatting. */
 export class ImplementationCommands {
   private busy = false;
   private used = 0;
   private readonly commands = new Map<string, GuidedCommand>();
+  private readonly grammars = new Map<string, DiagnosticGrammar>();
 
   /** Native edit authorisation is suspended while the command's snapshots are being observed. */
   get running(): boolean {
@@ -40,22 +42,27 @@ export class ImplementationCommands {
     const slice = guided.plan.slices[execution.sliceIndex];
     if (!slice || !deepEqual(run.policy, guided.policy)) return;
     if (slice.formatting) this.commands.set('format', slice.formatting);
+    for (const { selection, ...command } of slice.diagnostics) {
+      const name = `diagnostic:${command.name}`;
+      this.commands.set(name, command);
+      this.grammars.set(name, selection);
+    }
     for (const { kind, ...command } of slice.readiness) this.commands.set(`readiness:${kind}`, command);
     this.commands.set('validation', slice.validation);
   }
 
   /** The exact capabilities shown to the implementer; acceptance remains independent. */
   instructions(): string {
-    return `Use grampus_run_check(name) to format or check your current edits and repair failures before finishing. Approved command identifiers: ${JSON.stringify([...this.commands].map(([id, command]) => ({ id, name: command.name })))}. Commands and outputs are controller-recorded diagnostics; final readiness, validation and acceptance still run after your last edit. Commands run serially; wait for the result before editing again. No shell is available.`;
+    return `Use grampus_run_check(name, parameters?, files?) to format or check your current edits and repair failures before finishing. Approved command identifiers and diagnostic selection grammars: ${JSON.stringify([...this.commands].map(([id, command]) => ({ id, name: command.name, selection: this.grammars.get(id) })))}. Only diagnostic families accept parameters and files. Commands and outputs are controller-recorded diagnostics; final readiness, validation and acceptance still apply after your last edit. Commands run serially; wait for the result before editing again. No shell is available.`;
   }
 
   /** Executes one exact capability, snapshots its actual input and returns retained diagnostics. */
-  async run(name: string): Promise<unknown> {
-    return this.execute(name, false);
+  async run(name: string, selection: DiagnosticSelection = {}): Promise<unknown> {
+    return this.execute(name, false, selection);
   }
 
   /** Final formatting has its own single invocation and cannot be starved by diagnostic requests. */
-  private async execute(name: string, final: boolean): Promise<unknown> {
+  private async execute(name: string, final: boolean, selection: DiagnosticSelection = {}): Promise<unknown> {
     const command = this.commands.get(name);
     if (!command) throw new Error('Unknown approved implementation command');
     if (this.busy) throw new Error('Wait for the active implementation command before requesting another');
@@ -68,6 +75,19 @@ export class ImplementationCommands {
         execution = this.store.execution(run.executionId);
       const workspaces = new Workspaces(this.store);
       const snapshot = await captureRepository(workspaces, execution);
+      const grammar = this.grammars.get(name);
+      if (!grammar && Object.keys(selection).length)
+        throw new Error('This command has no approved diagnostic parameters');
+      const args = grammar
+        ? [
+            ...command.args,
+            ...diagnosticArguments(
+              grammar,
+              selection,
+              new Set(snapshot.files.filter(file => file.sha256 !== null).map(file => file.path)),
+            ),
+          ]
+        : command.args;
       if (!run.before) throw new Error('Implementation has no bound input snapshot');
       verifyEditingScope(
         { cwd: workspaces.path(execution.workspaceId), policy: run.policy, snapshot: run.before },
@@ -77,6 +97,7 @@ export class ImplementationCommands {
         run.id,
         {
           ...command,
+          args,
           artifact: snapshot.artifact,
           instructionsDigest: snapshot.instructionsDigest,
           ...(name === 'format'

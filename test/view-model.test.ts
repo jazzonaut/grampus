@@ -63,6 +63,7 @@ test('usage keeps unknown values null and marks a total over unknown parts as pa
     estimatedCostUsd: null,
   };
   const usage: TaskUsage = {
+    workflow: null,
     providers: [
       {
         provider: 'codex',
@@ -134,6 +135,7 @@ test('the usage headline counts cache tokens once per provider and says how many
     incomplete: [],
   };
   const usage: TaskUsage = {
+    workflow: null,
     providers: [
       // Codex input already includes its cache reads.
       {

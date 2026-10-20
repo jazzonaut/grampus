@@ -5,6 +5,34 @@ import { z } from 'zod';
 import { taskUsage, taskTurnUsage, type TurnUsage, type UsageField } from './task-usage.js';
 import { subscriptionMetrics } from './subscription-metrics.js';
 import { usageView } from '../server/view-model/usage.js';
+import type { WorkflowTiming } from './workflow-timing.js';
+import type { RepositoryCheck } from '../persistence/records.js';
+
+function workflowSummary(timing: WorkflowTiming | null) {
+  return {
+    elapsedMs: timing?.elapsedMs ?? null,
+    workflowActiveMs: timing?.activeMs ?? null,
+    waitingMs: timing?.waitingMs ?? null,
+    recoveryMs: timing?.recoveryMs ?? null,
+    timingAsOf: timing?.asOf ?? null,
+    timingPartial: timing?.live ?? true,
+    workflowStages: timing?.stages ?? [],
+  };
+}
+
+function checkSummary(store: Store, checks: RepositoryCheck[]) {
+  return {
+    reusedChecks: checks.filter(check => check.reusedFrom).length,
+    savedCheckMs: checks.reduce(
+      (sum, check) => sum + (check.reusedFrom ? (store.check(check.reusedFrom).result?.elapsedMs ?? 0) : 0),
+      0,
+    ),
+    checkMs: checks.some(check => check.result?.elapsedMs !== undefined)
+      ? checks.reduce((total, check) => total + (check.result?.elapsedMs ?? 0), 0)
+      : null,
+    checkTimePartial: checks.some(check => check.result?.elapsedMs === undefined),
+  };
+}
 
 /** A model's observed use in one role, including incomplete and failed turns. */
 export interface ModelMetrics {
@@ -64,8 +92,9 @@ export function runMetrics(store: Store, taskId: string) {
   const events = store.events(taskId);
   const turns = taskTurnUsage(store, taskId);
   const usage = usageView(taskUsage(store, taskId));
-  const startedAt = events.find(event => event.type === 'guided.step_requested')?.at ?? turns[0]?.requestedAt ?? null;
-  const completedAt = completionTime(task.guided?.status, events);
+  const timing = usage.workflow;
+  const startedAt = timing?.startedAt ?? turns[0]?.requestedAt ?? null;
+  const completedAt = timing?.completedAt ?? completionTime(task.guided?.status, events);
   const times = turns.flatMap(turn => (turn.wallMs === null ? [] : [turn.wallMs]));
   const checks = store
     .executions()
@@ -79,14 +108,10 @@ export function runMetrics(store: Store, taskId: string) {
     profile: task.guided?.plan.modelProfile ?? null,
     startedAt,
     completedAt,
-    elapsedMs: startedAt && completedAt ? Math.max(0, Date.parse(completedAt) - Date.parse(startedAt)) : null,
     agentMs: times.length ? times.reduce((a, b) => a + b, 0) : null,
     agentTimePartial: turns.some(turn => turn.wallMs === null),
-    ...workflowTimes(events, startedAt),
-    checkMs: checks.some(check => check.result?.elapsedMs !== undefined)
-      ? checks.reduce((total, check) => total + (check.result?.elapsedMs ?? 0), 0)
-      : null,
-    checkTimePartial: checks.some(check => check.result?.elapsedMs === undefined),
+    ...workflowSummary(timing),
+    ...checkSummary(store, checks),
     firstAttemptDelivery: task.guided?.status === 'complete' ? usage.repairAttempts === 0 : null,
     repairAttempts: usage.repairAttempts,
     interventions: usage.interventions,
@@ -99,31 +124,8 @@ export function runMetrics(store: Store, taskId: string) {
       'Token counts do not establish subscription allowance consumed.',
       'Estimated cost is provider-reported, not subscription billing.',
       'Elapsed time includes waits; agent time is request-to-settlement time, not inference latency.',
+      'Agent time includes in-turn diagnostics; do not add agent and command times as disjoint work.',
     ],
-  };
-}
-
-/** Observed workflow intervals separate execution from settled waits, including waits for a person. */
-function workflowTimes(events: ReturnType<Store['events']>, startedAt: string | null) {
-  let previous = startedAt,
-    status = 'running',
-    workflowActiveMs = 0,
-    waitingMs = 0;
-  for (const event of events) {
-    if (!previous || event.at < previous) continue;
-    const current = z.object({ status: z.string() }).safeParse(event.data).data?.status;
-    if (!current || !event.type.startsWith('guided.')) continue;
-    const elapsed = Math.max(0, Date.parse(event.at) - Date.parse(previous));
-    if (status === 'running') workflowActiveMs += elapsed;
-    else if (status !== 'complete') waitingMs += elapsed;
-    previous = event.at;
-    status = current;
-  }
-  return {
-    workflowActiveMs: startedAt ? workflowActiveMs : null,
-    waitingMs: startedAt ? waitingMs : null,
-    timingAsOf: previous,
-    timingPartial: status !== 'complete',
   };
 }
 

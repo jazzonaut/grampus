@@ -374,7 +374,7 @@ action and the relevant readiness or shared behavioural budget before the decisi
 structured reply. This makes the choice to repair, arbitrate or stop inspectable alongside the
 existing request/result, check and usage journals.
 
-The current controller uses journal schema 9, with implementation-owned diagnostics and approved automatic formatting, including explicit readiness checks and their durable allowance alongside model assignments, comparisons, pause, guidance, task spending and ordered acceptance checks. Journals from
+The current controller uses journal schema 10, with implementation-owned diagnostics and approved automatic formatting, including explicit readiness checks and their durable allowance alongside model assignments, comparisons, pause, guidance, task spending and ordered acceptance checks. Journals from
 other schema versions are refused without modification; there is
 no migration. Keep the previous installed build with its journal to finish an existing task.
 
@@ -544,3 +544,47 @@ no-progress stopping, acceptance repair with renewed evidence, reviewer resumpti
 explicit retry over staged files. Boundary tests exercise context thresholds, tool access,
 large Unicode logs beyond the journal preview, compact polling and paginated UI output.
 Provider process and recovery tests retain the existing no-replay contracts.
+
+## Efficient implementation checks
+
+A slice can approve focused diagnostic families, independent readiness workers and local check
+reuse. All are displayed before approval and included in the plan digest. For example:
+
+```json
+{
+  "diagnostics": [{
+    "name": "unit", "file": "node", "args": ["--test"], "timeoutMs": 30000,
+    "selection": {
+      "parameters": [{"name": "filter", "flag": "--test-name-pattern"}],
+      "fileSuffixes": [".test.js"]
+    }
+  }],
+  "readinessConcurrency": 2
+}
+```
+
+The implementer can select `diagnostic:unit`, a filter and current test paths without another plan
+revision. It cannot replace the executable, prefix, deadline or parameter grammar. These capabilities
+are diagnostics, not permission to deliver Git changes or change files outside the approved scope.
+
+A readiness or validation command may additionally declare `reuse: {"inputs": ["node_modules"]}`
+when its result is entirely determined by the local declared inputs. This declaration must include
+all ignored dependencies and generated inputs; external services, clocks and uncontrolled external
+configuration make it ineligible. The controller adopts a diagnostic only after checking its exact
+artifact, command, instructions, runtime, environment and before/after input fingerprints. Otherwise
+it runs the gate again. Acceptance always runs separately.
+
+Readiness concurrency is opt-in and bounded by `maxReadinessConcurrency`. Do not enable it for
+checks that depend on each other or share unsafe caches, fixtures or generated outputs. A group
+retains ownership if any process exit is uncertain. Use ordinary recovery; never retry uncertain work.
+
+Prefer coherent delivery slices. Extra slices introduce fresh implementation/review context and
+repeat acceptance. Planning now reserves those boundaries for independently useful deliveries or
+file/context limits. Mandatory independent review and the approved quality passes remain intact.
+
+The Usage panel shows total task elapsed time from linked planning through delivery, active
+execution, waiting and recovery, then each
+workflow stage and every individual step across slices and retries. Checks, setup and delivery count
+alongside provider work. Provider and command totals overlap during implementation; do not add them.
+Live values include the current open interval and stop advancing on completion. Journal schema 10
+requires a fresh journal; earlier builds and their journals remain separate.

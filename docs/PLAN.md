@@ -27,6 +27,17 @@ high-value problems, adds measurement, and then lets real use decide what follow
 
 ## Steps
 
+- **Efficient execution and complete timing.** Implementation, 20 October 2026: focused diagnostic
+  argument families; optional exact-input adoption of completed diagnostics; approved concurrent
+  readiness groups with receipt-based recovery and a configurable worker ceiling; complete pagination
+  requests, related-file batches and search context. Planning prefers coherent delivery boundaries.
+  Workflow timing now covers non-provider stages, waiting, recovery and each individual step across
+  retries, exposed in the dashboard and reports. Implementation observations no longer fail solely
+  because their reply uses `kind=message`; review authority remains role-bound. Journal schema 10.
+  Existing conversation resumption and stable generic tool definitions are retained for context and
+  prefix-cache reuse. **Planned:** measured live comparison against a full-access agent.
+
+
 - **Implementation feedback loop.** Done 20 October 2026. Both providers can request approved
   formatting, readiness checks and validation within their editing turn. An approved scoped formatter
   also runs after editing without spending an agent repair round. Final checks remain artifact-bound.
@@ -88,7 +99,7 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   progress stops or uses approved arbitration. Decisions are journaled with their reasons and
   budget. The journal schema refuses other versions without migration ([WORKFLOW.md](WORKFLOW.md)).
 - **No backwards compatibility.** Done 18 October 2026. Legacy plan formats, digests, fields,
-  migrations and `task-automate` are removed from code and docs. The current schema is version 8; an older
+  migrations and `task-automate` are removed from code and docs. That step used schema version 8 (the current schema is version 10); an older
   journal is refused with a clear message and never modified. The new version uses a fresh
   journal file, so older installed snapshots can still finish their own tasks.
 
@@ -235,7 +246,7 @@ compressed JSON exports use gzip. Missing or oversized attachments are explicit,
 limit per file. Dashboard preview limits do not truncate these journal exports. Provider internals
 that Grampus did not observe cannot be exported. See [WORKFLOW.md](WORKFLOW.md#model-profiles-and-comparisons).
 
-Journal schema 9 includes implementation-owned diagnostics, approved formatting and readiness spending, durable comparisons and their driver ownership. Other schema versions
+Journal schema 10 includes diagnostic families, exact-input check adoption and grouped readiness recovery alongside implementation-owned diagnostics, approved formatting, readiness spending and durable comparisons. Other schema versions
 are refused without migration; use a fresh development journal. The installed application and its
 journal remain separate from this checkout.
 

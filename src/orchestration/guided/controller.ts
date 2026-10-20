@@ -135,6 +135,11 @@ export class GuidedTasks {
       this.store.save(task.id, task);
       this.store.append(task.id, task.version, 'guided.created', {
         digest: task.guided.digest,
+        status: task.guided.status,
+        stage: task.guided.stage,
+        sliceIndex: task.guided.sliceIndex,
+        owner: null,
+        pending: null,
         plan,
         reasonCode: 'APPROVAL_REQUIRED',
       });
@@ -255,16 +260,22 @@ export class GuidedTasks {
           throw new Error('Previous guided controller is still alive, on another host or unverifiable');
       } else if (!recover && !unapproved) assertRunnerAvailable(this.store);
       const token = randomUUID();
-      this.change(id, null, 'guided.controller_claimed', state => {
-        state.owner = {
-          token,
-          controllerPid: process.pid,
-          controllerStartedAt: startedAt,
-          host: hostname(),
-        };
-        state.stopRequested = false;
-        if (!recover) state.pauseRequested = false;
-      });
+      this.change(
+        id,
+        null,
+        'guided.controller_claimed',
+        state => {
+          state.owner = {
+            token,
+            controllerPid: process.pid,
+            controllerStartedAt: startedAt,
+            host: hostname(),
+          };
+          state.stopRequested = false;
+          if (!recover) state.pauseRequested = false;
+        },
+        { recovering: recover },
+      );
       return token;
     });
   }

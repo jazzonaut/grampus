@@ -69,6 +69,7 @@ Example:
 | `dashboardProbeMs` | `2000` | 100 to 30000 | Deadline for one authenticated local discovery or shutdown request |
 | `dashboardPollMs` | `100` | 50 to 1000 | Interval between observations while a background dashboard starts |
 | `claudeMaxTurns` | `128` | 16 to 512 | Native Claude agent steps within one controller turn, separate from conversation resets and task-wide controller turns. No automatic replay on exhaustion |
+| `maxReadinessConcurrency` | `2` | 1 to 3 | Workers per task for explicitly approved independent readiness checks. The task runner pool also bounds total concurrency |
 | `usagePollIntervalMs` | `15000` | 1000 to 600000 | How often Claude usage is sampled during a turn. The final result always replaces the samples |
 | `liveChangesIntervalMs` | `5000` | 1000 to 600000 | Interval between display-only working tree observations while the task screen is visible. No agent calls or evidence writes |
 | `observabilityIntervalMs` | `1000` | 1000 to 600000 | Interval between display-only activity journal reads while the execution graph is visible. Replay and hidden pages stop polling; no agent calls |

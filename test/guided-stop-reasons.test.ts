@@ -41,6 +41,8 @@ function guided(mode: 'automatic' | 'supervised', overrides: Record<string, unkn
           mode: 'commit',
           scope: { files: ['a.js'] },
           readiness: [],
+          diagnostics: [],
+          readinessConcurrency: 1,
           validation,
           acceptance: [validation],
           message: 'Deliver',

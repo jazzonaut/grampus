@@ -58,10 +58,13 @@ test('Claude fences command dispatch and withholds results after losing ownershi
     },
     () => active,
   );
-  assert.equal((await definition.handler({ name: 'validation' }, undefined)).isError, true);
+  assert.equal(
+    (await definition.handler({ name: 'validation', parameters: undefined, files: undefined }, undefined)).isError,
+    true,
+  );
   assert.equal(calls, 0);
   active = true;
-  const result = await definition.handler({ name: 'validation' }, undefined);
+  const result = await definition.handler({ name: 'validation', parameters: undefined, files: undefined }, undefined);
   assert.equal(result.isError, true);
   assert.equal(calls, 1);
   assert.ok(!JSON.stringify(result).includes('passed'));

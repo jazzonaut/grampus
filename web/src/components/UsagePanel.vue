@@ -11,6 +11,7 @@
 import { computed } from 'vue';
 import type { InterventionsV1, UsageCompleteness, UsageV1 } from '../../../src/server/api-types';
 import UsageSummary from './UsageSummary.vue';
+import WorkflowTiming from './WorkflowTiming.vue';
 import { formatCount, formatDuration, localTime, plural } from './format';
 
 defineOptions({ name: 'UsagePanel' });
@@ -51,6 +52,7 @@ function wall(ms: number | null, partial: boolean): string {
 
 <template>
   <div class="flex flex-col gap-3" data-panel="usage">
+    <WorkflowTiming v-if="usage.workflow" :timing="usage.workflow" />
     <UsageSummary :providers="usage.providers" :stages="usage.stages" :note="usage.note">
       <div v-if="usage.providers.length" class="overflow-x-auto">
         <table class="w-full text-sm">

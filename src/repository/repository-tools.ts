@@ -24,6 +24,7 @@ import {
 } from './repository-tool-arguments.js';
 import { systemErrorCode } from '../process/boundary.js';
 import { ReadLoop, RepositoryReadLoopError } from './read-loop.js';
+import { toolContinuation } from './tool-continuation.js';
 
 const {
   listPage,
@@ -144,7 +145,19 @@ export const repositoryToolDefinitions: {
     },
   },
 ];
-// Only the three tools defined so far advertise `root`; the definitions pushed below do not, and their
+repositoryToolDefinitions.push({
+  name: 'grampus_read_files',
+  description: `Read short initial pages of up to ${repositoryToolLimits.batchFiles} related files in one call. Each file supplies its own nextCall. Use read_file for longer ranges.`,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      paths: { type: 'array', minItems: 1, maxItems: repositoryToolLimits.batchFiles, items: { type: 'string' } },
+    },
+    required: ['paths'],
+    additionalProperties: false,
+  },
+});
+// Only the exploration tools defined so far advertise `root`; the definitions pushed below do not, and their
 // argument schemas refuse it, because reference folders have no changes, checks or dependencies.
 for (const definition of repositoryToolDefinitions)
   Object.assign(definition.inputSchema.properties, {
@@ -264,6 +277,7 @@ class RepositoryTools {
     private readonly access: RepositoryAccess,
     private readonly emit: (event: AgentEvent) => void,
     private readonly ownsTurn: () => boolean,
+    private readonly toolRoot?: string,
   ) {
     this.root = realpathSync.native(access.repo);
     this.tree = 'base' in access ? pinnedRepository(this.root, access.base, access.prefix ?? '') : null;
@@ -292,6 +306,7 @@ class RepositoryTools {
           referenceAccess(reference),
           event => emit({ ...event, data: { ...fields(event.data), root: id, folder: reference.path } }),
           ownsTurn,
+          id,
         ),
       );
     }
@@ -373,7 +388,8 @@ class RepositoryTools {
     this.emit({ type: 'repository.tool_requested', data: { tool: name, source: this.source, arguments: input } });
     let result: unknown;
     try {
-      result = this.readLoop.observe(name, input, request.run());
+      const continuationInput = this.toolRoot ? { ...input, root: this.toolRoot } : input;
+      result = toolContinuation(name, continuationInput, this.readLoop.observe(name, input, request.run()));
     } catch (error) {
       if (error instanceof RepositoryReadLoopError)
         this.emit({ type: 'repository.read_loop', data: { tool: name, source: this.source, message: error.message } });
@@ -411,12 +427,29 @@ class RepositoryTools {
       const { root = 'task', ...rest } = call.args;
       return { forward: () => this.forward(root, name, rest) };
     }
-    const offset = integer(call.args.offset, 0, Number.MAX_SAFE_INTEGER);
+    const offset = integer('offset' in call.args ? call.args.offset : undefined, 0, Number.MAX_SAFE_INTEGER);
     return { run: () => this.explore(call, offset) };
   }
 
   private explore(call: ExplorationCall, offset: number): unknown {
     switch (call.tool) {
+      case 'grampus_read_files': {
+        const files = call.args.paths.map(path =>
+          toolContinuation(
+            'grampus_read_file',
+            {
+              path,
+              mode: 'lines',
+              limit: repositoryToolLimits.batchPageLines,
+              ...(this.toolRoot ? { root: this.toolRoot } : {}),
+            },
+            this.readFile({ path, limit: repositoryToolLimits.batchPageLines }, 0),
+          ),
+        );
+        if (Buffer.byteLength(JSON.stringify(files)) > resultBytes)
+          throw new Error('Batch response exceeds the output budget; request fewer files');
+        return { source: this.source, files };
+      }
       case 'grampus_read_changes':
         return this.readChanges(call.args, offset);
       case 'grampus_list_files':
@@ -622,7 +655,7 @@ class RepositoryTools {
       });
       this.loadBlobs(batch);
     }
-    const matches: { path: string; line: number; text: string }[] = [];
+    const matches: SearchMatch[] = [];
     const skipped: { path: string; reason: string }[] = [];
     let end = offset,
       scannedBytes = 0;
@@ -666,18 +699,32 @@ class RepositoryTools {
  * Adds a file's matching lines to `matches`, at most `searchFileMatches` per file and `searchMatches`
  * in total. Returns whether some matches were left out, so the caller can say to read the file.
  */
-function searchFile(
-  path: string,
-  content: string,
-  query: string,
-  matches: { path: string; line: number; text: string }[],
-): boolean {
+interface SearchMatch {
+  path: string;
+  line: number;
+  text: string;
+  context: { startLine: number; lines: string[] };
+}
+
+function searchFile(path: string, content: string, query: string, matches: SearchMatch[]): boolean {
   let hits = 0,
     delivered = 0;
-  for (const [index, line] of content.split('\n').entries())
+  const lines = content.split('\n');
+  for (const [index, line] of lines.entries())
     if (line.toLowerCase().includes(query)) {
       if (hits++ < searchFileMatches && matches.length < searchMatches) {
-        matches.push({ path, line: index + 1, text: line.slice(0, matchCharacters) });
+        const start = Math.max(0, index - repositoryToolLimits.searchContextLines);
+        matches.push({
+          path,
+          line: index + 1,
+          text: line.slice(0, matchCharacters),
+          context: {
+            startLine: start + 1,
+            lines: lines
+              .slice(start, index + repositoryToolLimits.searchContextLines + 1)
+              .map(value => value.slice(0, matchCharacters)),
+          },
+        });
         delivered++;
       }
     }
@@ -698,7 +745,8 @@ export function repositoryTools(
   access: RepositoryAccess,
   emit: (event: AgentEvent) => void,
   ownsTurn: () => boolean,
+  toolRoot?: string,
 ): RepositoryToolCall {
-  const tools = new RepositoryTools(access, emit, ownsTurn);
+  const tools = new RepositoryTools(access, emit, ownsTurn, toolRoot);
   return (name, input) => tools.call(name, input);
 }

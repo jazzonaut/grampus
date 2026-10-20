@@ -88,6 +88,7 @@ export function usageView(usage: TaskUsage): UsageV1 {
     billedCostUsd: null,
   }));
   const view = {
+    workflow: usage.workflow,
     providers,
     stages: usage.stages.map(row => ({
       stage: row.stage,

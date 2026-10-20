@@ -425,11 +425,13 @@ Neither provider gets a shell. Configured MCP integrations stay available (`prov
 source-project connections into worktrees); external actions need explicit task authorization.
 
 Implementation also receives `grampus_run_check` (`execution/implementation-commands.ts` and
-`providers/implementation-tools.ts`), selecting only an approved formatter, readiness command or
-validation command by identifier. It runs through the supervisor under the existing implementation
+`providers/implementation-tools.ts`), selecting an approved formatter, readiness command, validation command or focused diagnostic family by identifier.
+A family binds its executable, argument prefix, timeout, selectable named flags and file suffixes. Agents
+may choose parameter values and current inventory paths within that grammar, without a shell. It runs through the supervisor under the existing implementation
 lease. Child check records name `implementationId`; settlement never releases the parent lease.
 Before parent settlement, outstanding child receipts must prove confirmed exit or the implementation
-stays in recovery. Diagnostics cannot supply acceptance or final readiness evidence. An optional
+stays in recovery. Diagnostics never supply acceptance. Explicitly reusable diagnostics can satisfy readiness or validation
+only through a new controller adoption record after the implementer has settled. An optional
 slice `formatting` command runs automatically after editing, within the approved file scope.
 Native writes are suspended while a command runs; final evidence binds to the formatted artifact.
 
@@ -444,7 +446,7 @@ preserving full coverage. This advice never rewrites an approved command or dead
 ## Repository access
 
 `repository/repository-tools.ts` implements one controller-owned toolset for both providers:
-`grampus_list_files`, `grampus_read_file`, `grampus_search`, `grampus_read_changes`,
+`grampus_list_files`, `grampus_read_file`, `grampus_read_files`, `grampus_search`, `grampus_read_changes`,
 `grampus_read_check`, `grampus_read_dependency` and `grampus_suggest_reference_folder`. Planning
 reads immutable Git blobs at the pinned commit; execution reads the captured workspace inventory and
 allows current bytes only for authorized paths; review reads the submitted snapshot. Every tool goes
@@ -822,7 +824,7 @@ conversations, evidence and both repair counts keep the ordinary task contracts.
 Task claims recheck comparison membership inside the claim transaction; advancing a comparison
 rechecks the member's current ownership and settlement under the same SQLite write lock.
 
-The `comparisons` and `comparison_events` tables are part of journal schema 9. State changes and
+The `comparisons` and `comparison_events` tables are part of journal schema 10. State changes and
 events share a transaction. Schema versions other than 8 are refused without migration.
 Member tasks keep the existing execution, workspace, evidence, spending and verified-delivery
 contracts. Shared planning is retained once at comparison level rather than charged to every member.
@@ -1012,3 +1014,45 @@ The dashboard client is its own npm project in `web/` (paths under `web/src/`), 
 | | `AppShell`, `AppSidebar`, `AppBreadcrumb`, `ViewTabs`, `SectionHeading`, `OverviewStats`, `UsageHeadline`, `HealthIndicator`, `HealthSummaryBar`, `TaskSummaryItem`, `StatusBadge`, `NoticeBox`, `ErrorBanner`, `EmptyState`, `EvidenceSection`, `LogViewer`, `MarkdownView`, `format.ts` | Shell and shared building blocks |
 | `theme/` | `status.ts`, `tokens.ts`, `theme.css`, `colorScheme.ts` | Icon, words and colour per status (never colour alone); design tokens; static Nuxt UI variables; light and dark from the system |
 
+
+## Efficient verification and workflow timing
+
+Readiness and validation commands may approve `reuse: {inputs: [...]}`. This declares a local
+check whose result depends only on the artifact, instructions, executable, inherited environment
+and explicitly listed additional input trees. Include ignored dependencies and generated inputs.
+Network, clock and other uncontrolled external inputs are ineligible. `verification/check-inputs.ts`
+hashes the resolved executable and declared trees before and after execution. Missing files, links,
+changing inputs or inventories over the capture bounds disable reuse. Version-manager executable
+links bind both the requested path and resolved binary. No environment values are journaled.
+
+`verification/check-reuse.ts` permits only the latest exact successful diagnostic of a completed
+implementation in the same execution. The final gate takes its own lease, snapshots and fingerprints.
+Matching evidence creates a new `reusedFrom` record with no process dispatch; mutations, changed
+parameters, instructions, dependencies, environment, newer failures or uncertain results invalidate it.
+Acceptance and scoped preparation always execute independently.
+
+Slices approve `readinessConcurrency`, default one. Values two or three declare independent read-only
+mechanical checks. The operational `maxReadinessConcurrency` ceiling defaults to two workers per
+task. Every child request exists before dispatch, each has its own receipt, and a shared group lease
+is retained until all children settle. An uncertain child stops further scheduling. Recovery requires
+all dispatched outstanding receipts and never accepts recovered work as success. Acceptance stays
+ordered. Resource use is bounded by both the task pool and per-task worker ceiling.
+
+`reporting/workflow-timing.ts` projects every persisted workflow transition. Total elapsed time,
+controller-owned active intervals, settled waiting and recovery are disjoint. It records every step
+request separately by slice and journal sequence, and aggregates stages across repairs and retries.
+Live steps remain live, completion freezes the clock, and clock regressions are flagged lower bounds.
+A reclaim after controller death classifies the unobserved gap as recovery rather than active work.
+Provider wall time includes in-turn diagnostics and must not be added to check time as disjoint work.
+Timing is shown in the dashboard Usage panel, CLI, Markdown report and JSON/CSV scorecards. Linked planning
+request/result intervals extend the task clock before task creation. Provider-stage accounting stays
+separate, so planning tokens and elapsed time are not counted twice.
+
+Repository tools return complete `nextCall` requests, preserving cursor mode and reference roots.
+Related-file batches have bounded total output; each file retains its own continuation. Searches
+include bounded neighbouring lines. The repeated-read guard remains a final bound.
+
+Implementation messages may include evidence-bearing observations in `findings`. They remain
+messages; only a review execution can provide independent review evidence, and lens assessments
+and prior-blocker resolutions still require `kind=review`. Implementation observations are forwarded
+to the reviewer as untrusted claims for independent investigation.

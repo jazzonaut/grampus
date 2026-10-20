@@ -66,6 +66,13 @@ defineProps<{ slice: PlanSliceView; index: number }>();
           Readiness ({{ check.kind }}) · {{ check.name }} · {{ formatTimeout(check.timeoutMs) }}
         </p>
         <p v-if="!slice.readiness.length" class="text-xs text-muted">No separate readiness checks configured.</p>
+        <p v-if="slice.readinessConcurrency > 1" class="text-xs text-muted">
+          Up to {{ slice.readinessConcurrency }} independent readiness checks may run together.
+        </p>
+        <p v-for="check in slice.reusableChecks" :key="check.name" class="text-xs text-muted">
+          {{ check.name }} may reuse a successful diagnostic when all declared inputs match. Additional input trees:
+          {{ check.inputs.join(', ') || '(none)' }}. This declares a local check with no uncontrolled external inputs.
+        </p>
       </div>
       <div class="flex flex-col gap-1">
         <p class="text-xs text-muted">

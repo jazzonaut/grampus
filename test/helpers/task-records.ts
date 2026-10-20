@@ -28,6 +28,8 @@ export function planRecord(fields: Partial<GuidedPlan> = {}): GuidedPlan {
       {
         scope: { files: [] },
         readiness: [],
+        diagnostics: [],
+        readinessConcurrency: 1,
         validation: command,
         acceptance: [{ ...command, expectedStdout: '' }],
         message: 'Fixture delivery',

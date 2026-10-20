@@ -103,8 +103,8 @@ export const agentReplySchema = z
       context.addIssue({ code: 'custom', path: ['questions'], message: 'Question ids must be unique' });
     if ((reply.kind === 'question') !== reply.questions.length > 0)
       context.addIssue({ code: 'custom', path: ['kind'], message: 'Questions require kind=question and vice versa' });
-    if (reply.kind !== 'review' && reply.findings.length > 0)
-      context.addIssue({ code: 'custom', path: ['kind'], message: 'Findings require kind=review' });
+    // Implementers can report observations without impersonating the independent reviewer.
+    // Evidence attribution follows the execution role, never the presence of a findings list.
     if (reply.lenses != null && reply.kind !== 'review')
       context.addIssue({ code: 'custom', path: ['lenses'], message: 'Only a review may assess lenses' });
     if (reply.priorFindings?.length && reply.kind !== 'review')

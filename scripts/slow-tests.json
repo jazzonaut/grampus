@@ -1,4 +1,8 @@
 [
+  "check-groups",
+  "check-groups-recovery",
+  "check-groups-workers",
+  "check-reuse",
   "checks-review",
   "checks-submission",
   "checks-supervision",
@@ -16,6 +20,8 @@
   "desktop-shutdown",
   "executions",
   "guided-tasks-acceptance-checks",
+  "guided-tasks-check-reuse",
+  "guided-tasks-efficiency",
   "guided-tasks-command-recovery",
   "guided-tasks-implementation-commands",
   "guided-tasks-arbitration",

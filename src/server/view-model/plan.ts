@@ -17,7 +17,7 @@ export function workflowSummary(plan: GuidedPlan): string {
   const spending = `Task-wide allowance: ${policy.maxTaskTurns} agent turns; ${policy.maxTaskTokens ? `${policy.maxTaskTokens.toLocaleString('en-GB')} provider tokens` : 'token threshold disabled'}. Includes linked planning, retries, all slices and plan versions. Checked before each agent turn; an active turn may exceed the token threshold.`;
   const mode =
     policy.mode === 'automatic'
-      ? `Automatic workflow: implement, check readiness, validate, repair, independently review and deliver within the approved scope. Per slice: ${policy.readinessRounds} readiness repairs for declared formatting, lint and type checks; ${policy.repairRounds} shared behavioural repairs across validation, review and acceptance. Both allowances survive retries and restarts; every attempt runs readiness again. Size both allowances for the approved work and check coverage.`
+      ? `Automatic workflow: implement, check readiness, validate, repair, independently review and deliver within the approved scope. Per slice: ${policy.readinessRounds} readiness repairs for declared formatting, lint and type checks; ${policy.repairRounds} shared behavioural repairs across validation, review and acceptance. Both allowances survive retries and restarts; every attempt requires current readiness evidence. Size both allowances for the approved work and check coverage.`
       : 'Supervised workflow: pause for file authorization and quality assessment.';
   return `${mode} ${spending} Conversations resume within a slice and start fresh after ${policy.maxSessionTurns} turns or ${policy.maxContextTokens.toLocaleString('en-GB')} observed context tokens. Each slice and arbitration starts fresh.`;
 }
@@ -28,7 +28,7 @@ export function workflowSummary(plan: GuidedPlan): string {
 export function reviewSummary(plan: GuidedPlan): string {
   const arbitrator = plan.reviewPolicy?.arbitrator;
   return [
-    'Review repairs use the shared slice allowance. Unchanged artifacts, unresolved blockers or missing progress evidence stop automatic repair.',
+    'Review repairs use the shared slice allowance. Unchanged artifacts, stalled repairs or missing progress evidence stop automatic repair.',
     arbitrator
       ? `Fresh arbitration: ${providerLabel(arbitrator.provider)}, model ${arbitrator.model ?? 'provider default'}.`
       : 'Unresolved findings stop for your decision.',
@@ -50,6 +50,14 @@ function sliceView(plan: GuidedPlan, index: number): PlanSliceView {
   if (!slice) throw new Error(`Slice ${index + 1} is missing from the plan`);
   const brief = plan.brief.slices?.[index];
   return {
+    diagnostics: slice.diagnostics.map(item => ({
+      ...command(item),
+      selection: JSON.stringify(item.selection, null, 2),
+    })),
+    readinessConcurrency: slice.readinessConcurrency,
+    reusableChecks: [...slice.readiness, slice.validation].flatMap(item =>
+      item.reuse ? [{ name: item.name, inputs: [...item.reuse.inputs] }] : [],
+    ),
     title: brief?.title ?? plan.brief.title,
     approach: brief?.plan ?? null,
     criteria: brief ? [...brief.criteria] : [],

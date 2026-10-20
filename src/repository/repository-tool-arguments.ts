@@ -39,6 +39,11 @@ export const readFileArguments = z.strictObject({
   offset: optional(count),
   limit: optional(count),
 });
+/** Bounded related-file reads; each item retains its own continuation cursor. */
+export const readFilesArguments = z.strictObject({
+  root: optional(text),
+  paths: z.array(text).min(1).max(repositoryToolLimits.batchFiles),
+});
 /** `grampus_search`. */
 export const searchArguments = z.strictObject({
   root: optional(text),
@@ -82,6 +87,7 @@ const unknownArgument = 'Unknown repository tool argument';
 export type ExplorationCall =
   | { tool: 'grampus_list_files'; args: z.output<typeof listFilesArguments> }
   | { tool: 'grampus_read_file'; args: z.output<typeof readFileArguments> }
+  | { tool: 'grampus_read_files'; args: z.output<typeof readFilesArguments> }
   | { tool: 'grampus_read_changes'; args: z.output<typeof readChangesArguments> }
   | { tool: 'grampus_search'; args: z.output<typeof searchArguments> };
 
@@ -92,6 +98,8 @@ export function parseExplorationCall(name: string, input: unknown): ExplorationC
       return { tool: name, args: parseToolArguments(name, listFilesArguments, input, unknownArgument) };
     case 'grampus_read_file':
       return { tool: name, args: parseToolArguments(name, readFileArguments, input, unknownArgument) };
+    case 'grampus_read_files':
+      return { tool: name, args: parseToolArguments(name, readFilesArguments, input, unknownArgument) };
     case 'grampus_read_changes':
       return { tool: name, args: parseToolArguments(name, readChangesArguments, input, unknownArgument) };
     case 'grampus_search':

@@ -3,6 +3,7 @@
 import type { ReasoningEffort } from '../domain/model-profiles.js';
 import type { RepositoryAccess } from '../repository/repository-tools.js';
 import type { EditingContext } from '../execution/edit-policy.js';
+import type { DiagnosticSelection } from '../domain/diagnostics.js';
 import { z } from 'zod';
 import { BoundaryError, describeIssues, parseJson } from '../process/boundary.js';
 import { agentReplySchema, type Reply, type TurnResult } from './reply-schema.js';
@@ -18,12 +19,12 @@ export type Provider = z.infer<typeof providerSchema>;
  * dynamic repository tools on `thread/start`, so a Codex session recorded with another version is
  * continued in a fresh conversation instead. Bump it whenever the tool definitions change.
  */
-export const agentToolsetVersion = 5;
+export const agentToolsetVersion = 6;
 
 /** System instructions for read-only conversation turns. Prompt text is a provider contract. */
 export const instructions = `You are participating in a Grampus conversation. Do not edit files, run commands or delegate work. Use configured MCP integrations and the supplied read-only tools to gather task context.
 Return the supplied JSON response format. Use kind=question for consequential missing information, putting each question in questions with a stable id, prompt and choices (empty allows free text). End the turn and wait for an answer. Do not use question tools.
-Use kind=review for a requested review of supplied content; each finding needs concrete evidence. Account for controller-named earlier blockers in priorFindings with a resolved or unresolved status and concrete evidence. An empty findings list means no findings in the supplied content, not proof of repository validation. Otherwise use kind=message. Always include text, questions and findings; unused lists are empty and priorFindings is null outside review.`;
+Use kind=review for a requested independent review of supplied content; each finding needs concrete evidence. Account for controller-named earlier blockers in priorFindings with a resolved or unresolved status and concrete evidence. An empty findings list means no findings in the supplied content, not proof of repository validation. Otherwise use kind=message. Implementation messages may include findings as observations; these never establish independent review. Always include text, questions and findings; unused lists are empty and priorFindings is null outside review.`;
 
 const replyHeadlines: Record<string, string> = {
   questions: 'Invalid questions',
@@ -76,7 +77,7 @@ export interface AgentSession {
 /** Everything an adapter needs to start or resume one provider conversation. */
 export interface ConnectOptions {
   /** Controller-owned approved diagnostics; unavailable outside implementation. */
-  commands?: { run: (name: string) => Promise<unknown>; readonly running?: boolean };
+  commands?: { run: (name: string, selection?: DiagnosticSelection) => Promise<unknown>; readonly running?: boolean };
   /** Where project configuration (such as MCP servers) is read from when it differs from `cwd`. */
   configurationCwd?: string;
   /** Read-only repository tools to offer; absent means the agent gets none. */

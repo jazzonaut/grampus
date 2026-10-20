@@ -14,7 +14,11 @@ export function claudeImplementationTool(commands: NonNullable<ConnectOptions['c
   return tool(
     implementationToolDefinition.name,
     implementationToolDefinition.description,
-    { name: z.string() },
+    {
+      name: z.string(),
+      parameters: z.record(z.string(), z.string()).optional(),
+      files: z.array(z.string()).optional(),
+    },
     async input => {
       try {
         if (!owned()) throw new Error('Command requires an active implementation turn');

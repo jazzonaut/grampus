@@ -9,6 +9,7 @@
 import { reasoningEffortSchema } from '../domain/model-profiles.js';
 import { readinessKindSchema } from '../domain/readiness.js';
 import { z } from 'zod';
+import { checkReuseSchema } from '../domain/check-input-policy.js';
 import { providerSchema } from '../providers/types.js';
 import { providerRuntimeSchema } from '../providers/executables.js';
 import { agentReplySchema, turnResultSchema } from '../providers/reply-schema.js';
@@ -169,6 +170,7 @@ export const workspaceSchema = z.object({
 export type Workspace = z.infer<typeof workspaceSchema>;
 
 export const checkSpecSchema = z.object({
+  reuse: checkReuseSchema.exactOptional(),
   name: z.string(),
   file: z.string(),
   args: z.array(z.string()),
@@ -187,6 +189,12 @@ export const checkSpecSchema = z.object({
 export type CheckSpec = z.infer<typeof checkSpecSchema>;
 
 export const repositoryCheckSchema = z.object({
+  /** Read-only batch lease, held until every child settles or explicit group recovery proves all exits. */
+  groupId: z.string().exactOptional(),
+  /** Fingerprints are hashes only; environment secrets are never persisted here. */
+  inputFingerprint: z.object({ before: z.string().nullable(), after: z.string().nullable() }).exactOptional(),
+  /** A distinct gate record may adopt a settled diagnostic; the original receipt stays with its source. */
+  reusedFrom: z.string().exactOptional(),
   /** Diagnostic command performed while this implementation retains its workspace lease. */
   implementationId: z.string().exactOptional(),
   /** Set when a verification ran but its output did not meet the approved acceptance observations. */

@@ -11,6 +11,7 @@ import {
   readCheckArguments,
   readDependencyArguments,
   readFileArguments,
+  readFilesArguments,
   searchArguments,
   suggestReferenceArguments,
 } from '../src/repository/repository-tool-arguments.js';
@@ -87,6 +88,15 @@ test('repository tools discover dependencies outside initial context and read pi
   const read = invoke('grampus_read_file', { path: search.matches[0].path, limit: 1 }) as any;
   assert.match(read.lines[0], /hidden-contract-4829/);
   assert.equal(read.nextOffset, 1);
+  assert.deepEqual(read.nextCall, {
+    tool: 'grampus_read_file',
+    arguments: { path: 'src/dependency.js', limit: 1, offset: 1 },
+  });
+  assert.equal((invoke(read.nextCall.tool, read.nextCall.arguments) as any).nextOffset, null);
+  const batch = invoke('grampus_read_files', { paths: ['src/caller.js', 'src/dependency.js'] }) as any;
+  assert.equal(batch.files.length, 2);
+  assert.match(batch.files[0].lines.join('\n'), /console.log/);
+  assert.ok(search.matches[0].context.lines.length > 0);
   assert.equal((invoke('grampus_read_file', { path: 'src/dependency.js', offset: 1 }) as any).nextOffset, null);
   assert.equal(read.source, f.base);
   assert.match(read.sha256, /^[a-f0-9]{64}$/);
@@ -183,6 +193,7 @@ test('advertised tool schemas list exactly the arguments the controller accepts'
   const enforced: Record<string, { shape: Record<string, unknown> }> = {
     grampus_list_files: listFilesArguments,
     grampus_read_file: readFileArguments,
+    grampus_read_files: readFilesArguments,
     grampus_search: searchArguments,
     grampus_read_changes: readChangesArguments,
     grampus_suggest_reference_folder: suggestReferenceArguments,

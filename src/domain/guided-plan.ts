@@ -17,6 +17,8 @@ import { normalizeReferences, referenceFolderSchema, type ReferenceFolder } from
 import { acceptanceExpectationsSchema, validateExpectations } from './acceptance.js';
 import { normalizeWorkflowPolicy, workflowPolicySchema } from './workflow-policy.js';
 import { readinessKindSchema } from './readiness.js';
+import { diagnosticGrammarSchema } from './diagnostics.js';
+import { checkReuseSchema } from './check-input-policy.js';
 import { availableQualityPasses, normalizeQuality, planQualitySchema } from './quality-passes.js';
 
 /** An approved command: an absolute executable with literal arguments, never a shell string. */
@@ -25,6 +27,7 @@ const guidedCommandSchema = z.object({
   file: z.string(),
   args: z.array(z.string()),
   timeoutMs: z.number(),
+  reuse: checkReuseSchema.exactOptional(),
 });
 export type GuidedCommand = z.infer<typeof guidedCommandSchema>;
 
@@ -46,6 +49,12 @@ const guidedSliceSchema = z.object({
   preparation: guidedCommandSchema.exactOptional(),
   /** Approved scoped formatter, also available to the implementer during its turn. */
   formatting: guidedCommandSchema.exactOptional(),
+  /** Focused diagnostics with an approval-bound executable and parameter grammar. */
+  diagnostics: z
+    .array(guidedCommandSchema.extend({ selection: diagnosticGrammarSchema }))
+    .max(commandLimits.diagnosticFamilies),
+  /** Explicit declaration that mechanical checks can share a read-only workspace concurrently. */
+  readinessConcurrency: z.number().int().min(1).max(planLimits.readinessChecks),
   validation: guidedCommandSchema,
   /**
    * Distinctly named acceptance checks, run in this order on the same artifact. Each has its own
@@ -186,7 +195,13 @@ function command(
   defaultTimeoutMs = currentSettings().defaultCheckTimeoutMs,
 ): AcceptanceCommand {
   const fields = ['name', 'file', 'args', 'timeoutMs', 'expectedStdout', 'expectations'] as const;
-  const item = object(value, acceptance ? fields : fields.slice(0, 4), `${defaultName.toLowerCase()} command`);
+  const item = object(
+    value,
+    acceptance ? fields : ['name', 'file', 'args', 'timeoutMs', 'reuse'],
+    `${defaultName.toLowerCase()} command`,
+  );
+  if (item.reuse !== undefined && defaultName !== 'Validation' && !defaultName.endsWith('readiness'))
+    throw new Error('Only readiness and validation checks may declare reusable inputs');
   const file = commandFile(item.file);
   const args = commandArgs(item.args);
   const observed = acceptance ? observations(item.expectedStdout, item.expectations) : {};
@@ -195,6 +210,7 @@ function command(
     file,
     args,
     timeoutMs: timeout(item.timeoutMs, defaultTimeoutMs),
+    ...(item.reuse === undefined ? {} : { reuse: checkReuseSchema.parse(item.reuse) }),
     ...observed,
   };
 }
@@ -439,7 +455,7 @@ function readinessChecks(value: unknown, slice: number): GuidedSlice['readiness'
     );
   const checks = (value as unknown[]).map((raw, index) =>
     labelled(`Slice ${slice} readiness ${index + 1}`, () => {
-      const item = object(raw, ['kind', 'name', 'file', 'args', 'timeoutMs'], 'readiness command');
+      const item = object(raw, ['kind', 'name', 'file', 'args', 'timeoutMs', 'reuse'], 'readiness command');
       const { kind: inputKind, ...inputCommand } = item;
       const kind = readinessKindSchema.parse(inputKind);
       return { kind, ...command(inputCommand, false, `${kind} readiness`) };
@@ -453,10 +469,45 @@ function readinessChecks(value: unknown, slice: number): GuidedSlice['readiness'
   return checks;
 }
 
+/** Resolves each diagnostic family once, binding its command and selectable argument grammar to approval. */
+function diagnosticCommands(value: unknown): GuidedSlice['diagnostics'] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > commandLimits.diagnosticFamilies)
+    throw new Error('Too many diagnostic families');
+  const result = (value as unknown[]).map(raw => {
+    const { selection, ...input } = object(
+      raw,
+      ['name', 'file', 'args', 'timeoutMs', 'selection'],
+      'diagnostic family',
+    );
+    const grammar = diagnosticGrammarSchema.parse(selection);
+    if (
+      new Set(grammar.parameters.map(item => item.name)).size !== grammar.parameters.length ||
+      new Set(grammar.parameters.map(item => item.flag)).size !== grammar.parameters.length
+    )
+      throw new Error('Diagnostic parameters require distinct names and flags');
+    return { ...command(input, false), selection: grammar };
+  });
+  if (new Set(result.map(item => item.name)).size !== result.length)
+    throw new Error('Diagnostic family names must be distinct');
+  return result;
+}
+
 function normalizeSlice(raw: unknown, simulation: FileSimulation, number: number): GuidedSlice {
   const item = object(
     raw,
-    ['scope', 'readiness', 'validation', 'acceptance', 'message', 'mode', 'preparation', 'formatting'],
+    [
+      'scope',
+      'readiness',
+      'validation',
+      'acceptance',
+      'message',
+      'mode',
+      'preparation',
+      'formatting',
+      'diagnostics',
+      'readinessConcurrency',
+    ],
     'slice configuration',
   );
   const mode = item.mode ?? 'commit';
@@ -472,10 +523,17 @@ function normalizeSlice(raw: unknown, simulation: FileSimulation, number: number
     scope,
     mode,
     readiness: readinessChecks(item.readiness, number),
+    diagnostics: diagnosticCommands(item.diagnostics),
+    readinessConcurrency: z
+      .number()
+      .int()
+      .min(1)
+      .max(planLimits.readinessChecks)
+      .parse(item.readinessConcurrency ?? 1),
     ...(item.formatting === undefined
       ? {}
       : {
-          formatting: labelled(`Slice ${number} formatting`, () => command(item.formatting, false)),
+          formatting: labelled(`Slice ${number} formatting`, () => command(item.formatting, false, 'Formatting')),
         }),
     ...(item.preparation === undefined
       ? {}

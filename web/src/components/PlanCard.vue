@@ -97,6 +97,11 @@ const headingId = useId();
         <summary class="cursor-pointer font-medium text-highlighted">Exact commands and acceptance evidence</summary>
         <div v-for="(slice, index) in plan.slices" :key="index" class="mt-4 flex flex-col gap-2">
           <h3 class="font-semibold">Slice {{ index + 1 }} · {{ slice.title }}</h3>
+          <div v-for="diagnostic in slice.diagnostics" :key="diagnostic.name">
+            <CommandDetails :command="diagnostic" :summary="`Focused diagnostics: ${diagnostic.name}`" />
+            <p class="text-xs text-muted">Approved selectable parameters and repository file suffixes</p>
+            <pre class="grampus-code">{{ diagnostic.selection }}</pre>
+          </div>
           <CommandDetails
             v-if="slice.formatting"
             :command="slice.formatting"

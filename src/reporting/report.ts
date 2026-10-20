@@ -5,6 +5,7 @@ import type { Store } from '../persistence/store.js';
 import { Workflow, activeSlice } from '../domain/workflow.js';
 import { explorationSummary } from '../repository/repository-tools.js';
 import { taskUsage, usageLines, usageTable } from './task-usage.js';
+import { workflowTimingLines } from './workflow-timing.js';
 import { spendingLines, spendingStatus } from '../orchestration/guided/spending.js';
 
 // Encode all user/provider prose, including newlines, so it cannot inject report structure.
@@ -47,6 +48,7 @@ export function renderReport(store: Store, id: string): string {
     '',
     prose(task.brief.outcome),
     '',
+    ...(usage.workflow ? ['## Workflow timing', '', ...workflowTimingLines(usage.workflow), ''] : []),
     '## Acceptance criteria',
     '',
     ...task.brief.criteria.map(criterion => `- ${prose(criterion)}`),

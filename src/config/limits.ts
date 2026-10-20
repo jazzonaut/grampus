@@ -88,6 +88,16 @@ export const editLimits = {
 
 /** Supervised commands: checks, preparation, acceptance, delivery and implementation turns. */
 export const commandLimits = {
+  /** Selectable flags, values and file suffixes in one approved diagnostic family. */
+  diagnosticParameters: 16,
+  /** Repository paths selected in one focused diagnostic invocation. */
+  diagnosticFiles: 64,
+  /** Approved diagnostic families per slice. */
+  diagnosticFamilies: 8,
+  /** Reuse is optional and falls back to execution when input capture exceeds these bounds. */
+  reuseInputRoots: 16,
+  reuseInputFiles: 100_000,
+  reuseInputBytes: 512 * MiB,
   /** Shortest deadline for a supervised command. */
   minTimeoutMs: 100,
   /** Longest deadline for a supervised command; zero (no deadline) is allowed only where stated. */
@@ -256,6 +266,10 @@ export const referenceLimits = {
 
 /** The shared repository tools. Every result is journaled, so each page is bounded. */
 export const repositoryToolLimits = {
+  /** Related files read in one call, with a short initial page and individual continuation requests. */
+  batchFiles: 8,
+  batchPageLines: 40,
+  searchContextLines: 1,
   /** Identical reads of unchanged content before returning a compact cursor reminder. */
   repeatedReadHint: 3,
   /** Identical reads of unchanged content before terminating the provider turn. */

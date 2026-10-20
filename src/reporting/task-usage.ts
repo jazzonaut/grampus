@@ -5,6 +5,7 @@ import { reasoningEffortSchema } from '../domain/model-profiles.js';
 import type { JournalEvent, RecordEvent, Store } from '../persistence/store.js';
 import { z } from 'zod';
 import { numeric, type Provider, type Usage } from '../providers/types.js';
+import { workflowTiming, workflowTimingLines, type WorkflowTiming } from './workflow-timing.js';
 import { usageSchema } from '../providers/reply-schema.js';
 import { turnStageSchema, type TurnStage } from '../persistence/records.js';
 
@@ -124,6 +125,7 @@ const interventionEvents: Readonly<Partial<Record<string, InterventionKind>>> = 
 
 /** Everything measured about a task's provider work. */
 export interface TaskUsage {
+  workflow: WorkflowTiming | null;
   providers: ProviderUsage[];
   stages: StageUsage[];
   /** Provider turns across all stages and providers. */
@@ -395,21 +397,55 @@ function linkedSessions(store: Store, taskId: string): string[] {
  * `Store.get` and `Store.session` do when a linked record is missing or malformed.
  */
 export function taskUsage(store: Store, taskId: string): TaskUsage {
+  const events = store.events(taskId);
   return aggregateUsage(
     store,
     linkedSessions(store, taskId),
     store.executions().filter(item => item.taskId === taskId && item.stage === 'repair').length,
-    interventions(store.events(taskId)),
+    interventions(events),
+    events,
   );
 }
 
 /** Measured planning usage before or after conversion; the linked task uses the same session ledger. */
 export function planningUsage(store: Store, sessionId: string): TaskUsage {
-  return aggregateUsage(store, [sessionId], 0, interventions([]));
+  return aggregateUsage(store, [sessionId], 0, interventions([]), []);
+}
+
+/** Planning predates task creation; its durable request/result boundaries extend the same elapsed clock. */
+function planningTiming(runs: Run[]) {
+  return runs
+    .filter(run => run.stage === 'planning')
+    .flatMap(run => {
+      const common = { stage: 'planning', sliceIndex: 0 };
+      const requested = {
+        sequence: run.sequence,
+        at: run.requestedAt,
+        type: 'guided.step_requested',
+        data: { ...common, status: 'running', owner: {}, pending: {} },
+      };
+      return run.settledAt
+        ? [
+            requested,
+            {
+              sequence: run.sequence,
+              at: run.settledAt,
+              type: 'guided.step_finished',
+              data: { ...common, status: 'ready', owner: null, pending: null },
+            },
+          ]
+        : [requested];
+    });
 }
 
 /** Shared attribution prevents conversion from changing the meaning of planning measurements. */
-function aggregateUsage(store: Store, sessionIds: string[], repairAttempts: number, human: Interventions): TaskUsage {
+function aggregateUsage(
+  store: Store,
+  sessionIds: string[],
+  repairAttempts: number,
+  human: Interventions,
+  events?: JournalEvent[],
+): TaskUsage {
   const runs = sessionIds.flatMap(id => sessionRuns(store, id)).sort((a, b) => a.sequence - b.sequence);
   attribute(runs);
   const providers = (['codex', 'claude'] as const).flatMap((provider): ProviderUsage[] => {
@@ -465,6 +501,9 @@ function aggregateUsage(store: Store, sessionIds: string[], repairAttempts: numb
   return {
     providers,
     stages,
+    // Linked planning precedes conversion. Preserve each journal's causal order so clock changes
+    // cannot reorder workflow transitions; session and task sequence counters are independent.
+    workflow: events ? workflowTiming([...planningTiming(runs), ...events]) : null,
     turns: count('turns'),
     failedTurns: count('failedTurns'),
     interruptedTurns: count('interruptedTurns'),
@@ -505,7 +544,9 @@ export function wallTime(row: Pick<StageUsage, 'wallMs' | 'wallPartial'>): strin
 
 /** Plain-text usage summary for the CLI and the report header. */
 export function usageLines(usage: TaskUsage): string[] {
-  if (!usage.providers.length) return ['Usage and billed cost: unknown (no linked provider usage observations).'];
+  const timing = usage.workflow ? workflowTimingLines(usage.workflow) : [];
+  if (!usage.providers.length)
+    return ['Usage and billed cost: unknown (no linked provider usage observations).', ...timing];
   const human = usage.interventions;
   return [
     ...usage.providers.map(
@@ -518,6 +559,7 @@ export function usageLines(usage: TaskUsage): string[] {
       row =>
         `${row.stage} (${row.provider}): ${row.turns} turns, ${row.failedTurns} failed, ${row.interruptedTurns} interrupted; wall time ${wallTime(row)}; ${usageFields.map(field => `${fieldLabels[field]} ${usageValue(row, field)}`).join('; ')}.`,
     ),
+    ...timing,
   ];
 }
 

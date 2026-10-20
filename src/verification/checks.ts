@@ -7,7 +7,7 @@ import { isAbsolute } from 'node:path';
 import { statSync } from 'node:fs';
 import type { Store } from '../persistence/store.js';
 import type { CheckSpec, RepositoryCheck } from '../persistence/records.js';
-import { commandLimits, formatBytes } from '../config/limits.js';
+import { commandLimits, formatBytes, planLimits } from '../config/limits.js';
 import { Sessions } from '../execution/sessions.js';
 import { Workflow, activeCriteria } from '../domain/workflow.js';
 import { Workspaces } from '../repository/workspaces.js';
@@ -25,9 +25,19 @@ import { assertAcceptance, validateExpectations } from '../domain/acceptance.js'
 import { prepareEditing, validateEditPolicy, verifyEditingScope } from '../execution/edit-policy.js';
 import { lensOutcome, parseQualityAssessment, type QualityAssessment } from '../domain/quality-passes.js';
 import { pendingReadiness } from '../domain/readiness.js';
+import { checkInputFingerprint } from './check-inputs.js';
+import { reusableDiagnostic } from './check-reuse.js';
+import { recoverCheckGroup } from './check-group-recovery.js';
+import { currentSettings } from '../config/settings.js';
+import { checkReuseSchema } from '../domain/check-input-policy.js';
 
 export type { CheckSpec, RepositoryCheck } from '../persistence/records.js';
 export type { QualityAssessment } from '../domain/quality-passes.js';
+
+/** Child checks retain their parent's lease instead of owning an independently releasable lease. */
+function checkLease(check: RepositoryCheck): string {
+  return check.groupId ?? check.implementationId ?? check.id;
+}
 
 const checkOptions = [
   'name',
@@ -41,6 +51,7 @@ const checkOptions = [
   'expectations',
   'preparation',
   'readiness',
+  'reuse',
 ];
 
 /**
@@ -67,6 +78,9 @@ function validatePreparation(spec: CheckSpec): void {
 
 /** Criteria make a check an acceptance check, which alone may carry output assertions. */
 function validateCriteria(spec: CheckSpec): void {
+  if (spec.reuse) checkReuseSchema.parse(spec.reuse);
+  if (spec.reuse && (spec.preparation || spec.criteria))
+    throw new Error('Only local readiness and validation checks support reuse');
   if (
     spec.readiness !== undefined &&
     (!['format', 'lint', 'types'].includes(spec.readiness) ||
@@ -319,6 +333,75 @@ export class Checks {
   }
 
   /**
+   * Runs explicitly independent readiness checks under one durable group lease. All requests precede
+   * dispatch; every child has its own receipt. One uncertain child retains ownership of the entire group.
+   */
+  async readinessGroup(
+    executionId: string,
+    specs: CheckSpec[],
+    signal?: AbortSignal,
+    runner: (options: CheckProcessOptions) => Promise<CheckProcessResult> = runCheckProcess,
+  ): Promise<RepositoryCheck[]> {
+    if (
+      !specs.length ||
+      specs.length > planLimits.readinessChecks ||
+      specs.some(spec => !spec.readiness || spec.preparation || spec.criteria)
+    )
+      throw new Error('A readiness group requires independent mechanical checks');
+    specs.forEach(validate);
+    const first = specs[0];
+    if (!first) throw new Error('Readiness group is empty');
+    const groupId = randomUUID();
+    const execution = this.store.transaction(() => {
+      const execution = this.request(executionId, first, groupId, 'readiness');
+      for (const [index, spec] of specs.entries()) {
+        const check = { ...this.get(groupId), id: index === 0 ? groupId : randomUUID(), spec, groupId };
+        this.store.saveCheck(check.id, executionId, check);
+        if (index) {
+          this.store.appendExecution(executionId, 'check.requested', { checkId: check.id, groupId, spec });
+          this.store.append(execution.taskId, execution.version, 'check.requested', {
+            executionId,
+            checkId: check.id,
+            groupId,
+            spec,
+          });
+        }
+      }
+      this.store.appendExecution(executionId, 'check.group_requested', { groupId, specs });
+      return execution;
+    });
+    const children = this.store.checks(executionId).filter(check => check.groupId === groupId);
+    const queue = [...children];
+    let stopScheduling = false;
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: Math.min(children.length, currentSettings().maxReadinessConcurrency) }, async () => {
+        while (!stopScheduling) {
+          const check = queue.shift();
+          if (!check) return;
+          try {
+            const dispatched = await this.observe(execution, check, signal, runner);
+            const result = this.settle(execution, check, dispatched, signal);
+            if (result.phase === 'recovery_required') stopScheduling = true;
+          } catch (error) {
+            stopScheduling = true;
+            throw error;
+          }
+        }
+      }),
+    );
+    this.store.transaction(() => {
+      this.fenced(execution, groupId);
+      if (
+        outcomes.every(outcome => outcome.status === 'fulfilled') &&
+        children.every(check => !['running', 'recovery_required'].includes(this.get(check.id).phase))
+      )
+        this.release(execution, groupId);
+    });
+    for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason;
+    return children.map(check => this.get(check.id));
+  }
+
+  /**
    * Runs an implementation diagnostic under its existing lease. It never supplies acceptance or
    * readiness evidence, and it cannot release the implementation's lease while its provider runs.
    */
@@ -493,6 +576,7 @@ export class Checks {
       check.before = await this.capture(execution);
       if (check.before.artifact !== spec.artifact || check.before.instructionsDigest !== spec.instructionsDigest)
         throw new Error('Repository or instructions changed; inspect a fresh snapshot before dispatch');
+      this.captureInputs(execution, check, 'before');
       if (spec.preparation?.scope)
         prepareEditing({
           cwd: this.workspaces.path(execution.workspaceId),
@@ -510,12 +594,14 @@ export class Checks {
           stderr: '',
           outputTruncated: false,
         };
+      } else if (this.adoptDiagnostic(execution, check)) {
+        // This gate has its own durable request and settlement, but no process is dispatched twice.
       } else {
         // Dispatch boundary: the receipt identity and `dispatch: 'requested'` are durable before the
         // runner starts, so recovery knows a command may have run and demands a matching receipt.
         check.receipt = allocateReceipt(this.store, id);
         this.store.transaction(() => {
-          this.fenced(execution, check.implementationId ?? id);
+          this.fenced(execution, checkLease(check));
           check.dispatch = 'requested';
           this.store.saveCheck(id, executionId, check);
           this.store.appendExecution(executionId, 'check.dispatch_requested', {
@@ -534,7 +620,7 @@ export class Checks {
           // Recorded PIDs let recovery match the receipt to these exact processes.
           started: (kind, pid) => {
             this.store.transaction(() => {
-              this.fenced(execution, check.implementationId ?? id);
+              this.fenced(execution, checkLease(check));
               if (kind === 'supervisor') check.supervisorPid = pid;
               else check.toolPid = pid;
               this.store.saveCheck(id, executionId, check);
@@ -544,8 +630,9 @@ export class Checks {
         });
       }
       // The after-snapshot is only meaningful once nothing in the job can still write.
-      if (check.result.exitConfirmed) {
+      if (check.result?.exitConfirmed) {
         check.after = await this.capture(execution);
+        this.captureInputs(execution, check, 'after');
         if (spec.preparation?.scope)
           verifyEditingScope(
             {
@@ -561,19 +648,50 @@ export class Checks {
           );
         else if (check.before.artifact !== check.after.artifact)
           check.error = 'Check changed repository inputs; inspect the diff and run a fresh check';
-        if (purpose === 'verification') {
-          try {
-            assertAcceptance(check.after, check.result, spec.expectedStdout, spec.expectations);
-          } catch (error) {
-            check.failureKind = 'acceptance';
-            throw error;
-          }
-        }
+        this.inspectAcceptance(check);
       }
     } catch (error) {
       check.error = error instanceof Error ? error.message : String(error);
     }
     return dispatched;
+  }
+
+  private inspectAcceptance(check: RepositoryCheck): void {
+    if (check.purpose !== 'verification' || !check.after || !check.result) return;
+    try {
+      assertAcceptance(check.after, check.result, check.spec.expectedStdout, check.spec.expectations);
+    } catch (error) {
+      check.failureKind = 'acceptance';
+      throw error;
+    }
+  }
+
+  /** Adopts only a completed parent run from this execution, under the new gate's workspace lease. */
+  private adoptDiagnostic(execution: Execution, check: RepositoryCheck): boolean {
+    const source = reusableDiagnostic(this.store.checks(execution.id), check, check.inputFingerprint?.before ?? null);
+    if (
+      !source?.implementationId ||
+      !source.result ||
+      this.store.implementation(source.implementationId).phase !== 'completed'
+    )
+      return false;
+    check.reusedFrom = source.id;
+    check.result = { ...source.result, elapsedMs: 0 };
+    return true;
+  }
+
+  /** Captures optional inputs; a missing fingerprint disables reuse rather than turning unknown into success. */
+  private captureInputs(execution: Execution, check: RepositoryCheck, side: 'before' | 'after'): void {
+    if (!check.spec.reuse) return;
+    const fingerprint = checkInputFingerprint(
+      this.workspaces.path(execution.workspaceId),
+      check.spec.file,
+      check.spec.reuse.inputs,
+    );
+    check.inputFingerprint ??= { before: null, after: null };
+    check.inputFingerprint[side] = fingerprint;
+    if (side === 'after' && check.reusedFrom && fingerprint !== check.inputFingerprint.before)
+      check.error = 'Reusable check inputs changed during adoption; run a fresh check';
   }
 
   /**
@@ -589,7 +707,7 @@ export class Checks {
   ): RepositoryCheck {
     const { id, executionId, purpose } = check;
     return this.store.transaction(() => {
-      this.fenced(execution, check.implementationId ?? id);
+      this.fenced(execution, checkLease(check));
       // No result before dispatch means nothing ran; no result after dispatch means the outcome is unknown.
       const confirmed = check.result?.exitConfirmed ?? !dispatched;
       check.phase = !confirmed
@@ -599,7 +717,7 @@ export class Checks {
           : !check.error && check.result?.reason === 'exited' && check.result.exitCode === 0
             ? 'passed'
             : 'failed';
-      if (confirmed && !check.implementationId) this.release(execution, id);
+      if (confirmed && !check.implementationId && !check.groupId) this.release(execution, id);
       this.markUncertain(execution, check, confirmed);
       this.store.saveCheck(id, executionId, check);
       const event = {
@@ -611,8 +729,18 @@ export class Checks {
       };
       this.store.appendExecution(executionId, 'check.settled', event);
       this.store.append(execution.taskId, execution.version, 'check.settled', event);
+      this.recordReuse(check);
       if (confirmed && purpose === 'verification') this.recordVerification(execution, check);
       return check;
+    });
+  }
+
+  private recordReuse(check: RepositoryCheck): void {
+    if (!check.reusedFrom) return;
+    this.store.appendExecution(check.executionId, 'check.reused', {
+      checkId: check.id,
+      sourceCheckId: check.reusedFrom,
+      savedMs: this.store.check(check.reusedFrom).result?.elapsedMs ?? null,
     });
   }
 
@@ -659,6 +787,7 @@ export class Checks {
    *   another host, the receipt is missing or does not match, or the task binding changed.
    */
   recover(id: string): RepositoryCheck {
+    if (this.get(id).groupId) return recoverCheckGroup(this.store, id);
     return this.store.transaction(() => {
       const check = this.get(id);
       const execution = this.store.execution(check.executionId);

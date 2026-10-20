@@ -120,6 +120,19 @@ export function dueReadiness(
   return pendingReadiness(currentSlice(state).readiness, required(state, 'snapshot'), checks, collectFailures);
 }
 
+/** The next approved independent mechanical checks, bounded by the slice's approved concurrency. */
+export function readinessBatch(state: GuidedState, checks: readonly RepositoryCheck[]): CheckSpec[] {
+  const observed: Pick<RepositoryCheck, 'phase' | 'spec'>[] = [...checks];
+  const result: CheckSpec[] = [];
+  while (result.length < currentSlice(state).readinessConcurrency) {
+    const next = dueReadiness(state, observed, true);
+    if (!next) break;
+    result.push(next);
+    observed.push({ phase: 'passed', spec: next });
+  }
+  return result;
+}
+
 /**
  * The request of the slice's acceptance check at `index`, bound to the current artifact and the task's
  * active criteria; throws without a current snapshot or when the slice has no such check.

@@ -327,6 +327,8 @@ export const reviewStage: StageHandler = {
           lenses: selectedLenses(state.plan.quality),
           priorFindings: priorBlockingFindings(context, state),
           checks: currentSlice(state),
+          implementationObservations:
+            store.session(executions.get(required(state, 'executionId')).sessionId).lastReply?.findings ?? [],
         }),
         state,
       ),

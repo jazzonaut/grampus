@@ -320,6 +320,7 @@ export const mockUsageStages: readonly StageUsageV1[] = [
 ];
 
 export const mockUsage: UsageV1 = {
+  workflow: null,
   headline: {
     tokens: 195_244,
     cachedTokens: 96_000,
@@ -383,6 +384,9 @@ export const mockPlan: PlanView = {
       files: { edit: ['src/export.ts'], create: ['test/retry.test.ts'], delete: [] },
       preparation: null,
       formatting: null,
+      diagnostics: [],
+      readinessConcurrency: 1,
+      reusableChecks: [],
       validation: command,
       readiness: [],
       acceptance: [{ ...command, name: 'Acceptance', expectedStdout: 'ok\n', expectations: null }],

@@ -361,8 +361,41 @@ export interface UsageHeadlineV1 {
   interventions: number;
 }
 
-/** Everything measured about a task's provider use. */
+/** Disjoint workflow intervals and individual requests, including non-provider work and recovery. */
+export interface WorkflowTimingV1 {
+  startedAt: string | null;
+  completedAt: string | null;
+  asOf: string;
+  elapsedMs: number | null;
+  activeMs: number;
+  waitingMs: number;
+  recoveryMs: number;
+  live: boolean;
+  clockAdjusted: boolean;
+  stages: {
+    stage: string;
+    elapsedMs: number;
+    activeMs: number;
+    waitingMs: number;
+    recoveryMs: number;
+    steps: number;
+  }[];
+  steps: {
+    sequence: number;
+    sliceIndex: number;
+    stage: string;
+    startedAt: string;
+    finishedAt: string | null;
+    activeMs: number;
+    waitingMs: number;
+    recoveryMs: number;
+  }[];
+}
+
+/** Provider usage and controller timing are separate, overlapping measurements. */
 export interface UsageV1 {
+  /** Disjoint controller workflow intervals, including non-provider work and waiting. */
+  workflow: WorkflowTimingV1 | null;
   headline: UsageHeadlineV1;
   providers: ProviderUsageV1[];
   stages: StageUsageV1[];
@@ -624,6 +657,10 @@ export interface PlanAcceptanceView {
 
 /** One slice of the plan. */
 export interface PlanSliceView {
+  /** Approved argument families and independent mechanical-check concurrency. */
+  diagnostics: { name: string; file: string; args: string[]; timeoutMs: number; selection: string }[];
+  readinessConcurrency: number;
+  reusableChecks: { name: string; inputs: string[] }[];
   /** Approved formatter applied automatically and available during implementation. */
   formatting: { name: string; file: string; args: string[]; timeoutMs: number } | null;
   title: string;
