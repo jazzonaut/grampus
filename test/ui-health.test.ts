@@ -104,6 +104,7 @@ test('a fresh stored result is not checked again at start, and the watchdog repo
       runtime: { executable: null, source: 'bundled', version: null, sdkVersion: null },
       providerSessionId: null,
       model: null,
+      requestedModel: null,
       cwd: root,
       phase: 'running',
       lastReply: null,

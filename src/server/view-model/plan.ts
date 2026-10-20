@@ -72,6 +72,8 @@ function sliceView(plan: GuidedPlan, index: number): PlanSliceView {
 /** The plan as approval and inspection show it. */
 export function planView(plan: GuidedPlan): PlanView {
   return {
+    profileName: plan.modelProfile?.name ?? null,
+    modelAssignments: modelAssignments(plan),
     rawPlan: JSON.stringify(plan, null, 2),
     title: plan.brief.title,
     outcome: plan.brief.outcome,
@@ -102,4 +104,31 @@ export function planView(plan: GuidedPlan): PlanView {
       : null,
     slices: plan.slices.map((_, index) => sliceView(plan, index)),
   };
+}
+
+/** Effective role choices are resolved by the server, including each selected edit pass. */
+export function modelAssignments(plan: GuidedPlan): NonNullable<PlanView['modelAssignments']> {
+  const profile = plan.modelProfile;
+  const assignments = [
+    { role: 'Planning', assignment: profile?.planning },
+    { role: 'Implementation', assignment: plan.implementation },
+    { role: 'Repair', assignment: profile?.repair ?? plan.implementation },
+    ...plan.quality.passes
+      .filter(pass => pass.kind === 'edit')
+      .map(pass => ({ role: pass.title, assignment: profile?.qualityPasses?.[pass.id] ?? plan.implementation })),
+    { role: 'Independent review', assignment: plan.review },
+    { role: 'Arbitration', assignment: plan.reviewPolicy?.arbitrator },
+  ];
+  return assignments.flatMap(({ role, assignment }) =>
+    assignment
+      ? [
+          {
+            role,
+            provider: providerLabel(assignment.provider),
+            model: assignment.model,
+            effort: assignment.effort ?? null,
+          },
+        ]
+      : [],
+  );
 }

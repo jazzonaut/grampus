@@ -1,6 +1,7 @@
 // Owns per-task usage accounting: provider tokens and estimated cost per provider and per workflow
 // stage, provider turn counters, wall time per stage and human interventions after approval, all
 // derived from the journal. Unknown values stay null and mark totals partial; they never count as zero.
+import { reasoningEffortSchema } from '../domain/model-profiles.js';
 import type { JournalEvent, RecordEvent, Store } from '../persistence/store.js';
 import { z } from 'zod';
 import { numeric, type Provider, type Usage } from '../providers/types.js';
@@ -10,7 +11,18 @@ import { turnStageSchema, type TurnStage } from '../persistence/records.js';
 // Journal event payloads this module reads. An event that does not match contributes nothing, so a
 // missing or malformed usage report leaves usage unknown rather than counting it as zero.
 const linkedSession = z.object({ sessionId: z.string() });
-const requestEvent = z.object({ stage: turnStageSchema });
+const requestEvent = z.object({
+  stage: turnStageSchema,
+  configuration: z
+    .object({
+      providerSessionId: z.string().nullable(),
+      requestedModel: z.string().nullable(),
+      model: z.string().nullable(),
+      effort: reasoningEffortSchema.nullable(),
+    })
+    .optional(),
+});
+const connectionEvent = z.object({ data: z.object({ providerSessionId: z.string(), model: z.string().nullish() }) });
 const usageEvent = z.object({ data: usageSchema });
 const resultEvent = z.object({
   result: z.object({ status: z.enum(['completed', 'interrupted', 'failed']), usage: usageSchema.nullable() }),
@@ -127,6 +139,10 @@ export interface TaskUsage {
 /** One provider turn: its stage, timing, outcome and the usage it added to its provider session. */
 interface Run {
   key: string;
+  sessionId: string;
+  requestedModel: string | null;
+  model: string | null;
+  effort: string | null;
   provider: Provider;
   stage: TurnStage;
   /** Global journal order of the turn request, across sessions. */
@@ -176,6 +192,60 @@ function observe(run: Run, usage: Usage, event: RecordEvent): void {
   run.updatedAt = event.at;
 }
 
+/** Captures configuration at the request boundary rather than borrowing the session's final model. */
+function requestedRun(
+  session: ReturnType<Store['session']>,
+  sessionId: string,
+  event: RecordEvent,
+  key: string,
+  generation: number,
+): Run {
+  const configuration = requestEvent.safeParse(event.data).data?.configuration;
+  return {
+    key: configuration
+      ? `${session.provider}:${configuration.providerSessionId ?? `local:${session.id}:${generation}`}`
+      : key,
+    sessionId,
+    requestedModel: configuration?.requestedModel ?? null,
+    model: configuration?.providerSessionId ? configuration.model : null,
+    effort: configuration?.effort ?? null,
+    provider: session.provider,
+    stage: requestEvent.safeParse(event.data).data?.stage ?? 'planning',
+    sequence: event.sequence,
+    active: false,
+    requestedAt: event.at,
+    settledAt: null,
+    status: null,
+    first: null,
+    last: null,
+    complete: false,
+    final: null,
+    updatedAt: null,
+    delta: nulls(),
+  };
+}
+
+/** An observed connection identifies the conversation whose cumulative counters follow. */
+function connectedRun(run: Run, event: RecordEvent): void {
+  const connected = connectionEvent.safeParse(event.data).data?.data;
+  if (connected) {
+    run.key = `${run.provider}:${connected.providerSessionId}`;
+    run.model = connected.model ?? null;
+  }
+}
+
+/** Terminal counters replace interim samples; an absent final measurement remains incomplete. */
+function settledRun(run: Run, event: RecordEvent): void {
+  const result = resultEvent.safeParse(event.data).data?.result;
+  if (!result || run.status !== null) return;
+  run.status = result.status;
+  run.settledAt = event.at;
+  if (result.usage) {
+    observe(run, result.usage, event);
+    run.final = counters(field => numeric(result.usage?.[field]));
+  } else run.complete = false;
+}
+
 /**
  * Turns of one Grampus session. Usage and results belong to the turn requested most recently before them;
  * only the first result of a turn counts. A request without a readable stage is counted as planning.
@@ -185,28 +255,28 @@ function sessionRuns(store: Store, sessionId: string): Run[] {
   // Keyed by the provider conversation, so Grampus sessions that resume one conversation share its totals.
   const key = `${session.provider}:${session.providerSessionId ?? `local:${session.id}`}`;
   const runs: Run[] = [];
-  for (const event of store.sessionEvents(sessionId, ['turn.requested', 'usage.updated', 'turn.result'])) {
+  let generation = 0;
+  for (const event of store.sessionEvents(sessionId, [
+    'turn.requested',
+    'session.assignment_changed',
+    'session.connected',
+    'usage.updated',
+    'turn.result',
+  ])) {
+    if (event.type === 'session.assignment_changed') {
+      generation = event.sequence;
+      continue;
+    }
     if (event.type === 'turn.requested') {
-      runs.push({
-        key,
-        provider: session.provider,
-        stage: requestEvent.safeParse(event.data).data?.stage ?? 'planning',
-        sequence: event.sequence,
-        active: false,
-        requestedAt: event.at,
-        settledAt: null,
-        status: null,
-        first: null,
-        last: null,
-        complete: false,
-        final: null,
-        updatedAt: null,
-        delta: nulls(),
-      });
+      runs.push(requestedRun(session, sessionId, event, key, generation));
       continue;
     }
     const run = runs.at(-1);
     if (!run) continue;
+    if (event.type === 'session.connected') {
+      connectedRun(run, event);
+      continue;
+    }
     if (event.type === 'usage.updated') {
       const usage = usageEvent.safeParse(event.data).data?.data;
       if (usage) {
@@ -216,17 +286,7 @@ function sessionRuns(store: Store, sessionId: string): Run[] {
       }
       continue;
     }
-    const result = resultEvent.safeParse(event.data).data?.result;
-    if (!result || run.status !== null) continue;
-    run.status = result.status;
-    run.settledAt = event.at;
-    const finalUsage = result.usage;
-    if (finalUsage) {
-      observe(run, finalUsage, event);
-      run.final = counters(field => numeric(finalUsage[field]));
-    }
-    // A last live sample cannot prove final spend when the terminal result has no usage.
-    else run.complete = false;
+    settledRun(run, event);
   }
   const current = runs.at(-1);
   if (current && current.status === null && (session.phase === 'running' || session.phase === 'stop_requested'))
@@ -472,4 +532,43 @@ export function usageTable(usage: TaskUsage): string[] {
         `| ${row.stage} | ${row.provider} | ${row.turns} | ${row.failedTurns} | ${row.interruptedTurns} | ${wallTime(row)} | ${usageFields.map(field => usageValue(row, field)).join(' | ')} |`,
     ),
   ];
+}
+
+/** Attributed measurements for one requested turn, without provider-session cumulative counters. */
+export interface TurnUsage extends Counters {
+  sessionId: string;
+  sequence: number;
+  provider: Provider;
+  stage: TurnStage;
+  requestedModel: string | null;
+  model: string | null;
+  effort: string | null;
+  requestedAt: string;
+  settledAt: string | null;
+  status: 'completed' | 'interrupted' | 'failed' | null;
+  wallMs: number | null;
+  incomplete: UsageField[];
+}
+
+/** Full per-turn attribution for export and model comparisons, counting resumed counters once. */
+export function taskTurnUsage(store: Store, taskId: string): TurnUsage[] {
+  const runs = linkedSessions(store, taskId)
+    .flatMap(id => sessionRuns(store, id))
+    .sort((a, b) => a.sequence - b.sequence);
+  attribute(runs);
+  return runs.map(run => ({
+    sessionId: run.sessionId,
+    sequence: run.sequence,
+    provider: run.provider,
+    stage: run.stage,
+    requestedModel: run.requestedModel,
+    model: run.model,
+    effort: run.effort,
+    requestedAt: run.requestedAt,
+    settledAt: run.settledAt,
+    status: run.status,
+    wallMs: run.settledAt === null ? null : Math.max(0, Date.parse(run.settledAt) - Date.parse(run.requestedAt)),
+    ...run.delta,
+    incomplete: incompleteFields([run]),
+  }));
 }

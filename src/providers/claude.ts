@@ -1,5 +1,7 @@
 // Owns the Claude adapter: one Agent SDK query per turn with Grampus' tool policy, hooks and MCP
 // servers. Fields the controller relies on are validated by claude-protocol.ts before they are used.
+import { modelAssignmentSchema } from '../domain/model-profiles.js';
+import { claudeSubscription } from './subscription-limits.js';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { authorizeEditTool, editingInstructions, type EditingContext } from '../execution/edit-policy.js';
@@ -167,6 +169,11 @@ export class ClaudeSession implements AgentSession {
     private readonly options: ConnectOptions,
     createQuery: typeof query = query,
   ) {
+    modelAssignmentSchema.parse({
+      provider: 'claude',
+      model: options.model,
+      ...(options.effort ? { effort: options.effort } : {}),
+    });
     // A new conversation gets an id chosen here, so `system/init` can prove which session actually started.
     this.activity = new ClaudeActivity(options.emit);
     this.sessionId = options.providerSessionId ?? randomUUID();
@@ -209,6 +216,7 @@ export class ClaudeSession implements AgentSession {
         canUseTool: this.canUseTool(owned),
         ...(options.providerSessionId ? { resume: options.providerSessionId } : { sessionId: this.sessionId }),
         ...(options.model ? { model: options.model } : {}),
+        ...claudeEffort(options.effort),
         // The same resolution doctor reports. An unresolved override is still passed, so the SDK fails on
         // it rather than silently using the bundled executable; a missing bundled one is the SDK's error.
         ...(executable.path || executable.source === 'environment'
@@ -413,6 +421,10 @@ export class ClaudeSession implements AgentSession {
     if (message.type === 'system' && message.subtype === 'init') this.initialised(message);
     if (!this.active) return;
     this.activity.message(type, message);
+    if (message.type === 'rate_limit_event') {
+      const observation = claudeSubscription(message);
+      if (observation) this.options.emit(observation);
+    }
     if (message.type === 'assistant') this.assistantUsage(message);
     if (message.type === 'stream_event') {
       const delta = claudeTextDeltaSchema.safeParse(message);
@@ -518,4 +530,10 @@ export class ClaudeSession implements AgentSession {
       clearTimeout(deadline);
     }
   }
+}
+
+/** Maps only supported effort values into the SDK's options. */
+function claudeEffort(effort: ConnectOptions['effort']) {
+  if (!effort || effort === 'none' || effort === 'minimal') return {};
+  return { effort };
 }

@@ -2,6 +2,8 @@
 // a session whose `kickoff.*` events record its configuration, messages and candidate plans; converting a
 // candidate creates an unapproved guided task. The planner proposes only: the controller fixes repository,
 // base, workspace, providers, context, reference folders and quality passes. A turn is never replayed.
+import { modelProfileSchema, resolveModelProfile } from '../domain/model-profiles.js';
+import { currentSettings } from '../config/settings.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -36,6 +38,7 @@ const kickoffSchema = z.object({
   path: z.string(),
   adapter: z.enum(['git', 'orca']),
   provider: providerSchema,
+  modelProfile: modelProfileSchema.exactOptional(),
   request: z.string(),
   /** The pinned files sent with the first turn. */
   files: z.array(z.object({ path: z.string(), content: z.string() })),
@@ -155,7 +158,9 @@ function planFromReply(reply: string, config: Kickoff): GuidedPlan {
     adapter: config.adapter,
     ...(config.adapter === 'git' ? { path: config.path } : {}),
   };
-  raw['implementation'] = { provider: config.provider };
+  if (config.modelProfile) raw['modelProfile'] = config.modelProfile;
+  else delete raw['modelProfile'];
+  raw['implementation'] = config.modelProfile?.implementation ?? { provider: config.provider };
   raw['review'] = { provider: config.provider === 'codex' ? 'claude' : 'codex' };
   raw['context'] = { files: config.files.map(file => file.path), exploration: true };
   raw['references'] = config.references;
@@ -348,6 +353,7 @@ export class Kickoffs {
     repo: string;
     request: string;
     provider?: Provider;
+    modelProfile?: unknown;
     adapter?: 'git' | 'orca';
     path?: string;
     contextFiles?: unknown;
@@ -356,7 +362,11 @@ export class Kickoffs {
   }): string {
     const inspected = this.inspect({ ...input, contextFiles: input.contextFiles ?? [] }),
       { repo, base } = inspected;
-    const provider = input.provider ?? 'codex',
+    const modelProfile =
+      input.modelProfile === undefined
+        ? undefined
+        : resolveModelProfile(input.modelProfile, currentSettings().modelProfiles);
+    const provider = modelProfile?.planning.provider ?? input.provider ?? 'codex',
       adapter = input.adapter ?? 'git';
     if (!['codex', 'claude'].includes(provider) || !['git', 'orca'].includes(adapter))
       throw new Error('Unknown provider or workspace adapter');
@@ -366,6 +376,7 @@ export class Kickoffs {
       repo,
       base,
       provider,
+      ...(modelProfile ? { modelProfile } : {}),
       adapter,
       references,
       request,
@@ -376,7 +387,13 @@ export class Kickoffs {
       context: inspected.context,
     };
     return this.store.transaction(() => {
-      const session = new Sessions(this.store).create(provider, repo);
+      const session = new Sessions(this.store).create(
+        provider,
+        repo,
+        modelProfile?.planning.model ?? null,
+        undefined,
+        modelProfile?.planning.effort,
+      );
       this.store.appendSession(session.id, 'kickoff.created', config);
       return session.id;
     });

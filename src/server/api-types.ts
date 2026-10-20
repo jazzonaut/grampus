@@ -103,7 +103,11 @@ export type ActionId =
   | 'stop-planning'
   | 'recover-planning'
   | 'save-settings'
-  | 'open-orca';
+  | 'open-orca'
+  | 'comparison-select'
+  | 'comparison-preview'
+  | 'comparison-integrate'
+  | 'comparison-recover-integration';
 
 /** Visual weight: one `primary` per decision at most; `danger` hides or discards work. */
 export type ActionKind = 'primary' | 'secondary' | 'danger';
@@ -632,6 +636,9 @@ export interface PlanSliceView {
 
 /** The plan as it is (or will be) approved. */
 export interface PlanView {
+  /** Effective fixed role assignments shown before approval, including inherited editing choices. */
+  modelAssignments?: { role: string; provider: string; model: string | null; effort: string | null }[];
+  profileName?: string | null;
   /** Complete controller-normalised plan for exact inspection, never reconstructed by the client. */
   rawPlan: string;
   title: string;
@@ -1086,3 +1093,16 @@ export interface ErrorV1 {
     issues?: string[];
   };
 }
+
+// Model and comparison DTOs remain available through this single public contract.
+export type {
+  ReasoningEffortV1,
+  ModelAssignmentV1,
+  ModelProfileV1,
+  ModelProfilesV1,
+  ModelMetricsV1,
+  RunMetricsV1,
+  ComparisonSummaryV1,
+  ComparisonV1,
+  IntegrationPreviewV1,
+} from './model-api-types.js';

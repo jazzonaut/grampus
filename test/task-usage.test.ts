@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { Store } from '../src/persistence/store.js';
 import { Sessions } from '../src/execution/sessions.js';
 import { Workflow } from '../src/domain/workflow.js';
-import { taskUsage, usageLines, usageTable } from '../src/reporting/task-usage.js';
+import { taskUsage, taskTurnUsage, usageLines, usageTable } from '../src/reporting/task-usage.js';
 import type { Usage, Provider } from '../src/providers/types.js';
 import type { Execution, ExecutionStage, TurnStage, Workspace } from '../src/persistence/records.js';
 
@@ -19,6 +19,40 @@ const usage = (inputTokens: number, extra: Partial<Omit<Usage, 'scope' | 'billed
   estimatedCostUsd: null,
   billedCostUsd: null,
   ...extra,
+});
+
+test('model attribution follows each connection and does not subtract a different conversation', t => {
+  const f = journal(t),
+    id = f.execution('implementation', 'codex', 'last-thread');
+  const samples = [
+    { thread: 'writer-thread', model: 'writer', count: 100, stage: 'implementation' },
+    { thread: 'writer-thread', model: 'writer', count: 200, stage: 'implementation' },
+    { thread: 'doc-thread', model: 'documenter', count: 80, stage: 'quality_pass' },
+    { thread: 'new-writer-thread', model: 'writer', count: 10, stage: 'repair' },
+  ];
+  for (const sample of samples) {
+    const runId = randomUUID();
+    f.store.appendSession(id, 'turn.requested', {
+      runId,
+      stage: sample.stage,
+      configuration: { requestedModel: sample.model, model: null, effort: 'low', providerSessionId: null },
+    });
+    f.store.appendSession(id, 'session.connected', {
+      runId,
+      data: { providerSessionId: sample.thread, model: sample.model },
+    });
+    f.store.appendSession(id, 'turn.result', { runId, result: { status: 'completed', usage: usage(sample.count) } });
+  }
+  assert.equal(taskUsage(f.store, f.task.id).providers[0]!.inputTokens, 290);
+  const turns = taskTurnUsage(f.store, f.task.id);
+  assert.deepEqual(
+    turns.map(turn => turn.inputTokens),
+    [100, 100, 80, 10],
+  );
+  assert.deepEqual(
+    turns.map(turn => turn.model),
+    ['writer', 'writer', 'documenter', 'writer'],
+  );
 });
 
 function journal(t: { after(fn: () => void): void }) {

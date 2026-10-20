@@ -1,6 +1,7 @@
 // Owns the guided plan: normalising a proposed plan once into the exact form approval binds (pinned
 // base commit, resolved executables, simulated file actions, full quality pass definitions) and its
 // digest. The normalised plan is the contract; nothing downstream reinterprets the original input.
+import { modelAssignmentSchema, modelProfileSchema, resolveModelProfile } from './model-profiles.js';
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
@@ -10,7 +11,7 @@ import { checkEditableSize, editPolicySchema, validateEditPolicy } from '../exec
 import { commandLimits, editLimits, formatBytes, planLimits } from '../config/limits.js';
 import { currentSettings } from '../config/settings.js';
 import { gitText } from '../repository/delivery-git.js';
-import { providerSchema, type Provider } from '../providers/types.js';
+import type { Provider } from '../providers/types.js';
 import { pinnedContext, pinnedRepository } from '../repository/repository-context.js';
 import { normalizeReferences, referenceFolderSchema, type ReferenceFolder } from '../repository/reference-folders.js';
 import { acceptanceExpectationsSchema, validateExpectations } from './acceptance.js';
@@ -53,7 +54,7 @@ const guidedSliceSchema = z.object({
 export type GuidedSlice = z.infer<typeof guidedSliceSchema>;
 
 /** Guided agent turns have no deadline; a stalled turn is stopped explicitly. */
-const guidedAgentSchema = z.object({ provider: providerSchema, model: z.string().nullable() });
+const guidedAgentSchema = modelAssignmentSchema;
 export type GuidedAgent = z.infer<typeof guidedAgentSchema>;
 
 /**
@@ -61,6 +62,7 @@ export type GuidedAgent = z.infer<typeof guidedAgentSchema>;
  * read; the approval digest is {@link guidedPlanDigest} of exactly this value.
  */
 export const guidedPlanSchema = z.object({
+  modelProfile: modelProfileSchema.exactOptional(),
   workflowPolicy: workflowPolicySchema,
   /** Selected quality passes as full definitions, so approval binds their exact instructions. */
   quality: planQualitySchema,
@@ -191,12 +193,38 @@ function command(
     ...observed,
   };
 }
+/** Resolves every role before approval; profile snapshots own their effective model assignments. */
+function normalizeAgents(value: {
+  modelProfile?: unknown;
+  implementation?: unknown;
+  review?: unknown;
+  reviewPolicy?: unknown;
+}) {
+  const modelProfile =
+    value.modelProfile === undefined
+      ? undefined
+      : resolveModelProfile(value.modelProfile, currentSettings().modelProfiles);
+  const implementation = agent(modelProfile?.implementation ?? value.implementation, 'codex');
+  const review = agent(modelProfile?.review ?? value.review, implementation.provider === 'codex' ? 'claude' : 'codex');
+  const reviewPolicy = normalizeReviewPolicy(
+    modelProfile ? (modelProfile.arbitration ? { arbitrator: modelProfile.arbitration } : {}) : value.reviewPolicy,
+    implementation.provider,
+  );
+  if (review.provider === implementation.provider)
+    throw new Error('The guided workflow requires the other provider for independent review');
+  return { modelProfile, implementation, review, reviewPolicy };
+}
+
 /** An agent choice; an omitted provider takes `defaultProvider` and an omitted model is stored as `null`. */
 function agent(value: unknown, defaultProvider: Provider): GuidedAgent {
-  const item = object(value ?? {}, ['provider', 'model'], 'agent');
+  const item = object(value ?? {}, ['provider', 'model', 'effort'], 'agent');
   const provider = item.provider ?? defaultProvider;
   if (provider !== 'codex' && provider !== 'claude') throw new Error('Provider must be codex or claude');
-  return { provider, model: item.model == null ? null : text(item.model, 'Model', planLimits.nameCharacters) };
+  return modelAssignmentSchema.parse({
+    provider,
+    model: item.model == null ? null : text(item.model, 'Model', planLimits.nameCharacters),
+    ...(item.effort === undefined ? {} : { effort: item.effort }),
+  });
 }
 
 function normalizeBrief(value: unknown): Brief {
@@ -447,6 +475,7 @@ export function normalizeGuidedPlan(
   const value = object(
     input,
     [
+      'modelProfile',
       'brief',
       'workspace',
       'implementation',
@@ -477,17 +506,14 @@ export function normalizeGuidedPlan(
   const { repo, base, adapter, path: requestedPath } = pinnedWorkspace(directory, value.workspace);
   const context = normalizeContext(repo, base, value.context, brief, references.length > 0);
   const path = adapter === 'git' ? workspacePath(directory, requestedPath, existingWorkspace) : undefined;
-  const implementation = agent(value.implementation, 'codex');
-  const review = agent(value.review, implementation.provider === 'codex' ? 'claude' : 'codex');
-  const reviewPolicy = normalizeReviewPolicy(value.reviewPolicy, implementation.provider);
-  if (review.provider === implementation.provider)
-    throw new Error('The guided workflow requires the other provider for independent review');
+  const { implementation, review, reviewPolicy, modelProfile } = normalizeAgents(value);
   if (!Array.isArray(value.slices) || value.slices.length !== (brief.slices?.length ?? 1))
     throw new Error('Supply one execution configuration for each approved slice (one for an unsliced brief)');
   const simulation = new FileSimulation(repo, base, context.exploration, context.files);
   const rawSlices: unknown[] = value.slices;
   const slices = rawSlices.map((raw, index) => normalizeSlice(raw, simulation, index + 1));
   return {
+    ...(modelProfile ? { modelProfile } : {}),
     brief,
     workspace: { repo, base, adapter, ...(path ? { path } : {}) },
     implementation,

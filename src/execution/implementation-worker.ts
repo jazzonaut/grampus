@@ -67,6 +67,14 @@ async function main(): Promise<void> {
         artifact: snapshot.artifact,
         ...turn.coverage,
       });
+    // Retain the actual prepared prompt, including repository context, rather than only its base request.
+    if (
+      !sessions.event(session.id, run.id, {
+        type: 'prompt.prepared',
+        data: { prompt: turn.prompt, artifact: snapshot.artifact },
+      })
+    )
+      throw new Error('Native implementation no longer owns prompt preparation');
     const lost = () => new Error('Native implementation no longer owns an active turn');
     const output = new OutputBuffer(text => {
       if (!sessions.delta(session.id, run.id, text)) throw lost();
@@ -76,6 +84,7 @@ async function main(): Promise<void> {
       configurationCwd: workspaces.get(execution.workspaceId).repository,
       providerSessionId: session.providerSessionId,
       model: session.model,
+      ...(session.effort ? { effort: session.effort } : {}),
       // Never aborted in this process: a stop ends the worker through its supervisor.
       signal: new AbortController().signal,
       editing,

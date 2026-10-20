@@ -11,6 +11,15 @@ export const KiB = 1024;
 /** One mebibyte. */
 export const MiB = 1024 * KiB;
 
+/** Fixed bounds for approved model profiles, comparison membership and export attachments. */
+export const profileLimits = {
+  profiles: 32,
+  comparisonMinimumRuns: 2,
+  comparisonRuns: 8,
+  qualityAssignments: 6,
+  exportAttachmentBytes: 64 * MiB,
+} as const;
+
 /** Render a limit for messages and prompts, e.g. `256 KiB` or `1 MiB`, so text cannot drift from the value. */
 export function formatBytes(bytes: number): string {
   if (bytes >= MiB && bytes % MiB === 0) return `${bytes / MiB} MiB`;

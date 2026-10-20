@@ -33,13 +33,14 @@ export const qualityPassStage: StageHandler = {
     const { pass, policy } = requirePass(state);
     const cwd = workspacePath(workspaces, state);
     const snapshot = requireGuidedSnapshot(store, state);
+    const assignment = state.plan.modelProfile?.qualityPasses?.[pass.id] ?? state.plan.implementation;
     // The policy was rebuilt on the previous turn's result; refuse it before the turn if it no longer fits.
     withReason('SCOPE_REJECTED', () => prepareEditing({ cwd, snapshot, policy }));
     await new Implementations(store, workspaces).run(
       required(state, 'executionId'),
       policy,
       withGuidance(qualityPassPrompt({ pass, slicePreparation: currentSlice(state).preparation }), state),
-      { signal, timeoutMs: 0, stage: 'quality_pass', ...(state.answers ? { answers: state.answers } : {}) },
+      { signal, timeoutMs: 0, stage: 'quality_pass', assignment, ...(state.answers ? { answers: state.answers } : {}) },
       services.implementationRunner,
     );
     return null;

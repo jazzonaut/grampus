@@ -1,5 +1,6 @@
 // Owns the provider contract shared by the Codex and Claude adapters: connection options, the agent
 // session interface and validation of the structured reply every turn must return.
+import type { ReasoningEffort } from '../domain/model-profiles.js';
 import type { RepositoryAccess } from '../repository/repository-tools.js';
 import type { EditingContext } from '../execution/edit-policy.js';
 import { z } from 'zod';
@@ -84,6 +85,7 @@ export interface ConnectOptions {
   /** The provider conversation to resume, or null to start a new one. */
   providerSessionId: string | null;
   model: string | null;
+  effort?: ReasoningEffort;
   /** Aborting it closes a connection still being set up; a connected session is stopped through its methods. */
   signal: AbortSignal;
   /** A property, not a method: adapters pass it on as a callback without binding. */

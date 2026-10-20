@@ -3,6 +3,7 @@
 // through the POST routes here. Request bodies are parsed by api-schemas.ts; failures map to HTTP statuses
 // and the typed error envelope in errors.ts. The server is not a second workflow engine: every decision
 // goes to the controller.
+import { getModelRoute, postModelRoute, downloadModelRoute } from './model-routes.js';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -116,7 +117,8 @@ function journalFailure(store: Store, id: string, work: WorkerAction, failure: W
   };
   try {
     store.transaction(() => {
-      if (kickoffWorkerActions.includes(work.action)) store.appendSession(id, 'dashboard.action_failed', event);
+      if (work.action === 'comparison-run') store.appendComparison(id, 'dashboard.action_failed', event);
+      else if (kickoffWorkerActions.includes(work.action)) store.appendSession(id, 'dashboard.action_failed', event);
       else store.append(id, store.get(id).version, 'dashboard.action_failed', event);
     });
   } catch {
@@ -426,6 +428,34 @@ function staleLifecycle(dashboard: Dashboard, route: ItemRoute, expected: string
     throw new StaleStateError('Task changed; refresh before managing it');
 }
 
+/** Explicit exports stay outside the bounded polling API. */
+async function readDashboardRoute(
+  dashboard: Dashboard,
+  apiV1: ReturnType<typeof createApiV1>,
+  path: string,
+  url: URL,
+  response: ServerResponse,
+): Promise<void> {
+  if (downloadModelRoute(dashboard.store, path, url, response)) return;
+  const modelView = getModelRoute(dashboard, path);
+  if (modelView !== undefined) {
+    json(response, 200, modelView);
+    return;
+  }
+  if (path.startsWith('/api/v1/')) {
+    pruneJobs(dashboard.jobs);
+    json(response, 200, await apiV1.get(path, url));
+    return;
+  }
+  if (path === '/api/health') {
+    json(response, 200, await healthRoute(dashboard, url));
+    return;
+  }
+  const groups = itemRoute.exec(path)?.groups;
+  if (!groups) throw new HttpError(404, 'Not found');
+  json(response, 200, getItem(dashboard, routeSchema.parse(groups), url));
+}
+
 function securityHeaders(response: ServerResponse): void {
   response.setHeader('Cache-Control', 'no-store');
   response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -595,23 +625,18 @@ export async function startUi(options: UiOptions) {
     const groups = itemRoute.exec(path)?.groups;
     const route = groups ? routeSchema.parse(groups) : null;
     if (request.method === 'GET') {
-      if (path.startsWith('/api/v1/')) {
-        pruneJobs(jobs);
-        json(response, 200, await apiV1.get(path, url));
-        return;
-      }
-      if (path === '/api/health') {
-        json(response, 200, await healthRoute(dashboard, url));
-        return;
-      }
-      if (!route) throw new HttpError(404, 'Not found');
-      json(response, 200, getItem(dashboard, route, url));
+      await readDashboardRoute(dashboard, apiV1, path, url, response);
       return;
     }
     if (request.method !== 'POST') throw new HttpError(404, 'Not found');
     const payload = await readBody(request);
     // Body delivery can span an accepted shutdown. Recheck before any mutation or worker dispatch.
     desktop.assertOpen();
+    const modelResult = await postModelRoute(dashboard, path, payload);
+    if (modelResult !== undefined) {
+      json(response, 200, modelResult);
+      return;
+    }
     const [status, body] = route ? await postItem(dashboard, route, payload) : postRoot(dashboard, path, payload);
     json(response, status, body);
   };

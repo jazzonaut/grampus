@@ -28,7 +28,7 @@ never a newer copy of the file.
 
 **Settings** in the dashboard sidebar shows one field per setting with the value stored in the
 file. An empty field is left out of the file and keeps the built-in default, so a later change of
-a default still applies. The two quality pass settings are edited as JSON.
+a default still applies. Quality pass settings and the model catalogue also have JSON fields; the dedicated Model profiles screen provides structured profile editing.
 
 Saving validates the values with the same rules as startup and writes only the keys that have a
 value. If the file changed since the screen was shown (by hand or from another tab), the save is
@@ -121,6 +121,51 @@ The built-ins are `simplification`, `naming`, `refactor` and `documentation`
 ([quality passes](WORKFLOW.md#quality-passes)). A plan stores the full definitions it selected,
 so removing or editing a custom pass later never changes an approved plan; a revision keeps
 the definitions already in the plan.
+
+## Model profiles
+
+`modelProfiles` defaults to `[]` and accepts up to 32 named definitions. The dashboard's
+**Model profiles** screen edits this catalogue with provider, model and reasoning effort inputs.
+Its save preserves other settings and refuses a stale file revision. An example definition is:
+
+```json
+{
+  "modelProfiles": [
+    {
+      "id": "balanced",
+      "name": "Balanced",
+      "planning": { "provider": "codex", "model": null, "effort": "high" },
+      "implementation": { "provider": "codex", "model": null, "effort": "medium" },
+      "repair": { "provider": "codex", "model": null, "effort": "high" },
+      "review": { "provider": "claude", "model": null, "effort": "high" },
+      "qualityPasses": {
+        "documentation": { "provider": "codex", "model": null, "effort": "low" }
+      }
+    }
+  ]
+}
+```
+
+Use explicit model ids to compare particular models; `null` chooses the provider default and
+Grampus records the observed model when the provider reports it. Profile ids are unique, start
+with a lower-case letter and contain letters, digits, underscores or hyphens. Ids, names and model
+ids are limited to 200 characters. `planning`, `implementation` and `review` are required;
+`repair`, `qualityPasses` and `arbitration` are optional. There are at most six edit-pass assignments.
+Repair and edit passes retain the implementation provider. Review uses the other provider.
+
+Effort may be omitted for the provider default. Codex accepts `none`, `minimal`, `low`, `medium`,
+`high`, `xhigh` and `max`; Claude accepts `low`, `medium`, `high`, `xhigh` and `max`. A particular model can
+support fewer choices. Grampus sends the requested model and effort directly and does not implement
+a fallback; model-specific support belongs to the provider. Requested choices and any observed model
+are recorded separately. An omitted repair or edit assignment inherits implementation. An arbitration
+assignment enables arbitration; omitting it leaves arbitration disabled for that profile.
+An edit assignment does not itself enable its quality pass.
+
+A plan may name a catalogue entry with `"modelProfile": "balanced"` or include the full profile
+object. Normalisation copies the definition into approval. The dedicated profile picker reads
+the saved catalogue and explicitly submits a selected snapshot for a new task, so new selections
+can use a newly saved profile without restarting the dashboard. This does not hot-apply operational
+settings or alter existing plans. CLI commands read the catalogue with settings at process startup.
 
 ## What settings do not change
 

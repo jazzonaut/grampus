@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Delivery } from '../src/execution/deliveries.js';
 import { renderReport } from '../src/reporting/report.js';
+import { verifiedDeliveryHead } from '../src/domain/delivery-outcome.js';
 import { windows, git, noChangeFixture } from './helpers/deliveries.js';
 
 test(
@@ -30,6 +31,8 @@ test(
     assert.equal(result.outcome, 'no_change');
     assert.equal(result.commit, null);
     assert.equal(result.request?.snapshot.head, f.snapshot.head);
+    assert.equal(verifiedDeliveryHead(result), f.snapshot.head);
+    assert.equal(verifiedDeliveryHead({ ...result, phase: 'recovery_required' }), null);
     assert.equal(git(f.workspace.path, 'rev-parse', 'HEAD'), f.snapshot.head);
     assert.equal(git(f.workspace.path, 'rev-list', '--count', 'HEAD'), '1');
     assert.deepEqual(readFileSync(indexPath), index);

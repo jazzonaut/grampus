@@ -2,6 +2,7 @@
 // task's runner within the bounded pool (./runner-pool.ts), the drive loop and every journaled change of guided
 // state; stage dispatch and settlement live in ./stages, prompts in ./prompts.ts. It never replays a provider
 // turn, command or Git write, and never takes ownership from a live or unverifiable controller.
+import { requireComparisonMember } from '../../domain/comparison.js';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { Store } from '../../persistence/store.js';
@@ -225,6 +226,7 @@ export class GuidedTasks {
    * dead owner, so a full pool of crashed owners can still be recovered.
    */
   private take(id: string, { recover = false, expected, unapproved = false }: Claim = {}): string {
+    requireComparisonMember(this.store, id);
     // Process identity queries start PowerShell; run them before taking the journal's write lock so
     // concurrent tasks are not kept waiting. A dead owner stays dead, so the verdict holds for its token.
     const startedAt = currentProcessStartedAt();

@@ -264,3 +264,24 @@ without `web/dist` the page explains how to build it while the API keeps running
 `maxConcurrentTasks` guided tasks run at once per journal ([parallel tasks](#parallel-tasks)).
 Advanced users can import an authored JSON plan from the new-task screen
 ([guided CLI](GUIDED-WORKFLOW.md)).
+
+## Model profiles, metrics and comparisons
+
+The sidebar's **Model profiles** screen edits named, fixed role assignments and supported reasoning
+settings. Choose a profile on **New task**; inspect its effective assignments on the plan before
+approval. Existing approved tasks retain their selected definitions when the catalogue changes.
+
+Task pages show a run scorecard, per-role/model usage and explicit full JSON, compressed JSON and
+metrics CSV downloads. Expand **Compare model profiles on this plan** to prepare sequential runs
+from the same base. The **Comparisons** screen lists groups, their shared plan, run outcomes and
+exact configurations. Approve the group, then run it. Questions and recovery use the individual
+task's existing controls; return to the group to continue. The group pause control waits for the
+active operation to settle before more work starts.
+
+A comparison's completion means its variants have settled, including failures. Select a verified
+preferred result manually after inspecting its changes. This choice does not integrate code.
+**Inspect integration** previews the source branch and selected commit; a separate confirmation
+fast-forwards a clean branch still at the comparison base. An advanced branch needs manual
+integration. Unknown usage and subscription allowance remain explicit. Exported comparison JSON
+retains shared planning once and includes complete recorded details for every variant, beyond the
+bounded dashboard previews. See [WORKFLOW.md](WORKFLOW.md#model-profiles-and-comparisons).

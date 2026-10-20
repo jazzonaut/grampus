@@ -1,6 +1,7 @@
 // Owns executions: the immutable binding of one task attempt to a workspace and a fresh session in a
 // role (implementation or review), and explicit recovery of read-only operations a dead controller
 // left holding a lease. It never runs a turn or a command itself.
+import type { ReasoningEffort } from '../domain/model-profiles.js';
 import { randomUUID } from 'node:crypto';
 import type { Store } from '../persistence/store.js';
 import { Workflow, type Attempt, type Task } from '../domain/workflow.js';
@@ -20,6 +21,7 @@ export interface ExecutionOptions {
   role?: Execution['role'];
   /** The approved model, or null for the provider default. */
   model?: string | null;
+  effort?: ReasoningEffort;
   /** Required for a review by the implementer's provider; journaled with the review evidence. */
   fallbackReason?: string | null;
   /** A settled execution of the same role whose provider conversation may be resumed. */
@@ -161,7 +163,7 @@ export class Executions {
       const path = this.requireBinding(workspace, task, version, inspected);
       if (role === 'implementation') this.requireContinuationHead(task, inspected, continuation);
       if (role === 'review') requireReviewable(task, provider, fallbackReason);
-      const session = new Sessions(this.store).create(provider, path, model, runtime);
+      const session = new Sessions(this.store).create(provider, path, model, runtime, options.effort);
       if (resumeFrom) this.continueSession({ session, resumeFrom, task, version, workspaceId, role, provider, model });
       const attempt =
         role === 'implementation'
@@ -266,7 +268,11 @@ export class Executions {
       );
     const decision = sessionContinuation(this.store, prior, task.guided?.plan.workflowPolicy);
     // A provider conversation keeps its model and tool mode, so a different choice needs a fresh one.
-    if ((model !== null && prior.model !== model) || (role === 'implementation' && prior.mode !== 'editing')) {
+    if (
+      (model !== null && prior.model !== model) ||
+      prior.effort !== session.effort ||
+      (role === 'implementation' && prior.mode !== 'editing')
+    ) {
       decision.resume = false;
       decision.reason = 'Start fresh for the selected model or editing mode';
     }

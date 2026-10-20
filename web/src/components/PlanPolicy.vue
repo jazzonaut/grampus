@@ -11,10 +11,21 @@ defineProps<{ plan: PlanView }>();
     <section class="grampus-surface">
       <SectionHeading title="Agents and workflow" icon="i-lucide-bot" />
       <dl class="grid grid-cols-[auto_1fr] gap-x-5 gap-y-3 text-sm">
-        <dt class="text-muted">Implementer</dt>
-        <dd>{{ plan.implementer.label }} · {{ plan.implementer.model ?? 'Provider default' }}</dd>
-        <dt class="text-muted">Independent reviewer</dt>
-        <dd>{{ plan.reviewer.label }} · {{ plan.reviewer.model ?? 'Provider default' }}</dd>
+        <template v-if="plan.modelAssignments?.length">
+          <template v-for="assignment in plan.modelAssignments" :key="assignment.role"
+            ><dt class="text-muted">{{ assignment.role }}</dt>
+            <dd>
+              {{ assignment.provider }} · {{ assignment.model ?? 'Provider default' }} ·
+              {{ assignment.effort ?? 'Default effort' }}
+            </dd></template
+          >
+        </template>
+        <template v-else
+          ><dt class="text-muted">Implementer</dt>
+          <dd>{{ plan.implementer.label }} · {{ plan.implementer.model ?? 'Provider default' }}</dd>
+          <dt class="text-muted">Independent reviewer</dt>
+          <dd>{{ plan.reviewer.label }} · {{ plan.reviewer.model ?? 'Provider default' }}</dd></template
+        >
         <dt class="text-muted">Workspace</dt>
         <dd class="break-all">
           {{ plan.workspace.path ?? (plan.workspace.adapter === 'orca' ? 'Created through Orca' : 'Chosen at start') }}

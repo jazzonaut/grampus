@@ -1,5 +1,6 @@
 // Entry point of a dashboard action worker: reads one validated request from stdin and runs that action
 // through the same controller as the CLI, so a dashboard restart never stops or replays work.
+import { Comparisons } from '../orchestration/comparisons.js';
 import { Store } from '../persistence/store.js';
 import { GuidedTasks } from '../orchestration/guided/controller.js';
 import { decisionKeyDigest } from '../orchestration/guided/keys.js';
@@ -22,6 +23,9 @@ async function perform(
   signal: AbortSignal,
 ) {
   switch (work.action) {
+    case 'comparison-run':
+      await new Comparisons(store).run(id, work.payload.expected, signal);
+      return;
     case 'run':
       await tasks.run(id, signal);
       return;

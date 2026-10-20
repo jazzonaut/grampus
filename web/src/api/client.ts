@@ -162,3 +162,19 @@ export function post<T>(path: string, body: DecisionBody): Promise<T> {
 export function postUnkeyed<T>(path: string, body: UnkeyedBody): Promise<T> {
   return request<T>('POST', path, body);
 }
+
+/** Downloads a full export with the same bearer authentication as JSON requests. */
+export async function download(path: string, name: string): Promise<void> {
+  const token = readToken();
+  if (!token) throw new ApiError(401, accessMessage);
+  const response = await fetch(path, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+  if (!response.ok) throw await responseError(response);
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}

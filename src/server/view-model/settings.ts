@@ -206,6 +206,14 @@ function settingsFields(stored: unknown): FormField[] {
       ),
     ),
     field({
+      name: 'modelProfiles',
+      label: 'Model profiles',
+      input: 'json',
+      target: '/overrides/modelProfiles',
+      value: storedValue(stored, 'modelProfiles'),
+      help: 'Use the Model profiles screen to edit fixed role assignments. Approved plans retain their own snapshots.',
+    }),
+    field({
       name: 'defaultQualityPasses',
       label: 'Quality passes for new plans',
       input: 'json',

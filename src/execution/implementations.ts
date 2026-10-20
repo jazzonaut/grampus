@@ -8,6 +8,7 @@ import type { Store } from '../persistence/store.js';
 import type { ImplementationRun } from '../persistence/records.js';
 import { agentTimeout } from './agent-timeout.js';
 import { Sessions, type RunOptions } from './sessions.js';
+import type { ModelAssignment } from '../domain/model-profiles.js';
 import { Workspaces } from '../repository/workspaces.js';
 import { captureRepository } from '../repository/repository-evidence.js';
 import type { Execution, ExecutionLease } from './execution-state.js';
@@ -161,6 +162,8 @@ export class Implementations {
     options: Pick<RunOptions, 'signal' | 'answers' | 'timeoutMs'> & {
       /** Set for an edit quality pass, so its usage is attributed to the pass rather than the implementation. */
       stage?: 'quality_pass';
+      /** Applied in the claim transaction so no other writer can change the role before dispatch. */
+      assignment?: ModelAssignment;
     } = {},
     runner: (options: CheckProcessOptions) => Promise<CheckProcessResult> = runCheckProcess,
   ): Promise<ImplementationRun> {
@@ -175,6 +178,7 @@ export class Implementations {
       const execution = this.store.execution(executionId);
       if (execution.role !== 'implementation')
         throw new Error('Native implementation requires an implementation execution');
+      if (options.assignment) sessions.assign(execution.sessionId, options.assignment);
       const claim = sessions.claim(execution.sessionId, prompt, options.answers, true, false, options.stage);
       claimedPrompt = claim.prompt;
       const run: ImplementationRun = {

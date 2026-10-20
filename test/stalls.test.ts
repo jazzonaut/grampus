@@ -30,6 +30,7 @@ function fixture(t: { after: (fn: () => void) => void }, status: Status = 'runni
     runtime: { executable: null, source: 'path', version: null, sdkVersion: null },
     providerSessionId: 'thread-1',
     model: null,
+    requestedModel: null,
     cwd: root,
     phase: 'running',
     lastReply: null,

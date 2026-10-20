@@ -247,8 +247,8 @@ form changes cumulative totals only through fresh approval.
 
 `persistence/store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a
 15-second busy timeout ([parallel tasks](#parallel-tasks-and-concurrency)). There is one schema,
-version 5, with thirteen tables and no migrations. A new or empty
-file gets the schema; any other version, or a version 5 file missing a table, is refused with a
+version 7, with no migrations. A new or empty
+file gets the schema; any other version, or a version 7 file missing a table, is refused with a
 clear error after a read-only inspection, so the file is never modified. The default journal is
 `grampus.sqlite` in the data directory.
 
@@ -264,6 +264,7 @@ clear error after a read-only inspection, so the file is never modified. The def
 | `implementations` | Edit policy, dispatch boundary, process proof and snapshots per editing turn |
 | `deliveries` | Checked snapshot, commit request, dispatch boundary and accepted commit |
 | `health` | The latest integration health result (one row); informational, never evidence |
+| `comparisons`, `comparison_events` | Shared-plan batches, exact approval, sequential driver ownership, manual selection and integration evidence |
 
 State is loaded from snapshots rather than rebuilt from events. History is append-only through the
 application interface. Deletion writes a tombstone (`orchestration/task-lifecycle.ts`); it never removes
@@ -743,6 +744,43 @@ decision or individual tool call. Checks retain their own timings and results. T
 support analysing repair yield, repeat findings, intervention rate and spend by stage; there
 is no automatic cross-task benchmark or causal attribution of tokens to individual findings.
 
+## Fixed model assignments and comparisons
+
+`domain/model-profiles.ts` validates saved role assignments, including provider-specific effort
+and the editing-provider constraint that preserves independent review. A selected profile is
+copied into `GuidedPlan.modelProfile`; its effective implementation, review and arbitration
+choices are normalised into the same approval digest as the work specification. The planner's
+session also receives its selected model and effort. Repairs choose their assignment from retained
+slice executions, and each edit pass uses its approved override or inherits implementation.
+A model or effort change starts a fresh conversation at a settled boundary. Sessions retain
+requested model separately from provider-observed model; `turn.requested` snapshots the configuration
+before connection, so later role changes cannot rewrite earlier usage attribution.
+
+`domain/comparison.ts` defines comparison records and two separate hashes: the shared work digest
+excludes model choices and workspace destinations; batch approval binds every member's exact plan
+digest and execution order. A revision-backed plan cannot seed a comparison from its old base.
+`orchestration/comparisons.ts` atomically creates and approves member tasks, then drives them
+sequentially under durable ownership. Ordinary task dispatch also checks comparison membership and
+order. Settled failures are retained outcomes; human boundaries, pauses and uncertain operations
+wait. A dead driver needs explicit recovery, with no provider dispatch replay.
+
+The `comparisons` and `comparison_events` tables are part of journal schema 7. State changes and
+events share a transaction. Schema versions other than 7 are refused without migration.
+Member tasks keep the existing execution, workspace, evidence, spending and verified-delivery
+contracts. Shared planning is retained once at comparison level rather than charged to every member.
+`orchestration/comparison-integration.ts` separates manual preference from an explicit fast-forward
+of the clean source branch at the pinned base. Intent is durable before Git may write; uncertain
+integration is reconciled against exact branch, commit, raw files and index, never repeated.
+
+`reporting/run-metrics.ts` adds per-model scorecards and observed workflow timing to the existing
+usage ledger. `providers/subscription-limits.ts` retains bounded provider-reported subscription
+observations; these never establish per-task allowance consumption or pass a gate.
+`reporting/run-export.ts` captures full task or comparison records transactionally, then reads
+raw attachments and optional retained-commit patches outside the SQLite lock. JSON, gzip JSON
+and CSV downloads are explicit authenticated routes, separate from bounded dashboard polling.
+Each oversized or missing attachment has a coverage status. Exports do not claim provider-internal
+inference details or subscription billing. See [WORKFLOW.md](WORKFLOW.md#model-profiles-and-comparisons).
+
 ## Health and stalls
 
 Health is observation, not evidence: nothing in the workflow reads it to pass a gate, and the adapters
@@ -798,6 +836,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | Folder | Files | Responsibility |
 | --- | --- | --- |
 | `/` | `cli.ts` | Command parsing and entry point (`dist/src/cli.js`, also the installed launcher target); Ctrl+C handling |
+| | `comparison-cli.ts` | Profile catalogue, metrics, comparison decisions and export commands |
 | | `cli-input.ts` | Validated CLI option values and input files |
 | `config/` | `runtime.ts` | Application root, version, installed or development channel, data directory, update |
 | | `limits.ts` | Fixed, documented bounds bound into approval, evidence or recovery; not configurable |
@@ -808,6 +847,8 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `errors.ts` | `RecordNotFoundError` and `StaleStateError` |
 | `domain/` | `workflow.ts`, `workflow-policy.ts` | Briefs, versions, attempts, evidence, gates, slices and completion; workflow policy validation |
 | | `guided-plan.ts` | Plan normalization, slice file simulation and approval digest |
+| | `model-profiles.ts`, `comparison.ts` | Fixed role assignments, comparison contracts and exact dispatch order |
+| | `delivery-outcome.ts` | Verified delivered heads, including explicit no-change outcomes |
 | | `quality-passes.ts` | Quality pass definitions, built-ins, plan selection and lens assessments |
 | | `acceptance.ts` | Acceptance expectations and observations against retained output |
 | | `deep-equal.ts` | Structural equality for stored JSON-shaped records |
@@ -824,6 +865,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `stages/*.ts` | One handler per stage (see [Guided state machine](#guided-state-machine)) |
 | `orchestration/` | `guided-status.ts` | Task views and next actions |
 | | `kickoff.ts`, `prompts/planner.ts`, `planner-progress.ts`, `task-title.ts` | Planning conversations and planner prompts, live planner progress and the provisional title from the request |
+| | `comparisons.ts`, `comparison-integration.ts` | Sequential comparisons, manual preference and explicit verified fast-forward integration |
 | | `task-lifecycle.ts` | Reset and delete with tombstones |
 | `execution/` | `sessions.ts`, `session-context.ts` | Conversation turns, recovery and resume-or-fresh decisions |
 | | `output-buffer.ts` | Coalescing streamed provider output per run |
@@ -840,6 +882,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `claude.ts`, `claude-protocol.ts`, `claude-repository.ts`, `claude-files.ts` | Claude SDK sessions and the validated SDK fields, repository MCP server, scoped delete tool |
 | | `integrations.ts` | MCP carry-over into worktrees |
 | | `executables.ts` | The Codex and Claude programs the adapters and `doctor` run, and the provider runtime recorded on sessions |
+| | `subscription-limits.ts` | Validated provider observations of subscription limits |
 | `repository/` | `workspaces.ts`, `orca.ts`, `orca-protocol.ts` | Git and Orca worktree lifecycle and identity; the pinned Orca CLI JSON |
 | | `orca-presentation.ts` | Disposable journal projection onto Orca cards and verified desktop navigation |
 | | `artifacts.ts`, `snapshot-schema.ts`, `repository-evidence.ts` | Snapshots, artifact digests, instructions and review context |
@@ -853,6 +896,8 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `native/check.cs`, `native/check.ps1`, `native/process.ps1` | Job Object helper and process identity queries |
 | `verification/` | `checks.ts`, `check-evidence.ts`, `check-output.ts`, `check-recovery.ts` | Checks and submission, check feedback, log paging, receipts |
 | `reporting/` | `report.ts`, `task-usage.ts` | Markdown report; per-task usage, per-stage counters and interventions |
+| | `run-metrics.ts`, `subscription-metrics.ts` | Model scorecards, observed timing and subscription observations |
+| | `run-export.ts`, `run-patch.ts` | Retained run details, bounded attachments, verified patches and JSON, gzip or CSV exports |
 | `health/` | `doctor.ts` | Inference-free checks of every integration, as a typed report |
 | | `health.ts`, `health-record.ts` | Stored health, staleness and version change warnings; the pinned health record |
 | | `stalls.ts` | Stall detection for running guided sessions and checks |
@@ -860,11 +905,13 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `static-client.ts` | Serving the built client from `web/dist` with a path guard and content types |
 | | `api-schemas.ts`, `errors.ts` | Request body and worker request schemas, error-to-status mapping with the typed envelope |
 | | `api-types.ts`, `api-v1.ts` | The typed DTOs of v1 and of the lookup and action routes (types only, shared with `web/`); the v1 read routes and their revision cache |
+| | `model-api-types.ts`, `model-routes.ts` | Profile and comparison DTOs, authenticated actions and export downloads |
 | `server/view-model/` | `overview.ts`, `task-detail.ts`, `kickoff-detail.ts` | Overview with the attention queue; task facts and the task page; the planning page |
 | | `actions.ts`, `status.ts`, `workflow.ts` | Which actions exist and why one is disabled; status vocabulary, stop descriptions and UI language; the workflow strip |
 | | `usage.ts`, `health.ts`, `plan.ts`, `timeline.ts`, `scope.ts`, `context.ts` | Usage with completeness; the health card; the plan for approval; timeline summaries and paging; scope file contents; the dashboard state the view model reads (workers, stalls, runner pool) |
 | | `settings.ts` | The Settings screen: one field per setting over `config.json` and whether a restart is needed |
 | | `orca-worktrees.ts` | New task's Orca repository folder choices: grouping by repository, names and labels |
+| | `comparisons.ts` | Derived comparison actions, effective assignments and scorecards |
 | `probes/` | `*-probe.ts`, `multifile-fixture.ts`, `probe-interruption.ts` | Opt-in live and scale probes and their fixtures |
 | | `demo.ts` | Synthetic demo |
 

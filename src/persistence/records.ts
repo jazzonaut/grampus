@@ -6,6 +6,7 @@
 // `journal-record` naming the table and fields, not an undefined property discovered later. Validation
 // is in place: the stored object is returned unchanged, because fences and digests compare these
 // records by their serialised bytes.
+import { reasoningEffortSchema } from '../domain/model-profiles.js';
 import { z } from 'zod';
 import { providerSchema } from '../providers/types.js';
 import { providerRuntimeSchema } from '../providers/executables.js';
@@ -49,6 +50,8 @@ export const sessionSchema = z.object({
   runtime: providerRuntimeSchema,
   providerSessionId: z.string().nullable(),
   model: z.string().nullable(),
+  requestedModel: z.string().nullable(),
+  effort: reasoningEffortSchema.exactOptional(),
   cwd: z.string(),
   phase: z.enum(['idle', 'running', 'awaiting_answer', 'stop_requested', 'interrupted', 'failed', 'recovery_required']),
   lastReply: agentReplySchema.nullable(),

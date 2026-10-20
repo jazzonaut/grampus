@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { modelProfilesSchema, type ModelProfile } from '../domain/model-profiles.js';
 import type { WorkflowPolicy } from '../domain/workflow-policy.js';
 import {
   qualityPassDefinitionSchema,
@@ -29,6 +30,7 @@ import { defaultDashboardPort } from './runtime.js';
  */
 export interface Settings {
   /** Loopback port of the dashboard server; `--port` still overrides it for one launch. */
+  modelProfiles: readonly ModelProfile[];
   dashboardPort: number;
   /** Deadline for a background dashboard to publish an authenticated endpoint. */
   dashboardStartupMs: number;
@@ -81,6 +83,7 @@ export const settingsFileName = 'config.json';
 /** Built-in defaults: exactly the behaviour without a settings file. */
 export function defaultSettings(): Settings {
   return {
+    modelProfiles: [],
     dashboardPort: defaultDashboardPort,
     dashboardStartupMs: 30_000,
     dashboardProbeMs: 2000,
@@ -134,6 +137,7 @@ export type IntegerSetting = keyof typeof settingRanges;
 const bounded = (range: { min: number; max: number }) => z.number().int().min(range.min).max(range.max);
 const overridesSchema = z
   .strictObject({
+    modelProfiles: modelProfilesSchema.optional(),
     dashboardPort: bounded(settingRanges.dashboardPort).optional(),
     dashboardStartupMs: bounded(settingRanges.dashboardStartupMs).optional(),
     dashboardProbeMs: bounded(settingRanges.dashboardProbeMs).optional(),
@@ -292,6 +296,7 @@ export function saveSettingsFile(dataDirectory: string, overrides: unknown, expe
 const freeze = (settings: Settings): Settings =>
   Object.freeze({
     ...settings,
+    modelProfiles: Object.freeze(structuredClone(settings.modelProfiles)),
     defaultWorkflowPolicy: Object.freeze({ ...settings.defaultWorkflowPolicy }),
     qualityPasses: Object.freeze(settings.qualityPasses.map(pass => Object.freeze({ ...pass }))),
     defaultQualityPasses: Object.freeze([...settings.defaultQualityPasses]),

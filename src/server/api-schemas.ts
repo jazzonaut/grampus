@@ -31,6 +31,7 @@ export const createKickoffBody = z.object({
   repo: text,
   request: text,
   provider: providerSchema.exactOptional(),
+  modelProfile: z.unknown().exactOptional(),
   adapter: z.enum(['git', 'orca']).exactOptional(),
   path: text.exactOptional(),
   contextFiles: z.unknown().exactOptional(),
@@ -56,6 +57,7 @@ export const saveSettingsBody = z.object({
 
 /** Payloads of the actions that run in a worker, by action. Each carries the key it was decided on. */
 export const workerActionSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('comparison-run'), payload: decisionBody }),
   z.object({ action: z.literal('run'), payload: decisionBody }),
   z.object({ action: z.literal('authorize'), payload: decisionBody }),
   z.object({

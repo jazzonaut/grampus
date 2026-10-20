@@ -66,7 +66,7 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   progress stops or uses approved arbitration. Decisions are journaled with their reasons and
   budget. The journal schema refuses other versions without migration ([WORKFLOW.md](WORKFLOW.md)).
 - **No backwards compatibility.** Done 18 October 2026. Legacy plan formats, digests, fields,
-  migrations and `task-automate` are removed from code and docs. The current schema is version 5; an older
+  migrations and `task-automate` are removed from code and docs. The current schema is version 7; an older
   journal is refused with a clear message and never modified. The new version uses a fresh
   journal file, so older installed snapshots can still finish their own tasks.
 
@@ -143,7 +143,7 @@ the trigger, progress assessment, remaining budget and result/artifact identitie
 in the timeline. New plans default to three automatic repairs; explicit approved allowances remain
 bound to their plan. **Pause after this step** lets the current operation settle before stopping;
 **Continue task** resumes the same attempt. Failures and uncertain operations retain their failure or
-recovery reason. Persisted pause, guidance and task spending policy are part of the journal schema (now 6); other versions are refused without migration.
+recovery reason. Persisted pause, guidance and task spending policy are part of the journal schema (now 7); other versions are refused without migration.
 The installed application and its journal are separate from this checkout.
 
 Queued human guidance is implemented. Messages are bound to the approved version and slice,
@@ -169,6 +169,52 @@ application/journal-bound discovery and process receipts prevent duplicate live 
 ([ORCA.md](ORCA.md)). A native task-summary panel remains **Planned**.
 
 **Planned:** a finding disposition ledger and native Orca conversation/control integration.
+
+## Model profiles, comparisons and exports
+
+Implemented 20 October 2026. Reusable model profiles select providers, requested models and supported
+reasoning effort for planning, implementation, repair, independent review, optional arbitration and
+individual edit quality passes. Assignments are fixed per role; there is no automatic escalation.
+Editing roles retain the implementation provider and independent review uses the other provider.
+Profiles are copied into approved plans, and model or effort changes start a fresh conversation.
+
+The dashboard has a **Model profiles** editor, a profile picker on **New task**, run scorecards and
+exports on every task, and **Comparisons**. Prepare a comparison from a task's displayed plan, select
+2 to 8 profiles, inspect the shared plan and all effective assignments, then approve the batch.
+Each variant is an ordinary guided task in a separate worktree from the same pinned base. Variants
+run one after another, retaining validation, independent review, bounded repair and verified local
+Git delivery. Human and uncertain-operation boundaries wait for explicit continuation or recovery.
+**Pause comparison after this step** pauses after the current operation settles. A future member
+cannot bypass comparison order through the ordinary task API.
+
+Planning is shared, rather than repeated for each profile. Comparison exports retain the planning
+session and its journal once, separately from each member's execution measurements. Per-profile
+planning assignments apply to ordinary tasks, not to shared-plan comparison execution.
+
+Scorecards prioritise subscription use: verified delivery, request-to-settlement agent time,
+workflow execution and waiting intervals, repairs, human interventions, tokens, per-role/model
+measurements and provider-reported subscription observations. Missing measurements stay unknown.
+Token counts do not establish subscription allowance consumed; provider cost estimates remain
+secondary and actual billing is unknown. Sequential execution does not eliminate differences in
+machine load, caches, subscription conditions or model behaviour.
+
+The user selects a preferred verified result manually. Selection records a preference without
+changing the source repository. A separate explicit action previews and fast-forwards the clean
+source branch only while it remains at the pinned base. An advanced branch needs manual integration.
+Integration intent is journalled before Git may write; uncertain results require reconciliation and
+are never replayed. Other runs and their evidence remain available.
+
+JSON exports include metrics, exact plans, profile snapshots, requested and observed models,
+reasoning settings, provider versions, full retained task/session/execution/workspace journals,
+checks, reviews, repairs, snapshots, raw logs and verified delivery identities. Retained commit
+objects provide a binary-capable patch when available. CSV exports provide scorecard tables;
+compressed JSON exports use gzip. Missing or oversized attachments are explicit, with a 64 MiB
+limit per file. Dashboard preview limits do not truncate these journal exports. Provider internals
+that Grampus did not observe cannot be exported. See [WORKFLOW.md](WORKFLOW.md#model-profiles-and-comparisons).
+
+Journal schema 7 includes durable comparisons and their driver ownership. Other schema versions
+are refused without migration; use a fresh development journal. The installed application and its
+journal remain separate from this checkout.
 
 ## Known issues from real use
 

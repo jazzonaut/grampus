@@ -23,6 +23,9 @@ import HomePage from './pages/HomePage.vue';
 import NewTaskPage from './pages/NewTaskPage.vue';
 import PlanningPage from './pages/PlanningPage.vue';
 import SettingsPage from './pages/SettingsPage.vue';
+import ModelProfilesPage from './pages/ModelProfilesPage.vue';
+import ComparisonsPage from './pages/ComparisonsPage.vue';
+import ComparisonPage from './pages/ComparisonPage.vue';
 import TaskPage from './pages/TaskPage.vue';
 const ObservabilityPage = defineAsyncComponent(() => import('./pages/ObservabilityPage.vue'));
 
@@ -63,6 +66,9 @@ const application = computed(() => overview.data.value?.application);
         <HomePage v-if="route.name === 'home'" :overview="overview.data.value" :refresh="refresh" />
         <NewTaskPage v-else-if="route.name === 'new'" />
         <HealthPage v-else-if="route.name === 'health'" :overview="overview.data.value" :refresh="refresh" />
+        <ModelProfilesPage v-else-if="route.name === 'profiles'" />
+        <ComparisonsPage v-else-if="route.name === 'comparisons'" />
+        <ComparisonPage v-else-if="route.name === 'comparison'" :id="route.id" :key="`comparison-${route.id}`" />
         <SettingsPage v-else-if="route.name === 'settings'" />
         <TaskPage v-else-if="route.name === 'task'" :id="route.id" :key="`task-${route.id}`" />
         <ObservabilityPage

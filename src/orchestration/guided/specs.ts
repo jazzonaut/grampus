@@ -4,6 +4,9 @@
 // are pure functions of the state, snapshot and any check records passed in; nothing here dispatches
 // work or writes the journal.
 import { commandLimits } from '../../config/limits.js';
+import type { GuidedContext } from './context.js';
+import type { GuidedAgent } from '../../domain/guided-plan.js';
+
 import type { GuidedPlan, GuidedSlice } from '../../domain/guided-plan.js';
 import { selectedEditPasses, type QualityPassDefinition } from '../../domain/quality-passes.js';
 import type { EditPolicy } from '../../execution/edit-policy.js';
@@ -12,6 +15,23 @@ import type { RepositorySnapshot } from '../../repository/artifacts.js';
 import type { CheckSpec, RepositoryCheck } from '../../verification/checks.js';
 import { deepEqual } from '../../domain/deep-equal.js';
 import { required, type GuidedState, type Stage } from './state.js';
+
+/** The approved first-implementation or repair assignment, decided from retained slice executions. */
+export function implementer(
+  { id, state, store }: GuidedContext & { state: GuidedState },
+  excluding?: string,
+): GuidedAgent {
+  const repairing = store
+    .executions()
+    .some(
+      item =>
+        item.id !== excluding &&
+        item.taskId === id &&
+        item.role === 'implementation' &&
+        item.sliceIndex === state.sliceIndex,
+    );
+  return repairing ? (state.plan.modelProfile?.repair ?? state.plan.implementation) : state.plan.implementation;
+}
 
 /** Automatic mode authorizes scope at approval and repairs ordinary failures without a click. */
 export function automatic(state: GuidedState): boolean {

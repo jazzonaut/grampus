@@ -7,11 +7,17 @@
  */
 import { computed, ref, watch } from 'vue';
 import UButton from '@nuxt/ui/components/Button.vue';
-import type { CreatedResponse, InspectRepositoryResponse, KickoffDetailV1 } from '../../../src/server/api-types';
+import type {
+  CreatedResponse,
+  InspectRepositoryResponse,
+  KickoffDetailV1,
+  ModelProfileV1,
+} from '../../../src/server/api-types';
 import { buildRequest } from '../api/actions';
 import { ApiError, get, postUnkeyed, request as send } from '../api/client';
 import { announce, useNow } from '../announcer';
 import { href, navigate } from '../router';
+import ModelProfilePicker from '../components/ModelProfilePicker.vue';
 import ImportPlan from '../components/ImportPlan.vue';
 import NoticeBox from '../components/NoticeBox.vue';
 import OrcaWorktreePicker from '../components/OrcaWorktreePicker.vue';
@@ -21,6 +27,7 @@ import { elapsedSince } from '../components/format';
 
 defineOptions({ name: 'NewTaskPage' });
 
+const modelProfile = ref<ModelProfileV1 | null>(null);
 const repo = ref('');
 const description = ref('');
 const references = ref('');
@@ -55,6 +62,7 @@ function kickoffBody(): Record<string, unknown> {
     repo: repo.value.trim(),
     request: description.value,
     provider: provider.value,
+    ...(modelProfile.value ? { modelProfile: modelProfile.value } : {}),
     adapter: adapter.value,
     ...(folders.length ? { references: folders } : {}),
     ...(inspected ? { base: inspected.base, contextFiles: lines(hints.value) } : {}),
@@ -135,6 +143,7 @@ async function start(): Promise<void> {
             placeholder="Describe the behaviour, include a few examples, and say what should stay the same."
           />
         </div>
+        <ModelProfilePicker v-model="modelProfile" />
         <ReferenceFolders v-model="references" :request="description" />
         <div class="grid gap-4 sm:grid-cols-2">
           <div class="flex flex-col gap-1">

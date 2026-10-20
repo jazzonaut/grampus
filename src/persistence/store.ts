@@ -28,6 +28,7 @@ import {
   type Workspace,
 } from './records.js';
 import type { Task } from '../domain/workflow.js';
+import { comparisonSchema, type Comparison } from '../domain/comparison.js';
 import { healthReportSchema, type HealthReport } from '../health/health-record.js';
 import {
   readActivity,
@@ -62,7 +63,8 @@ export interface RecordEvent {
   data: unknown;
 }
 
-const schemaVersion = 6;
+/** The single journal format this build accepts; other versions are never migrated. */
+export const journalSchemaVersion = 7;
 const schema = `
   CREATE TABLE tasks (
     id TEXT PRIMARY KEY,
@@ -138,6 +140,12 @@ const schema = `
     state TEXT NOT NULL
   );
   CREATE TABLE health (id TEXT PRIMARY KEY, state TEXT NOT NULL);
+  CREATE TABLE comparisons (id TEXT PRIMARY KEY, state TEXT NOT NULL);
+  CREATE TABLE comparison_events (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT, comparison_id TEXT NOT NULL REFERENCES comparisons(id),
+    at TEXT NOT NULL, type TEXT NOT NULL, data TEXT NOT NULL
+  );
+  CREATE INDEX comparison_events_comparison ON comparison_events(comparison_id, sequence);
 `;
 const expectedTables = [...schema.matchAll(/CREATE TABLE (\w+)/g)].flatMap(match => (match[1] ? [match[1]] : []));
 
@@ -186,7 +194,7 @@ function schemaState(db: DatabaseSync): SchemaState {
   );
   const current = version.success ? version.data.user_version : -1;
   if (current === 0 && tables.size === 0) return 'empty';
-  return current === schemaVersion && expectedTables.every(table => tables.has(table)) ? 'current' : 'foreign';
+  return current === journalSchemaVersion && expectedTables.every(table => tables.has(table)) ? 'current' : 'foreign';
 }
 function refuse(path: string): Error {
   return new Error(
@@ -254,7 +262,7 @@ export class Store {
         // Recheck under the write lock: another process may have created the schema meanwhile.
         const state = schemaState(this.db);
         if (state === 'foreign') throw refuse(this.path);
-        if (state === 'empty') this.db.exec(`${schema} PRAGMA user_version = ${schemaVersion};`);
+        if (state === 'empty') this.db.exec(`${schema} PRAGMA user_version = ${journalSchemaVersion};`);
         this.db.exec('COMMIT');
       } catch (error) {
         this.db.exec('ROLLBACK');
@@ -761,5 +769,43 @@ export class Store {
       .prepare('DELETE FROM execution_leases WHERE workspace_id = ? AND execution_id = ? AND run_id = ?')
       .run(workspaceId, executionId, runId);
     if (result.changes !== 1) throw new Error('Execution lease no longer matches this run');
+  }
+  /** Every durable comparison, in creation order. */
+  comparisons(): Comparison[] {
+    return this.db
+      .prepare('SELECT state FROM comparisons ORDER BY rowid')
+      .all()
+      .map(row => record(comparisonSchema, 'comparisons', row));
+  }
+
+  /** A validated comparison, refusing an unknown identity. */
+  comparison(id: string): Comparison {
+    const row = this.db.prepare('SELECT state FROM comparisons WHERE id = ?').get(id);
+    if (!row) throw new RecordNotFoundError('Comparison', id);
+    return record(comparisonSchema, 'comparisons', row);
+  }
+
+  /** Saves comparison state; callers journal its change in the same transaction. */
+  saveComparison(value: Comparison): void {
+    comparisonSchema.parse(value);
+    this.db
+      .prepare('INSERT INTO comparisons(id, state) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET state = excluded.state')
+      .run(value.id, JSON.stringify(value));
+  }
+
+  /** Appends an event to the comparison journal. */
+  appendComparison(id: string, type: string, data: unknown): void {
+    this.db
+      .prepare('INSERT INTO comparison_events(comparison_id, at, type, data) VALUES (?, ?, ?, ?)')
+      .run(id, new Date().toISOString(), type, JSON.stringify(data));
+  }
+
+  /** Complete comparison history in durable order. */
+  comparisonEvents(id: string): RecordEvent[] {
+    this.comparison(id);
+    return this.db
+      .prepare('SELECT sequence, at, type, data FROM comparison_events WHERE comparison_id = ? ORDER BY sequence')
+      .all(id)
+      .map(row => recordEvent('comparison_events', row));
   }
 }

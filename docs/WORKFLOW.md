@@ -142,6 +142,95 @@ decide. Automatic repair treats only a genuine, confirmed, fully observed failur
 unchanged artifact as an implementation problem; infrastructure stops never spend the
 repair allowance. **Retry repair** remains available and starts a fresh attempt.
 
+## Model profiles and comparisons
+
+The **Model profiles** screen saves fixed provider, model and reasoning effort choices for
+planning, implementation, repair, independent review, arbitration and individual edit passes.
+An omitted repair or edit assignment inherits implementation. An arbitration assignment enables
+fresh arbitration. Assigning an edit pass a model does not select the pass: the approved plan must
+also select that quality pass. Editing roles use the implementation provider, and independent
+review uses the other provider. Unsupported provider effort values are refused. Grampus sends
+model-specific choices directly to the provider and does not implement model fallback; requested
+choices and any observed model are recorded separately.
+
+Choose a profile on **New task** for ordinary planning and execution. The selected definition is
+copied into the plan, so changing or removing the saved profile cannot change an approved task.
+Within a run, each role's assignment stays fixed. Switching model or effort between roles starts
+a fresh conversation with authoritative task context. Retries of an unchanged role can still
+resume its settled conversation under the existing context policy.
+
+To compare profiles, open a task and expand **Compare model profiles on this plan**. Select two to
+eight profiles, prepare the comparison, inspect the shared plan and every effective assignment,
+then choose **Approve all profiles** and **Run comparison**. The batch approval binds every member
+task's exact version and configuration. Each variant starts from the same pinned base in its own
+worktree and follows the ordinary evidence and local-delivery gates. Variants execute sequentially.
+Planning is reused once; a profile's planning assignment does not start another planner during a
+comparison. Plans revised against retained work cannot be used as fresh comparison templates.
+
+Settled failures remain in the results and the next variant can run. Questions, supervised
+checkpoints, user pauses and uncertain operations wait for a decision. Open the member task for its
+normal answer or recovery actions, then return to **Run comparison** to continue the group.
+**Pause comparison after this step** lets the active operation settle and prevents further group
+dispatch until explicit continuation. A comparison driver left by a crashed process needs
+**Recover comparison driver**; this releases only a provably dead owner and never replays a member
+operation. Starting a future member directly through the task API or CLI is refused.
+
+The comparison being complete means all variants have settled, including any failures. Inspect
+their individual delivery outcomes and changes before selecting a preferred verified run.
+Selection records a preference without changing the source branch. **Inspect integration** shows
+the source repository, branch, current HEAD and selected commit. Its separate confirmation offers
+a fast-forward only when the source branch is still at the pinned base with clean raw files and
+index. An advanced branch requires manual integration. Git intent is journalled before dispatch;
+uncertain integration can only be reconciled from exact branch, commit and file evidence, never
+automatically repeated. Reconciliation requires the original controller to be provably absent.
+
+Every task has a run scorecard. Elapsed time covers first operation to verified completion; agent
+time covers requested turns to settled results. Workflow execution and waiting time come from
+recorded state intervals, through the displayed observation time. Waiting is not a measurement of
+the user's attention. Token counters retain their provider meanings and coverage. Unknown values
+stay unknown, including actual subscription charges and allowance consumed. Subscription rejection
+counts use provider-reported observations only. Shared planning usage is displayed once, separately
+from comparison member usage. Machine load, caches and subscription conditions can still differ
+between sequential runs, so one result does not establish a universal model ranking.
+
+**Export full JSON** includes complete retained journals, prompts, replies, tool activity,
+configurations, model observations, evidence, snapshots and raw logs. Prepared prompts include
+the final repository and review context when that preparation was reached. Preparation alone is
+not proof of provider dispatch. Exports do not reuse truncated
+dashboard previews. When retained Git objects are available it also includes a binary-capable
+patch from the pinned base to the last verified delivery. **Export metrics CSV** provides one
+scorecard row per run; **Export compressed JSON** contains the same full structure compressed with
+gzip. Failed, interrupted and unfinished runs are exportable. Missing or oversized attachments are
+explicit; each file is limited to 64 MiB. Journal snapshots are captured transactionally; raw logs
+can continue growing during export. Provider-internal activity that was never observed remains
+unavailable. Comparison JSON includes the shared planning session and its full journal once.
+
+The CLI exposes the same operations. `comparison-show` prints the current `expected` decision key;
+send that displayed key for each state-changing action, refreshing it after a change:
+
+```text
+model-profiles
+metrics <task-id>
+export <task-id>
+comparison-new <task-id> <profiles.json>
+comparison-show <comparison-id>
+comparison-approve <comparison-id> <key>
+comparison-run <comparison-id> <key>
+comparison-pause <comparison-id> <key>
+comparison-recover <comparison-id> <key>
+comparison-select <comparison-id> <key> <task-id>
+comparison-integration-preview <comparison-id>
+comparison-integrate <comparison-id> <key> <target.json>
+comparison-recover-integration <comparison-id> <key>
+comparison-export <comparison-id> <output-file> [json|csv|gzip]
+```
+
+`profiles.json` is an ordered array of saved profile ids or full profile definitions.
+For integration, save the displayed preview's `target` object as `target.json`. `export` prints
+JSON to stdout, so ordinary shell redirection can save an individual run. All commands accept
+the usual `--db` journal selection. Schema 7 requires a fresh journal; other versions are refused
+without migration. Development work does not update the installed application or its journal.
+
 ## Configuration
 
 The policy is part of the approved plan, visible at approval and editable in
@@ -193,7 +282,7 @@ action and shared budget before the decision. Review dispositions remain in the 
 structured reply. This makes the choice to repair, arbitrate or stop inspectable alongside the
 existing request/result, check and usage journals.
 
-The current controller uses journal schema 6, including its persisted pause request, guidance batches, required task spending policy and ordered acceptance checks. Journals from
+The current controller uses journal schema 7, including fixed model assignments and durable comparisons alongside pause, guidance, task spending and ordered acceptance checks. Journals from
 other schema versions are refused without modification; there is
 no migration. Keep the previous installed build with its journal to finish an existing task.
 

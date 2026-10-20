@@ -1,6 +1,8 @@
 // Owns the Codex adapter: one `codex app-server` process per turn, thread start or resume, turns,
 // controller-approved native patches and the dynamic repository tools. Protocol shapes are pinned in
 // codex-protocol.ts; this module only acts on messages that module has validated.
+import { modelAssignmentSchema } from '../domain/model-profiles.js';
+import { codexSubscription } from './subscription-limits.js';
 import { RpcProcess, type RpcMessage } from '../process/process.js';
 import { providerLimits } from '../config/limits.js';
 import { applicationVersion } from '../config/runtime.js';
@@ -217,6 +219,11 @@ export async function connectCodex(
   start: (cwd: string) => RpcProcess = startCodexAppServer,
 ): Promise<AgentSession> {
   options.signal.throwIfAborted();
+  modelAssignmentSchema.parse({
+    provider: 'codex',
+    model: options.model,
+    ...(options.effort ? { effort: options.effort } : {}),
+  });
   const rpc = start(options.cwd);
   const abort = () => {
     void rpc.close().catch(() => {});
@@ -269,7 +276,7 @@ export async function connectCodex(
     });
     await reportIntegrations(rpc, thread.thread.id, options.emit);
     options.signal.throwIfAborted();
-    return new CodexSession(rpc, thread.thread.id, options.emit, options.editing, options.repository);
+    return new CodexSession(rpc, thread.thread.id, options.emit, options.editing, options.repository, options.effort);
   } catch (error) {
     await rpc.close();
     options.emit({ type: 'process.exit_confirmed', data: {} });
@@ -317,6 +324,7 @@ export class CodexSession implements AgentSession {
     private readonly emit: ConnectOptions['emit'],
     private readonly editing?: EditingContext,
     repository?: RepositoryAccess,
+    private readonly effort?: ConnectOptions['effort'],
   ) {
     this.readRepository = repository
       ? repositoryTools(repository, emit, () => !!this.active && !this.active.stopping)
@@ -420,6 +428,11 @@ export class CodexSession implements AgentSession {
   private message(message: RpcMessage): void {
     // Server requests carry an id; approve() answers and validates them, so they are not notifications.
     if (!message.method || message.id !== undefined || !this.active) return;
+    if (message.method === 'account/rateLimits/updated') {
+      const observation = codexSubscription(message.params);
+      if (observation) this.emit(observation);
+      return;
+    }
     const thread = notificationThread(message.params);
     // Thread-scoped messages for another thread, and known ones without a thread, are not ours.
     if (thread !== this.threadId && (thread !== null || isKnownCodexNotification(message.method))) return;
@@ -590,6 +603,7 @@ export class CodexSession implements AgentSession {
           threadId: this.threadId,
           input: [{ type: 'text', text: prompt }],
           outputSchema: replyOutputSchema,
+          ...(this.effort ? { effort: this.effort } : {}),
         }),
       );
       if (this.active) {

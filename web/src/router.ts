@@ -12,6 +12,9 @@ export type Route =
   | { name: 'new' }
   | { name: 'health' }
   | { name: 'settings' }
+  | { name: 'profiles' }
+  | { name: 'comparisons' }
+  | { name: 'comparison'; id: string }
   | { name: 'task'; id: string }
   | ({ name: 'observability' } & ActivitySubjectV1)
   | { name: 'planning'; id: string }
@@ -19,11 +22,19 @@ export type Route =
 
 /** Record ids are UUIDs; letters, digits and dashes only, so a fragment can never smuggle a path. */
 const id = /^[A-Za-z0-9-]{1,64}$/;
+const extraScreens: Record<string, Route> = {
+  '/profiles': { name: 'profiles' },
+  '/comparisons': { name: 'comparisons' },
+};
 
 /** The route a fragment names. An empty fragment is the home screen. */
 export function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '') || '/';
-  if (path === '/' || path === '') return { name: 'home' };
+  if (path === '/') return { name: 'home' };
+  const screen = extraScreens[path];
+  if (screen) return screen;
+  const comparison = /^\/comparisons\/([A-Za-z0-9-]{1,64})$/.exec(path)?.[1];
+  if (comparison) return { name: 'comparison', id: comparison };
   if (path === '/new') return { name: 'new' };
   if (path === '/health') return { name: 'health' };
   if (path === '/settings') return { name: 'settings' };
@@ -44,6 +55,12 @@ export function href(route: Exclude<Route, { name: 'not-found' }>): string {
       return '#/health';
     case 'settings':
       return '#/settings';
+    case 'profiles':
+      return '#/profiles';
+    case 'comparisons':
+      return '#/comparisons';
+    case 'comparison':
+      return `#/comparisons/${route.id}`;
     case 'task':
       return `#/tasks/${route.id}`;
     case 'observability':

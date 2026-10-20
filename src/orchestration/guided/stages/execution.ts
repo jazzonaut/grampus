@@ -13,7 +13,7 @@ import {
   type StageOutcome,
 } from '../context.js';
 import { required, type GuidedState } from '../state.js';
-import { automatic, reviewer } from '../specs.js';
+import { automatic, implementer, reviewer } from '../specs.js';
 
 /**
  * The fallback reason recorded when arbitration uses the implementer's provider. Review normally
@@ -76,10 +76,11 @@ function settleExecution(context: SettleContext, role: 'implementation' | 'revie
   )
     throw mismatch('Execution result no longer matches the guided task');
   const session = new Sessions(store).get(result.sessionId),
-    config = role === 'implementation' ? state.plan.implementation : reviewer(state);
+    config = role === 'implementation' ? implementer(context, result.id) : reviewer(state);
   if (
     session.provider !== config.provider ||
     (config.model !== null && session.model !== config.model) ||
+    session.effort !== config.effort ||
     store.sessionEvents(session.id).some(event => event.type === 'turn.requested')
   )
     throw mismatch('New execution was changed or used outside this guided step');
@@ -99,8 +100,10 @@ export const executionStage: StageHandler = {
   async perform(context) {
     const { state, executions } = context;
     await requireRevisionAnchor(context, state);
-    await executions.create(required(state, 'workspaceId'), state.version, state.plan.implementation.provider, {
-      model: state.plan.implementation.model,
+    const config = implementer(context);
+    await executions.create(required(state, 'workspaceId'), state.version, config.provider, {
+      model: config.model,
+      ...(config.effort ? { effort: config.effort } : {}),
       resumeFrom: automatic(state) ? state.implementationContinuation : null,
     });
     return null;
@@ -124,6 +127,7 @@ export const reviewExecutionStage: StageHandler = {
     await executions.create(required(state, 'workspaceId'), state.version, config.provider, {
       role: 'review',
       model: config.model,
+      ...(config.effort ? { effort: config.effort } : {}),
       fallbackReason:
         state.reviewCycle.arbitrating && config.provider === state.plan.implementation.provider
           ? arbitrationApproval

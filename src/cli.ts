@@ -4,6 +4,7 @@
 //
 // Exit codes: 0 when the command reached its intended outcome, 130 when it was interrupted (Ctrl+C or a
 // requested stop), 1 for any other failure, block or recovery need, including an uncaught error.
+import { modelCommand } from './comparison-cli.js';
 import { parseArgs } from 'node:util';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -63,6 +64,21 @@ const help = `Grampus - local agent controller
   list                           List stored tasks
   show <task-id>                  Show a task and completion blockers
   report <task-id>                Print a Markdown report from the journal
+  model-profiles                 List saved model profiles
+  metrics <task-id>               Print a subscription-focused scorecard
+  export <task-id>                Print full retained run JSON
+  comparison-new <task-id> <profiles.json> Prepare shared-plan runs
+  comparison-list                List comparisons
+  comparison-show <id>           Inspect profiles, results and decision key
+  comparison-approve <id> <key>   Approve every displayed profile
+  comparison-run <id> <key>       Run variants sequentially
+  comparison-pause <id> <key>     Pause after the active operation settles
+  comparison-recover <id> <key>   Release a provably dead driver
+  comparison-select <id> <key> <task-id> Record preference without integration
+  comparison-integration-preview <id> Inspect target branch and selected commit
+  comparison-integrate <id> <key> <target.json> Explicit fast-forward
+  comparison-recover-integration <id> <key> Reconcile without replay
+  comparison-export <id> <file> [json|csv|gzip] Export all retained results
   task-new <plan.json>            Prepare a guided task; no workspace creation or inference
   task-show <task-id>             Show progress and next action (--details or --json)
   task-approve <id> <version> <digest> Approve the entire guided plan shown above
@@ -792,6 +808,13 @@ async function main(): Promise<void> {
   else if (action === 'open' || action === 'close') await desktopCommand(invocation);
   else if (action === 'doctor') await doctorCommand(invocation);
   else if (action === 'demo') demoCommand(invocation);
+  else if (action.startsWith('comparison-') || ['model-profiles', 'metrics', 'export'].includes(action))
+    await withStore(invocation, store =>
+      interruptible(async signal => {
+        const result = await modelCommand(store, invocation, signal);
+        print(result);
+      }),
+    );
   else if (action.startsWith('task-')) await taskCommand(invocation);
   else if (action.startsWith('workspace-')) await workspaceCommand(invocation);
   else if (action.startsWith('execution-')) await executionCommand(invocation);

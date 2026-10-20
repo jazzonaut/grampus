@@ -2,6 +2,7 @@
 // events fenced on that run, confirming the provider's exit and settling once, and recovery of
 // conversation turns. A turn is never replayed; an unconfirmed exit leaves the session for explicit recovery.
 import type { RepositoryAccess } from '../repository/repository-tools.js';
+import { modelAssignmentSchema, type ModelAssignment, type ReasoningEffort } from '../domain/model-profiles.js';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import { resolve } from 'node:path';
@@ -92,6 +93,7 @@ export class Sessions {
     cwd: string,
     model: string | null = null,
     runtime: ProviderRuntime = providerRuntime(provider),
+    effort?: ReasoningEffort,
   ): Session {
     if (!['codex', 'claude'].includes(provider)) throw new Error('Provider must be codex or claude');
     const directory = resolve(cwd);
@@ -102,6 +104,8 @@ export class Sessions {
       runtime,
       providerSessionId: null,
       model,
+      requestedModel: model,
+      ...(effort ? { effort } : {}),
       cwd: directory,
       phase: 'idle',
       lastReply: null,
@@ -112,6 +116,26 @@ export class Sessions {
       this.store.appendSession(session.id, 'session.created', session);
     });
     return session;
+  }
+
+  /** Changes a settled editing role's assignment, starting fresh when model or effort differs. */
+  assign(id: string, input: ModelAssignment): void {
+    const assignment = modelAssignmentSchema.parse(input);
+    this.change(id, session => {
+      if (session.run || ['running', 'stop_requested', 'recovery_required'].includes(session.phase))
+        throw new Error('Model assignment requires a settled session');
+      if (session.provider !== assignment.provider)
+        throw new Error('Editing provider cannot change within an execution');
+      if (session.requestedModel === assignment.model && session.effort === assignment.effort) return;
+      if (session.phase === 'awaiting_answer') throw new Error('Answer the pending questions before changing models');
+      const previous = { model: session.model, effort: session.effort, providerSessionId: session.providerSessionId };
+      session.providerSessionId = null;
+      session.model = assignment.model;
+      session.requestedModel = assignment.model;
+      if (assignment.effort) session.effort = assignment.effort;
+      else delete session.effort;
+      this.store.appendSession(id, 'session.assignment_changed', { previous, assignment, freshConversation: true });
+    });
   }
 
   private change<T>(id: string, action: (session: Session) => T): T {
@@ -170,6 +194,12 @@ export class Sessions {
         stage: stage ?? execution?.stage ?? 'planning',
         prompt,
         autoRetries: 0,
+        configuration: {
+          providerSessionId: session.providerSessionId,
+          requestedModel: session.requestedModel ?? null,
+          model: session.model,
+          effort: session.effort ?? null,
+        },
       });
       return { session: structuredClone(session), prompt, runId: session.run.id };
     });
@@ -539,6 +569,7 @@ class TurnRun {
           cwd: claim.session.cwd,
           providerSessionId: claim.session.providerSessionId,
           model: claim.session.model,
+          ...(claim.session.effort ? { effort: claim.session.effort } : {}),
           configurationCwd,
           signal: this.connectionAbort.signal,
           emit: this.emit,
@@ -794,6 +825,7 @@ export async function runSession(
   try {
     const access = await turnAccess(store, workspaces, run, review, options.repository);
     requirePromptBudget(claim.prompt);
+    sessions.event(id, claim.runId, { type: 'prompt.prepared', data: { prompt: claim.prompt } });
     result = await run.dispatch(connect, access.repository, access.configurationCwd);
   } catch (error) {
     result = {

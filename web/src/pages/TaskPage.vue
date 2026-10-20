@@ -22,6 +22,8 @@ import DecisionCard from '../components/DecisionCard.vue';
 import DecisionQueue from '../components/DecisionQueue.vue';
 import EmptyState from '../components/EmptyState.vue';
 import ErrorBanner from '../components/ErrorBanner.vue';
+import TaskRunMetrics from '../components/TaskRunMetrics.vue';
+import ComparisonSetup from '../components/ComparisonSetup.vue';
 import TaskWorkspace from '../components/TaskWorkspace.vue';
 import TaskFacts from '../components/TaskFacts.vue';
 import TaskHeader from '../components/TaskHeader.vue';
@@ -150,6 +152,8 @@ watch(
         <p v-if="view.orca.problem" class="text-sm text-muted" role="status">{{ view.orca.problem }}</p>
       </div>
       <TaskFacts :task="view" />
+      <TaskRunMetrics :id="id" />
+      <ComparisonSetup :id="id" :digest="view.details.approval.digest" />
       <ActionNoticeBar :notice="actions.notice.value" @dismiss="actions.dismiss()" />
       <section aria-labelledby="workflow-heading" class="flex flex-col gap-2">
         <h2 id="workflow-heading" class="text-base font-semibold text-highlighted">Workflow</h2>

@@ -23,6 +23,12 @@ const label = computed(() => {
       return 'New task';
     case 'health':
       return 'Integration health';
+    case 'profiles':
+      return 'Model profiles';
+    case 'comparisons':
+      return 'Comparisons';
+    case 'comparison':
+      return 'Comparison';
     case 'settings':
       return 'Settings';
     case 'not-found':

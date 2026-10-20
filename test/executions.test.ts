@@ -398,12 +398,15 @@ test('startup that outlives cancellation retains its lease even before a provide
   const { store, workflow, task, workspace, executions, sessions } = await fixture(t);
   const execution = await executions.create(workspace.id, 1, 'codex');
   let resolveConnection!: (session: AgentSession) => void;
+  const abort = new AbortController();
   const connector: Connector = async () =>
     new Promise(resolve => {
       resolveConnection = resolve;
+      // Cancel only once connection startup is actually pending, independent of repository I/O time.
+      queueMicrotask(() => abort.abort());
     });
   let closed = false;
-  const outcome = await runSession(store, execution.sessionId, 'Slow startup', { timeoutMs: 1000 }, connector);
+  const outcome = await runSession(store, execution.sessionId, 'Slow startup', { signal: abort.signal }, connector);
   assert.equal(outcome.status, 'interrupted');
   assert.equal(sessions.get(execution.sessionId).phase, 'recovery_required');
   assert.equal(workflow.get(task.id).phase, 'recovery_required');

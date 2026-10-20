@@ -134,9 +134,7 @@ test('approving an automatic plan starts work without a second continue or file 
   const draft = await api.task(task.id);
   const response = await api.act(offered(draft, 'approve'));
   assert.equal(response.status, 202);
-  const deadline = Date.now() + 20000;
-  while (!(tasks.get(task.id).status === 'blocked' && !ui.job(task.id)?.running) && Date.now() < deadline)
-    await new Promise(resolve => setTimeout(resolve, 50));
+  await settled(ui, task.id);
   const state = tasks.get(task.id),
     view = await api.task(task.id);
   assert.equal(state.status, 'blocked', state.note);
