@@ -850,6 +850,78 @@ export interface QuestionView {
   suggestions: string[];
 }
 
+/** Activity states describe observations, never acceptance or recovery evidence. */
+export type ActivityStatusV1 = 'active' | 'completed' | 'failed' | 'interrupted' | 'unknown' | 'observed';
+
+/** A stable participant in the task network. Models are separate from their provider agents. */
+export interface ActivityNodeV1 {
+  id: string;
+  kind: 'controller' | 'agent' | 'model' | 'tools' | 'check' | 'delivery';
+  label: string;
+  detail: string;
+  /** Current recorded state, used only in live mode, never to seed historical replay. */
+  status: ActivityStatusV1;
+  /** Server-defined aggregation for the compact network; expanded history retains individual sessions. */
+  groupId?: string;
+  groupLabel?: string;
+  /** False for configured endpoints without a recorded connection or call. */
+  recorded?: boolean;
+  /** A relationship established by recorded session/tool activity, retained when its events leave the window. */
+  parentId?: string;
+}
+
+/** A normalised event retaining its original journal identity and explicit endpoint semantics. */
+export interface ActivityEventV1 {
+  id: string;
+  cursor: string;
+  at: string;
+  type: string;
+  category: 'controller' | 'model' | 'tool' | 'review' | 'validation' | 'delivery' | 'failure';
+  source: string;
+  target: string;
+  label: string;
+  status: ActivityStatusV1;
+  provenance: 'observed' | 'inferred';
+  preview: string | null;
+  durationMs: number | null;
+  correlation: {
+    taskId: string;
+    version: number | null;
+    executionId: string | null;
+    sessionId: string | null;
+    runId: string | null;
+    providerTurnId: string | null;
+    itemId: string | null;
+    resultId: string | null;
+    attemptId: string | null;
+    workspaceId: string | null;
+    sliceIndex: number | null;
+    artifact: string | null;
+    messageId: string | null;
+    requestId: string | null;
+    parentItemId: string | null;
+    providerSessionId: string | null;
+    provider: 'codex' | 'claude' | null;
+  };
+  /** Server-decided state changes. The client only folds these for replay. */
+  updates: { nodeId: string; status: ActivityStatusV1; label?: string; onlyIfActive?: boolean }[];
+  /** Provider counters retain their scope; snapshots must never be summed as per-call token costs. */
+  usage: { input: number | null; output: number | null; cached: number | null; scope: string } | null;
+}
+
+/** A bounded, chronological activity window from the existing journals. */
+export interface ObservabilityV1 {
+  apiVersion: ApiVersion;
+  taskId: string;
+  revision: string;
+  intervalMs: number;
+  nodes: ActivityNodeV1[];
+  events: ActivityEventV1[];
+  /** Fetch the preceding window with `?before=`. No cursor means the latest window. */
+  before: string | null;
+  coverage: string[];
+}
+
 /** `GET /api/v1/kickoffs/:id`. */
 export interface KickoffDetailV1 {
   apiVersion: ApiVersion;

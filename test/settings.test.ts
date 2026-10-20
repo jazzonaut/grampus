@@ -41,6 +41,7 @@ test('without config.json the built-in defaults apply and nothing is created', t
     dashboardPollMs: 100,
     usagePollIntervalMs: 15_000,
     liveChangesIntervalMs: 5000,
+    observabilityIntervalMs: 1000,
     orcaSyncIntervalMs: 5000,
     outputFlushIntervalMs: 1000,
     outputFlushBytes: 8192,

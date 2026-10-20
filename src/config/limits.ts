@@ -439,3 +439,12 @@ export const desktopLimits = {
   discoveryBytes: 16 * KiB,
   responseBytes: 16 * KiB,
 };
+
+/** Display-only activity pages and previews; these never establish workflow evidence. */
+export const observabilityLimits = {
+  pageEvents: 400,
+  maxPageEvents: 1000,
+  previewCharacters: 600,
+  activityNameCharacters: 120,
+  cursorCharacters: 512,
+} as const;

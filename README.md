@@ -159,4 +159,3 @@ Contributor rules and pitfalls are in [AGENTS.md](AGENTS.md).
 | [docs/PLAN.md](docs/PLAN.md) | Current improvement plan |
 | [docs/ENGINEERING_DIRECTION.md](docs/ENGINEERING_DIRECTION.md) | Long-term engineering direction |
 | [DESIGN.md](DESIGN.md) | Product intent and decision record |
-| [docs/history/](docs/history/README.md) | Archived checkpoints and evidence; not current truth |

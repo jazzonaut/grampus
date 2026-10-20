@@ -40,6 +40,8 @@ export interface Settings {
   usagePollIntervalMs: number;
   /** Minimum interval between display-only workspace observations in the dashboard. */
   liveChangesIntervalMs: number;
+  /** Interval between authenticated display-only activity reads while the graph is visible. */
+  observabilityIntervalMs: number;
   /** Interval between journal observations for optional Orca worktree card updates. */
   orcaSyncIntervalMs: number;
   /**
@@ -85,6 +87,7 @@ export function defaultSettings(): Settings {
     dashboardPollMs: 100,
     usagePollIntervalMs: 15_000,
     liveChangesIntervalMs: 5000,
+    observabilityIntervalMs: 1000,
     orcaSyncIntervalMs: 5000,
     outputFlushIntervalMs: 1000,
     outputFlushBytes: 8 * KiB,
@@ -114,6 +117,7 @@ export const settingRanges = {
   dashboardPollMs: { min: 50, max: 1000 },
   usagePollIntervalMs: { min: 1000, max: 600_000 },
   liveChangesIntervalMs: { min: 1000, max: 600_000 },
+  observabilityIntervalMs: { min: 1000, max: 600_000 },
   orcaSyncIntervalMs: { min: 1000, max: 600_000 },
   outputFlushIntervalMs: { min: 100, max: 60_000 },
   outputFlushBytes: { min: 1 * KiB, max: 1 * MiB },
@@ -136,6 +140,7 @@ const overridesSchema = z
     dashboardPollMs: bounded(settingRanges.dashboardPollMs).optional(),
     usagePollIntervalMs: bounded(settingRanges.usagePollIntervalMs).optional(),
     liveChangesIntervalMs: bounded(settingRanges.liveChangesIntervalMs).optional(),
+    observabilityIntervalMs: bounded(settingRanges.observabilityIntervalMs).optional(),
     orcaSyncIntervalMs: bounded(settingRanges.orcaSyncIntervalMs).optional(),
     outputFlushIntervalMs: bounded(settingRanges.outputFlushIntervalMs).optional(),
     outputFlushBytes: bounded(settingRanges.outputFlushBytes).optional(),

@@ -29,6 +29,13 @@ import {
 } from './records.js';
 import type { Task } from '../domain/workflow.js';
 import { healthReportSchema, type HealthReport } from '../health/health-record.js';
+import {
+  readActivity,
+  activitySessionIds,
+  activityToolSessionIds,
+  type ActivityCursor,
+  type ActivityRecord,
+} from './activity.js';
 
 /** The default journal for this installed or development copy. */
 export function defaultDatabasePath(): string {
@@ -455,6 +462,24 @@ export class Store {
       .prepare(`SELECT * FROM session_events WHERE session_id = ?${filter} ORDER BY sequence`)
       .all(id, ...(types ?? []))
       .map(row => recordEvent('session_events', row));
+  }
+
+  /** Bounded task/provider activity, newest first; cursor ordering does not assert causation. */
+  activityEvents(id: string, before: ActivityCursor | null, limit: number): ActivityRecord[] {
+    this.get(id);
+    return readActivity(this.db, id, before, limit);
+  }
+
+  /** All explicitly linked sessions, including planning and completed attempts. */
+  activitySessions(id: string): Session[] {
+    this.get(id);
+    return activitySessionIds(this.db, id).map(sessionId => this.session(sessionId));
+  }
+
+  /** Sessions with a recorded tool request, progress or result. */
+  activityToolSessions(id: string): string[] {
+    this.get(id);
+    return activityToolSessionIds(this.db, id);
   }
 
   /** The validated workspace `id`; throws `RecordNotFoundError` when absent, `BoundaryError` when malformed. */

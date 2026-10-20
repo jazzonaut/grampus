@@ -27,6 +27,13 @@ high-value problems, adds measurement, and then lets real use decide what follow
 
 ## Steps
 
+- **Task observability.** Initial implementation, 20 October 2026: provider item and tool lifecycle
+  metadata, a bounded read projection over the existing journals, a compact task network and a
+  dedicated observability page with filters, inspection and event replay. Completed participants
+  remain visible in grey. Capture coverage and limitations are explicit
+  ([OBSERVABILITY.md](OBSERVABILITY.md)). Deeper inference tracing and comparison of attempts are
+  **Planned**.
+
 Order changed on 18 October 2026: structure and typing come before feature work, so new
 work lands in the new structure. Order: 1, split tests, structure and strictness, then 2-6.
 
@@ -65,7 +72,7 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
 
 1. **Hygiene baseline.** Fix nested-repository reference bug, Prettier, typescript-eslint
    with a shrink-only baseline, `npm run check`, fast and full test scripts, `AGENTS.md`,
-   current-state docs with history archived under `docs/history/`.
+   current-state docs.
 2. **Measurement and journal fixes.** Done 19 October 2026. Usage, turns, failed and
    interrupted turns, wall time per stage (planning, implementation, quality passes, repair,
    review, arbitration, tagged on executions and turn requests), repair attempts and human
@@ -107,9 +114,7 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
      completeness) and `server/api-types.ts` types the read routes `/api/v1/overview`,
      `/api/v1/tasks/:id` (with `timeline` and `changes`) and `/api/v1/kickoffs/:id`. Actions
      reuse the existing POST routes through `ActionView.request`
-     ([ARCHITECTURE.md](ARCHITECTURE.md#dashboard-view-model-and-api-v1)). The legacy screens
-     are inventoried in [history/dashboard-inventory-2026-10-19.md](history/dashboard-inventory-2026-10-19.md),
-     the parity checklist for 5b. `web/` is typed against the DTOs.
+     ([ARCHITECTURE.md](ARCHITECTURE.md#dashboard-view-model-and-api-v1)). `web/` is typed against the DTOs.
    - **5b. Vue client.** Done 19 October 2026. `web/` (Vue 3, Vite, Nuxt UI) draws the overview with the
      attention queue first, new task, planning conversation, task detail and health screens on API v1,
      with forms generated from `ActionView` and no optimistic state; it is served from `web/dist` under

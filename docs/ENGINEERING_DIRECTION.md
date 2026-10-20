@@ -41,7 +41,7 @@ The same documentation also identifies limitations: an early Windows alpha focus
 
 **Evidence note:** these are claims and results recorded in the supplied project documents, not an independent source-code audit or reproduction of the test suite.
 
-**Relevant source documents:** `README.md`, `DESIGN.md`, `GUIDED-WORKFLOW.md`, `ARCHITECTURE.md`, `DASHBOARD.md`, `REPOSITORY-CONTEXT.md`, `INTEGRATION-EVIDENCE.md`, `NEXT-SESSION.md`, `RELEASE.md`, `INSTALLATION.md` and `IMPLEMENTATION.md`.
+**Relevant source documents:** `README.md`, `DESIGN.md`, `GUIDED-WORKFLOW.md`, `ARCHITECTURE.md`, `DASHBOARD.md`, `REPOSITORY-CONTEXT.md`, `RELEASE.md` and `INSTALLATION.md`.
 
 ---
 

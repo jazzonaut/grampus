@@ -6,6 +6,7 @@ import { providerLimits } from '../config/limits.js';
 import { applicationVersion } from '../config/runtime.js';
 import { UnrecognizedMessages, protocolDiagnostic, boundedExcerpt } from '../process/boundary.js';
 import { mcpInstructions } from './integrations.js';
+import { codexActivity } from './activity.js';
 import { codexExecutable } from './executables.js';
 import { referenceInstructions } from '../repository/reference-folders.js';
 import {
@@ -459,6 +460,7 @@ export class CodexSession implements AgentSession {
     if (turnId && active.turnId && turnId !== active.turnId) return;
     if (this.editing && active.turnId !== null && turnId === active.turnId && !active.stopping)
       this.trackPatch(active, notification);
+    codexActivity(notification.method, notification.params, this.emit);
     switch (notification.method) {
       case 'item/agentMessage/delta':
         this.emit({ type: 'output.delta', data: { text: notification.params.delta } });

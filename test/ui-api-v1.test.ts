@@ -57,6 +57,7 @@ test('v1 routes need the token and the local origin, and answer errors with the 
   await failure(await api.get(`/api/v1/tasks/${randomUUID()}`), 404, 'not_found');
   await failure(await api.get(`/api/v1/kickoffs/${randomUUID()}`), 404, 'not_found');
   await failure(await api.get(`/api/v1/kickoffs/${randomUUID()}/timeline`), 404, 'not_found');
+  await failure(await api.get(`/api/v1/tasks/${randomUUID()}/observability`, {}), 401, 'unauthorized');
   // The lookup and action routes answer with the same envelope.
   await failure(await api.get('/api/nothing'), 404, 'not_found');
   await failure(await api.post(`/api/tasks/${randomUUID()}/run`, { expected: 'x' }), 404, 'not_found');
@@ -83,6 +84,11 @@ test('overview, task detail and timeline have the v1 shape and no inventories or
   const detail = JSON.parse(text) as TaskDetailV1;
   assert.equal(detail.apiVersion, 1);
   assert.equal(detail.id, task.id);
+  const activity = await api.get(`/api/v1/tasks/${task.id}/observability`);
+  assert.equal(activity.status, 200);
+  const activityText = await activity.text();
+  assert.doesNotMatch(activityText, /"stdout"|"stderr"|"prompt"|"arguments"/);
+  await failure(await api.get(`/api/v1/tasks/${task.id}/observability?before=invalid`), 400, 'invalid_request');
   assert.equal(detail.header.title, 'Guided greeting');
   assert.equal(detail.spending.status, 'available');
   assert.match(detail.spending.turnsLabel, /0 of 20/);

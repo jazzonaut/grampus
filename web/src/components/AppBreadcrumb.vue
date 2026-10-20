@@ -4,11 +4,16 @@ import { computed } from 'vue';
 import type { OverviewV1 } from '../../../src/server/api-types';
 import { href, type Route } from '../router';
 const props = defineProps<{ current: Route; overview: OverviewV1 | undefined }>();
+function taskTitle(id: string): string {
+  return props.overview?.tasks.find(item => item.id === id)?.title ?? 'Task';
+}
 const label = computed(() => {
   const current = props.current;
   switch (current.name) {
+    case 'observability':
+      return `${taskTitle(current.id)} › Agent observability`;
     case 'task':
-      return props.overview?.tasks.find(item => item.id === current.id)?.title ?? 'Task';
+      return taskTitle(current.id);
     case 'planning':
       return props.overview?.planning.find(item => item.id === current.id)?.title ?? 'Planning conversation';
     case 'new':

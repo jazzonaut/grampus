@@ -27,6 +27,7 @@ import type {
   KickoffDetailV1,
   OrcaWorktreesV1,
   OverviewV1,
+  ObservabilityV1,
   SettingsV1,
   TaskDetailV1,
   TimelinePageV1,
@@ -39,6 +40,7 @@ import { orcaWorktreeChoices, unavailableOrcaWorktrees } from './view-model/orca
 import { settingsView } from './view-model/settings.js';
 import { taskDetail, taskFacts, type TaskFacts } from './view-model/task-detail.js';
 import { timelinePage } from './view-model/timeline.js';
+import { observabilityView } from './view-model/observability.js';
 
 /** What the v1 routes read from the running dashboard. */
 export interface ApiV1Dashboard {
@@ -56,14 +58,14 @@ export interface ApiV1Dashboard {
 }
 
 const route =
-  /^\/api\/v1\/(?:(?<overview>overview)|(?<settings>settings)|(?<worktrees>orca-worktrees)|(?<kind>tasks|kickoffs)\/(?<id>[a-f0-9-]+)(?:\/(?<sub>timeline|changes|live-changes))?)$/;
+  /^\/api\/v1\/(?:(?<overview>overview)|(?<settings>settings)|(?<worktrees>orca-worktrees)|(?<kind>tasks|kickoffs)\/(?<id>[a-f0-9-]+)(?:\/(?<sub>timeline|changes|live-changes|observability))?)$/;
 const routeSchema = z.object({
   overview: z.literal('overview').optional(),
   settings: z.literal('settings').optional(),
   worktrees: z.literal('orca-worktrees').optional(),
   kind: z.enum(['tasks', 'kickoffs']).optional(),
   id: z.string().optional(),
-  sub: z.enum(['timeline', 'changes', 'live-changes']).optional(),
+  sub: z.enum(['timeline', 'changes', 'live-changes', 'observability']).optional(),
 });
 
 const timelineQuery = z.object({
@@ -114,6 +116,25 @@ class RevisionCache<T> {
   }
 }
 
+function readObservability(store: Store, id: string, before: string | null): ObservabilityV1 {
+  const task = store.get(id);
+  if (task.deletedAt || !task.guided) throw new HttpError(404, 'This task is not available');
+  return observabilityView(store, id, before);
+}
+
+/** Orca is optional: a missing client or a failed listing withdraws the choice rather than failing New task. */
+async function worktreesRoute(dashboard: ApiV1Dashboard): Promise<OrcaWorktreesV1> {
+  const client = dashboard.orcaClient;
+  if (!client) return unavailableOrcaWorktrees;
+  try {
+    const { worktrees, omitted } = await client.choices(process.cwd(), viewModelLimits.orcaWorktreeChoices);
+    return orcaWorktreeChoices(worktrees, omitted);
+  } catch (error) {
+    console.error(`Orca worktree choices: ${sanitiseDetail(error instanceof Error ? error.message : String(error))}`);
+    return unavailableOrcaWorktrees;
+  }
+}
+
 /** The v1 read routes of one dashboard, with their revision caches. */
 export function createApiV1(dashboard: ApiV1Dashboard) {
   const { store, kickoffs } = dashboard;
@@ -123,7 +144,8 @@ export function createApiV1(dashboard: ApiV1Dashboard) {
       kickoffs: KickoffView[];
     }>(),
     tasks = new RevisionCache<TaskFacts>(),
-    plans = new RevisionCache<KickoffView>();
+    plans = new RevisionCache<KickoffView>(),
+    activity = new RevisionCache<ObservabilityV1>();
   const qualityPasses = availableQualityPasses(currentSettings().qualityPasses);
   const requestContext = (): ViewContext => ({
     job: id => dashboard.jobs.get(id) ?? null,
@@ -170,9 +192,13 @@ export function createApiV1(dashboard: ApiV1Dashboard) {
     context: ViewContext,
     id: string,
     revision: string,
-    sub: 'timeline' | 'changes' | 'live-changes' | undefined,
+    sub: 'timeline' | 'changes' | 'live-changes' | 'observability' | undefined,
     url: URL,
   ) {
+    if (sub === 'observability') {
+      const before = url.searchParams.get('before');
+      return activity.get(`${id}:${before ?? ''}`, revision, () => readObservability(store, id, before));
+    }
     const facts = tasks.get(id, revision, () => liveTask(id));
     if (sub === 'live-changes') {
       const { path } = query(liveChangesQuery, url);
@@ -201,19 +227,6 @@ export function createApiV1(dashboard: ApiV1Dashboard) {
     return taskDetail(facts, context, revision) satisfies TaskDetailV1;
   }
 
-  /** Orca is optional: a missing client or a failed listing withdraws the choice rather than failing New task. */
-  async function worktreesRoute(): Promise<OrcaWorktreesV1> {
-    const client = dashboard.orcaClient;
-    if (!client) return unavailableOrcaWorktrees;
-    try {
-      const { worktrees, omitted } = await client.choices(process.cwd(), viewModelLimits.orcaWorktreeChoices);
-      return orcaWorktreeChoices(worktrees, omitted);
-    } catch (error) {
-      console.error(`Orca worktree choices: ${sanitiseDetail(error instanceof Error ? error.message : String(error))}`);
-      return unavailableOrcaWorktrees;
-    }
-  }
-
   return {
     /** Answers a `GET /api/v1/...` path; unknown paths are 404. */
     get(path: string, url: URL): unknown {
@@ -227,7 +240,7 @@ export function createApiV1(dashboard: ApiV1Dashboard) {
           active: currentSettings(),
         }) satisfies SettingsV1;
       }
-      if (matched.worktrees) return worktreesRoute();
+      if (matched.worktrees) return worktreesRoute(dashboard);
       const revision = store.revision();
       const context = requestContext();
       if (matched.overview) return overviewRoute(context, revision);

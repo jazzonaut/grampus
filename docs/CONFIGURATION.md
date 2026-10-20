@@ -68,6 +68,7 @@ Example:
 | `dashboardPollMs` | `100` | 50 to 1000 | Interval between observations while a background dashboard starts |
 | `usagePollIntervalMs` | `15000` | 1000 to 600000 | How often Claude usage is sampled during a turn. The final result always replaces the samples |
 | `liveChangesIntervalMs` | `5000` | 1000 to 600000 | Interval between display-only working tree observations while the task screen is visible. No agent calls or evidence writes |
+| `observabilityIntervalMs` | `1000` | 1000 to 600000 | Interval between display-only activity journal reads while the execution graph is visible. Replay and hidden pages stop polling; no agent calls |
 | `orcaSyncIntervalMs` | `5000` | 1000 to 600000 | Interval between journal observations for Orca worktree cards while the dashboard is open. Only changed cards are sent; updates never launch an agent or change workflow state |
 | `outputFlushIntervalMs` | `1000` | 100 to 60000, and shorter than `stallWarningMs` | Longest time streamed agent output is held in memory before it is journaled as one event. A crash loses at most this much display-only text |
 | `outputFlushBytes` | `8192` | 1024 to 1048576 | Buffered streamed output (UTF-8 bytes) that is journaled at once without waiting for the interval |

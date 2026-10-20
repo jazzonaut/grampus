@@ -23,6 +23,11 @@ export interface SettingsFacts {
 
 const integerSettings: readonly (IntegerSpec & { key: IntegerSetting })[] = [
   {
+    key: 'observabilityIntervalMs',
+    label: 'Observability refresh interval (ms)',
+    meaning: 'Interval between display-only journal reads while an execution graph is visible. No agent calls.',
+  },
+  {
     key: 'dashboardStartupMs',
     label: 'Background dashboard startup deadline (ms)',
     meaning: 'How long a launcher waits for an authenticated dashboard. An uncertain process is never restarted.',

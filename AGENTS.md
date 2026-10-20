@@ -43,7 +43,7 @@ is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 - Document exported functions, classes and non-obvious invariants with TSDoc. Each module
   starts with a short comment saying what it owns. Explain why, not what.
 - Docs move with code: update the current-state docs in the same commit. Mark unbuilt
-  behaviour as **Planned**. Point-in-time records go in `docs/history/`.
+  behaviour as **Planned**.
 - UK English. No em dashes in docs, UI text or commit messages.
 - Commit messages: imperative summary line under 72 characters, then a short body.
 

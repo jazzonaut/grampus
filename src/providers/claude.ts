@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { authorizeEditTool, editingInstructions, type EditingContext } from '../execution/edit-policy.js';
 import { processLimits, providerLimits, repositoryToolLimits } from '../config/limits.js';
 import { currentSettings } from '../config/settings.js';
+import { ClaudeActivity } from './activity.js';
 import {
   query,
   createSdkMcpServer,
@@ -160,12 +161,14 @@ export class ClaudeSession implements AgentSession {
   private samplingUsage = false;
   private lastUsage = '';
   private readonly unrecognized = new UnrecognizedMessages();
+  private readonly activity: ClaudeActivity;
 
   constructor(
     private readonly options: ConnectOptions,
     createQuery: typeof query = query,
   ) {
     // A new conversation gets an id chosen here, so `system/init` can prove which session actually started.
+    this.activity = new ClaudeActivity(options.emit);
     this.sessionId = options.providerSessionId ?? randomUUID();
     // Tools may act only for an active turn that is not stopping or closing.
     const owned = () => !!this.active && !this.stopRequested && !this.stopped && !this.closing;
@@ -409,6 +412,7 @@ export class ClaudeSession implements AgentSession {
     }
     if (message.type === 'system' && message.subtype === 'init') this.initialised(message);
     if (!this.active) return;
+    this.activity.message(type, message);
     if (message.type === 'assistant') this.assistantUsage(message);
     if (message.type === 'stream_event') {
       const delta = claudeTextDeltaSchema.safeParse(message);

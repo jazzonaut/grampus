@@ -3,7 +3,7 @@
 // the access-link state. The overview is polled here because the header and sidebar show it on every
 // screen; a task or planning screen polls its own view while it is open. Nothing is polled while the tab
 // is hidden or the access link is missing.
-import { computed } from 'vue';
+import { computed, defineAsyncComponent } from 'vue';
 import UApp from '@nuxt/ui/components/App.vue';
 import type { OverviewV1 } from '../../src/server/api-types';
 import { accessMessage, get, needsAccessLink } from './api/client';
@@ -24,6 +24,7 @@ import NewTaskPage from './pages/NewTaskPage.vue';
 import PlanningPage from './pages/PlanningPage.vue';
 import SettingsPage from './pages/SettingsPage.vue';
 import TaskPage from './pages/TaskPage.vue';
+const ObservabilityPage = defineAsyncComponent(() => import('./pages/ObservabilityPage.vue'));
 
 const overview = usePolled(() => get<OverviewV1>('/api/v1/overview'), pollIntervalMs, {
   enabled: () => !needsAccessLink.value,
@@ -64,6 +65,11 @@ const application = computed(() => overview.data.value?.application);
         <HealthPage v-else-if="route.name === 'health'" :overview="overview.data.value" :refresh="refresh" />
         <SettingsPage v-else-if="route.name === 'settings'" />
         <TaskPage v-else-if="route.name === 'task'" :id="route.id" :key="`task-${route.id}`" />
+        <ObservabilityPage
+          v-else-if="route.name === 'observability'"
+          :id="route.id"
+          :key="`observability-${route.id}`"
+        />
         <PlanningPage v-else-if="route.name === 'planning'" :id="route.id" :key="`planning-${route.id}`" />
         <EmptyState
           v-else

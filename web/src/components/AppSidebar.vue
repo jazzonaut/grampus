@@ -45,7 +45,11 @@ const item =
         <li v-for="task in overview.tasks" :key="task.id">
           <a
             :href="href({ name: 'task', id: task.id })"
-            :aria-current="current.name === 'task' && current.id === task.id ? 'page' : undefined"
+            :aria-current="
+              (current.name === 'task' || current.name === 'observability') && current.id === task.id
+                ? 'page'
+                : undefined
+            "
             :class="item"
           >
             <span class="truncate text-highlighted">{{ task.title }}</span>

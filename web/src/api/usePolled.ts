@@ -34,7 +34,11 @@ function asApiError(error: unknown): ApiError {
  * - While the tab is hidden nothing is scheduled; becoming visible fetches immediately.
  * - A refresh never starts provider calls, checks or Git writes on the server; it only reads.
  */
-export function usePolled<T>(fetcher: () => Promise<T>, intervalMs: number, options: PolledOptions = {}): Polled<T> {
+export function usePolled<T>(
+  fetcher: () => Promise<T>,
+  intervalMs: MaybeRefOrGetter<number>,
+  options: PolledOptions = {},
+): Polled<T> {
   const data = shallowRef<T>();
   const error = shallowRef<ApiError>();
   const loading = ref(false);
@@ -54,7 +58,7 @@ export function usePolled<T>(fetcher: () => Promise<T>, intervalMs: number, opti
     if (active())
       timer = setTimeout(() => {
         void refresh();
-      }, intervalMs);
+      }, toValue(intervalMs));
   };
 
   async function run(): Promise<void> {

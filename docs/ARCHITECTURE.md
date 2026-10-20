@@ -2,8 +2,7 @@
 
 This describes the system as it is built. [DESIGN.md](../DESIGN.md) records product intent,
 [WORKFLOW.md](WORKFLOW.md) describes automatic-mode behaviour in detail and [PLAN.md](PLAN.md) lists
-the next changes. Archived checkpoint notes, with more protocol detail and their original rationale,
-are in [history/ARCHITECTURE-CHECKPOINTS.md](history/ARCHITECTURE-CHECKPOINTS.md).
+the next changes.
 
 ## Invariants
 
@@ -171,6 +170,17 @@ uncertain shutdown. Stop requests are persisted and forwarded as an `AbortSignal
 leaf.
 
 ## Display-only live monitoring and pause
+
+The compact task execution network and dedicated observability page read actual communication
+from the existing task and session journals (`persistence/activity.ts`,
+`server/view-model/activity-events.ts`, `server/view-model/observability.ts`). Bounded pages retain
+original journal, session, run, provider item and result identities; cross-journal clock ordering
+is presentation order, never causal proof. Provider metadata capture (`providers/activity.ts`)
+adds no tool permission or model call. The authenticated, revision-cached
+`GET /api/v1/tasks/:id/observability` route supplies graph semantics; Vue folds those updates for
+historical replay without borrowing current successful outcomes. The default refresh is one
+second, paused during replay and while hidden. See [OBSERVABILITY.md](OBSERVABILITY.md) for
+capture coverage, redaction, grouped participants, replay windows and unavailable measurements.
 
 `server/live-changes.ts` reads the task worktree against its recorded pinned base, independently of
 journal revision. The authenticated `/api/v1/tasks/:id/live-changes` route re-verifies workspace

@@ -618,7 +618,7 @@ test('dashboard requires its local token and origin, rejects stale decisions, an
   assert.equal((await req('/api/tasks', { plan: f.plan })).status, 201);
   const list = (await (await req('/api/v1/overview')).json()) as OverviewV1,
     id = list.tasks[0]!.id;
-  assert.equal(list.application.version, '0.2.0');
+  assert.equal(list.application.version, '0.3.0');
   assert.equal(list.application.channel, 'development');
   const view = (await (await req(`/api/v1/tasks/${id}`)).json()) as TaskDetailV1;
   assert.equal(new GuidedTasks(ui.store).get(id).status, 'draft');
