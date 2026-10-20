@@ -20,6 +20,7 @@
 // | stop                | POST /api/tasks/:id/stop                | { expected }                          |
 // | revise              | POST /api/tasks/:id/revise              | { expected, plan }                    |
 // | reset, delete       | POST /api/{tasks,kickoffs}/:id/{reset,delete} | { expected }                    |
+// | discard             | POST /api/tasks/:id/discard             | { expected }                          |
 //
 // Actions that start an agent turn or check (run, authorize, refresh-checkpoint, assess, answer, the
 // retries and rerun-checks) need a free slot in the runner pool and are disabled while it is full.
@@ -628,6 +629,21 @@ export function taskActions(f: TaskActionFacts): ActionView[] {
       f.expected,
       busy ? 'Stop the task and confirm settlement or recovery before resetting or deleting it.' : null,
     ),
+    ...(f.status === 'recovery_required' && !f.jobRunning
+      ? [
+          action({
+            id: 'discard',
+            label: 'Discard task',
+            kind: 'danger',
+            description:
+              'Remove this abandoned task from the dashboard. Uncertain operations and workspace locks are retained; its controllers must have exited.',
+            path: route(f, 'discard'),
+            expected: f.expected,
+            confirm:
+              'Discard this task? It cannot restart. Files, commits and recovery evidence are kept, and uncertain workspaces stay locked. This does not stop tools that may still be running. Any containing comparison cannot run again.',
+          }),
+        ]
+      : []),
   ];
 }
 

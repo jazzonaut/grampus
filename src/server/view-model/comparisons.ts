@@ -85,7 +85,7 @@ export function comparisonView(store: Store, id: string) {
         path: `${path}/run`,
         expected,
         disabledReason:
-          idle && ['ready', 'waiting'].includes(value.status)
+          idle && value.approvedDigest === value.digest && ['ready', 'waiting'].includes(value.status)
             ? null
             : 'Approve the comparison and settle its current driver first.',
       }),

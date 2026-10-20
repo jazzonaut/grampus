@@ -215,6 +215,23 @@ dispatch until explicit continuation. A comparison driver left by a crashed proc
 **Recover comparison driver**; this releases only a provably dead owner and never replays a member
 operation. Starting a future member directly through the task API or CLI is refused.
 
+Creating a comparison leaves its source task unchanged. Its **Plan ready for approval** state does
+not block the comparison; approving it would authorise a separate ordinary run. A member's
+**Operation needs recovery** state concerns that member's unfinished operation. Recovery requires
+its retained settlement evidence. A missing completion receipt cannot be replaced by approving the
+source task or repeating recovery, and a fresh comparison does not fix an underlying supervisor
+startup failure. The supervisor starts from its own helper directory, independently of where the
+dashboard was launched.
+
+If recovery cannot obtain a missing completion receipt and you want to abandon the run, choose
+**Discard task** under task management. Every recorded task, workspace, session and comparison
+controller must be provably absent on this host; live, foreign or unverifiable controllers block
+discard. The task is hidden and cannot restart. Its dead guided runner stops occupying a task slot,
+but uncertain outcomes, pending intent, workspace locks, files, commits and evidence are retained.
+Discard neither stops a tool nor claims its process tree settled. A containing comparison loses
+approval and cannot run again. The original source task is unchanged. Ordinary **Delete task** and
+**Reset task** continue to require settled work.
+
 The comparison being complete means all variants have settled, including any failures. Inspect
 their individual delivery outcomes and changes before selecting a preferred verified run.
 Selection records a preference without changing the source branch. **Inspect integration** shows

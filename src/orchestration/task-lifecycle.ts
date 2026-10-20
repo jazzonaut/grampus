@@ -1,12 +1,13 @@
 // Owns dashboard task management: deleting or resetting a task or planning conversation. Both are
 // tombstones that hide the item; workspace files, commits and journal evidence are always retained,
-// and an item with live or uncertain work is refused rather than interrupted.
+// and deletion/reset refuse live or uncertain work. Explicit discard preserves uncertain outcomes.
 import type { Store } from '../persistence/store.js';
 import type { Task } from '../domain/workflow.js';
 import { Kickoffs } from './kickoff.js';
 import { GuidedTasks } from './guided/controller.js';
 import { guidedDecisionKey, guidedQuestionKey } from './guided/keys.js';
 import { assertTaskExecutionIdle } from '../execution/execution-state.js';
+import { discardTask } from './task-discard.js';
 
 /** What a reset kickoff starts from. */
 type ResetSource = Parameters<Kickoffs['create']>[0];
@@ -106,6 +107,11 @@ export class TaskLifecycle {
       this.hide(kind, id);
       return { ok: true };
     });
+  }
+
+  /** Explicitly abandons a recovery task, preserving its uncertain outcomes and workspace locks. */
+  discard(id: string, expected: string): { ok: true } {
+    return discardTask(this.store, id, expected);
   }
 
   /**

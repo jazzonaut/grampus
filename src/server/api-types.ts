@@ -94,6 +94,7 @@ export type ActionId =
   | 'revise'
   | 'reset'
   | 'delete'
+  | 'discard'
   | 'report'
   | 'plan-message'
   | 'plan-answer'

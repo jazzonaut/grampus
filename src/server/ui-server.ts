@@ -408,6 +408,11 @@ async function postItem(dashboard: Dashboard, route: ItemRoute, payload: unknown
   }
   if (dashboard.jobs.get(id)?.running && !['stop', 'pause', 'guidance', 'cancel-guidance'].includes(action))
     throw new HttpError(409, 'An action is already running; wait for settlement');
+  if (kind === 'tasks' && action === 'discard') {
+    const { expected } = parseRequest(lifecycleBody, payload);
+    staleLifecycle(dashboard, route, expected);
+    return [200, new TaskLifecycle(dashboard.store).discard(id, expected)];
+  }
   if (action === 'delete' || action === 'reset') {
     const { expected } = parseRequest(lifecycleBody, payload);
     staleLifecycle(dashboard, route, expected);

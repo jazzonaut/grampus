@@ -439,6 +439,15 @@ implies write scope. Budgets are in [REPOSITORY-CONTEXT.md](REPOSITORY-CONTEXT.m
 
 ## Artifacts, checks and the Windows supervisor
 
+Explicit discard (`orchestration/task-discard.ts`) hides a recovery-blocked task only after every
+recorded controller is proved absent on this host. It checks ownership outside the write lock and
+revalidates the complete ownership snapshot inside the transaction. The tombstone, approval
+withdrawal, dead guided runner release and containing comparison's approval withdrawal commit with
+their journal events. Discard preserves task and operation outcomes, pending intents, execution
+leases and files; it is not settlement proof and never replays work. Retained workspace leases
+continue to prevent reuse. Deleted tasks cannot dispatch further work. Ordinary deletion and reset
+still refuse uncertain operations.
+
 A repository snapshot (`repository/artifacts.ts`, `repository/repository-evidence.ts`) hashes HEAD, index entries, the raw
 bytes of tracked and non-ignored untracked files and discovered `AGENTS.md`/`CLAUDE.md` instructions
 into a SHA-256 artifact digest. A stable capture takes two matching reads. Git plumbing reads raw
@@ -447,7 +456,9 @@ outside the digest. Symlinks and submodules are refused.
 
 Checks (`verification/checks.ts`) run an approved executable with literal arguments at the workspace root, with
 no shell. The request and before-snapshot are durable before dispatch. On Windows, a hidden detached
-Node host (`process/check-host.ts`) runs PowerShell, which compiles `process/native/check.cs` and starts the tool
+Node host (`process/check-host.ts`) runs PowerShell from the native helper directory, so supervisor
+compilation cannot pick up incompatible framework assemblies from the dashboard's launch directory
+(for example PowerShell 7's installation directory). PowerShell compiles `process/native/check.cs` and starts the tool
 directly inside a Job Object (kill-on-close, no breakaway). After the root exits the supervisor
 waits up to 100 ms for the job to drain, terminates any remaining descendants and confirms zero
 active processes before writing a flushed receipt. The tool's stdout and stderr are inherited file
@@ -882,7 +893,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | `orchestration/` | `guided-status.ts` | Task views and next actions |
 | | `kickoff.ts`, `prompts/planner.ts`, `planner-progress.ts`, `task-title.ts` | Planning conversations and planner prompts, live planner progress and the provisional title from the request |
 | | `comparisons.ts`, `comparison-integration.ts` | Sequential comparisons, manual preference and explicit verified fast-forward integration |
-| | `task-lifecycle.ts` | Reset and delete with tombstones |
+| | `task-lifecycle.ts`, `task-discard.ts` | Reset and delete with tombstones; explicit abandonment retaining uncertain workspace leases |
 | `execution/` | `sessions.ts`, `session-context.ts` | Conversation turns, recovery and resume-or-fresh decisions |
 | | `output-buffer.ts` | Coalescing streamed provider output per run |
 | | `executions.ts`, `execution-state.ts` | Execution bindings, leases and settlement |

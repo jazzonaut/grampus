@@ -186,6 +186,28 @@ describe('TaskPage', () => {
     ]);
   });
 
+  it('shows discard under task management and sends its confirmed request', async () => {
+    const discard = mockAction('discard', 'Discard task', {
+      path: '/api/tasks/task-1/discard',
+      expected: 'decision-7',
+      kind: 'danger',
+      confirm: 'Discard this task? Recovery evidence and workspace locks are kept.',
+    });
+    const { wrapper, sent } = await open({
+      '/api/v1/tasks/task-1': { ...mockTask, decisions: [discard] },
+      'POST /api/tasks/task-1/discard': { ok: true },
+    });
+    expect(wrapper.find('[data-decision="discard"]').exists()).toBe(false);
+    await wrapper.get('[data-action="discard"] button').trigger('click');
+    expect(posts(sent)).toEqual([]);
+    await wrapper.get('[data-action="discard"] [data-confirm]').trigger('click');
+    await flushPromises();
+    expect(posts(sent)).toEqual([
+      { method: 'POST', path: '/api/tasks/task-1/discard', body: { expected: 'decision-7' } },
+    ]);
+    expect(window.location.hash).toBe('#/');
+  });
+
   it('shows live activity with Stop and Pause, and sends the bound pause request', async () => {
     const working: TaskDetailV1 = {
       ...mockTask,

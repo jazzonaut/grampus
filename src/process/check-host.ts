@@ -3,7 +3,7 @@
 // tool parameters are not interpreted; the host only bounds the supervisor's lifetime and forwards one request
 // (adding its own PID) plus a stop signal.
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { commandLimits, processLimits } from '../config/limits.js';
@@ -18,6 +18,9 @@ const powershell = resolve(
 );
 const script = fileURLToPath(new URL('../../../src/process/native/check.ps1', import.meta.url));
 const child = spawn(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], {
+  // Add-Type resolves framework references from the process working directory. A dashboard
+  // launched in PowerShell 7's directory would otherwise pick up incompatible .NET assemblies.
+  cwd: dirname(script),
   windowsHide: true,
   shell: false,
   stdio: 'pipe',

@@ -64,13 +64,13 @@ const actions = useActions({
   refresh: () => task.refresh(),
   signature,
   accepted: (action, response) => {
-    if (action.id === 'delete') navigate({ name: 'home' });
+    if (action.id === 'delete' || action.id === 'discard') navigate({ name: 'home' });
     if (action.id === 'reset' && typeof response === 'object' && response !== null && 'id' in response)
       navigate({ name: 'planning', id: String(response.id) });
   },
 });
 
-const managed = new Set(['revise', 'reset', 'delete']);
+const managed = new Set(['revise', 'reset', 'delete', 'discard']);
 const decisions = computed(() => view.value?.decisions ?? []);
 const controls = computed(() => decisions.value.filter(item => item.id === 'stop' || item.id === 'pause'));
 /** The report is a decision only when it is the next step (a delivered task); otherwise it is under Details. */
@@ -107,7 +107,7 @@ function requestChanges(): void {
   panel.open = true;
   panel.querySelector<HTMLTextAreaElement>('textarea')?.focus();
 }
-const lifecycle = computed(() => decisions.value.filter(item => item.id === 'reset' || item.id === 'delete'));
+const lifecycle = computed(() => decisions.value.filter(item => ['reset', 'delete', 'discard'].includes(item.id)));
 
 function run(action: ActionView, drafts = {}): void {
   void actions.run(action, drafts);

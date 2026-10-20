@@ -279,6 +279,9 @@ test('action rules: live work offers stop, uncertain work offers recovery and re
   const uncertain = facts({ status: 'blocked', pending: true });
   assert.equal(taskPresentation(uncertain).attention, 'recovery');
   assert.deepEqual(ids(uncertain).slice(0, 1), ['recover']);
+  const recovery = facts({ status: 'recovery_required', owner: true, pending: true });
+  assert.ok(ids(recovery).includes('discard'));
+  assert.equal(ids({ ...recovery, jobRunning: true }).includes('discard'), false);
   const orphaned = facts({ status: 'ready', stage: 'workspace', owner: true, releasable: true });
   assert.deepEqual(ids(orphaned).slice(0, 3), ['recover', 'release-workspace', 'stop']);
 

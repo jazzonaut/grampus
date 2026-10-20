@@ -63,6 +63,7 @@
   "repository-tools",
   "slices-delivery",
   "slices-recovery",
+  "task-discard",
   "ui",
   "ui-guidance-worker",
   "ui-monitoring",
