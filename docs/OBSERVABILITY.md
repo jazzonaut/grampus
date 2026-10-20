@@ -10,7 +10,8 @@ Moving dots follow the direction of active connectors, and active nodes have a p
 a **Live** label and a visible description of the unfinished operation. Concurrent tool calls
 keep the connector and label active until the last correlated call settles. Compact groups
 retain the active session's label when other sessions have completed. Replay and stale reads
-show static indicators; reduced-motion preferences keep the same status and labels without animation.
+show static indicators. Live connector dots always animate, including when reduced motion is enabled;
+that preference suppresses the node outline pulse while retaining the same status and labels.
 
 ## What the network means
 

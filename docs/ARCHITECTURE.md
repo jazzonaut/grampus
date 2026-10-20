@@ -197,8 +197,9 @@ historical replay without borrowing current successful outcomes. The default ref
 second, paused during replay and while hidden. Shared connector and participant components
 show directional traffic, pulsing live nodes and the current unfinished operation. Correlated
 calls retain independent activity so one tool completion cannot hide another running call;
-compact groups retain the active operation's label. Motion stops for replay, stale reads and
-reduced-motion preferences. See [OBSERVABILITY.md](OBSERVABILITY.md) for
+compact groups retain the active operation's label. Motion stops for replay and stale reads.
+Live connector dots always animate; reduced-motion preferences suppress node pulsing.
+See [OBSERVABILITY.md](OBSERVABILITY.md) for
 capture coverage, redaction, grouped participants, replay windows and unavailable measurements.
 
 `server/live-changes.ts` reads the task worktree against its recorded pinned base, independently of

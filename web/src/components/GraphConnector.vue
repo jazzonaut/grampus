@@ -52,9 +52,4 @@ defineProps<{ edge: GraphEdge; path: string; markerId: string; live: boolean }>(
     stroke-dashoffset: -48;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .network-traffic {
-    animation: none;
-  }
-}
 </style>
