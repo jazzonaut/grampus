@@ -195,7 +195,7 @@ the fields.
 | --- | --- |
 | **Pause after this step** | Lets the current operation finish and settle, then stops before starting another. **Continue task** resumes the same attempt with its files, conversations and evidence. A failure, question or uncertain settlement keeps its own reason |
 | **Stop now** | Requests settlement of active work. It does not claim processes have already exited |
-| **Retry repair** | Starts a fresh attempt, keeping files and resuming eligible conversations. Use it after staging files mid-run |
+| **Retry repair** | Starts a fresh attempt, keeping files and resuming eligible conversations. For a comparison, queues behind the active run or starts immediately when idle, including after the comparison completes. Queued retries are labelled and duplicate clicks are disabled |
 | **Rerun checks** | Shown only when a validation or acceptance check stopped for an infrastructure reason (timeout, interruption, lost output, abnormal exit or runner error) on an unchanged change. Runs the same check again with no agent turn and no new attempt; refused if the workspace changed since |
 | **Retry preparation** | Reruns a failed preparation step in the same attempt |
 | **Recover saved work** | Runs the same conservative receipt checks as `task-recover` after a controller exits |

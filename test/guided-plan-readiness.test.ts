@@ -12,7 +12,8 @@ test('readiness commands and allowances are explicit parts of approval', t => {
   const input = { ...f.plan, slices: [{ ...f.plan.slices[0], readiness: [command] }] };
   const plan = normalizeGuidedPlan(input);
   assert.deepEqual(plan.slices[0]!.readiness, [{ ...command, kind: 'types', file: process.execPath }]);
-  assert.equal(plan.workflowPolicy.readinessRounds, 2);
+  assert.equal(plan.workflowPolicy.readinessRounds, 5);
+  assert.equal(plan.workflowPolicy.repairRounds, 5);
   const changedBudget = normalizeGuidedPlan({ ...input, workflowPolicy: { readinessRounds: 4 } });
   assert.notEqual(guidedPlanDigest(plan), guidedPlanDigest(changedBudget));
   const changedKind = normalizeGuidedPlan({

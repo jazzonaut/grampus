@@ -37,6 +37,8 @@ import {
   type TaskPresentation,
 } from './status.js';
 import { currentSettings } from '../../config/settings.js';
+import { comparisonRetries } from '../../domain/comparison-retries.js';
+import { comparisonRetryProblem } from '../../orchestration/comparison-retry-policy.js';
 import { recentTimeline } from './timeline.js';
 import { repairsView } from './repairs.js';
 import { guidanceView } from './guidance.js';
@@ -52,6 +54,7 @@ export interface TaskFacts {
   view: GuidedTaskView;
   /** Comparison members use the group's approval and continuation controls. */
   comparisonId: string | null;
+  comparisonRetry: TaskActionFacts['comparisonRetry'];
   events: JournalEvent[];
   /** Checks of the current version and slice, across attempts, oldest first. */
   checks: RepositoryCheck[];
@@ -83,9 +86,19 @@ export function taskFacts(store: Store, id: string): TaskFacts {
         execution.taskId === id && execution.version === state.version && execution.sliceIndex === state.sliceIndex,
     );
   const events = store.events(id);
+  const comparison = store.comparisons().find(group => group.runs.some(run => run.taskId === id));
+  const retries = comparison ? comparisonRetries(store, comparison.id) : null;
   return {
     view,
-    comparisonId: store.comparisons().find(group => group.runs.some(run => run.taskId === id))?.id ?? null,
+    comparisonId: comparison?.id ?? null,
+    comparisonRetry:
+      comparison && retries?.active?.taskId !== id
+        ? {
+            queued: retries?.pending.some(retry => retry.taskId === id) ?? false,
+            waiting: comparison.owner !== null || comparison.pauseRequested,
+            problem: comparisonRetryProblem(store, comparison, id),
+          }
+        : null,
     events,
     checks: executions.flatMap(execution => store.checks(execution.id)),
     repairs: executions.filter(execution => execution.stage === 'repair').length,
@@ -108,6 +121,7 @@ export function taskActionFacts(facts: TaskFacts, context: ViewContext): TaskAct
   return {
     taskId: view.task.id,
     comparisonId: facts.comparisonId,
+    comparisonRetry: facts.comparisonRetry,
     expected: guidedDecisionKey(state, view.questionKey),
     status: state.status,
     stage: state.stage,
@@ -236,6 +250,11 @@ function activity(facts: TaskFacts, context: ViewContext, presentation: TaskPres
 }
 
 function nextStep(facts: TaskActionFacts, presentation: TaskPresentation, title: string): NextStepV1 {
+  if (facts.comparisonRetry?.queued)
+    return {
+      kind: 'automatic',
+      label: 'Repair retry queued. The active comparison run finishes first; continue the comparison if it is paused.',
+    };
   if (facts.comparisonId && (facts.status === 'draft' || facts.status === 'ready'))
     return { kind: 'human', label: 'Open Comparisons to approve all profiles and run this comparison.', actionIds: [] };
   if (presentation.status === 'working' && facts.pauseRequested)

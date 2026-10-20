@@ -12,6 +12,7 @@ import {
   comparisonDecisionKey,
   sharedPlanDigest,
   requireComparisonMember,
+  comparisonCurrentRun,
   type Comparison,
 } from '../domain/comparison.js';
 import { resolveModelProfile } from '../domain/model-profiles.js';
@@ -23,6 +24,10 @@ import { processAlive } from '../verification/check-recovery.js';
 import { StaleStateError } from '../persistence/errors.js';
 import { GuidedTasks } from './guided/controller.js';
 import type { GuidedServices, GuidedState } from './guided/state.js';
+import { comparisonRetries, type ComparisonRetry } from '../domain/comparison-retries.js';
+import { guidedDecisionKey, guidedQuestionKey } from './guided/keys.js';
+import { comparisonRetryProblem } from './comparison-retry-policy.js';
+import { assertRunnerAvailable } from './guided/runner-pool.js';
 
 /** Comparison state changes journalled with their state in the same transaction. */
 export function changeComparison(
@@ -30,13 +35,14 @@ export function changeComparison(
   id: string,
   type: string,
   update: (value: Comparison) => void,
+  details: Record<string, unknown> = {},
 ): Comparison {
   return store.transaction(() => {
     const value = store.comparison(id);
     update(value);
     value.revision++;
     store.saveComparison(value);
-    store.appendComparison(id, type, value);
+    store.appendComparison(id, type, { ...value, ...details });
     return value;
   });
 }
@@ -181,16 +187,98 @@ export class Comparisons {
         }
       });
     }
+    const settled = this.store.comparison(id);
+    const retries = comparisonRetries(this.store, id);
+    if (
+      !signal?.aborted &&
+      !settled.owner &&
+      !settled.pauseRequested &&
+      !retries.active &&
+      retries.pending.length &&
+      retryDispatchReady(this.store, settled, nextRetry(settled, retries.pending))
+    )
+      await this.driveQueuedRetry(id, signal);
     return this.store.comparison(id);
+  }
+
+  /** Queues one exact repair decision behind active work, or immediately drives an idle comparison. */
+  async retry(taskId: string, expected?: string, signal?: AbortSignal): Promise<GuidedState> {
+    const group = this.store.transaction(() => this.queueRetry(taskId, expected));
+    if (!group.owner && !group.pauseRequested) await this.driveQueuedRetry(group.id, signal);
+    return new GuidedTasks(this.store).get(taskId);
+  }
+
+  private async driveQueuedRetry(id: string, signal?: AbortSignal): Promise<void> {
+    const current = this.store.comparison(id);
+    if (current.owner || current.pauseRequested || signal?.aborted) return;
+    try {
+      await this.run(id, comparisonDecisionKey(current), signal);
+    } catch (error) {
+      // Another queue decision or driver may win between the read and claim. The request is already
+      // durable; reread ownership instead of reporting a failed action or duplicating its dispatch.
+      if (!(error instanceof StaleStateError)) throw error;
+      await this.driveQueuedRetry(id, signal);
+    }
+  }
+
+  private queueRetry(taskId: string, expected?: string): Comparison {
+    const group = this.store.comparisons().find(item => item.runs.some(run => run.taskId === taskId));
+    if (!group) throw new Error('Task does not belong to a comparison');
+    requireComparisonDecision(group, comparisonDecisionKey(group));
+    const problem = comparisonRetryProblem(this.store, group, taskId);
+    if (problem) throw new Error(problem);
+    if (!group.owner && !group.pauseRequested) assertRunnerAvailable(this.store);
+    const state = new GuidedTasks(this.store).get(taskId);
+    const key = guidedDecisionKey(state, guidedQuestionKey(this.store, state));
+    if (expected !== undefined && expected !== key)
+      throw new StaleStateError('Task changed since you inspected it; refresh before taking this action');
+    const retry: ComparisonRetry = { id: randomUUID(), taskId, expected: key };
+    const queued = changeComparison(
+      this.store,
+      group.id,
+      'comparison.retry_requested',
+      value => {
+        if (value.status === 'complete') value.status = 'ready';
+        value.note = 'Repair retry queued. The active run finishes before this repair starts.';
+      },
+      { retry },
+    );
+    this.store.append(taskId, state.version, 'guided.comparison_retry_queued', {
+      comparisonId: group.id,
+      requestId: retry.id,
+      status: state.status,
+      stage: state.stage,
+      note: 'Repair retry queued. The current comparison run finishes first; approved files and repair usage are kept.',
+      reasonCode: state.stopReason?.code ?? null,
+    });
+    return queued;
   }
 
   private async drive(id: string, token: string, signal?: AbortSignal): Promise<void> {
     while (!signal?.aborted) {
-      const value = this.store.comparison(id),
-        run = value.runs[value.cursor];
+      const value = this.store.comparison(id);
       if (value.owner?.token !== token) throw new Error('Comparison owner changed');
       if (value.pauseRequested) return;
-      if (!run) return;
+      const retries = comparisonRetries(this.store, id);
+      const retry = nextRetry(value, retries.pending);
+      if (!retries.active && retry && retryDispatchReady(this.store, value, retry)) {
+        if (!(await this.startRetry(id, token, retry, signal))) return;
+        continue;
+      }
+      const run = comparisonCurrentRun(this.store, value);
+      if (!run) {
+        const complete = this.store.transaction(() => {
+          const latest = comparisonRetries(this.store, id);
+          if (latest.active || latest.pending.length) return false;
+          changeComparison(this.store, id, 'comparison.completed', current => {
+            current.status = 'complete';
+            current.note = 'Runs settled. Inspect results and select a preferred run.';
+          });
+          return true;
+        });
+        if (complete) return;
+        continue;
+      }
       requireComparisonMember(this.store, run.taskId);
       let state = new GuidedTasks(this.store).get(run.taskId);
       if (state.status === 'ready' || state.stopReason?.code === 'USER_PAUSED') {
@@ -213,14 +301,51 @@ export class Comparisons {
         });
         return;
       }
-      changeComparison(this.store, id, 'comparison.run_settled', current => {
-        current.cursor++;
-        if (current.cursor === current.runs.length) {
-          current.status = 'complete';
-          current.note = 'Runs settled. Inspect results and select a preferred run.';
-        }
+      const advanced = this.store.transaction(() => {
+        const current = this.store.comparison(id);
+        if (current.owner?.token !== token) throw new Error('Comparison owner changed');
+        if (current.pauseRequested || !finishedMember(this.store, new GuidedTasks(this.store).get(run.taskId)))
+          return false;
+        if (retries.active)
+          changeComparison(this.store, id, 'comparison.retry_finished', () => {}, { retry: retries.active });
+        else
+          changeComparison(this.store, id, 'comparison.run_settled', value => {
+            value.cursor++;
+          });
+        return true;
       });
-      if (this.store.comparison(id).status === 'complete') return;
+      if (!advanced) return;
+    }
+  }
+
+  private async startRetry(id: string, token: string, retry: ComparisonRetry, signal?: AbortSignal): Promise<boolean> {
+    changeComparison(
+      this.store,
+      id,
+      'comparison.retry_started',
+      value => {
+        if (value.owner?.token !== token) throw new Error('Comparison owner changed');
+        value.note = 'Retrying a failed run with its retained files and approved allowances.';
+      },
+      { retry },
+    );
+    try {
+      await new GuidedTasks(this.store, { ...this.services, expectedState: retry.expected }).retry(
+        retry.taskId,
+        signal,
+      );
+      return true;
+    } catch (error) {
+      const state = new GuidedTasks(this.store).get(retry.taskId);
+      this.store.transaction(() => {
+        if (finishedMember(this.store, state))
+          changeComparison(this.store, id, 'comparison.retry_finished', () => {}, { retry });
+        changeComparison(this.store, id, 'comparison.waiting', current => {
+          current.status = 'waiting';
+          current.note = error instanceof Error ? error.message : String(error);
+        });
+      });
+      return false;
     }
   }
 
@@ -231,7 +356,7 @@ export class Comparisons {
       if (!value.owner || value.pauseRequested) throw new Error('No running comparison to pause');
       value.pauseRequested = true;
       value.note = 'Pause requested. The active operation will settle before further comparison work.';
-      const run = value.runs[value.cursor];
+      const run = comparisonCurrentRun(this.store, value);
       if (run && this.store.get(run.taskId).guided?.owner) new GuidedTasks(this.store).pause(run.taskId);
     });
   }
@@ -296,4 +421,23 @@ function finishedMember(store: Store, state: GuidedState): boolean {
   if (state.owner || state.pending) return false;
   if (state.workspaceId && store.lease(state.workspaceId)) return false;
   return state.status === 'complete' || (state.status === 'blocked' && state.stopReason?.code !== 'USER_PAUSED');
+}
+
+/** Human questions and unfinished operations still belong to the current run, ahead of queued work. */
+function retryDispatchReady(store: Store, value: Comparison, retry: ComparisonRetry | undefined): boolean {
+  const run = value.runs[value.cursor];
+  if (!run) return true;
+  const state = new GuidedTasks(store).get(run.taskId);
+  return (
+    finishedMember(store, state) ||
+    (!state.owner &&
+      !state.pending &&
+      ((state.status === 'ready' && state.stage === 'workspace') ||
+        (retry?.taskId === run.taskId && ['blocked', 'awaiting_scope', 'awaiting_assessment'].includes(state.status))))
+  );
+}
+
+/** A retry of the current checkpoint resolves that run before earlier failures get their next turn. */
+function nextRetry(value: Comparison, pending: ComparisonRetry[]): ComparisonRetry | undefined {
+  return pending.find(retry => retry.taskId === value.runs[value.cursor]?.taskId) ?? pending[0];
 }

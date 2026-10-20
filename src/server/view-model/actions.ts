@@ -56,6 +56,8 @@ export interface TaskActionFacts extends TaskStatusFacts {
   taskId: string;
   /** Membership directs initial approval and continuation to the comparison instead of this task. */
   comparisonId: string | null;
+  /** An explicit comparison retry may queue without claiming a runner slot. */
+  comparisonRetry: { queued: boolean; waiting: boolean; problem: string | null } | null;
   /** The decision key of the displayed state (`guidedDecisionKey`). */
   expected: string;
   stage: Stage;
@@ -392,6 +394,8 @@ export function lifecycleActions(
 type Builder = (f: TaskActionFacts) => ActionView;
 
 const route = (f: TaskActionFacts, name: string) => `/api/tasks/${f.taskId}/${name}`;
+const retryProblem = (f: TaskActionFacts) =>
+  f.comparisonRetry?.problem ?? (f.comparisonRetry?.waiting ? null : f.poolFull);
 
 const builders = {
   approve: f =>
@@ -435,7 +439,7 @@ const builders = {
       description: 'Takes a fresh checkpoint of the workspace in a new attempt; files are kept.',
       path: route(f, 'retry'),
       expected: f.expected,
-      disabledReason: f.poolFull,
+      disabledReason: retryProblem(f),
     }),
   assess: f =>
     action({
@@ -467,24 +471,35 @@ const builders = {
   retry: f =>
     action({
       id: 'retry',
-      label: f.status === 'awaiting_assessment' ? 'Revise implementation' : 'Retry repair',
+      label: f.comparisonRetry?.queued
+        ? 'Repair retry queued'
+        : f.comparisonRetry?.waiting
+          ? 'Queue repair retry'
+          : f.status === 'awaiting_assessment'
+            ? 'Revise implementation'
+            : 'Retry repair',
       kind: f.status === 'blocked' && f.rerunProblem !== null ? 'primary' : 'secondary',
-      description:
-        'Starts a fresh implementation attempt with the failure as feedback, keeping files and resuming eligible conversations. Use it after staging files mid-run.',
+      description: f.comparisonRetry
+        ? 'Retries this run with its retained files and failure feedback. The active comparison run finishes first; a paused comparison needs explicit continuation. Approved repair usage is kept.'
+        : 'Starts a fresh implementation attempt with the failure as feedback, keeping files and resuming eligible conversations. Use it after staging files mid-run.',
       path: route(f, 'retry'),
       expected: f.expected,
-      disabledReason: f.poolFull,
+      disabledReason: retryProblem(f),
     }),
   'retry-preparation': f =>
     action({
       id: 'retry-preparation',
-      label: 'Retry preparation',
+      label: f.comparisonRetry?.queued
+        ? 'Preparation retry queued'
+        : f.comparisonRetry?.waiting
+          ? 'Queue preparation retry'
+          : 'Retry preparation',
       kind: 'primary',
       description:
         'Reruns the failed preparation step in the same attempt; the implementation and retained files are kept.',
       path: route(f, 'retry'),
       expected: f.expected,
-      disabledReason: f.poolFull,
+      disabledReason: retryProblem(f),
     }),
   'rerun-checks': f =>
     action({

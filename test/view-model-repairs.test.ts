@@ -7,7 +7,12 @@ import { fixture } from './helpers/guided-tasks.js';
 
 test('repair decisions explain their trigger, progress and budget in the task and timeline', t => {
   const f = fixture(t);
-  const id = f.create(),
+  const task = f.tasks.create({
+    ...f.plan,
+    workflowPolicy: { mode: 'supervised', readinessRounds: 2, repairRounds: 3 },
+  });
+  f.tasks.approve(task.id, task.version, task.guided!.digest);
+  const id = task.id,
     state = f.tasks.get(id);
   assert.equal(state.plan.workflowPolicy.repairRounds, 3);
   assert.equal(state.plan.workflowPolicy.readinessRounds, 2);

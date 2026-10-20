@@ -3,6 +3,8 @@
 // state; stage dispatch and settlement live in ./stages, prompts in ./prompts.ts. It never replays a provider
 // turn, command or Git write, and never takes ownership from a live or unverifiable controller.
 import { requireComparisonMember } from '../../domain/comparison.js';
+import { comparisonRetries } from '../../domain/comparison-retries.js';
+import { Comparisons } from '../comparisons.js';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { Store } from '../../persistence/store.js';
@@ -238,6 +240,9 @@ export class GuidedTasks {
       previous.host === hostname() &&
       !processAlive(previous.controllerPid, previous.controllerStartedAt);
     return this.store.transaction(() => {
+      // The comparison may advance while process identity is inspected. Membership and the runner
+      // claim must share the write lock, otherwise a settled member could start outside its turn.
+      requireComparisonMember(this.store, id);
       if (!recover) this.current(id, !unapproved);
       const state = this.get(id);
       this.requireExpected(state);
@@ -722,6 +727,11 @@ export class GuidedTasks {
    * implementation; anything else starts a new implementation attempt with the failure as feedback.
    */
   async retry(id: string, signal?: AbortSignal): Promise<GuidedState> {
+    const comparison = this.store.comparisons().find(group => group.runs.some(run => run.taskId === id));
+    if (comparison && comparisonRetries(this.store, comparison.id).active?.taskId !== id) {
+      const { expectedState, ...services } = this.services;
+      return new Comparisons(this.store, services).retry(id, expectedState, signal);
+    }
     if (isSpendingStop(this.current(id).stopReason?.code))
       throw new Error('Revise the task spending policy and obtain fresh approval before retrying');
     const allowed: Status[] = ['blocked', 'awaiting_scope', 'awaiting_assessment'];

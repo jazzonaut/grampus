@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { guidedPlanSchema, type GuidedPlan } from './guided-plan.js';
 import { modelProfileSchema } from './model-profiles.js';
 import { profileLimits } from '../config/limits.js';
+import { comparisonRetries } from './comparison-retries.js';
 
 /** An exclusive comparison driver owner, retained across an uncertain process exit. */
 export const comparisonOwnerSchema = z.object({
@@ -81,12 +82,18 @@ export function requireComparisonMember(store: Store, taskId: string): void {
   if (!group) return;
   if (group.pauseRequested)
     throw new Error('Comparison is paused; continue the comparison before dispatching a member');
-  const run = group.runs[group.cursor];
+  const run = comparisonCurrentRun(store, group);
   if (!run || run.taskId !== taskId || group.approvedDigest !== group.digest)
     throw new Error('This run must wait for its approved comparison turn');
   const task = store.get(taskId);
   if (task.version !== run.version || task.guided?.digest !== run.digest)
     throw new Error('Comparison member configuration changed; create a new comparison');
+}
+
+/** An explicit retry temporarily occupies the driver without moving the initial execution cursor. */
+export function comparisonCurrentRun(store: Store, group: Comparison): Comparison['runs'][number] | undefined {
+  const retry = comparisonRetries(store, group.id).active;
+  return retry ? group.runs.find(run => run.taskId === retry.taskId) : group.runs[group.cursor];
 }
 
 /** Exact displayed state for user decisions, separate from immutable batch approval. */

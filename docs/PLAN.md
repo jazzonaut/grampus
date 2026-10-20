@@ -60,15 +60,20 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   `config.json`. The selected passes are resolved to full definitions in the approved plan digest.
   Implementation, validation, independent review, acceptance and delivery stay mandatory and
   ordered ([WORKFLOW.md](WORKFLOW.md#quality-passes)).
+- **Retry failed comparison runs.** Done 20 October 2026. Explicit retry works after a member's
+  initial turn and after batch completion. Requests queue durably behind active work without
+  changing the approved order or replaying an uncertain dispatch. The dashboard labels queued
+  retries and prevents duplicate requests. New plans default to five readiness and five
+  behavioural repair rounds; existing approvals and recorded usage stay fixed.
 - **Bounded implementation readiness.** Done 20 October 2026. Explicit, approved formatting,
   lint and type checks run before behavioural validation on every artifact. A separate
-  `readinessRounds` allowance (two by default) persists through repairs, manual retries and
-  restarts. The existing shared behavioural allowance remains three by default. Approval and
+  `readinessRounds` allowance (five by default) persists through repairs, manual retries and
+  restarts. The existing shared behavioural allowance is five by default. Approval and
   Settings expose both limits, task spending still bounds all turns, and repair history shows
   observed subsequent checks and review verdicts. Submission requires current readiness passes.
   No-progress, infrastructure and recovery guards remain in force. Journal schema 8.
 - **Progress-aware shared repairs.** Done 19 October 2026. Validation, review and acceptance
-  share one approved slice allowance (three by default, up to ten). Continued blocking reviews
+  share one approved slice allowance (five by default, up to ten). Continued blocking reviews
   must resolve preceding blockers with explicit identities and evidence; stalled or unknown
   progress stops or uses approved arbitration. Decisions are journaled with their reasons and
   budget. The journal schema refuses other versions without migration ([WORKFLOW.md](WORKFLOW.md)).
@@ -148,7 +153,7 @@ notice; truncated or unavailable previews are explicit. Diff drivers, clean/proc
 The screen shows the current slice's separate readiness and shared behavioural repair allowances
 and recent controller decisions, with the trigger, progress assessment, remaining budget,
 result/artifact identities and subsequent observed results. Full history stays
-in the timeline. New plans default to two readiness and three behavioural repairs; explicit approved allowances remain
+in the timeline. New plans default to five readiness and five behavioural repairs; explicit approved allowances remain
 bound to their plan. **Pause after this step** lets the current operation settle before stopping;
 **Continue task** resumes the same attempt. Failures and uncertain operations retain their failure or
 recovery reason. Persisted pause, guidance and task spending policy are part of the journal schema (now 8); other versions are refused without migration.

@@ -136,13 +136,13 @@ follows submission, and the reviewer's verdict on each selected quality lens bec
 at `assessment` before verification; a failed lens counts as a blocking finding. Edit quality passes
 run between `implementation` and validation on the slice's first successful implementation only
 ([quality passes](WORKFLOW.md#quality-passes)). Declared read-only formatting, lint and type checks run at `readiness` after the refresh.
-Their failures use `workflowPolicy.readinessRounds` (two by default, up to ten), persisted in
+Their failures use `workflowPolicy.readinessRounds` (five by default, up to ten), persisted in
 `readinessCycle`. All attempts rerun readiness, but behavioural repairs and manual retries never
 replenish it. Submission independently checks that every readiness command passed on the exact
 artifact and instructions; readiness cannot substitute for validation. Ordinary behavioural
 validation and acceptance failures return to
 implementation with their evidence within `workflowPolicy.repairRounds`, shared with blocking
-review repairs (three by default, up to ten). Review can continue beyond two repairs when the
+review repairs (five by default, up to ten). Review can continue beyond two repairs when the
 artifact changes and the reviewer evidences resolution of every preceding blocker using
 controller-assigned identities. Unchanged artifacts, unresolved blockers and missing progress
 evidence stop early or go to an optional approved arbitrator. Every repair decision is journaled
@@ -790,6 +790,20 @@ sequentially under durable ownership. Ordinary task dispatch also checks compari
 order. Settled failures are retained outcomes; human boundaries, pauses and uncertain operations
 wait. A dead driver needs explicit recovery, with no provider dispatch replay.
 
+`domain/comparison-retries.ts` derives explicit retry requests, their dispatch and settlement from
+`comparison_events`. These decisions do not change the frozen member configurations or approval digest.
+The driver drains queued requests after the active run settles, before starting another profile;
+an idle or completed comparison can drive them immediately. An active retry temporarily owns the
+comparison turn while the initial cursor stays fixed. A started request never becomes pending
+again after recovery, so uncertain dispatch cannot be replayed. Retry eligibility is shared with
+the dashboard. An explicit retry of the current supervised checkpoint takes priority over earlier
+failed runs, so their queued repairs cannot prevent the current run from reaching settlement.
+Eligibility is defined in `orchestration/comparison-retry-policy.ts`. Duplicate requests, stale decisions,
+unsettled operations, spending stops and requested integration are refused. Retained files,
+conversations, evidence and both repair counts keep the ordinary task contracts.
+Task claims recheck comparison membership inside the claim transaction; advancing a comparison
+rechecks the member's current ownership and settlement under the same SQLite write lock.
+
 The `comparisons` and `comparison_events` tables are part of journal schema 8. State changes and
 events share a transaction. Schema versions other than 8 are refused without migration.
 Member tasks keep the existing execution, workspace, evidence, spending and verified-delivery
@@ -875,6 +889,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `guided-plan.ts` | Plan normalization, slice file simulation and approval digest |
 | | `readiness.ts` | Approved mechanical check categories and exact-artifact readiness evidence |
 | | `model-profiles.ts`, `comparison.ts` | Fixed role assignments, comparison contracts and exact dispatch order |
+| | `comparison-retries.ts` | Durable explicit retry requests, active dispatch and settlement derived from the comparison journal |
 | | `delivery-outcome.ts` | Verified delivered heads, including explicit no-change outcomes |
 | | `quality-passes.ts` | Quality pass definitions, built-ins, plan selection and lens assessments |
 | | `acceptance.ts` | Acceptance expectations and observations against retained output |
@@ -893,6 +908,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | `orchestration/` | `guided-status.ts` | Task views and next actions |
 | | `kickoff.ts`, `prompts/planner.ts`, `planner-progress.ts`, `task-title.ts` | Planning conversations and planner prompts, live planner progress and the provisional title from the request |
 | | `comparisons.ts`, `comparison-integration.ts` | Sequential comparisons, manual preference and explicit verified fast-forward integration |
+| | `comparison-retry-policy.ts` | Settled retry eligibility shared by comparison orchestration and the dashboard |
 | | `task-lifecycle.ts`, `task-discard.ts` | Reset and delete with tombstones; explicit abandonment retaining uncertain workspace leases |
 | `execution/` | `sessions.ts`, `session-context.ts` | Conversation turns, recovery and resume-or-fresh decisions |
 | | `output-buffer.ts` | Coalescing streamed provider output per run |

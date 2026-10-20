@@ -384,7 +384,12 @@ function taskAction(dashboard: Dashboard, id: string, action: string, payload: u
   if (!taskWorkerActions.some(name => name === action)) throw new HttpError(404, 'Unknown task action');
   const work = parseRequest(workerActionSchema, { action, payload });
   // Answer 409 at once; the worker's own claim stays authoritative if another task takes the slot first.
-  if (pooledWorkerActions.includes(work.action)) assertRunnerAvailable(store);
+  const queuesComparisonRetry =
+    work.action === 'retry' &&
+    store
+      .comparisons()
+      .some(group => (group.owner !== null || group.pauseRequested) && group.runs.some(run => run.taskId === id));
+  if (pooledWorkerActions.includes(work.action) && !queuesComparisonRetry) assertRunnerAvailable(store);
   dashboard.launch(id, work);
   return [202, { ok: true }];
 }

@@ -74,10 +74,10 @@ keeps its own reason instead. A requested pause is a normal CLI outcome, not a f
 - **Questions.** Answer every question id with `task-answer <task-id> answers.json`,
   where the file is a JSON object mapping ids to text.
 - **Readiness failures.** Declared formatting, lint and type checks use
-  `workflowPolicy.readinessRounds` (two by default, 0 to 10 approvable). This separate allowance
+  `workflowPolicy.readinessRounds` (five by default, 0 to 10 approvable). This separate allowance
   survives all retries and restarts; unchanged failures stop early.
 - **Failures beyond the shared allowance.** Behavioural validation, review and acceptance use
-  `workflowPolicy.repairRounds` (three by default, 0 to 10 approvable). Unchanged failing
+  `workflowPolicy.repairRounds` (five by default, 0 to 10 approvable). Unchanged failing
   content, unresolved prior review blockers or missing progress evidence stop early.
 - **Unresolved arbitration.** A fresh arbitrator can be selected in the approved plan.
 - **Operational problems:** preparation failures, scope errors, uncertain process exits

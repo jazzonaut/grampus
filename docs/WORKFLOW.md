@@ -87,8 +87,8 @@ and mutating formatters do not belong in readiness. The controller uses the decl
 never an error-message heuristic. Omitted readiness normalises to an empty list for approval;
 existing validation commands always use the behavioural allowance.
 
-`workflowPolicy.readinessRounds` allows two automatic readiness repairs per slice by default,
-separate from the three shared behavioural repairs. Both accept 0 to 10 and are visible and
+`workflowPolicy.readinessRounds` allows five automatic readiness repairs per slice by default,
+separate from the five shared behavioural repairs. Both accept 0 to 10 and are visible and
 editable before approval. Both survive restarts, explicit retries and every repair of the same
 slice. A new slice or freshly approved plan revision starts fresh slice allowances; task-wide
 turn and token totals still include earlier work. Repeated failure of the same readiness command
@@ -216,6 +216,13 @@ version, plan and assignments together, and never adopts an approval with retain
 Settled failures remain in the results and the next variant can run. Questions, supervised
 checkpoints, user pauses and uncertain operations wait for a decision. Open the member task for its
 normal answer or recovery actions, then return to **Run comparison** to continue the group.
+**Retry repair** and **Retry preparation** also work after the comparison has moved past a failed
+member or completed. An explicit retry starts immediately when the comparison is idle, or queues
+behind its active run and before the remaining profiles. Queued retries survive controller restarts;
+duplicate clicks do not authorise additional attempts. A paused comparison needs **Run comparison**,
+and human questions or recovery on the current run still need their normal decisions first.
+Retries retain files, conversations, approval and repair usage. They do not reorder the approved
+initial runs or replenish an allowance, and integration must not have been requested.
 **Pause comparison after this step** lets the active operation settle and prevents further group
 dispatch until explicit continuation. A comparison driver left by a crashed process needs
 **Recover comparison driver**; this releases only a provably dead owner and never replays a member
@@ -302,8 +309,8 @@ The policy is part of the approved plan, visible at approval and editable in
 ```json
 "workflowPolicy": {
   "mode": "automatic",
-  "readinessRounds": 2,
-  "repairRounds": 3,
+  "readinessRounds": 5,
+  "repairRounds": 5,
   "maxSessionTurns": 6,
   "maxContextTokens": 120000,
   "maxTaskTurns": 20,
@@ -318,7 +325,7 @@ These are the defaults for a new plan that omits the policy or some of its field
 `mode` defaults to `automatic`. `mode: "supervised"` adds file-authorization and
 manual quality assessment checkpoints and leaves failed checks for a manual retry (see
 [the guided CLI](GUIDED-WORKFLOW.md#supervised-mode)).
-Behavioural repair rounds accept 0–10, defaulting to three. Behavioural validation, independent review and acceptance
+Behavioural repair rounds accept 0–10, defaulting to five. Behavioural validation, independent review and acceptance
 spend the same allowance for the current slice. It survives manual retry and restarts;
 a new slice or revised plan gets a new allowance. An explicit retry authorises one further
 attempt without replenishing automatic repairs. Infrastructure failures never spend it.

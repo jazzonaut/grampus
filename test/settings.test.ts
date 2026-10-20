@@ -52,8 +52,8 @@ test('without config.json the built-in defaults apply and nothing is created', t
     defaultCheckTimeoutMs: 300_000,
     defaultWorkflowPolicy: {
       mode: 'automatic',
-      readinessRounds: 2,
-      repairRounds: 3,
+      readinessRounds: 5,
+      repairRounds: 5,
       maxSessionTurns: 6,
       maxContextTokens: 120_000,
       maxTaskTurns: 20,
@@ -85,7 +85,7 @@ test('a valid partial override merges over the defaults, including the nested wo
     defaultCheckTimeoutMs: 300_000,
     defaultWorkflowPolicy: {
       mode: 'supervised',
-      readinessRounds: 2,
+      readinessRounds: 5,
       repairRounds: 1,
       maxSessionTurns: 6,
       maxContextTokens: 120_000,

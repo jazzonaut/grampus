@@ -95,8 +95,8 @@ every IPv4 interface; network reachability also depends on the host firewall and
 | Field | Default | Allowed | Meaning |
 | --- | --- | --- | --- |
 | `mode` | `"automatic"` | `"automatic"`, `"supervised"` | Automatic runs to a verified commit; supervised stops at file authorization and quality assessment |
-| `readinessRounds` | `2` | 0 to 10 | Separate automatic repairs per slice for declared formatting, lint and type checks; retries and behavioural repairs never replenish it |
-| `repairRounds` | `3` | 0 to 10 | Shared automatic repair rounds per slice across behavioural validation, review and acceptance; progress checks can stop earlier |
+| `readinessRounds` | `5` | 0 to 10 | Separate automatic repairs per slice for declared formatting, lint and type checks; retries and behavioural repairs never replenish it |
+| `repairRounds` | `5` | 0 to 10 | Shared automatic repair rounds per slice across behavioural validation, review and acceptance; progress checks can stop earlier |
 | `maxTaskTurns` | `20` | 1 to 1000 | Requested provider turns across linked planning, retries, slices and all plan versions; exhaustion stops before another turn |
 | `maxTaskTokens` | `0` | 0 to 1000000000 | Task token threshold; zero disables only the token gate. When enabled, missing or partial usage stops another turn. Active turns may exceed it |
 | `maxSessionTurns` | `6` | 1 to 50 | Turns before a fresh provider conversation |
