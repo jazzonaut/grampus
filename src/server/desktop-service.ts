@@ -20,7 +20,7 @@ export class DesktopService {
     private readonly settle: () => Promise<void>,
   ) {}
 
-  /** Publishes only after the server has successfully bound its loopback port. */
+  /** Publishes a loopback access link only after the server has successfully bound its port. */
   publish(url: string): void {
     if (this.profile) this.endpoint = publishDesktopEndpoint(this.profile, url);
   }

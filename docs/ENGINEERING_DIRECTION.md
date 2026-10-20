@@ -34,7 +34,7 @@ The supplied Grampus documentation describes a substantial implemented Windows-f
 - Codex and Claude integrations, repository exploration, explicit file scopes, supervised edits and commands.
 - Separate simplification, validation, independent review, acceptance and local-commit delivery gates.
 - Process leases, receipts, interruption and conservative restart recovery.
-- A loopback local browser dashboard, CLI, installation snapshots, usage reporting and reports.
+- A local browser dashboard with configurable LAN access, CLI, installation snapshots, usage reporting and reports.
 - Offline suites and live fixture probes that exercise important provider and workspace workflows.
 
 The same documentation also identifies limitations: an early Windows alpha focus; mandatory manual checkpoints in the guided workflow; no general unattended multi-task scheduler; unresolved ordinary-project release validation; and external interfaces that could change. Recent documentation includes approved-plan revision, bounded repair/arbitration, expanded file-size handling, richer acceptance observations and ongoing integration tests. These existing capabilities should be extended, not mistakenly reinvented.
@@ -211,7 +211,7 @@ The architectural boundary should remain:
 
 - Existing **Node/TypeScript controller + SQLite journal** = authoritative workflow engine and policy enforcement.
 - Frontend = presentation and user input through versioned, authenticated controller APIs; **never a second workflow engine**.
-- Local **loopback-only** deployment, packaged static assets, no CDN requirement and the existing per-launch access controls must remain intact.
+- Local deployment with configurable LAN access, packaged static assets, no CDN requirement and the existing per-launch access controls must remain intact.
 - Every mutation carries version/decision identity and is rejected when stale; the UI cannot bypass gates or silently replay operations.
 
 ### Information architecture

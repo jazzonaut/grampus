@@ -569,15 +569,19 @@ second workflow engine.
   segment by segment and the resolved file must stay inside the client folder; anything else is 404.
   Without a build, `/` answers 503 with a page saying how to build it, and the API keeps working.
 
-- Listens on `127.0.0.1` only, port 4317 installed or 4318 development unless `config.json` sets
-  `dashboardPort` ([CONFIGURATION.md](CONFIGURATION.md)). `server/browser-ports.ts` refuses a port on the
+- Listens on all IPv4 interfaces (`0.0.0.0`) by default; `dashboardListenOnLan: false` restricts it to
+  `127.0.0.1`. Uses port 4317 installed or 4318 development unless `config.json` sets
+  `dashboardPort` ([CONFIGURATION.md](CONFIGURATION.md)). Startup links and private desktop discovery
+  receipts continue to use loopback. `server/browser-ports.ts` refuses a port on the
   Fetch standard's blocked list, which browsers would not connect to, and for port 0 exchanges a blocked
   ephemeral port for another (at most `serverLimits.ephemeralPortAttempts` tries).
-- Direct local dashboard access is the default. `dashboardRequireAccessLink: true` requires the
+- Direct dashboard access on the configured interfaces is the default. `dashboardRequireAccessLink: true` requires the
   random 32-byte per-launch bearer token on browser API calls (constant-time comparison). Startup
   links carry it in the URL fragment. Private desktop receipts always retain a token and discovery
   and shutdown always require it, independently of browser access settings.
-- The `Host` header must match and any `Origin` must equal the local origin. API requests marked
+- `server/request-origin.ts` requires the `Host` header to match the IP address and port of the
+  receiving socket when LAN access is enabled, or the loopback origin otherwise. Any `Origin` must
+  equal that request origin. Arbitrary DNS hosts, including rebinding hosts, and API requests marked
   `Sec-Fetch-Site: cross-site` are refused in both access modes.
 - Strict CSP (`default-src 'none'`, self-hosted scripts and styles only, `frame-ancestors 'none'`),
   `nosniff`, `no-referrer` and `no-store` on every response, the client's files included. Assets are
@@ -913,7 +917,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | `health/` | `doctor.ts` | Inference-free checks of every integration, as a typed report |
 | | `health.ts`, `health-record.ts` | Stored health, staleness and version change warnings; the pinned health record |
 | | `stalls.ts` | Stall detection for running guided sessions and checks |
-| `server/` | `ui-server.ts`, `ui-worker.ts`, `browser-ports.ts` | Loopback dashboard server, action workers and the port browsers accept |
+| `server/` | `ui-server.ts`, `ui-worker.ts`, `browser-ports.ts`, `request-origin.ts` | Dashboard server with configurable LAN binding, action workers, origin guards and the port browsers accept |
 | | `static-client.ts` | Serving the built client from `web/dist` with a path guard and content types |
 | | `api-schemas.ts`, `errors.ts` | Request body and worker request schemas, error-to-status mapping with the typed envelope |
 | | `api-types.ts`, `api-v1.ts` | The typed DTOs of v1 and of the lookup and action routes (types only, shared with `web/`); the v1 read routes and their revision cache |

@@ -86,7 +86,7 @@ export function readDesktopEndpoint(profile: DesktopProfile): DesktopEndpoint | 
   }
 }
 
-/** Publishes a private receipt after the loopback server has bound its port. */
+/** Publishes a private loopback receipt after the server has bound its port. */
 export function publishDesktopEndpoint(
   profile: DesktopProfile,
   url: string | null,

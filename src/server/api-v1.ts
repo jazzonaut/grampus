@@ -1,7 +1,7 @@
 // Owns the versioned read API the Vue client consumes: `GET /api/v1/overview`, `/api/v1/tasks/:id`,
 // `/api/v1/tasks/:id/timeline`, `/api/v1/tasks/:id/changes`, `/api/v1/kickoffs/:id`, `/api/v1/settings` and
 // `/api/v1/orca-worktrees`. The server's
-// usual guards (loopback, origin, bearer token) run before these routes. Journal facts are cached by
+// usual guards (interface host, origin, optional bearer token) run before these routes. Journal facts are cached by
 // journal revision; the DTOs are rebuilt from them on each request because workers and stalls change
 // without a journal write; the runner pool is read once per request. Responses never carry file inventories, snapshots or raw check output.
 // Actions reuse the existing POST routes (see `view-model/actions.ts`).

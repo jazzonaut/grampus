@@ -1,4 +1,4 @@
-// Owns the loopback dashboard server: the built Vue client (static-client.ts), the locally guarded JSON API
+// Owns the dashboard server: the built Vue client (static-client.ts), the origin-guarded JSON API
 // over the journal and the action workers it starts. The client reads `/api/v1/` (api-v1.ts) and acts
 // through the POST routes here. Request bodies are parsed by api-schemas.ts; failures map to HTTP statuses
 // and the typed error envelope in errors.ts. The server is not a second workflow engine: every decision
@@ -31,6 +31,7 @@ import { describeIssues } from '../process/boundary.js';
 import { HttpError, errorResponse } from './errors.js';
 import { createApiV1 } from './api-v1.js';
 import { listenForBrowsers } from './browser-ports.js';
+import { dashboardRequestUrl } from './request-origin.js';
 import type {
   CheckOutputPage,
   CreatedResponse,
@@ -136,7 +137,7 @@ function pruneJobs(jobs: Map<string, Job>, now = Date.now()): void {
 export interface UiOptions {
   db: string;
   /**
-   * Loopback port; 0 lets the system choose one browsers accept. A port browsers refuse is rejected
+   * Dashboard port; 0 lets the system choose one browsers accept. A port browsers refuse is rejected
    * (see browser-ports.ts). Defaults to the `dashboardPort` setting.
    */
   port?: number;
@@ -573,7 +574,7 @@ function requireDashboardAccess(request: IncomingMessage, path: string, token: s
     throw new HttpError(401, 'Open the complete local dashboard link printed by Grampus');
 }
 
-/** Loopback dashboard. Workers use the same durable controller as the CLI. */
+/** Dashboard with configurable LAN access. Workers use the same durable controller as the CLI. */
 export async function startUi(options: UiOptions) {
   const store = new Store(options.db),
     tasks = new GuidedTasks(store),
@@ -581,6 +582,7 @@ export async function startUi(options: UiOptions) {
   const token = randomBytes(32).toString('hex'),
     jobs = new Map<string, Job>();
   const requireAccessLink = currentSettings().dashboardRequireAccessLink;
+  const listenOnLan = currentSettings().dashboardListenOnLan;
   const client = options.client ?? defaultClientDirectory;
   let origin = '';
   const now = options.now ?? Date.now;
@@ -618,14 +620,7 @@ export async function startUi(options: UiOptions) {
   const apiV1 = createApiV1({ ...dashboard, orcaClient: options.orca ?? null });
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     securityHeaders(response);
-    const url = new URL(request.url ?? '/', origin);
-    if (
-      request.headers.host !== new URL(origin).host ||
-      (url.pathname.startsWith('/api/') && request.headers['sec-fetch-site'] === 'cross-site') ||
-      (request.headers.origin && request.headers.origin !== origin)
-    ) {
-      throw new HttpError(403, 'Local origin required');
-    }
+    const url = dashboardRequestUrl(request, origin, listenOnLan);
     const path = url.pathname;
     if (request.method === 'GET' && !path.startsWith('/api/')) {
       serveClient(client, path, response);

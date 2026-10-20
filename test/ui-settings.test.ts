@@ -49,6 +49,17 @@ test('the settings form starts empty without config.json and a save writes only 
   assert.equal(concurrency?.target, '/overrides/maxConcurrentTasks');
   const access = before.save.form?.fields.find(field => field.name === 'dashboardRequireAccessLink');
   assert.equal(access?.target, '/overrides/dashboardRequireAccessLink');
+  const lan = before.save.form?.fields.find(field => field.name === 'dashboardListenOnLan');
+  assert.equal(lan?.target, '/overrides/dashboardListenOnLan');
+  assert.equal(lan?.value, null);
+  assert.deepEqual(
+    lan?.options.map(option => [option.value, option.label]),
+    [
+      [null, 'Default (on)'],
+      [false, 'Off'],
+      [true, 'On'],
+    ],
+  );
   assert.deepEqual(
     access?.options.map(option => option.value),
     [null, false, true],
@@ -56,12 +67,13 @@ test('the settings form starts empty without config.json and a save writes only 
 
   const saved = await api.save({
     expected: 'absent',
-    overrides: { maxConcurrentTasks: 3, dashboardRequireAccessLink: true },
+    overrides: { maxConcurrentTasks: 3, dashboardRequireAccessLink: true, dashboardListenOnLan: false },
   });
   assert.equal(saved.status, 200);
   assert.deepEqual(JSON.parse(readFileSync(api.file, 'utf8')), {
     maxConcurrentTasks: 3,
     dashboardRequireAccessLink: true,
+    dashboardListenOnLan: false,
   });
 
   const after = await api.settings();
@@ -69,6 +81,7 @@ test('the settings form starts empty without config.json and a save writes only 
   assert.notEqual(after.save.expected, 'absent');
   assert.equal(after.save.form?.fields.find(field => field.name === 'maxConcurrentTasks')?.value, 3);
   assert.equal(after.save.form?.fields.find(field => field.name === 'dashboardRequireAccessLink')?.value, true);
+  assert.equal(after.save.form?.fields.find(field => field.name === 'dashboardListenOnLan')?.value, false);
 });
 
 test('a save is refused when config.json changed since it was shown, or when a value is out of range', async t => {

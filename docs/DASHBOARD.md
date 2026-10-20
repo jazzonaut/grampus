@@ -7,6 +7,12 @@ The command opens your browser on Windows and prints the link; keep its terminal
 you work. The dashboard works in a normal browser or Orca's embedded browser. The footer shows
 the version, channel, build and journal.
 
+LAN access is enabled by default. From another device, open
+`http://<this computer's LAN IPv4 address>:4317/` (4318 for development).
+The **Settings** screen's **Allow dashboard access over LAN** option, or
+`dashboardListenOnLan: false` in `config.json`, restricts access to this computer after a restart.
+See [Configuration](CONFIGURATION.md#settings) for access links and port overrides.
+
 For daily Orca use, the [native Grampus plugin](ORCA.md) starts or reconnects to the
 dashboard in the background with one command or assigned shortcut. No terminal needs
 to remain open. Its **Stop Dashboard** command refuses while dashboard work is active.

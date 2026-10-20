@@ -83,7 +83,7 @@ const integerSettings: readonly (IntegerSpec & { key: IntegerSetting })[] = [
   {
     key: 'dashboardPort',
     label: 'Dashboard port',
-    meaning: 'Loopback port of the dashboard. `--port` still overrides it for one launch.',
+    meaning: 'Port of the dashboard. `--port` still overrides it for one launch.',
   },
   {
     key: 'usagePollIntervalMs',
@@ -183,13 +183,22 @@ function settingsFields(stored: unknown): FormField[] {
   const policy = storedValue(stored, 'defaultWorkflowPolicy');
   return [
     field({
+      name: 'dashboardListenOnLan',
+      label: 'Allow dashboard access over LAN',
+      input: 'select',
+      target: '/overrides/dashboardListenOnLan',
+      value: storedValue(stored, 'dashboardListenOnLan'),
+      options: [option(null, 'Default (on)'), option(false, 'Off'), option(true, 'On')],
+      help: 'Listen on all IPv4 interfaces. Off restricts access to this computer. Restart Grampus after saving.',
+    }),
+    field({
       name: 'dashboardRequireAccessLink',
       label: 'Require dashboard access link',
       input: 'select',
       target: '/overrides/dashboardRequireAccessLink',
       value: storedValue(stored, 'dashboardRequireAccessLink'),
       options: [option(null, 'Default (off)'), option(false, 'Off'), option(true, 'On')],
-      help: 'Require the complete per-launch link to open the dashboard. Off allows direct local access. Restart Grampus after saving.',
+      help: 'Require the complete per-launch link to open the dashboard. Off allows direct access on the configured interfaces. Restart Grampus after saving.',
     }),
     ...integerSettings.map(spec =>
       integerField(
