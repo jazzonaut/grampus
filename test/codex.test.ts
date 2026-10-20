@@ -42,6 +42,32 @@ function fixture(
   );
 }
 
+test(
+  'Codex terminates a repeated unchanged-page loop before exhausting the tool allowance',
+  { timeout: 30_000 },
+  async t => {
+    const context = editingFixture(t);
+    context.snapshot.files[0]!.sha256 = createHash('sha256').update('before\n').digest('hex');
+    const events: AgentEvent[] = [];
+    const agent = fixture(
+      `
+    if(r.method==='turn/start'){
+      note('turn/started', { turn: { id: 'turn-1' } });
+      send({id:r.id,result:{turn:{id:'turn-1'}}});
+      for(let i=0;i<20;i++)send({id:'read-'+i,method:'item/tool/call',params:{threadId:'thread-1',turnId:'turn-1',callId:'read-'+i,tool:'grampus_read_file',arguments:{path:'file.txt'}}});
+    }`,
+      events,
+      undefined,
+      undefined,
+      { repo: context.cwd, snapshot: context.snapshot },
+    );
+    t.after(() => agent.close());
+    await assert.rejects(agent.turn('Review'), /Repeated repository read/);
+    assert.equal(events.filter(event => event.type === 'repository.read_loop').length, 1);
+    assert.ok(events.filter(event => event.type === 'repository.tool_result').length < 10);
+  },
+);
+
 test('Codex repository calls are bound to the current thread and turn, journaled, and cannot grant writes', async t => {
   const context = editingFixture(t);
   context.snapshot.files[0]!.sha256 = createHash('sha256').update('before\n').digest('hex');

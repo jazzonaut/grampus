@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 import { defaultDataDirectory } from '../config/runtime.js';
-import { processLimits } from '../config/limits.js';
+import { planLimits, processLimits } from '../config/limits.js';
 import { BoundaryError, parseBoundary, parseJson, validateInPlace } from '../process/boundary.js';
 import { repositorySnapshotSchema, type RepositorySnapshot } from '../repository/snapshot-schema.js';
 import { RecordNotFoundError } from './errors.js';
@@ -64,7 +64,7 @@ export interface RecordEvent {
 }
 
 /** The single journal format this build accepts; other versions are never migrated. */
-export const journalSchemaVersion = 8;
+export const journalSchemaVersion = 9;
 const schema = `
   CREATE TABLE tasks (
     id TEXT PRIMARY KEY,
@@ -607,6 +607,30 @@ export class Store {
       .prepare('SELECT state FROM checks WHERE execution_id = ? ORDER BY rowid')
       .all(executionId)
       .map(row => record(repositoryCheckSchema, 'checks', row));
+  }
+
+  /**
+   * Recent measured durations for checks starting from the same repository and base. Only compact
+   * scalar columns are read; historical snapshots and output never enter a planner's context.
+   */
+  checkTimings(repository: string, base: string) {
+    const rowSchema = z.object({ name: z.string(), milliseconds: z.number(), timedOut: z.number() });
+    return this.db
+      .prepare(
+        `
+      SELECT json_extract(c.state, '$.spec.name') name,
+        MAX(json_extract(c.state, '$.result.elapsedMs')) milliseconds,
+        MAX(CASE WHEN json_extract(c.state, '$.result.reason') = 'timed_out' THEN 1 ELSE 0 END) timedOut
+      FROM checks c JOIN executions e ON e.id = c.execution_id JOIN workspaces w ON w.id = e.workspace_id
+      WHERE json_extract(w.state, '$.repository') = ? AND json_extract(w.state, '$.baseCommit') = ?
+        AND json_extract(c.state, '$.result.elapsedMs') IS NOT NULL
+        AND json_extract(c.state, '$.result.exitConfirmed') = 1
+      GROUP BY json_extract(c.state, '$.spec.file'), json_extract(c.state, '$.spec.args')
+      ORDER BY MAX(c.rowid) DESC LIMIT ?
+    `,
+      )
+      .all(repository, base, planLimits.timingExamples)
+      .map(row => rowSchema.parse(row));
   }
 
   /** Inserts or replaces a check record. */

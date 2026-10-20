@@ -30,6 +30,17 @@ function retryFeedback({ store, checks, executions }: RetryContext, state: Guide
   return JSON.stringify({
     reason: failedCheck ? checkIssue(failedCheck) : outputExcerpt(state.note, checkOutputLimits.feedbackCharacters),
     check: failedCheck ? checkFeedback(failedCheck) : null,
+    readiness: state.executionId
+      ? store
+          .checks(state.executionId)
+          .filter(
+            check =>
+              check.purpose === 'readiness' &&
+              check.phase === 'failed' &&
+              check.spec.artifact === state.snapshot?.artifact,
+          )
+          .map(check => checkFeedback(check))
+      : [],
     implementation: previous ? outputExcerpt(previous.text, checkOutputLimits.feedbackCharacters) : null,
     review: state.reviewId ? sessions.get(executions.get(state.reviewId).sessionId).lastReply : null,
   });

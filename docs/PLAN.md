@@ -27,6 +27,16 @@ high-value problems, adds measurement, and then lets real use decide what follow
 
 ## Steps
 
+- **Implementation feedback loop.** Done 20 October 2026. Both providers can request approved
+  formatting, readiness checks and validation within their editing turn. An approved scoped formatter
+  also runs after editing without spending an agent repair round. Final checks remain artifact-bound.
+  Ordinary mechanical failures are returned together, partial review progress permits bounded continued
+  repair, and repeated unchanged-page reads terminate early. Historical command durations inform
+  planning and suite sizing, with up to sixteen acceptance checks so slow suites can be split further.
+  Claude native steps are configurable, defaulting to 128. Journal schema 9.
+  **Planned:** measured comparison against an unconstrained agent baseline; no speed improvement
+  percentage is claimed without that benchmark.
+
 - **Task and planning observability.** Initial implementation, 20 October 2026: provider item and tool lifecycle
   metadata, a shared bounded read projection over the existing journals, compact task and planning networks and a
   dedicated observability page with filters, inspection and event replay. Completed participants
@@ -225,7 +235,7 @@ compressed JSON exports use gzip. Missing or oversized attachments are explicit,
 limit per file. Dashboard preview limits do not truncate these journal exports. Provider internals
 that Grampus did not observe cannot be exported. See [WORKFLOW.md](WORKFLOW.md#model-profiles-and-comparisons).
 
-Journal schema 8 includes readiness spending, durable comparisons and their driver ownership. Other schema versions
+Journal schema 9 includes implementation-owned diagnostics, approved formatting and readiness spending, durable comparisons and their driver ownership. Other schema versions
 are refused without migration; use a fresh development journal. The installed application and its
 journal remain separate from this checkout.
 

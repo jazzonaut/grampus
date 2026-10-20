@@ -14,6 +14,27 @@ const resolved: Reply = {
   priorFindings: [{ id: 'review:0', status: 'resolved', evidence: 'Checked corrected spacing' }],
 };
 
+test('resolving some prior blockers permits another bounded repair', () => {
+  const blockers = [
+    ...prior,
+    { id: 'review:1', description: 'Missing containment test', evidence: 'No pixels checked' },
+  ];
+  const reply: Reply = {
+    ...resolved,
+    priorFindings: [
+      ...resolved.priorFindings!,
+      { id: 'review:1', status: 'unresolved', evidence: 'The barrier assertion is still absent' },
+    ],
+  };
+  assert.equal(reviewProgress(blockers, [{ ...blockers[1]!, id: 'next:0' }], reply), 'progress');
+  assert.equal(
+    reviewProgress(blockers, [], reply, true),
+    'stalled',
+    'partial progress cannot authorise a passing review',
+  );
+  assert.equal(reviewProgress(blockers, [{ ...prior[0]!, id: 'next:0' }], reply), 'stalled');
+});
+
 test('a new related defect is progress only after complete evidenced resolution of prior blockers', () => {
   assert.equal(reviewProgress([], related, review), 'progress');
   assert.equal(reviewProgress(prior, related, resolved), 'progress');

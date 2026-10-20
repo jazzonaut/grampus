@@ -29,6 +29,8 @@ import { defaultDashboardPort } from './runtime.js';
  * when it is normalised.
  */
 export interface Settings {
+  /** Native Claude agent steps within one controller turn, separate from conversation reset limits. */
+  claudeMaxTurns: number;
   /** Named role assignments available for new plans. */
   modelProfiles: readonly ModelProfile[];
   /** Port of the dashboard server; `--port` still overrides it for one launch. */
@@ -88,6 +90,7 @@ export const settingsFileName = 'config.json';
 /** Built-in defaults: exactly the behaviour without a settings file. */
 export function defaultSettings(): Settings {
   return {
+    claudeMaxTurns: 128,
     modelProfiles: [],
     dashboardPort: defaultDashboardPort,
     dashboardListenOnLan: true,
@@ -122,6 +125,7 @@ export function defaultSettings(): Settings {
 
 /** Allowed range of each top-level integer setting; the schema enforces it and the Settings screen shows it. */
 export const settingRanges = {
+  claudeMaxTurns: { min: 16, max: 512 },
   dashboardPort: { min: 1, max: 65_535 },
   dashboardStartupMs: { min: 1000, max: 120_000 },
   dashboardProbeMs: { min: 100, max: 30_000 },
@@ -145,6 +149,7 @@ export type IntegerSetting = keyof typeof settingRanges;
 const bounded = (range: { min: number; max: number }) => z.number().int().min(range.min).max(range.max);
 const overridesSchema = z
   .strictObject({
+    claudeMaxTurns: bounded(settingRanges.claudeMaxTurns).optional(),
     modelProfiles: modelProfilesSchema.optional(),
     dashboardPort: bounded(settingRanges.dashboardPort).optional(),
     dashboardListenOnLan: z.boolean().optional(),

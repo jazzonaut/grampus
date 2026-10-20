@@ -2,6 +2,8 @@
 // controller-approved native patches and the dynamic repository tools. Protocol shapes are pinned in
 // codex-protocol.ts; this module only acts on messages that module has validated.
 import { modelAssignmentSchema } from '../domain/model-profiles.js';
+import { RepositoryReadLoopError } from '../repository/read-loop.js';
+import { implementationToolDefinition, runImplementationTool } from './implementation-tools.js';
 import { codexSubscription } from './subscription-limits.js';
 import { RpcProcess, type RpcMessage } from '../process/process.js';
 import { providerLimits } from '../config/limits.js';
@@ -204,6 +206,16 @@ export function hasCodexSubscription(handshake: CodexHandshake): boolean {
   return handshake.account?.type === 'chatgpt';
 }
 
+/** Dynamic capabilities are fixed when a provider conversation starts. */
+function dynamicCapabilities(options: ConnectOptions) {
+  if (options.providerSessionId) return {};
+  const definitions = [
+    ...(options.repository ? repositoryToolDefinitions : []),
+    ...(options.commands ? [implementationToolDefinition] : []),
+  ];
+  return definitions.length ? { dynamicTools: definitions.map(tool => ({ type: 'function', ...tool })) } : {};
+}
+
 /**
  * Connect a Codex session. `start` creates the app-server process; replay tests substitute a recorded server.
  * Every thread asks for `approvalPolicy: untrusted` and a read-only sandbox; editing threads also name the
@@ -243,9 +255,7 @@ export async function connectCodex(
       ...(options.editing ? { approvalsReviewer: 'user' } : {}),
       // Dynamic tools are declared on thread/start only; a resumed thread keeps those it began with, which
       // is why a changed `agentToolsetVersion` starts a fresh conversation.
-      ...(options.repository && !options.providerSessionId
-        ? { dynamicTools: repositoryToolDefinitions.map(tool => ({ type: 'function', ...tool })) }
-        : {}),
+      ...dynamicCapabilities(options),
       ...(options.model ? { model: options.model } : {}),
     };
     const method = options.providerSessionId ? 'thread/resume' : 'thread/start';
@@ -276,7 +286,7 @@ export async function connectCodex(
     });
     await reportIntegrations(rpc, thread.thread.id, options.emit);
     options.signal.throwIfAborted();
-    return new CodexSession(rpc, thread.thread.id, options.emit, options.editing, options.repository, options.effort);
+    return new CodexSession(rpc, thread.thread.id, options.emit, options.editing, options.repository, options);
   } catch (error) {
     await rpc.close();
     options.emit({ type: 'process.exit_confirmed', data: {} });
@@ -324,7 +334,7 @@ export class CodexSession implements AgentSession {
     private readonly emit: ConnectOptions['emit'],
     private readonly editing?: EditingContext,
     repository?: RepositoryAccess,
-    private readonly effort?: ConnectOptions['effort'],
+    private readonly capabilities?: Pick<ConnectOptions, 'effort' | 'commands'>,
   ) {
     this.readRepository = repository
       ? repositoryTools(repository, emit, () => !!this.active && !this.active.stopping)
@@ -339,12 +349,11 @@ export class CodexSession implements AgentSession {
     ];
   }
 
-  private callTool(params: unknown): unknown {
+  private async callTool(params: unknown): Promise<unknown> {
     const active = this.active;
     try {
       const call = toolCallRequestSchema.safeParse(params);
       if (
-        !this.readRepository ||
         !active ||
         active.stopping ||
         active.turnId === null ||
@@ -358,14 +367,28 @@ export class CodexSession implements AgentSession {
       if (active.toolCalls.has(callKey) || active.toolCalls.size >= providerLimits.turnToolCalls)
         throw new Error('Duplicate repository tool call or turn tool limit exceeded');
       active.toolCalls.add(callKey);
-      const result = this.readRepository(call.data.tool, call.data.arguments);
+      const result =
+        call.data.tool === implementationToolDefinition.name && this.capabilities?.commands
+          ? await runImplementationTool(this.capabilities.commands, call.data.arguments)
+          : this.readRepository?.(call.data.tool, call.data.arguments);
+      if (result === undefined || this.active !== active || active.stopping)
+        throw new Error('Tool no longer owns its turn');
       return { success: true, contentItems: [{ type: 'inputText', text: JSON.stringify(result) }] };
     } catch (error) {
-      return {
-        success: false,
-        contentItems: [{ type: 'inputText', text: error instanceof Error ? error.message : String(error) }],
-      };
+      return this.toolFailure(error, active);
     }
+  }
+
+  /** Read loops end the turn; ordinary tool errors remain diagnostics the agent can act on. */
+  private toolFailure(error: unknown, active: ActiveTurn | null): unknown {
+    if (error instanceof RepositoryReadLoopError && active) {
+      active.stopping = true;
+      active.reject(error);
+    }
+    return {
+      success: false,
+      contentItems: [{ type: 'inputText', text: error instanceof Error ? error.message : String(error) }],
+    };
   }
 
   /**
@@ -374,6 +397,7 @@ export class CodexSession implements AgentSession {
    * before it is returned to Codex.
    */
   private approvePatch(editing: EditingContext, params: unknown): unknown {
+    if (this.capabilities?.commands?.running) return { decision: 'decline' };
     const active = this.active;
     const owned = patchOwnershipSchema.safeParse(params);
     const matches =
@@ -603,7 +627,7 @@ export class CodexSession implements AgentSession {
           threadId: this.threadId,
           input: [{ type: 'text', text: prompt }],
           outputSchema: replyOutputSchema,
-          ...(this.effort ? { effort: this.effort } : {}),
+          ...(this.capabilities?.effort ? { effort: this.capabilities.effort } : {}),
         }),
       );
       if (this.active) {

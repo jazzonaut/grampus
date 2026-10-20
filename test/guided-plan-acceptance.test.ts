@@ -52,6 +52,21 @@ test('a slice keeps its acceptance checks in order, each with its own timeout', 
   );
 });
 
+test('acceptance leaves room for smaller browser shards alongside repository and build checks', t => {
+  const plan = proposal(t);
+  const checks = [
+    check('Repository check'),
+    check('Production build'),
+    ...Array.from({ length: 8 }, (_, index) => check(`Chromium shard ${index + 1} of 8`, 600_000)),
+    check('Built client smoke'),
+  ];
+  const normalised = normalizeGuidedPlan(plan(checks));
+  assert.deepEqual(
+    normalised.slices[0]!.acceptance.map(item => item.name),
+    checks.map(item => item.name),
+  );
+});
+
 test('acceptance must be a nonempty bounded list of distinctly named checks', t => {
   const plan = proposal(t);
   const refused = (acceptance: unknown, message: RegExp) =>

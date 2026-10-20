@@ -281,7 +281,7 @@ function settleReview(context: SettleContext): StageOutcome {
     return settleUnpassed(context, verdict);
   if (automatic(state)) {
     const reply = session.lastReply;
-    const progress = reply ? reviewProgress(priorBlockingFindings(context, state), [], reply) : 'unknown';
+    const progress = reply ? reviewProgress(priorBlockingFindings(context, state), [], reply, true) : 'unknown';
     if (progress !== 'progress') {
       const code = state.reviewCycle.arbitrating
         ? 'ARBITRATION_UNRESOLVED'

@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { repositoryTools, repositoryToolDefinitions, type RepositoryAccess } from '../repository/repository-tools.js';
 import type { AgentEvent } from './types.js';
 import { repositoryToolLimits } from '../config/limits.js';
+import { RepositoryReadLoopError } from '../repository/read-loop.js';
 
 const pageLimit = () => z.number().int().min(1).max(repositoryToolLimits.pageCharacters).optional();
 
@@ -16,13 +17,18 @@ export const isRepositoryTool = (name: string) =>
  * The `grampus_repository` in-process MCP server. `ownsTurn` must stay true only while the turn that may
  * read is active, so a stopped or settled turn cannot read on.
  */
-export function claudeRepository(access: RepositoryAccess, emit: (event: AgentEvent) => void, ownsTurn: () => boolean) {
+export function claudeRepository(
+  access: RepositoryAccess,
+  emit: (event: AgentEvent) => void,
+  ownsTurn: () => boolean,
+  onReadLoop?: (error: Error) => void,
+) {
   return createSdkMcpServer({
     name: 'grampus_repository',
     version: '1.0.0',
     alwaysLoad: true,
     timeout: repositoryToolLimits.mcpTimeoutMs,
-    tools: claudeRepositoryTools(access, emit, ownsTurn),
+    tools: claudeRepositoryTools(access, emit, ownsTurn, onReadLoop),
   });
 }
 /**
@@ -36,6 +42,7 @@ export function claudeRepositoryTools(
   access: RepositoryAccess,
   emit: (event: AgentEvent) => void,
   ownsTurn: () => boolean,
+  onReadLoop?: (error: Error) => void,
 ) {
   const invoke = repositoryTools(access, emit, ownsTurn);
   // The input shapes advertised to Claude, by tool name; repository-tool-arguments.ts enforces them again.
@@ -93,6 +100,7 @@ export function claudeRepositoryTools(
             content: [{ type: 'text' as const, text: JSON.stringify(invoke(def.name, input)) }],
           });
         } catch (error) {
+          if (error instanceof RepositoryReadLoopError) onReadLoop?.(error);
           return Promise.resolve({
             isError: true,
             content: [{ type: 'text' as const, text: error instanceof Error ? error.message : String(error) }],

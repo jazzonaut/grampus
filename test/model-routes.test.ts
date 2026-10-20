@@ -28,7 +28,8 @@ test('profiles save with stale-write protection and exports preserve the full se
     for (const cleanup of cleanups) cleanup();
   });
   const url = new URL(ui.url),
-    headers = { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json' };
+    // Synchronous Git fixture work can outlive an idle socket; these assertions concern route contracts.
+    headers = { Authorization: `Bearer ${url.hash.slice(1)}`, 'Content-Type': 'application/json', Connection: 'close' };
   const get = (path: string) => fetch(url.origin + path, { headers });
   const post = (path: string, body: unknown) =>
     fetch(url.origin + path, { method: 'POST', headers, body: JSON.stringify(body) });

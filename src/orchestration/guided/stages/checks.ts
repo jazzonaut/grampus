@@ -75,7 +75,7 @@ function stepAcceptance({ id, workflow, store }: GuidedContext, state: GuidedSta
  * Why a failed check is not trustworthy evidence about the implementation, or null when it is: it
  * must be a genuine failure with a confirmed exit, fully observed output and unchanged inputs.
  */
-function observationProblem(result: RepositoryCheck): StopReasonCode | null {
+export function observationProblem(result: RepositoryCheck): StopReasonCode | null {
   const run = result.result;
   if (result.phase !== 'failed') return 'CHECK_INTERRUPTED';
   if (run?.reason === 'timed_out') return 'CHECK_TIMEOUT';

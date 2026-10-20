@@ -59,6 +59,7 @@ function sliceView(plan: GuidedPlan, index: number): PlanSliceView {
       delete: [...(slice.scope.delete ?? [])],
     },
     preparation: slice.preparation ? command(slice.preparation) : null,
+    formatting: slice.formatting ? command(slice.formatting) : null,
     readiness: slice.readiness.map(check => ({ ...command(check), kind: check.kind })),
     validation: command(slice.validation),
     acceptance: slice.acceptance.map(check => ({

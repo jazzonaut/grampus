@@ -45,7 +45,7 @@ function checkIneligibility(store: Store, task: Task, state: GuidedState): strin
   // Acceptance resumes at the first check not yet passed on this artifact, which is the stopped one.
   const expected =
     state.stage === 'readiness'
-      ? dueReadiness(state, store.checks(state.executionId))
+      ? dueReadiness(state, store.checks(state.executionId), true)
       : state.stage === 'validation'
         ? validationSpec(state)
         : dueAcceptance(state, activeCriteria(task), store.checks(state.executionId))?.spec;

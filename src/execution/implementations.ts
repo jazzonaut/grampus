@@ -29,6 +29,7 @@ import {
 import { parseReply, type TurnResult } from '../providers/types.js';
 import { currentProcessStartedAt } from '../process/process-identity.js';
 import { currentSettings, type Settings } from '../config/settings.js';
+import { Checks } from '../verification/checks.js';
 import { readImplementationResult, workerNodeOptions } from './worker-files.js';
 
 export type { ImplementationRun } from '../persistence/records.js';
@@ -133,6 +134,20 @@ export class Implementations {
   private async settle(run: ImplementationRun, recovered = false): Promise<void> {
     const execution = this.fence(run);
     const sessions = new Sessions(this.store);
+    if (!new Checks(this.store, this.workspaces).reconcileImplementation(run.id)) {
+      this.store.transaction(() => {
+        run.phase = 'recovery_required';
+        run.error = 'An implementation command has no confirmed process settlement';
+        this.save(run, 'implementation.recovery_required');
+        sessions.settle(
+          execution.sessionId,
+          run.id,
+          { status: 'failed', reply: null, usage: null, error: run.error },
+          false,
+        );
+      });
+      return;
+    }
     const interrupted =
       sessions.get(execution.sessionId).phase === 'stop_requested' ||
       run.process?.reason === 'interrupted' ||

@@ -22,7 +22,7 @@ test('Codex sends fixed effort on its turn and retains account observations with
     });`;
   const events: AgentEvent[] = [],
     rpc = new RpcProcess(process.execPath, ['-e', script]);
-  const agent = new CodexSession(rpc, 'thread', event => events.push(event), undefined, undefined, 'low');
+  const agent = new CodexSession(rpc, 'thread', event => events.push(event), undefined, undefined, { effort: 'low' });
   try {
     assert.equal((await agent.turn('Work')).status, 'completed');
   } finally {

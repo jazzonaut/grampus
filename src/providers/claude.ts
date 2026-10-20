@@ -5,7 +5,7 @@ import { claudeSubscription } from './subscription-limits.js';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { authorizeEditTool, editingInstructions, type EditingContext } from '../execution/edit-policy.js';
-import { processLimits, providerLimits, repositoryToolLimits } from '../config/limits.js';
+import { processLimits, repositoryToolLimits } from '../config/limits.js';
 import { currentSettings } from '../config/settings.js';
 import { ClaudeActivity } from './activity.js';
 import {
@@ -23,6 +23,7 @@ import { claudeDeleteTool } from './claude-files.js';
 import { claudeExecutable } from './executables.js';
 import { claudeRepository, isRepositoryTool } from './claude-repository.js';
 import { explorationInstructions } from '../repository/repository-tools.js';
+import { claudeImplementation, isImplementationTool } from './claude-implementation.js';
 import { allowMcpTool, isExternalMcpTool, mcpInstructions, projectMcpServers } from './integrations.js';
 import { referenceInstructions } from '../repository/reference-folders.js';
 import {
@@ -130,7 +131,16 @@ function editingHook(options: ConnectOptions, editing: EditingContext): HookCall
     if (input.hook_event_name !== 'PreToolUse') return Promise.resolve({});
     // No decision here: canUseTool decides repository, external MCP and ToolSearch calls.
     if (options.repository && isRepositoryTool(input.tool_name)) return Promise.resolve({});
+    if (options.commands && isImplementationTool(input.tool_name)) return Promise.resolve({});
     if (isExternalMcpTool(input.tool_name) || input.tool_name === 'ToolSearch') return Promise.resolve({});
+    if (options.commands?.running && input.tool_name !== 'Read')
+      return Promise.resolve({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse' as const,
+          permissionDecision: 'deny' as const,
+          permissionDecisionReason: 'Wait for the active implementation command before editing',
+        },
+      });
     const decision = authorizeEditTool(editing, input.tool_name, input.tool_input, options.emit);
     return Promise.resolve({
       hookSpecificOutput: {
@@ -201,14 +211,20 @@ export class ClaudeSession implements AgentSession {
           ...projectMcpServers(options.configurationCwd ?? options.cwd, options.cwd),
           ...(fileServer ? { grampus_files: fileServer } : {}),
           ...(options.repository
-            ? { grampus_repository: claudeRepository(options.repository, options.emit, owned) }
+            ? {
+                grampus_repository: claudeRepository(options.repository, options.emit, owned, error => {
+                  this.stopRequested = true;
+                  this.active?.reject(error);
+                }),
+              }
             : {}),
+          ...(options.commands ? { grampus_implementation: claudeImplementation(options.commands, owned) } : {}),
         },
         // The user's own MCP configuration still loads natively alongside the servers passed here.
         strictMcpConfig: false,
         systemPrompt: `${editing ? editingInstructions : instructions}\n${mcpInstructions}${options.repository ? `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}` : ''}`,
         outputFormat: { type: 'json_schema', schema: replyOutputSchema },
-        maxTurns: providerLimits.claudeMaxTurns,
+        maxTurns: currentSettings().claudeMaxTurns,
         includePartialMessages: true,
         ...(editing ? { hooks: { PreToolUse: [{ hooks: [editingHook(options, editing)] }] } } : {}),
         // Subscription login only; background tasks are off so no agent work runs outside the turn.
@@ -252,9 +268,13 @@ export class ClaudeSession implements AgentSession {
     const options = this.options;
     return (name, input) => {
       const decide = (): PermissionResult => {
+        if (options.commands && isImplementationTool(name) && owned())
+          return { behavior: 'allow', updatedInput: input };
         if (allowMcpTool(name, options.emit, owned())) return { behavior: 'allow', updatedInput: input };
         if (options.repository && isRepositoryTool(name)) return { behavior: 'allow', updatedInput: input };
         if (options.editing) {
+          if (options.commands?.running && name !== 'Read')
+            return { behavior: 'deny', message: 'Wait for the active implementation command before editing' };
           const decision = authorizeEditTool(options.editing, name, input, options.emit);
           if (decision.allowed) return { behavior: 'allow', updatedInput: input };
           return { behavior: 'deny', message: decision.reason };

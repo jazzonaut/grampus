@@ -624,6 +624,8 @@ export interface PlanAcceptanceView {
 
 /** One slice of the plan. */
 export interface PlanSliceView {
+  /** Approved formatter applied automatically and available during implementation. */
+  formatting: { name: string; file: string; args: string[]; timeoutMs: number } | null;
   title: string;
   approach: string | null;
   criteria: string[];

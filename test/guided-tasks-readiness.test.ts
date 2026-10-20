@@ -28,6 +28,19 @@ test('format and type fixes preserve the allowance for a behavioural repair', wi
   assert.equal(done.readinessCycle.used, 1);
   assert.equal(turns, 2);
   assert.equal(done.repairCycle.used, 1);
+  const firstExecution = f.store
+    .executions()
+    .find(execution => execution.taskId === task.id && execution.role === 'implementation')!;
+  assert.deepEqual(
+    f.store
+      .checks(firstExecution.id)
+      .filter(check => check.purpose === 'readiness')
+      .map(check => [check.spec.name, check.phase]),
+    [
+      ['format readiness', 'failed'],
+      ['types readiness', 'failed'],
+    ],
+  );
   const decisions = f.store.events(task.id).filter(event => event.type === 'guided.repair_decided');
   assert.deepEqual(
     decisions.map(event => (event.data as { source: string }).source),

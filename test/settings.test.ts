@@ -35,6 +35,7 @@ test('without config.json the built-in defaults apply and nothing is created', t
   const root = join(dataDirectory(t), 'absent');
   const settings = loadSettings(root);
   assert.deepEqual(settings, {
+    claudeMaxTurns: 128,
     modelProfiles: [],
     dashboardPort: defaultDashboardPort,
     dashboardListenOnLan: true,

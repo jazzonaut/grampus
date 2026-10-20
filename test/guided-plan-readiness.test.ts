@@ -5,6 +5,21 @@ import { guidedPlanDigest, normalizeGuidedPlan } from '../src/domain/guided-plan
 import { pendingReadiness } from '../src/domain/readiness.js';
 import { normalizeWorkflowPolicy } from '../src/domain/workflow-policy.js';
 import { fixture } from './helpers/guided-tasks.js';
+import type { RepositoryCheck } from '../src/persistence/records.js';
+
+test('an automatic formatter is an explicit approved command', t => {
+  const f = fixture(t);
+  const formatting = {
+    name: 'Format authorised files',
+    file: 'node',
+    args: ['format.js', 'greeting.js'],
+    timeoutMs: 1000,
+  };
+  const input = { ...f.plan, slices: [{ ...f.plan.slices[0], formatting }] };
+  const plan = normalizeGuidedPlan(input);
+  assert.deepEqual(plan.slices[0]!.formatting, { ...formatting, file: process.execPath });
+  assert.notEqual(guidedPlanDigest(plan), guidedPlanDigest(normalizeGuidedPlan(f.plan)));
+});
 
 test('readiness commands and allowances are explicit parts of approval', t => {
   const f = fixture(t);
@@ -57,4 +72,37 @@ test('readiness evidence must name the exact command, artifact and instructions'
   assert.ok(pendingReadiness(commands, snapshot, [{ ...passed, phase: 'failed' }]));
   assert.ok(pendingReadiness(commands, snapshot, [passed, { ...passed, phase: 'failed' }]));
   assert.ok(pendingReadiness(commands, snapshot, [{ ...passed, spec: { ...spec, args: [] } }]));
+});
+
+test('collecting readiness failures never skips a timeout or hides the latest rerun', t => {
+  const f = fixture(t);
+  const commands = normalizeGuidedPlan({
+    ...f.plan,
+    slices: [
+      {
+        ...f.plan.slices[0],
+        readiness: [
+          { kind: 'format', name: 'Format', file: 'node', args: ['--check', 'greeting.js'] },
+          { kind: 'types', name: 'Types', file: 'node', args: ['--check', 'greeting.js'] },
+        ],
+      },
+    ],
+  }).slices[0]!.readiness;
+  const snapshot = { artifact: 'sha256:current', instructionsDigest: 'current' };
+  const first = pendingReadiness(commands, snapshot, [])!;
+  const failed = {
+    phase: 'failed',
+    spec: first,
+    before: snapshot,
+    after: snapshot,
+    error: null,
+    result: { reason: 'exited', exitConfirmed: true, exitCode: 1, stdout: '', stderr: '', outputTruncated: false },
+  } as RepositoryCheck;
+  const second = pendingReadiness(commands, snapshot, [failed], true)!;
+  assert.equal(second.name, 'Types');
+  const timedOut = { ...failed, spec: second, result: { ...failed.result!, reason: 'timed_out' } };
+  assert.deepEqual(pendingReadiness(commands, snapshot, [failed, timedOut], true), second);
+  const passed = { ...timedOut, phase: 'passed' as const };
+  assert.equal(pendingReadiness(commands, snapshot, [failed, timedOut, passed], true), null);
+  assert.deepEqual(pendingReadiness(commands, snapshot, [failed, timedOut, passed]), first);
 });

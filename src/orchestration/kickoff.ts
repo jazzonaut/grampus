@@ -408,7 +408,12 @@ export class Kickoffs {
    */
   async send(id: string, message?: string, answers?: Record<string, string>, signal?: AbortSignal, expected?: string) {
     const { config, needsContext, request, boundary } = this.prepareTurn(id, message, answers, expected);
-    const prompt = plannerPrompt({ config, needsContext, request });
+    const prompt = plannerPrompt({
+      config,
+      needsContext,
+      request,
+      timings: this.store.checkTimings(config.repo, config.base),
+    });
     const planning = runSession(
       this.store,
       id,

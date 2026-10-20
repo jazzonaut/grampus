@@ -29,6 +29,8 @@ export function formatBytes(bytes: number): string {
 
 /** Bounds on an approved guided plan. All are checked when the plan is normalised, before approval. */
 export const planLimits = {
+  /** Recent command timing examples supplied to a planner, without unbounded historical output. */
+  timingExamples: 16,
   /** Encoded size of a whole guided plan proposal; stops oversized planner output before parsing. */
   planBytes: 1 * MiB,
   /** Free text in plans, kickoff messages and manual assessment summaries. */
@@ -40,7 +42,7 @@ export const planLimits = {
   /** Ordered slices in one brief; each is a separate verified delivery. */
   slices: 64,
   /** Ordered acceptance checks in one slice; each runs under its own timeout and all must pass. */
-  acceptanceChecks: 8,
+  acceptanceChecks: 16,
   /** One explicit check for each mechanical readiness kind, before behavioural validation. */
   readinessChecks: 3,
 } as const;
@@ -169,6 +171,8 @@ export const qualityLimits = {
 
 /** Provider turn bounds enforced by the controller. */
 export const providerLimits = {
+  /** Agent-requested diagnostic commands within one implementation turn, before final formatting. */
+  implementationCommands: 32,
   /** Models requested per Codex catalogue page. */
   modelListPage: 100,
   /** Maximum catalogue pages, including empty pages with a continuing cursor. */
@@ -183,8 +187,6 @@ export const providerLimits = {
   mcpStatusPage: 100,
   /** Codex MCP server status entries read in total; stops an endless cursor. */
   mcpStatusTotal: 1000,
-  /** Claude agent turns within one conversation turn. */
-  claudeMaxTurns: 64,
 } as const;
 
 /** Repository snapshots and reads. Snapshot bounds are part of what an artifact digest can cover. */
@@ -254,6 +256,10 @@ export const referenceLimits = {
 
 /** The shared repository tools. Every result is journaled, so each page is bounded. */
 export const repositoryToolLimits = {
+  /** Identical reads of unchanged content before returning a compact cursor reminder. */
+  repeatedReadHint: 3,
+  /** Identical reads of unchanged content before terminating the provider turn. */
+  repeatedReadStop: 8,
   /** Characters of tool text arguments. */
   argumentCharacters: 512,
   /** Paths, changed files or checks per page. */
@@ -320,6 +326,8 @@ export const serverLimits = {
 
 /** Process control. These bound startup, shutdown and IPC so that no wait is unbounded. */
 export const processLimits = {
+  /** MCP command response window includes the longest supervised check and its settlement. */
+  implementationCommandToolMs: 660_000,
   /** Default deadline for short helper commands such as version probes. */
   commandTimeoutMs: 15_000,
   /** Output buffer for short helper commands. */

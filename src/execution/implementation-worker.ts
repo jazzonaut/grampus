@@ -18,6 +18,7 @@ import type { AgentSession, TurnResult } from '../providers/types.js';
 import { taskCheckEvidence } from '../verification/check-evidence.js';
 import { parseSettings, useSettings } from '../config/settings.js';
 import { OutputBuffer, deltaText } from './output-buffer.js';
+import { ImplementationCommands } from './implementation-commands.js';
 
 /** Throws unless this run still holds the workspace lease and its session's running turn. */
 function requireOwnership(store: Store, run: ImplementationRun, execution: Execution, session: Session): void {
@@ -52,10 +53,16 @@ async function main(): Promise<void> {
     const snapshot = await captureRepository(workspaces, execution);
     const editing = { cwd: session.cwd, policy: run.policy, snapshot };
     prepareEditing(editing);
+    const commands = new ImplementationCommands(store, run.id);
     const plan = new Workflow(store).get(execution.taskId).guided?.plan;
     let turn: ImplementationTurn;
     try {
-      turn = implementationTurn(request.prompt, session, editing, plan?.context);
+      turn = implementationTurn(
+        `${request.prompt}\n${commands.available ? commands.instructions() : ''}`,
+        session,
+        editing,
+        plan?.context,
+      );
     } catch (error) {
       if (!(error instanceof PromptBudgetError)) throw error;
       // Refused before any provider starts: a settled failure the controller can name, not a crash.
@@ -88,6 +95,7 @@ async function main(): Promise<void> {
       // Never aborted in this process: a stop ends the worker through its supervisor.
       signal: new AbortController().signal,
       editing,
+      ...(commands.available ? { commands } : {}),
       ...(turn.exploration
         ? {
             repository: {
@@ -95,6 +103,7 @@ async function main(): Promise<void> {
               snapshot,
               references: plan?.references ?? [],
               checks: taskCheckEvidence(store, execution),
+              currentChecks: () => taskCheckEvidence(store, execution),
               editable: [...run.policy.files, ...(run.policy.create ?? []), ...(run.policy.delete ?? [])],
             },
           }
@@ -122,6 +131,7 @@ async function main(): Promise<void> {
     });
     await agent.close();
     agent = null;
+    if (result.status === 'completed' && result.reply?.kind !== 'question') await commands.finish();
     writeResult(run, result);
   } finally {
     try {

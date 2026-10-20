@@ -187,6 +187,8 @@ export const checkSpecSchema = z.object({
 export type CheckSpec = z.infer<typeof checkSpecSchema>;
 
 export const repositoryCheckSchema = z.object({
+  /** Diagnostic command performed while this implementation retains its workspace lease. */
+  implementationId: z.string().exactOptional(),
   /** Set when a verification ran but its output did not meet the approved acceptance observations. */
   failureKind: z.literal('acceptance').exactOptional(),
   id: z.string(),

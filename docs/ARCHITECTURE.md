@@ -143,8 +143,9 @@ artifact and instructions; readiness cannot substitute for validation. Ordinary 
 validation and acceptance failures return to
 implementation with their evidence within `workflowPolicy.repairRounds`, shared with blocking
 review repairs (five by default, up to ten). Review can continue beyond two repairs when the
-artifact changes and the reviewer evidences resolution of every preceding blocker using
-controller-assigned identities. Unchanged artifacts, unresolved blockers and missing progress
+artifact changes and the reviewer evidences resolution of at least one preceding blocker using
+controller-assigned identities, with dispositions for all prior blockers. Unchanged artifacts,
+no resolved blockers and missing progress
 evidence stop early or go to an optional approved arbitrator. Every repair decision is journaled
 with its reason, evidence identity and shared budget in the settlement transaction. In **supervised** mode the controller stops at
 `awaiting_scope` for file authorization and at `awaiting_assessment` after submission for one human
@@ -422,6 +423,23 @@ provider protocol messages are validated.
 
 Neither provider gets a shell. Configured MCP integrations stay available (`providers/integrations.ts` carries
 source-project connections into worktrees); external actions need explicit task authorization.
+
+Implementation also receives `grampus_run_check` (`execution/implementation-commands.ts` and
+`providers/implementation-tools.ts`), selecting only an approved formatter, readiness command or
+validation command by identifier. It runs through the supervisor under the existing implementation
+lease. Child check records name `implementationId`; settlement never releases the parent lease.
+Before parent settlement, outstanding child receipts must prove confirmed exit or the implementation
+stays in recovery. Diagnostics cannot supply acceptance or final readiness evidence. An optional
+slice `formatting` command runs automatically after editing, within the approved file scope.
+Native writes are suspended while a command runs; final evidence binds to the formatted artifact.
+
+`repository/read-loop.ts` replaces a third identical read of unchanged content with a compact cursor
+reminder and terminates the turn on the eighth. Changed content remains readable. Both providers
+settle a detected loop without automatically replaying their turn.
+
+Kickoff planning receives bounded historical command durations for the same repository and pinned
+base. Timed-out durations are lower bounds; planning must split oversized suites with headroom,
+preserving full coverage. This advice never rewrites an approved command or deadline at runtime.
 
 ## Repository access
 
@@ -804,7 +822,7 @@ conversations, evidence and both repair counts keep the ordinary task contracts.
 Task claims recheck comparison membership inside the claim transaction; advancing a comparison
 rechecks the member's current ownership and settlement under the same SQLite write lock.
 
-The `comparisons` and `comparison_events` tables are part of journal schema 8. State changes and
+The `comparisons` and `comparison_events` tables are part of journal schema 9. State changes and
 events share a transaction. Schema versions other than 8 are refused without migration.
 Member tasks keep the existing execution, workspace, evidence, spending and verified-delivery
 contracts. Shared planning is retained once at comparison level rather than charged to every member.

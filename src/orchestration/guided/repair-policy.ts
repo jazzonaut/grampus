@@ -66,13 +66,15 @@ export function priorBlockingFindings(context: GuidedContext, state: GuidedState
 }
 
 /**
- * Progress is unknown until every prior blocker has a unique, evidenced disposition. An unresolved
- * blocker or an identically described blocker is stalled even when unrelated file bytes changed.
+ * Progress is unknown until every prior blocker has a unique, evidenced disposition. Resolving a
+ * subset permits bounded continued repair; a claimed resolution contradicted by the current verdict
+ * is stalled even when unrelated file bytes changed. Passing verdicts require complete resolution.
  */
 export function reviewProgress(
   prior: PriorFinding[],
   current: PriorFinding[],
   reply: Reply,
+  requireCompleteResolution = false,
 ): 'progress' | 'stalled' | 'unknown' {
   if (!prior.length) return reply.priorFindings?.length ? 'unknown' : 'progress';
   const claims = reply.priorFindings ?? [];
@@ -84,8 +86,13 @@ export function reviewProgress(
     return 'unknown';
   const normalise = (text: string) => text.trim().replace(/\s+/g, ' ').toLowerCase();
   if (
-    claims.some(item => item.status === 'unresolved') ||
-    prior.some(item => current.some(finding => normalise(finding.description) === normalise(item.description)))
+    (requireCompleteResolution && claims.some(item => item.status === 'unresolved')) ||
+    !claims.some(item => item.status === 'resolved') ||
+    prior.some(
+      item =>
+        claims.some(claim => claim.id === item.id && claim.status === 'resolved') &&
+        current.some(finding => normalise(finding.description) === normalise(item.description)),
+    )
   )
     return 'stalled';
   return 'progress';

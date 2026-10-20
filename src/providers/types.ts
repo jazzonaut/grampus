@@ -18,7 +18,7 @@ export type Provider = z.infer<typeof providerSchema>;
  * dynamic repository tools on `thread/start`, so a Codex session recorded with another version is
  * continued in a fresh conversation instead. Bump it whenever the tool definitions change.
  */
-export const agentToolsetVersion = 4;
+export const agentToolsetVersion = 5;
 
 /** System instructions for read-only conversation turns. Prompt text is a provider contract. */
 export const instructions = `You are participating in a Grampus conversation. Do not edit files, run commands or delegate work. Use configured MCP integrations and the supplied read-only tools to gather task context.
@@ -75,6 +75,8 @@ export interface AgentSession {
 
 /** Everything an adapter needs to start or resume one provider conversation. */
 export interface ConnectOptions {
+  /** Controller-owned approved diagnostics; unavailable outside implementation. */
+  commands?: { run: (name: string) => Promise<unknown>; readonly running?: boolean };
   /** Where project configuration (such as MCP servers) is read from when it differs from `cwd`. */
   configurationCwd?: string;
   /** Read-only repository tools to offer; absent means the agent gets none. */

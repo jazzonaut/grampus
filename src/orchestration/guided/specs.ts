@@ -113,9 +113,11 @@ export function validationSpec(state: GuidedState): CheckSpec {
 /** The first readiness check without a passing result on this exact artifact in this execution. */
 export function dueReadiness(
   state: GuidedState,
-  checks: readonly Pick<RepositoryCheck, 'phase' | 'spec'>[],
+  checks: readonly (Pick<RepositoryCheck, 'phase' | 'spec'> &
+    Partial<Pick<RepositoryCheck, 'result' | 'error' | 'before' | 'after'>>)[],
+  collectFailures = false,
 ): CheckSpec | null {
-  return pendingReadiness(currentSlice(state).readiness, required(state, 'snapshot'), checks);
+  return pendingReadiness(currentSlice(state).readiness, required(state, 'snapshot'), checks, collectFailures);
 }
 
 /**

@@ -23,6 +23,12 @@ export interface SettingsFacts {
 
 const integerSettings: readonly (IntegerSpec & { key: IntegerSetting })[] = [
   {
+    key: 'claudeMaxTurns',
+    label: 'Claude steps per controller turn',
+    meaning:
+      'Native Claude agent steps within one implementation or review turn. Separate from conversation resets and task-wide turn spending.',
+  },
+  {
     key: 'observabilityIntervalMs',
     label: 'Observability refresh interval (ms)',
     meaning: 'Interval between display-only journal reads while an execution graph is visible. No agent calls.',

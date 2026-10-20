@@ -382,6 +382,7 @@ export const mockPlan: PlanView = {
       criteria: ['A transient failure is retried'],
       files: { edit: ['src/export.ts'], create: ['test/retry.test.ts'], delete: [] },
       preparation: null,
+      formatting: null,
       validation: command,
       readiness: [],
       acceptance: [{ ...command, name: 'Acceptance', expectedStdout: 'ok\n', expectations: null }],

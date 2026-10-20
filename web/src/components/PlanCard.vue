@@ -98,6 +98,11 @@ const headingId = useId();
         <div v-for="(slice, index) in plan.slices" :key="index" class="mt-4 flex flex-col gap-2">
           <h3 class="font-semibold">Slice {{ index + 1 }} · {{ slice.title }}</h3>
           <CommandDetails
+            v-if="slice.formatting"
+            :command="slice.formatting"
+            :summary="`Automatic formatting: ${slice.formatting.name}`"
+          />
+          <CommandDetails
             v-if="slice.preparation"
             :command="slice.preparation"
             :summary="`Preparation: ${slice.preparation.name}`"

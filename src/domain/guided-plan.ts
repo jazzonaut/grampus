@@ -44,6 +44,8 @@ const guidedSliceSchema = z.object({
   /** Explicit mechanical checks; empty when the repository has none. Approval binds their category. */
   readiness: z.array(guidedCommandSchema.extend({ kind: readinessKindSchema })).max(planLimits.readinessChecks),
   preparation: guidedCommandSchema.exactOptional(),
+  /** Approved scoped formatter, also available to the implementer during its turn. */
+  formatting: guidedCommandSchema.exactOptional(),
   validation: guidedCommandSchema,
   /**
    * Distinctly named acceptance checks, run in this order on the same artifact. Each has its own
@@ -454,11 +456,13 @@ function readinessChecks(value: unknown, slice: number): GuidedSlice['readiness'
 function normalizeSlice(raw: unknown, simulation: FileSimulation, number: number): GuidedSlice {
   const item = object(
     raw,
-    ['scope', 'readiness', 'validation', 'acceptance', 'message', 'mode', 'preparation'],
+    ['scope', 'readiness', 'validation', 'acceptance', 'message', 'mode', 'preparation', 'formatting'],
     'slice configuration',
   );
   const mode = item.mode ?? 'commit';
   if (mode !== 'commit' && mode !== 'no_change') throw new Error('Delivery mode must be commit or no_change');
+  if (mode === 'no_change' && item.formatting !== undefined)
+    throw new Error('No-change delivery cannot apply formatting');
   const scope = sliceScope(item.scope, mode);
   simulation.apply(scope);
   const message = text(item.message, 'Commit message', planLimits.commitMessageBytes);
@@ -468,6 +472,11 @@ function normalizeSlice(raw: unknown, simulation: FileSimulation, number: number
     scope,
     mode,
     readiness: readinessChecks(item.readiness, number),
+    ...(item.formatting === undefined
+      ? {}
+      : {
+          formatting: labelled(`Slice ${number} formatting`, () => command(item.formatting, false)),
+        }),
     ...(item.preparation === undefined
       ? {}
       : {

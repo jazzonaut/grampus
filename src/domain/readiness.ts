@@ -12,7 +12,9 @@ export type ReadinessKind = z.infer<typeof readinessKindSchema>;
 export function pendingReadiness(
   commands: GuidedSlice['readiness'],
   snapshot: { artifact: string; instructionsDigest: string },
-  checks: readonly Pick<RepositoryCheck, 'phase' | 'spec'>[],
+  checks: readonly (Pick<RepositoryCheck, 'phase' | 'spec'> &
+    Partial<Pick<RepositoryCheck, 'result' | 'error' | 'before' | 'after'>>)[],
+  collectFailures = false,
 ): CheckSpec | null {
   for (const { kind, ...command } of commands) {
     const spec: CheckSpec = {
@@ -21,7 +23,16 @@ export function pendingReadiness(
       artifact: snapshot.artifact,
       instructionsDigest: snapshot.instructionsDigest,
     };
-    if (checks.findLast(check => deepEqual(check.spec, spec))?.phase !== 'passed') return spec;
+    const latest = checks.findLast(check => deepEqual(check.spec, spec));
+    const observedFailure =
+      collectFailures &&
+      latest?.phase === 'failed' &&
+      latest.result?.reason === 'exited' &&
+      latest.result.exitConfirmed &&
+      !latest.error &&
+      latest.before?.artifact === snapshot.artifact &&
+      latest.after?.artifact === snapshot.artifact;
+    if (latest?.phase !== 'passed' && !observedFailure) return spec;
   }
   return null;
 }

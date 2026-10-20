@@ -64,7 +64,8 @@ export type RpcMessage = z.infer<typeof rpcMessageSchema>;
  * The transport fails once and for good: a spawn error, process exit, an oversized or non-JSON line, an
  * invalid envelope or a throwing message listener rejects every pending request with that error, notifies
  * the failure listeners and refuses later requests. Server requests are answered only with a value the
- * registered handler returns synchronously; anything else gets a JSON-RPC error, so it never authorises work.
+ * registered handler returns, including an awaited diagnostic result. Undefined and failed handlers
+ * get a JSON-RPC error; a stopped transport never returns an authorisation.
  */
 export class RpcProcess {
   private readonly child: ChildProcessWithoutNullStreams;
@@ -124,21 +125,22 @@ export class RpcProcess {
         return;
       }
       if (message.method && message.id !== undefined) {
-        // Synchronous handlers must persist authorization before returning it.
-        // Undefined, exceptions and a stopped transport never authorize work.
+        // Authorisation precedes dispatch; asynchronous tools return their settled diagnostics.
+        // Undefined, exceptions and a stopped transport never authorise work.
         let result: unknown;
         try {
           if (!this.stopped) result = this.serverRequest?.(message);
         } catch {
           result = undefined;
         }
-        this.child.stdin.write(
-          `${JSON.stringify(
-            result === undefined
-              ? { id: message.id, error: { code: -32601, message: 'Client does not accept this server request' } }
-              : { id: message.id, result },
-          )}\n`,
-        );
+        // Native permission decisions must still be sent synchronously. Only diagnostic tools
+        // may wait for process settlement, while the transport continues receiving stop events.
+        if (result instanceof Promise)
+          void result.then(
+            value => this.respond(message.id, value),
+            () => this.respond(message.id, undefined),
+          );
+        else this.respond(message.id, result);
         return;
       }
       if (typeof message.id !== 'number') return;
@@ -149,6 +151,18 @@ export class RpcProcess {
       if (message.error) request.reject(new Error(message.error.message ?? 'RPC request failed'));
       else request.resolve(message.result);
     });
+  }
+
+  /** Sends a settled server-request result only while this transport still owns its child. */
+  private respond(id: RpcMessage['id'], result: unknown): void {
+    if (this.stopped) return;
+    this.child.stdin.write(
+      `${JSON.stringify(
+        result === undefined
+          ? { id, error: { code: -32601, message: 'Client does not accept this server request' } }
+          : { id, result },
+      )}\n`,
+    );
   }
 
   private fail(error: Error): void {
@@ -178,8 +192,8 @@ export class RpcProcess {
   }
 
   /**
-   * Register the one handler that answers server-initiated requests. The handler must be synchronous and
-   * must persist any authorisation before returning it; `undefined` or a throw is answered as refused.
+   * Register the one handler that answers server-initiated requests. The handler must persist any
+   * authorisation before dispatching work; undefined, rejection or a throw is answered as refused.
    *
    * @throws Error when a handler is already registered, so two owners cannot both answer approvals.
    */

@@ -51,6 +51,9 @@ defineProps<{ slice: PlanSliceView; index: number }>();
           <pre class="grampus-code">{{ slice.files.delete.join('\n') }}</pre>
         </div>
       </div>
+      <p v-if="slice.formatting" class="text-xs text-muted">
+        Automatic formatting · {{ slice.formatting.name }} · {{ formatTimeout(slice.formatting.timeoutMs) }}
+      </p>
       <div v-if="slice.preparation" class="flex flex-col gap-1">
         <p class="text-xs text-muted">
           Preparation after implementation · {{ slice.preparation.name }} ·

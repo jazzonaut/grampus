@@ -49,6 +49,26 @@ function fixture(t: { after(fn: () => void): void }) {
   return { root, repo, git, base, cleanup };
 }
 
+test('repeating an unchanged page gives a cursor hint and terminates a read loop', t => {
+  const f = fixture(t),
+    events: AgentEvent[] = [];
+  const invoke = repositoryTools(
+    { repo: f.repo, base: f.base },
+    event => events.push(event),
+    () => true,
+  );
+  const read = () => invoke('grampus_read_file', { path: 'src/caller.js', limit: 1 }) as any;
+  assert.equal(read().nextOffset, 1);
+  const replies: { repeated?: boolean; nextOffset?: number }[] = [];
+  assert.throws(() => {
+    for (let i = 0; i < 20; i++) replies.push(read());
+  }, /Repeated repository read/);
+  assert.ok(replies.some(reply => reply.repeated === true && reply.nextOffset === 1));
+  assert.ok(events.some(event => event.type === 'repository.read_loop'));
+  assert.match((invoke('grampus_read_file', { path: 'src/caller.js', offset: 1 }) as any).lines[0], /console/);
+  assert.ok(!read().repeated, 'new information permits a later legitimate reread');
+});
+
 test('repository tools discover dependencies outside initial context and read pinned content, with pagination', t => {
   const f = fixture(t),
     events: AgentEvent[] = [];

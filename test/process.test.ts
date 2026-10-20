@@ -8,6 +8,28 @@ test('commands pass arguments without shell expansion', async () => {
   assert.equal(output, literal);
 });
 
+test('RPC awaits an asynchronous diagnostic before answering the server request', async () => {
+  const rpc = new RpcProcess(process.execPath, [
+    '-e',
+    `
+    const send=value=>console.log(JSON.stringify(value));
+    require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
+      const r=JSON.parse(line);
+      if(r.method==='outer')send({id:'diagnostic',method:'run',params:{}});
+      else if(r.id==='diagnostic')send({id:1,result:r.result});
+    });`,
+  ]);
+  rpc.onRequest(async () => {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    return { phase: 'passed' };
+  });
+  try {
+    assert.deepEqual(await rpc.request('outer', {}), { phase: 'passed' });
+  } finally {
+    await rpc.close();
+  }
+});
+
 test('commands have a bounded timeout', async () => {
   await assert.rejects(command(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], 100));
 });

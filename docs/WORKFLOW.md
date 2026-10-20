@@ -81,11 +81,30 @@ Each slice can declare an ordered `readiness` list, with at most one command of 
 ```
 
 Readiness runs after the edit quality passes and prerequisite refresh, before behavioural
-validation, on every attempt. Its commands must be read-only: use a formatting check, then let
-the implementer fix files within its authorised scope. Tests, mixed check scripts, installation
+validation, on every attempt. Its commands must be read-only. A slice can additionally approve
+`formatting: {name,file,args,timeoutMs}`, a formatter in write mode limited to its authorised
+existing files. It runs automatically after each completed editing turn, before the controller
+adopts the resulting artifact, without spending an agent repair round. Tests, mixed check scripts, installation
 and mutating formatters do not belong in readiness. The controller uses the declared category,
 never an error-message heuristic. Omitted readiness normalises to an empty list for approval;
 existing validation commands always use the behavioural allowance.
+
+During implementation, `grampus_run_check` lets either provider request the approved formatter
+(`format`), mechanical checks (`readiness:format`, `readiness:lint`, `readiness:types`) and
+behavioural tests (`validation`). The agent selects an identifier, never an executable or arguments.
+Commands run serially under the implementation lease, with retained output and fresh snapshots;
+native writes are refused while a command runs. Their results are diagnostics, not acceptance or
+final readiness evidence. All final checks still apply to the artifact after the last edit.
+An uncertain command keeps the parent implementation locked for recovery, without replay.
+
+Ordinary readiness failures are collected across all declared mechanical checks before one repair
+is requested, so the implementer receives formatting, lint and type diagnostics together.
+Infrastructure failures still stop immediately. The latest result on the exact artifact always wins.
+
+A slice may approve up to sixteen separately named acceptance checks, leaving room for small browser
+shards alongside repository checks, builds and integration smoke tests. Historical timings from the
+same pinned base inform planning; a timed-out run is a lower bound. Coverage, commands and deadlines
+remain explicit approval inputs and are never changed automatically while a task runs.
 
 `workflowPolicy.readinessRounds` allows five automatic readiness repairs per slice by default,
 separate from the five shared behavioural repairs. Both accept 0 to 10 and are visible and
@@ -334,8 +353,10 @@ A new related review finding can be repaired automatically after earlier blocker
 The controller assigns stable identities to the preceding verdict's blockers, including failed
 selected lenses. The reviewer returns `priorFindings`, one `{ id, status, evidence }` per identity,
 with `status` either `resolved` or `unresolved`. Further automatic repair requires a changed
-artifact and complete, evidenced resolution of every earlier blocker. The same artifact or
-an unresolved blocker stops with `REVIEW_NO_PROGRESS`; missing, duplicate or foreign identities
+artifact and evidenced resolution of at least one earlier blocker, with a disposition for every
+earlier blocker. Partial progress permits another repair within the existing allowance; delivery
+still requires every blocker resolved. The same artifact, no resolved blockers or a claimed
+resolution contradicted by the current verdict stops with `REVIEW_NO_PROGRESS`; missing, duplicate or foreign identities
 stop with `REVIEW_PROGRESS_UNCONFIRMED`. These claims are agent evidence, not controller proof
 of semantic correctness. Passing reviews must also account for prior blockers. All earlier
 verdicts remain available to the reviewer.
@@ -353,7 +374,7 @@ action and the relevant readiness or shared behavioural budget before the decisi
 structured reply. This makes the choice to repair, arbitrate or stop inspectable alongside the
 existing request/result, check and usage journals.
 
-The current controller uses journal schema 8, including explicit readiness checks and their durable allowance alongside model assignments, comparisons, pause, guidance, task spending and ordered acceptance checks. Journals from
+The current controller uses journal schema 9, with implementation-owned diagnostics and approved automatic formatting, including explicit readiness checks and their durable allowance alongside model assignments, comparisons, pause, guidance, task spending and ordered acceptance checks. Journals from
 other schema versions are refused without modification; there is
 no migration. Keep the previous installed build with its journal to finish an existing task.
 

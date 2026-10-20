@@ -319,6 +319,102 @@ export class Checks {
   }
 
   /**
+   * Runs an implementation diagnostic under its existing lease. It never supplies acceptance or
+   * readiness evidence, and it cannot release the implementation's lease while its provider runs.
+   */
+  async duringImplementation(
+    implementationId: string,
+    spec: CheckSpec,
+    runner: (options: CheckProcessOptions) => Promise<CheckProcessResult> = runCheckProcess,
+  ): Promise<RepositoryCheck> {
+    validate(spec);
+    if (spec.criteria || spec.readiness) throw new Error('Implementation diagnostics cannot supply gate evidence');
+    const id = randomUUID();
+    const execution = this.store.transaction(() => {
+      const run = this.store.implementation(implementationId);
+      const execution = this.store.execution(run.executionId);
+      this.fenced(execution, implementationId);
+      const session = this.store.session(execution.sessionId);
+      if (run.phase !== 'running' || session.run?.id !== implementationId || session.phase !== 'running')
+        throw new Error('Implementation diagnostic requires an active owned turn');
+      if (
+        this.store
+          .checks(execution.id)
+          .some(
+            check =>
+              check.implementationId === implementationId && ['running', 'recovery_required'].includes(check.phase),
+          )
+      )
+        throw new Error('An implementation command is still unsettled');
+      const check: RepositoryCheck = {
+        id,
+        executionId: execution.id,
+        implementationId,
+        spec: structuredClone(spec),
+        phase: 'running',
+        before: null,
+        after: null,
+        supervisorPid: null,
+        toolPid: null,
+        result: null,
+        error: null,
+        purpose: spec.preparation ? 'preparation' : 'validation',
+        dispatch: 'not_requested',
+      };
+      this.store.saveCheck(id, execution.id, check);
+      this.store.appendExecution(execution.id, 'check.requested', { checkId: id, implementationId, spec });
+      this.store.append(execution.taskId, execution.version, 'check.requested', {
+        executionId: execution.id,
+        checkId: id,
+        implementationId,
+        spec,
+      });
+      return execution;
+    });
+    const check = this.get(id);
+    const dispatched = await this.observe(execution, check, undefined, runner);
+    return this.settle(execution, check, dispatched, undefined);
+  }
+
+  /** Reconciles child commands before releasing their parent, without replay or accepting lost success. */
+  reconcileImplementation(implementationId: string): boolean {
+    const run = this.store.implementation(implementationId);
+    const execution = this.store.execution(run.executionId);
+    return this.store.transaction(() => {
+      this.fenced(execution, implementationId);
+      for (const check of this.store
+        .checks(execution.id)
+        .filter(
+          check =>
+            check.implementationId === implementationId && ['running', 'recovery_required'].includes(check.phase),
+        )) {
+        if (check.dispatch === 'requested') {
+          if (!check.receipt) return false;
+          try {
+            check.result = {
+              ...readReceipt(check.receipt, check.supervisorPid, check.toolPid),
+              ...retainedOutput(check.receipt.directory),
+            };
+          } catch {
+            return false;
+          }
+          if (!check.result.exitConfirmed) return false;
+        }
+        check.phase = 'interrupted';
+        check.error =
+          'Parent implementation settled before this command; reconciled without replay or success acceptance';
+        this.store.saveCheck(check.id, execution.id, check);
+        this.store.appendExecution(execution.id, 'check.recovered', {
+          checkId: check.id,
+          implementationId,
+          acceptedAsSuccess: false,
+        });
+      }
+      return true;
+    });
+  }
+
+  /**
    * Claims the workspace and journals the check request. An acceptance check first records skipped
    * verification evidence under its name, so an earlier pass of the same check cannot satisfy the gate
    * while this one is pending, and
@@ -419,7 +515,7 @@ export class Checks {
         // runner starts, so recovery knows a command may have run and demands a matching receipt.
         check.receipt = allocateReceipt(this.store, id);
         this.store.transaction(() => {
-          this.fenced(execution, id);
+          this.fenced(execution, check.implementationId ?? id);
           check.dispatch = 'requested';
           this.store.saveCheck(id, executionId, check);
           this.store.appendExecution(executionId, 'check.dispatch_requested', {
@@ -438,7 +534,7 @@ export class Checks {
           // Recorded PIDs let recovery match the receipt to these exact processes.
           started: (kind, pid) => {
             this.store.transaction(() => {
-              this.fenced(execution, id);
+              this.fenced(execution, check.implementationId ?? id);
               if (kind === 'supervisor') check.supervisorPid = pid;
               else check.toolPid = pid;
               this.store.saveCheck(id, executionId, check);
@@ -493,7 +589,7 @@ export class Checks {
   ): RepositoryCheck {
     const { id, executionId, purpose } = check;
     return this.store.transaction(() => {
-      this.fenced(execution, id);
+      this.fenced(execution, check.implementationId ?? id);
       // No result before dispatch means nothing ran; no result after dispatch means the outcome is unknown.
       const confirmed = check.result?.exitConfirmed ?? !dispatched;
       check.phase = !confirmed
@@ -503,14 +599,8 @@ export class Checks {
           : !check.error && check.result?.reason === 'exited' && check.result.exitCode === 0
             ? 'passed'
             : 'failed';
-      if (confirmed) this.release(execution, id);
-      else if (purpose !== 'verification') {
-        const task = this.store.get(execution.taskId);
-        task.phase = 'recovery_required';
-        if (!task.attempt) throw new Error('Check task has no current attempt');
-        task.attempt.outcome = 'uncertain';
-        this.store.save(task.id, task);
-      }
+      if (confirmed && !check.implementationId) this.release(execution, id);
+      this.markUncertain(execution, check, confirmed);
       this.store.saveCheck(id, executionId, check);
       const event = {
         checkId: id,
@@ -546,6 +636,16 @@ export class Checks {
       check: check.spec.name,
       summary: `Acceptance check ${check.spec.name}: ${check.phase}. Output/file expectations and criterion mapping supplied by the caller; command and actual result retained in check ${check.id}.`,
     });
+  }
+
+  /** Parent implementations own recovery of their child commands; standalone checks own the attempt. */
+  private markUncertain(execution: Execution, check: RepositoryCheck, confirmed: boolean): void {
+    if (confirmed || check.purpose === 'verification' || check.implementationId) return;
+    const task = this.store.get(execution.taskId);
+    task.phase = 'recovery_required';
+    if (!task.attempt) throw new Error('Check task has no current attempt');
+    task.attempt.outcome = 'uncertain';
+    this.store.save(task.id, task);
   }
 
   /**
