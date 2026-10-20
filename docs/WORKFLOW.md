@@ -22,7 +22,10 @@ views. Before approval, the plan view exposes the exact file permissions, comman
 output and complete plan JSON. **Request changes** opens the existing full-plan revision form; any
 revision still needs approval of its new version and digest. During planning, **Create task for review**
 creates an unapproved task. It does not start implementation. Planning token usage is visible before
-conversion, with live, partial and unknown measurements labelled explicitly.
+conversion, with live, partial and unknown measurements labelled explicitly. Planning and task
+pages share the live communication graph and **Open full observability** for event inspection
+and historical replay. Planning activity remains visible in the linked task without duplicate
+sessions or events ([observability](OBSERVABILITY.md)).
 
 For local Orca worktrees, the open dashboard also projects the task title, stage, slice
 and attention onto the workspace card. Only verified final delivery is shown as completed.

@@ -68,7 +68,8 @@ const application = computed(() => overview.data.value?.application);
         <ObservabilityPage
           v-else-if="route.name === 'observability'"
           :id="route.id"
-          :key="`observability-${route.id}`"
+          :key="`observability-${route.kind}-${route.id}`"
+          :kind="route.kind"
         />
         <PlanningPage v-else-if="route.name === 'planning'" :id="route.id" :key="`planning-${route.id}`" />
         <EmptyState

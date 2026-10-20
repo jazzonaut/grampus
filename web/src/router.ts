@@ -4,6 +4,7 @@
 // route always starts with `/`, which a token never contains). Back and forward work, and a reload keeps
 // the open screen.
 import { readonly, ref } from 'vue';
+import type { ActivitySubjectV1 } from '../../src/server/api-types';
 
 /** The screens of the dashboard. */
 export type Route =
@@ -12,7 +13,7 @@ export type Route =
   | { name: 'health' }
   | { name: 'settings' }
   | { name: 'task'; id: string }
-  | { name: 'observability'; id: string }
+  | ({ name: 'observability' } & ActivitySubjectV1)
   | { name: 'planning'; id: string }
   | { name: 'not-found'; path: string };
 
@@ -26,12 +27,10 @@ export function parseRoute(hash: string): Route {
   if (path === '/new') return { name: 'new' };
   if (path === '/health') return { name: 'health' };
   if (path === '/settings') return { name: 'settings' };
-  const observation = /^\/tasks\/([^/]+)\/observability$/.exec(path)?.[1];
-  if (observation && id.test(observation)) return { name: 'observability', id: observation };
-  const [, kind, value] = /^\/(tasks|planning)\/([^/]+)$/.exec(path) ?? [];
-  if (kind && value && id.test(value))
-    return kind === 'tasks' ? { name: 'task', id: value } : { name: 'planning', id: value };
-  return { name: 'not-found', path };
+  const [, kind, value, observation] = /^\/(tasks|planning)\/([^/]+)(\/observability)?$/.exec(path) ?? [];
+  if (!kind || !value || !id.test(value)) return { name: 'not-found', path };
+  const name = kind === 'tasks' ? 'task' : 'planning';
+  return observation ? { name: 'observability', kind: name, id: value } : { name, id: value };
 }
 
 /** The fragment of a route, for links: `<a :href="href(route)">`. */
@@ -48,7 +47,7 @@ export function href(route: Exclude<Route, { name: 'not-found' }>): string {
     case 'task':
       return `#/tasks/${route.id}`;
     case 'observability':
-      return `#/tasks/${route.id}/observability`;
+      return `#/${route.kind === 'task' ? 'tasks' : 'planning'}/${route.id}/observability`;
     case 'planning':
       return `#/planning/${route.id}`;
   }

@@ -46,7 +46,8 @@ const item =
           <a
             :href="href({ name: 'task', id: task.id })"
             :aria-current="
-              (current.name === 'task' || current.name === 'observability') && current.id === task.id
+              (current.name === 'task' || (current.name === 'observability' && current.kind === 'task')) &&
+              current.id === task.id
                 ? 'page'
                 : undefined
             "
@@ -74,7 +75,12 @@ const item =
         <li v-for="kickoff in overview.planning" :key="kickoff.id">
           <a
             :href="href({ name: 'planning', id: kickoff.id })"
-            :aria-current="current.name === 'planning' && current.id === kickoff.id ? 'page' : undefined"
+            :aria-current="
+              (current.name === 'planning' || (current.name === 'observability' && current.kind === 'planning')) &&
+              current.id === kickoff.id
+                ? 'page'
+                : undefined
+            "
             :class="item"
           >
             <span class="truncate text-highlighted">{{ kickoff.title }}</span>

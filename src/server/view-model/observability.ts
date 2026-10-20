@@ -1,10 +1,10 @@
-// Owns the display-only task network, preserving original identities and explicit gaps in journal coverage.
+// Owns task and planning networks, preserving original identities and explicit gaps in journal coverage.
 import type { Session, Execution } from '../../persistence/records.js';
 import type { Store } from '../../persistence/store.js';
 import { activityCursorSchema } from '../../persistence/activity.js';
 import { observabilityLimits } from '../../config/limits.js';
 import { currentSettings } from '../../config/settings.js';
-import type { ActivityNodeV1, ObservabilityV1 } from '../api-types.js';
+import type { ActivityNodeV1, ActivitySubjectV1, ObservabilityV1 } from '../api-types.js';
 import { HttpError } from '../errors.js';
 import {
   activityFields,
@@ -15,7 +15,7 @@ import {
 } from './activity-events.js';
 
 const coverage = [
-  'Observed events come from the task and provider journals. A tool authorisation does not prove execution or completion.',
+  'Observed events come from the controller and provider journals. A tool authorisation does not prove execution or completion.',
   'Backend model activity is provider-reported. Internal inference requests, per-tool tokens and network latency may be unavailable.',
   'Events are displayed by recorded clock time with stable source/sequence tie-breakers. This ordering does not establish causation.',
   'Replay covers the loaded event window. Earlier state is unknown until preceding windows are loaded. Current participant states apply only in live mode.',
@@ -35,13 +35,13 @@ function cursor(value: string | null) {
 /** Bounded read projection; it cannot dispatch a provider, mutate state, approve evidence or replay work. */
 export function observabilityView(
   store: Store,
-  taskId: string,
+  subject: ActivitySubjectV1,
   before: string | null = null,
   limit: number = observabilityLimits.pageEvents,
 ): ObservabilityV1 {
   if (!Number.isInteger(limit) || limit < 1 || limit > observabilityLimits.maxPageEvents)
     throw new HttpError(400, 'Invalid activity page size');
-  const rows = store.activityEvents(taskId, cursor(before), limit + 1);
+  const rows = store.activityEvents(subject, cursor(before), limit + 1);
   const more = rows.length > limit;
   const page = rows.slice(0, limit).reverse();
   const nodes = new Map<string, ActivityNodeV1>([
@@ -56,15 +56,15 @@ export function observabilityView(
       },
     ],
   ]);
-  const toolSessions = new Set(store.activityToolSessions(taskId));
-  const sessions = store.activitySessions(taskId);
+  const toolSessions = new Set(store.activityToolSessions(subject));
+  const sessions = store.activitySessions(subject);
   const sessionRecords = new Map(sessions.map(session => [session.id, session]));
   const executions = new Map(sessions.map(session => [session.id, store.executionForSession(session.id)]));
   for (const session of sessions)
     addSessionNodes(nodes, session, executions.get(session.id), toolSessions.has(session.id));
   const events = page.map(row => {
-    const event = baseActivity(taskId, row);
-    if (row.origin === 'session')
+    const event = baseActivity(subject.kind === 'task' ? subject.id : null, row);
+    if (row.origin === 'session' && !row.type.startsWith('kickoff.') && !row.type.startsWith('dashboard.'))
       providerActivity(row, event, { nodes, agentId: `agent:${row.owner}`, modelId: `model:${row.owner}` });
     else controllerActivity(row, event, nodes);
     // Inference is explicit when a provider event lacks the identifiers needed to prove a relationship.
@@ -86,7 +86,7 @@ export function observabilityView(
   });
   return {
     apiVersion: 1,
-    taskId,
+    subject,
     revision: store.revision(),
     intervalMs: currentSettings().observabilityIntervalMs,
     nodes: [...nodes.values()],

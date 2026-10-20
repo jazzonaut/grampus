@@ -28,6 +28,7 @@ import type {
   OrcaWorktreesV1,
   OverviewV1,
   ObservabilityV1,
+  ActivitySubjectV1,
   SettingsV1,
   TaskDetailV1,
   TimelinePageV1,
@@ -116,10 +117,16 @@ class RevisionCache<T> {
   }
 }
 
-function readObservability(store: Store, id: string, before: string | null): ObservabilityV1 {
-  const task = store.get(id);
-  if (task.deletedAt || !task.guided) throw new HttpError(404, 'This task is not available');
-  return observabilityView(store, id, before);
+function readObservability(store: Store, subject: ActivitySubjectV1, before: string | null): ObservabilityV1 {
+  if (subject.kind === 'task') {
+    const task = store.get(subject.id);
+    if (task.deletedAt || !task.guided) throw new HttpError(404, 'This task is not available');
+  } else {
+    const session = store.session(subject.id);
+    if (session.deletedAt || !store.sessionEvents(subject.id, ['kickoff.created']).length)
+      throw new HttpError(404, 'This planning conversation is not available');
+  }
+  return observabilityView(store, subject, before);
 }
 
 /** Orca is optional: a missing client or a failed listing withdraws the choice rather than failing New task. */
@@ -192,13 +199,9 @@ export function createApiV1(dashboard: ApiV1Dashboard) {
     context: ViewContext,
     id: string,
     revision: string,
-    sub: 'timeline' | 'changes' | 'live-changes' | 'observability' | undefined,
+    sub: 'timeline' | 'changes' | 'live-changes' | undefined,
     url: URL,
   ) {
-    if (sub === 'observability') {
-      const before = url.searchParams.get('before');
-      return activity.get(`${id}:${before ?? ''}`, revision, () => readObservability(store, id, before));
-    }
     const facts = tasks.get(id, revision, () => liveTask(id));
     if (sub === 'live-changes') {
       const { path } = query(liveChangesQuery, url);
@@ -245,6 +248,16 @@ export function createApiV1(dashboard: ApiV1Dashboard) {
       const context = requestContext();
       if (matched.overview) return overviewRoute(context, revision);
       if (!matched.id) throw new HttpError(404, 'Not found');
+      if (matched.sub === 'observability') {
+        const subject: ActivitySubjectV1 = {
+          kind: matched.kind === 'tasks' ? 'task' : 'planning',
+          id: matched.id,
+        };
+        const before = url.searchParams.get('before');
+        return activity.get(`${subject.kind}:${subject.id}:${before ?? ''}`, revision, () =>
+          readObservability(store, subject, before),
+        );
+      }
       if (matched.kind === 'tasks') return taskRoute(context, matched.id, revision, matched.sub, url);
       if (matched.sub) throw new HttpError(404, 'Not found');
       const id = matched.id;

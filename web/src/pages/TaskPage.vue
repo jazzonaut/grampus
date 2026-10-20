@@ -25,7 +25,7 @@ import ErrorBanner from '../components/ErrorBanner.vue';
 import TaskWorkspace from '../components/TaskWorkspace.vue';
 import TaskFacts from '../components/TaskFacts.vue';
 import TaskHeader from '../components/TaskHeader.vue';
-import TaskObservability from '../components/TaskObservability.vue';
+import LiveObservability from '../components/LiveObservability.vue';
 import WorkflowStrip from '../components/WorkflowStrip.vue';
 import LiveChanges from '../components/LiveChanges.vue';
 import RepairDecisions from '../components/RepairDecisions.vue';
@@ -138,7 +138,7 @@ watch(
     />
     <p v-else-if="!view" class="text-sm text-muted" role="status">Loading the task…</p>
     <template v-if="view && !missing">
-      <TaskObservability :id="id" />
+      <LiveObservability :id="id" kind="task" />
       <TaskHeader :header="view.header" />
       <div v-if="view.orca" class="flex flex-col items-start gap-2">
         <ActionButton

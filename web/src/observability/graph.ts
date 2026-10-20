@@ -1,7 +1,7 @@
 // Folds server-decided display updates for live viewing and replay. It never infers workflow success.
 import type { ActivityEventV1, ActivityNodeV1 } from '../../../src/server/api-types';
 
-/** A directed relationship, retaining the event that last changed its appearance. */
+/** A directed relationship, retaining its unfinished operation or latest settled observation. */
 export interface GraphEdge {
   id: string;
   source: string;
@@ -11,11 +11,13 @@ export interface GraphEdge {
   active: boolean;
 }
 
-/** Last visible observations used in hover details, always restricted to the replay prefix. */
+/** Current unfinished or latest visible observations, always restricted to the replay prefix. */
 export interface GraphNode extends ActivityNodeV1 {
   activity: ActivityEventV1 | null;
   usage: ActivityEventV1['usage'];
 }
+
+type PendingActivity = Map<string, Map<string, ActivityEventV1>>;
 
 /** A prefix of the loaded activity window. Replay starts unknown and never reads current node states. */
 export function graphFrame(nodes: readonly ActivityNodeV1[], events: readonly ActivityEventV1[], live: boolean) {
@@ -24,7 +26,7 @@ export function graphFrame(nodes: readonly ActivityNodeV1[], events: readonly Ac
   );
   const visible = new Set<string>(live ? nodes.filter(node => node.recorded !== false).map(node => node.id) : []);
   const edges = new Map<string, GraphEdge>();
-  const active = new Map<string, Set<string>>();
+  const active: PendingActivity = new Map();
   for (const event of events) {
     visible.add(event.source);
     visible.add(event.target);
@@ -40,7 +42,12 @@ export function graphFrame(nodes: readonly ActivityNodeV1[], events: readonly Ac
       active: false,
     });
   }
-  for (const edge of edges.values()) edge.active = activeEdge(edge, participants);
+  const routes = pendingRoutes(active, participants);
+  for (const edge of edges.values()) {
+    const running = routes.get(edge.id);
+    edge.active = running !== undefined;
+    if (running) edge.event = running;
+  }
   if (live) seedConnections(nodes, visible, edges);
   return { nodes: [...participants.values()].filter(node => visible.has(node.id)), edges: [...edges.values()] };
 }
@@ -54,11 +61,17 @@ function describeActivity(nodes: Map<string, GraphNode>, event: ActivityEventV1)
   }
 }
 
-function activeEdge(edge: GraphEdge, nodes: Map<string, ActivityNodeV1>): boolean {
-  return (
-    edge.event?.status === 'active' &&
-    edge.event.updates.some(update => update.status === 'active' && nodes.get(update.nodeId)?.status === 'active')
-  );
+function pendingRoutes(active: PendingActivity, nodes: Map<string, GraphNode>): Map<string, ActivityEventV1> {
+  const routes = new Map<string, ActivityEventV1>();
+  for (const [id, items] of active) {
+    const node = nodes.get(id);
+    if (!node || node.status !== 'active') continue;
+    for (const event of items.values()) {
+      node.activity = event;
+      routes.set(`${event.source}>${event.target}`, event);
+    }
+  }
+  return routes;
 }
 
 function seedConnections(nodes: readonly ActivityNodeV1[], visible: Set<string>, edges: Map<string, GraphEdge>): void {
@@ -70,20 +83,20 @@ function seedConnections(nodes: readonly ActivityNodeV1[], visible: Set<string>,
   }
 }
 
-function applyUpdates(
-  nodes: Map<string, ActivityNodeV1>,
-  active: Map<string, Set<string>>,
-  event: ActivityEventV1,
-): void {
+function applyUpdates(nodes: Map<string, ActivityNodeV1>, active: PendingActivity, event: ActivityEventV1): void {
   for (const update of event.updates) {
     const node = nodes.get(update.nodeId);
     if (!node || (update.onlyIfActive && node.status !== 'active')) continue;
     if (update.label) node.label = update.label;
-    const items = active.get(node.id) ?? new Set<string>();
+    const items = active.get(node.id) ?? new Map<string, ActivityEventV1>();
     const itemId = event.correlation.itemId;
-    if (itemId && update.status === 'active') items.add(itemId);
-    else if (itemId) items.delete(itemId);
-    else if (update.status !== 'active') items.clear();
+    const key = JSON.stringify([event.correlation.runId, itemId]);
+    if (update.status === 'active') {
+      // Move repeated progress to the end so the visible label follows the latest unfinished work.
+      items.delete(key);
+      items.set(key, event);
+    } else if (itemId) items.delete(key);
+    else items.clear();
     active.set(node.id, items);
     node.status = items.size ? 'active' : update.status;
   }
@@ -104,20 +117,16 @@ export function usageSnapshots(events: readonly ActivityEventV1[]) {
 /** Groups the server's compact participant identities without discarding completed sessions. */
 export function compactGraph(frame: ReturnType<typeof graphFrame>): ReturnType<typeof graphFrame> {
   const ids = new Map(frame.nodes.map(node => [node.id, node.groupId ?? node.id]));
-  const nodes = new Map<string, GraphNode>();
-  for (const node of frame.nodes) {
-    const id = ids.get(node.id) ?? node.id;
-    const previous = nodes.get(id);
-    const status = previous?.status === 'active' ? 'active' : node.status;
-    nodes.set(id, { ...node, id, label: node.groupLabel ?? node.label, status });
-  }
+  const nodes = compactNodes(frame.nodes, ids);
   const edges = new Map<string, GraphEdge>();
   for (const edge of frame.edges) {
     const source = ids.get(edge.source) ?? edge.source,
       target = ids.get(edge.target) ?? edge.target;
     const id = `${source}>${target}`;
+    const previous = edges.get(id);
+    const representative = previous?.active && !edge.active ? previous : edge;
     edges.set(id, {
-      ...edge,
+      ...representative,
       id,
       source,
       target,
@@ -126,4 +135,15 @@ export function compactGraph(frame: ReturnType<typeof graphFrame>): ReturnType<t
     });
   }
   return { nodes: [...nodes.values()], edges: [...edges.values()] };
+}
+
+function compactNodes(participants: GraphNode[], ids: Map<string, string>): Map<string, GraphNode> {
+  const nodes = new Map<string, GraphNode>();
+  for (const node of participants) {
+    const id = ids.get(node.id) ?? node.id;
+    const previous = nodes.get(id);
+    const representative = previous?.status === 'active' && node.status !== 'active' ? previous : node;
+    nodes.set(id, { ...representative, id, label: representative.groupLabel ?? representative.label });
+  }
+  return nodes;
 }

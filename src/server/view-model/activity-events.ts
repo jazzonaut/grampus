@@ -79,7 +79,7 @@ export function activityFields(value: unknown): z.infer<typeof fieldsSchema> {
 }
 
 /** Creates an event with its source identity before interpreting optional observational fields. */
-export function baseActivity(taskId: string, row: ActivityRecord): ActivityEventV1 {
+export function baseActivity(taskId: string | null, row: ActivityRecord): ActivityEventV1 {
   const envelope = envelopeSchema.safeParse(row.data).data;
   const outer = activityFields(row.data),
     data = activityFields(envelope?.data);
@@ -256,7 +256,7 @@ export function controllerActivity(
 ): void {
   const data = activityFields(row.data);
   if (row.version !== null) {
-    const entry = timelineEntry({ ...row, taskId: event.correlation.taskId, version: row.version });
+    const entry = timelineEntry({ ...row, taskId: row.owner, version: row.version });
     event.label = entry.summary;
     event.preview = activityPreview(entry.note ?? undefined);
   }

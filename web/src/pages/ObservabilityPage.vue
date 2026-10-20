@@ -3,7 +3,7 @@
 import { computed, onScopeDispose, ref, watch } from 'vue';
 import UButton from '@nuxt/ui/components/Button.vue';
 import UBadge from '@nuxt/ui/components/Badge.vue';
-import type { ActivityEventV1 } from '../../../src/server/api-types';
+import type { ActivityEventV1, ActivitySubjectV1 } from '../../../src/server/api-types';
 import { useObservability } from '../observability/useObservability';
 import { graphFrame, usageSnapshots } from '../observability/graph';
 import { clockTickMs } from '../settings';
@@ -13,8 +13,9 @@ import ActivityTimeline from '../components/ActivityTimeline.vue';
 import ActivityInspector from '../components/ActivityInspector.vue';
 import { localTime } from '../components/format';
 
-const props = defineProps<{ id: string }>();
-const activity = useObservability(() => props.id);
+const props = defineProps<ActivitySubjectV1>();
+const activity = useObservability(() => props);
+const parent = computed(() => ({ name: props.kind, id: props.id }));
 const cursor = ref<string | null>(null);
 const selected = ref<string | null>(null);
 const participant = ref<string | null>(null);
@@ -110,7 +111,9 @@ const categories: ActivityEventV1['category'][] = [
 
 <template>
   <div class="grampus-page">
-    <a :href="href({ name: 'task', id })" class="self-start text-sm text-primary hover:underline">← Back to task</a>
+    <a :href="href(parent)" class="self-start text-sm text-primary hover:underline"
+      >← Back to {{ kind === 'task' ? 'task' : 'planning' }}</a
+    >
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-2xl font-semibold text-highlighted">Agent observability</h1>

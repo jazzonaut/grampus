@@ -1,12 +1,16 @@
 # Agent observability
 
-The task page keeps a compact communication network above the task summary. **Open full
-observability** opens `#/tasks/<id>/observability`, with individual agent sessions, model
+Task and planning pages share a compact communication network. **Open full
+observability** opens `#/tasks/<id>/observability` or `#/planning/<id>/observability`, with individual agent sessions, model
 connections, grouped tools, controller operations, an event timeline and event inspection.
 Completed participants remain in grey. The compact network groups sessions by provider and
 role so repair attempts do not continually add columns. Scroll to pan; the full view also has
 zoom controls. Keyboard users can focus participants and select them with Enter or Space.
-Reduced-motion preferences disable animated connections.
+Moving dots follow the direction of active connectors, and active nodes have a pulsing outline,
+a **Live** label and a visible description of the unfinished operation. Concurrent tool calls
+keep the connector and label active until the last correlated call settles. Compact groups
+retain the active session's label when other sessions have completed. Replay and stale reads
+show static indicators; reduced-motion preferences keep the same status and labels without animation.
 
 ## What the network means
 
@@ -50,8 +54,15 @@ inference request, actual billed cost and backend network latency are not establ
 
 ## Live updates and historical replay
 
-The authenticated `GET /api/v1/tasks/:id/observability` read route returns a bounded chronological
-window, participant metadata and coverage notes. It is cached by journal revision. The default
+The authenticated `GET /api/v1/tasks/:id/observability` and
+`GET /api/v1/kickoffs/:id/observability` read routes share a bounded chronological
+projection, participant metadata and coverage notes. Responses identify their task or planning
+subject explicitly. Planning reads only that conversation's session journal, before or after
+conversion; its events have no task correlation until viewed through the linked task. Task reads
+include linked planning and execution sessions once each, even when multiple versions link the
+same planner. Both views retain the original event identities. Deleted conversations and sessions
+that are not planning conversations are unavailable through the planning route.
+The projection is cached by subject, cursor and journal revision. The default
 refresh interval is one second (`observabilityIntervalMs`). Polls do not overlap and stop while
 the page is hidden or replay is selected. Streamed text still has its existing buffering interval,
 so its visibility also depends on when that buffer is flushed.

@@ -1,6 +1,7 @@
 // Test helpers: a fake local server for `fetch` that answers from typed DTOs and records every request,
 // and mounting with the plugins the app installs. Used only by `*.test.ts`.
 import { vi } from 'vitest';
+import type { ActivityEventV1 } from '../../src/server/api-types';
 import { flushPromises, mount } from '@vue/test-utils';
 import icons from '@nuxt/ui/runtime/vue/plugins/icons.js';
 import type { Component } from 'vue';
@@ -74,4 +75,44 @@ export async function render(component: Component, props: Record<string, unknown
 /** The POST requests sent, without polling reads. */
 export function posts(sent: readonly SentRequest[]): SentRequest[] {
   return sent.filter(request => request.method === 'POST');
+}
+
+/** A complete observational event for replay and rendering tests; overrides keep absent facts explicit. */
+export function activityEvent(id: string, changes: Partial<ActivityEventV1> = {}): ActivityEventV1 {
+  return {
+    id,
+    cursor: id,
+    at: '2026-10-20T10:00:00.000Z',
+    type: 'turn.requested',
+    category: 'controller',
+    source: 'controller',
+    target: 'agent:s',
+    label: 'Requested',
+    status: 'active',
+    provenance: 'observed',
+    preview: null,
+    durationMs: null,
+    correlation: {
+      taskId: 'task',
+      version: 1,
+      executionId: 'execution',
+      sessionId: 's',
+      runId: 'r',
+      providerTurnId: null,
+      itemId: null,
+      resultId: null,
+      attemptId: null,
+      workspaceId: null,
+      sliceIndex: null,
+      artifact: null,
+      messageId: null,
+      requestId: null,
+      parentItemId: null,
+      providerSessionId: null,
+      provider: null,
+    },
+    updates: [{ nodeId: 'agent:s', status: 'active' }],
+    usage: null,
+    ...changes,
+  };
 }

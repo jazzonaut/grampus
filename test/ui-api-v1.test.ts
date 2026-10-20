@@ -8,6 +8,8 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { defaultSettings, useSettings } from '../src/config/settings.js';
 import { startUi } from '../src/server/ui-server.js';
+import { Kickoffs } from '../src/orchestration/kickoff.js';
+import { Sessions } from '../src/execution/sessions.js';
 import type { ErrorV1, OverviewV1, TaskDetailV1, TimelinePageV1 } from '../src/server/api-types.js';
 import { fixture } from './helpers/guided-tasks.js';
 
@@ -43,6 +45,33 @@ async function failure(response: Response, status: number, code: ErrorV1['error'
   assert.equal(typeof body.error.message, 'string');
   return body;
 }
+
+test('planning observability reads isolated activity before conversion and respects access and deletion', async t => {
+  const api = await dashboard(t);
+  const kickoffId = new Kickoffs(api.f.store).create({
+    repo: api.f.repo,
+    path: join(api.f.root, 'planning-workspace'),
+    provider: 'codex',
+    request: 'Plan a greeting',
+  });
+  const other = new Sessions(api.f.store).create('claude', api.f.repo);
+  api.f.store.appendSession(kickoffId, 'session.connected', { runId: 'planning', data: { model: 'planner-model' } });
+  api.f.store.appendSession(other.id, 'session.connected', { runId: 'other', data: { model: 'other-model' } });
+  const path = `/api/v1/kickoffs/${kickoffId}/observability`;
+  await failure(await api.get(path, {}), 401, 'unauthorized');
+  const response = await api.get(path);
+  assert.equal(response.status, 200);
+  const text = await response.text();
+  assert.match(text, /planner-model/);
+  assert.doesNotMatch(text, /other-model|"prompt"|"arguments"|"files"/);
+  await failure(await api.get(`${path}?before=invalid`), 400, 'invalid_request');
+  await failure(await api.get(`/api/v1/kickoffs/${other.id}/observability`), 404, 'not_found');
+  await failure(await api.get(`/api/v1/kickoffs/${randomUUID()}/observability`), 404, 'not_found');
+  const session = api.f.store.session(kickoffId);
+  session.deletedAt = new Date().toISOString();
+  api.f.store.saveSession(session.id, session);
+  await failure(await api.get(path), 404, 'not_found');
+});
 
 test('v1 routes need the token and the local origin, and answer errors with the typed envelope', async t => {
   const api = await dashboard(t);

@@ -178,15 +178,21 @@ leaf.
 
 ## Display-only live monitoring and pause
 
-The compact task execution network and dedicated observability page read actual communication
+The shared compact task and planning network and dedicated observability page read actual communication
 from the existing task and session journals (`persistence/activity.ts`,
 `server/view-model/activity-events.ts`, `server/view-model/observability.ts`). Bounded pages retain
 original journal, session, run, provider item and result identities; cross-journal clock ordering
 is presentation order, never causal proof. Provider metadata capture (`providers/activity.ts`)
 adds no tool permission or model call. The authenticated, revision-cached
-`GET /api/v1/tasks/:id/observability` route supplies graph semantics; Vue folds those updates for
+`GET /api/v1/tasks/:id/observability` and `GET /api/v1/kickoffs/:id/observability` routes
+use the same projection and supply graph semantics. Planning reads its own session; task reads
+deduplicate linked sessions across versions, including planning before conversion. Vue folds those updates for
 historical replay without borrowing current successful outcomes. The default refresh is one
-second, paused during replay and while hidden. See [OBSERVABILITY.md](OBSERVABILITY.md) for
+second, paused during replay and while hidden. Shared connector and participant components
+show directional traffic, pulsing live nodes and the current unfinished operation. Correlated
+calls retain independent activity so one tool completion cannot hide another running call;
+compact groups retain the active operation's label. Motion stops for replay, stale reads and
+reduced-motion preferences. See [OBSERVABILITY.md](OBSERVABILITY.md) for
 capture coverage, redaction, grouped participants, replay windows and unavailable measurements.
 
 `server/live-changes.ts` reads the task worktree against its recorded pinned base, independently of
@@ -609,6 +615,7 @@ pool read once per request; `ViewContext`) to those DTOs; nothing there writes.
 | `GET /api/v1/overview` | `OverviewV1` | Application, health summary (`ready`, `degraded`, `blocked`, `unknown` with a reason naming the integration and capability), runner pool (guided runners owned, `maxConcurrentTasks` and the owning task ids), the attention queue across tasks and planning conversations (kind, one-sentence reason, stop reason code, resolving actions; most urgent first), task and planning summaries, recent verified deliveries with an evidence summary. A task whose facts cannot be read is listed with status `unknown` and a `blocked` attention item naming the error category (for example a missing snapshot record), and a redacted line is logged, so it never fails the whole overview |
 | `GET /api/v1/tasks/:id` | `TaskDetailV1` | Header (status, label, one-sentence explanation, note in UI language, next step: automatic, human with action ids, or none), workflow strip, current activity (no percentages), decisions, results (criteria coverage, checks with sizes for paging, findings, lens assessments, edit passes, commits, unresolved items), usage, details (approval digest, artifact, changed paths, plan, scope file contents only while authorization is pending, references, timeline head) |
 | `GET /api/v1/tasks/:id/timeline?cursor=&limit=` | `TimelinePageV1` | Journal events newest first: type, time, human summary, note, reason code; `cursor` is the journal sequence to page before |
+| `GET /api/v1/tasks/:id/observability?before=`, `GET /api/v1/kickoffs/:id/observability?before=` | `ObservabilityV1` | Shared bounded activity projection with explicit task or planning subject, participants, original event identities, correlation and replay updates. Task reads include each linked planning session once; planning reads only its own session and requires a live planning conversation |
 | `GET /api/v1/tasks/:id/changes?path=` | `ChangeV1` | One retained change, before and after |
 | `GET /api/v1/settings` | `SettingsV1` | The `config.json` path, whether the saved file differs from the settings this dashboard started with (a restart applies it), why the saved file would be refused at the next start, and the save action: one field per setting holding the stored value (empty keeps the default), bound to the file's revision |
 | `GET /api/v1/orca-worktrees` | `OrcaWorktreesV1` | Local, unarchived Orca worktrees across repositories (`orca worktree list`, at most `viewModelLimits.orcaWorktreeChoices`, the rest counted) grouped by repository with full paths, for New task to fill its folder from. Display only: `available` is false when the dashboard has no Orca client or Orca does not answer, and nothing is decided from the list |
@@ -887,7 +894,9 @@ The dashboard client is its own npm project in `web/` (paths under `web/src/`), 
 | | `mock.ts`, `testing.ts` | Typed DTO fixtures and the fake server for Vitest |
 | `api/` | `client.ts`, `usePolled.ts` | Access token, typed requests and `ApiError` (401, stale 409, `pool_full` 409); polling one request at a time, paused while hidden |
 | | `actions.ts`, `useActions.ts`, `report.ts` | `ActionView` plus typed drafts to the exact request body (JSON pointer targets); sending actions with requested, stale, waiting for a runner slot and refused states; the report download |
-| `pages/` | `HomePage`, `NewTaskPage`, `PlanningPage`, `TaskPage`, `HealthPage`, `SettingsPage` | One screen each |
+| `pages/` | `HomePage`, `NewTaskPage`, `PlanningPage`, `TaskPage`, `ObservabilityPage`, `HealthPage`, `SettingsPage` | One screen each; observability shares task and planning replay |
+| `observability/` | `useObservability.ts`, `graph.ts`, `layout.ts`, `useGraphLayout.ts` | Shared task and planning activity reads, replay folding, participant grouping and local graph layout |
+| `components/` | `LiveObservability`, `ExecutionGraph`, `GraphConnector`, `GraphParticipant`, `ActivityTimeline`, `ActivityInspector` | Shared compact networks, live activity indicators and full activity inspection for tasks and planning |
 | `components/` | `ActionButton`, `ActionForm`, `FormFieldInput`, `MultiSelectField`, `DecisionCard`, `DecisionQueue`, `AttentionPanel` | Actions and server-described forms |
 | | `TaskHeader`, `TaskFacts`, `TaskWorkspace`, `WorkflowStrip`, `ActivityCard`, `ResultsPanel`, `CheckItem`, `CheckOutput`, `FindingList`, `UsagePanel`, `UsageSummary`, `TaskDetails`, `TimelinePanel`, `ChangesPanel`, `ReportPanel`, `ScopeReview`, `PlanCard`, `PlanPolicy`, `PlanSlice`, `CommandDetails` | Task and plan presentation |
 | | `PlanningHeader`, `PlanningResources`, `PlanningComposer`, `DiscussionThread`, `PlanningContext`, `FileSearch`, `StartingFileHints`, `ReferenceFolders`, `ImportPlan` | Planning and new-task pieces |

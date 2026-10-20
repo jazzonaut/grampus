@@ -1,12 +1,17 @@
 // Owns bounded activity polling and explicit historical windows. Reads pause during replay and while hidden.
 import { computed, ref, shallowRef, watch } from 'vue';
-import type { ActivityEventV1, ActivityNodeV1, ObservabilityV1 } from '../../../src/server/api-types';
+import type {
+  ActivityEventV1,
+  ActivityNodeV1,
+  ActivitySubjectV1,
+  ObservabilityV1,
+} from '../../../src/server/api-types';
 import { get, needsAccessLink } from '../api/client';
 import { usePolled } from '../api/usePolled';
 import { clockTickMs } from '../settings';
 
 /** Shared data access for the compact and expanded graph, with no overlapping polls or provider calls. */
-export function useObservability(id: () => string) {
+export function useObservability(subject: () => ActivitySubjectV1) {
   const live = ref(true);
   const older = shallowRef<ActivityEventV1[]>([]);
   const historicalNodes = shallowRef<ActivityNodeV1[]>([]);
@@ -14,7 +19,10 @@ export function useObservability(id: () => string) {
   const before = ref<string | null>(null);
   const historyError = ref<string | null>(null);
   const loadingHistory = ref(false);
-  const path = () => `/api/v1/tasks/${id()}/observability`;
+  const path = () => {
+    const { kind, id } = subject();
+    return `/api/v1/${kind === 'task' ? 'tasks' : 'kickoffs'}/${id}/observability`;
+  };
   const poll = usePolled(() => get<ObservabilityV1>(path()), interval, {
     enabled: () => live.value && !needsAccessLink.value,
   });

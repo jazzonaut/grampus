@@ -5,6 +5,8 @@ import UButton from '@nuxt/ui/components/Button.vue';
 import type { GraphEdge, GraphNode } from '../observability/graph';
 import { graphGeometry, routePath } from '../observability/layout';
 import { useGraphLayout } from '../observability/useGraphLayout';
+import GraphConnector from './GraphConnector.vue';
+import GraphParticipant from './GraphParticipant.vue';
 
 const props = defineProps<{ nodes: GraphNode[]; edges: GraphEdge[]; live: boolean; compact?: boolean }>();
 const emit = defineEmits<{ select: [id: string] }>();
@@ -12,8 +14,6 @@ const markerId = useId();
 const zoom = ref(1);
 const viewport = useTemplateRef<HTMLElement>('viewport');
 const viewportWidth = ref<number>(graphGeometry.emptyWidth);
-const boxWidth = graphGeometry.nodeWidth;
-const boxHeight = graphGeometry.nodeHeight;
 const layout = useGraphLayout(
   () => props.nodes,
   () => props.edges,
@@ -43,18 +43,6 @@ const links = computed(() =>
     return sections ? [{ ...edge, path: routePath(sections) }] : [];
   }),
 );
-function tooltip(node: GraphNode): string {
-  const activity = node.activity;
-  return [
-    node.label,
-    `${node.status} · ${node.detail}`,
-    activity?.label ?? 'Activity unavailable in this window',
-    `Request: ${activity?.correlation.runId ?? 'unavailable'}`,
-    `Reported duration: ${activity?.durationMs === null || !activity ? 'unavailable' : `${activity.durationMs} ms`}`,
-    `Input: ${node.usage?.input ?? 'unknown'} · output: ${node.usage?.output ?? 'unknown'} · cached: ${node.usage?.cached ?? 'unknown'}`,
-    'Token counts are session snapshots, not per-call costs.',
-  ].join('\n');
-}
 </script>
 
 <template>
@@ -109,43 +97,23 @@ function tooltip(node: GraphNode): string {
             <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
           </marker>
         </defs>
-        <path
+        <GraphConnector
           v-for="edge in links"
           :key="edge.id"
-          :d="edge.path"
-          class="network-link"
-          :class="{ flowing: live && edge.active, settled: !edge.active }"
-          :marker-end="`url(#${markerId})`"
-        >
-          <title>
-            {{
-              edge.event
-                ? `${edge.event.label} · ${edge.count} events · ${edge.event.provenance}`
-                : 'Previously observed relationship; select a participant to inspect retained events.'
-            }}
-          </title>
-        </path>
-        <g
+          :edge="edge"
+          :path="edge.path"
+          :marker-id="markerId"
+          :live="live"
+        />
+        <GraphParticipant
           v-for="node in drawn"
           :key="node.id"
-          :transform="`translate(${node.x},${node.y})`"
-          class="network-node"
-          :class="[node.kind, node.status]"
-          tabindex="0"
-          role="button"
-          :aria-label="`${node.label}: ${node.status}. ${node.detail}`"
-          @click="emit('select', node.id)"
-          @keydown.enter="emit('select', node.id)"
-          @keydown.space.prevent="emit('select', node.id)"
-        >
-          <title>{{ tooltip(node) }}</title>
-          <rect :width="boxWidth" :height="boxHeight" rx="12" />
-          <circle cx="15" cy="21" r="4" />
-          <text x="27" y="25" class="node-label">
-            {{ node.label.length > 24 ? `${node.label.slice(0, 23)}…` : node.label }}
-          </text>
-          <text x="14" y="48" class="node-state">{{ node.status }} · {{ node.kind }}</text>
-        </g>
+          :node="node"
+          :x="node.x"
+          :y="node.y"
+          :live="live"
+          @select="emit('select', $event)"
+        />
       </svg>
     </div>
     <p v-if="!nodes.some(node => node.kind === 'agent')" class="text-sm text-muted">
@@ -166,74 +134,5 @@ svg {
 }
 .compact {
   max-height: 380px;
-}
-.network-link {
-  fill: none;
-  stroke: var(--ui-primary);
-  stroke-width: 1.6;
-  opacity: 0.55;
-  color: var(--ui-primary);
-}
-.flowing {
-  stroke-dasharray: 7 5;
-  animation: flow 0.8s linear infinite;
-  opacity: 1;
-}
-.settled {
-  stroke: var(--ui-text-dimmed);
-  color: var(--ui-text-dimmed);
-  opacity: 0.45;
-}
-.network-node {
-  cursor: pointer;
-  outline: none;
-}
-.network-node rect {
-  fill: var(--ui-bg);
-  stroke: var(--ui-border);
-  stroke-width: 1.5;
-}
-.network-node circle {
-  fill: var(--ui-text-muted);
-}
-.network-node text {
-  fill: var(--ui-text-highlighted);
-  font-family: inherit;
-}
-.node-label {
-  font-size: 12px;
-  font-weight: 600;
-}
-.network-node .node-state {
-  font-size: 11px;
-  fill: var(--ui-text-muted);
-}
-.active rect,
-.network-node:focus rect,
-.network-node:hover rect {
-  stroke: var(--ui-primary);
-}
-.active circle {
-  fill: var(--ui-primary);
-}
-.completed {
-  opacity: 0.55;
-}
-.failed rect,
-.interrupted rect {
-  stroke: var(--ui-error);
-}
-.model rect {
-  fill: color-mix(in srgb, var(--ui-primary) 5%, var(--ui-bg));
-}
-@keyframes flow {
-  to {
-    stroke-dashoffset: -24;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .flowing {
-    animation: none;
-  }
 }
 </style>

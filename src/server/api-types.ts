@@ -889,7 +889,7 @@ export interface ActivityEventV1 {
   preview: string | null;
   durationMs: number | null;
   correlation: {
-    taskId: string;
+    taskId: string | null;
     version: number | null;
     executionId: string | null;
     sessionId: string | null;
@@ -913,10 +913,16 @@ export interface ActivityEventV1 {
   usage: { input: number | null; output: number | null; cached: number | null; scope: string } | null;
 }
 
+/** The owner of a graph and its replay, including planning before a task exists. */
+export interface ActivitySubjectV1 {
+  kind: 'task' | 'planning';
+  id: string;
+}
+
 /** A bounded, chronological activity window from the existing journals. */
 export interface ObservabilityV1 {
   apiVersion: ApiVersion;
-  taskId: string;
+  subject: ActivitySubjectV1;
   revision: string;
   intervalMs: number;
   nodes: ActivityNodeV1[];

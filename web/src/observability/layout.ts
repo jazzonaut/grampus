@@ -3,7 +3,7 @@ import type { ElkNode, ElkExtendedEdge, ElkPoint } from 'elkjs/lib/elk-api';
 import type { GraphEdge, GraphNode } from './graph';
 
 /** Shared visual dimensions; these do not impose workflow or evidence bounds. */
-export const graphGeometry = { nodeWidth: 198, nodeHeight: 66, emptyWidth: 500, emptyHeight: 160 } as const;
+export const graphGeometry = { nodeWidth: 198, nodeHeight: 82, emptyWidth: 500, emptyHeight: 160 } as const;
 
 /** Routed geometry, keyed by stable participant/relationship identities. */
 export interface RoutedGraph {

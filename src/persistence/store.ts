@@ -35,6 +35,7 @@ import {
   activityToolSessionIds,
   type ActivityCursor,
   type ActivityRecord,
+  type ActivityScope,
 } from './activity.js';
 
 /** The default journal for this installed or development copy. */
@@ -464,22 +465,27 @@ export class Store {
       .map(row => recordEvent('session_events', row));
   }
 
-  /** Bounded task/provider activity, newest first; cursor ordering does not assert causation. */
-  activityEvents(id: string, before: ActivityCursor | null, limit: number): ActivityRecord[] {
-    this.get(id);
-    return readActivity(this.db, id, before, limit);
+  /** Bounded task or planning activity, newest first; cursor ordering does not assert causation. */
+  activityEvents(scope: ActivityScope, before: ActivityCursor | null, limit: number): ActivityRecord[] {
+    this.activityOwner(scope);
+    return readActivity(this.db, scope, before, limit);
   }
 
   /** All explicitly linked sessions, including planning and completed attempts. */
-  activitySessions(id: string): Session[] {
-    this.get(id);
-    return activitySessionIds(this.db, id).map(sessionId => this.session(sessionId));
+  activitySessions(scope: ActivityScope): Session[] {
+    this.activityOwner(scope);
+    return activitySessionIds(this.db, scope).map(sessionId => this.session(sessionId));
   }
 
   /** Sessions with a recorded tool request, progress or result. */
-  activityToolSessions(id: string): string[] {
-    this.get(id);
-    return activityToolSessionIds(this.db, id);
+  activityToolSessions(scope: ActivityScope): string[] {
+    this.activityOwner(scope);
+    return activityToolSessionIds(this.db, scope);
+  }
+
+  private activityOwner(scope: ActivityScope): void {
+    if (scope.kind === 'task') this.get(scope.id);
+    else this.session(scope.id);
   }
 
   /** The validated workspace `id`; throws `RecordNotFoundError` when absent, `BoundaryError` when malformed. */

@@ -19,6 +19,7 @@ import { pollIntervalMs } from '../settings';
 import ActionButton from '../components/ActionButton.vue';
 import ActionNoticeBar from '../components/ActionNoticeBar.vue';
 import ActivityCard from '../components/ActivityCard.vue';
+import LiveObservability from '../components/LiveObservability.vue';
 import DecisionCard from '../components/DecisionCard.vue';
 import DiscussionThread from '../components/DiscussionThread.vue';
 import EmptyState from '../components/EmptyState.vue';
@@ -124,6 +125,7 @@ watch(
     <p v-else-if="!view" class="text-sm text-muted" role="status">Loading the planning conversation…</p>
     <template v-if="view && !missing">
       <PlanningHeader :kickoff="view" />
+      <LiveObservability :id="id" kind="planning" />
       <ActionNoticeBar :notice="actions.notice.value" @dismiss="actions.dismiss()" />
       <NoticeBox v-if="view.taskId" tone="success" title="This plan is now a task">
         Inspect and approve it on the task page.

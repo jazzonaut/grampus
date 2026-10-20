@@ -7,15 +7,18 @@ const props = defineProps<{ current: Route; overview: OverviewV1 | undefined }>(
 function taskTitle(id: string): string {
   return props.overview?.tasks.find(item => item.id === id)?.title ?? 'Task';
 }
+function planningTitle(id: string): string {
+  return props.overview?.planning.find(item => item.id === id)?.title ?? 'Planning conversation';
+}
 const label = computed(() => {
   const current = props.current;
   switch (current.name) {
     case 'observability':
-      return `${taskTitle(current.id)} › Agent observability`;
+      return `${current.kind === 'task' ? taskTitle(current.id) : planningTitle(current.id)} › Agent observability`;
     case 'task':
       return taskTitle(current.id);
     case 'planning':
-      return props.overview?.planning.find(item => item.id === current.id)?.title ?? 'Planning conversation';
+      return planningTitle(current.id);
     case 'new':
       return 'New task';
     case 'health':

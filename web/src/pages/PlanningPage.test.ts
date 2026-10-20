@@ -20,6 +20,13 @@ async function open(routes: Parameters<typeof fakeServer>[0] = {}) {
 }
 
 describe('PlanningPage', () => {
+  it('shows live observability and links to planning replay before a task exists', async () => {
+    const { wrapper, sent } = await open();
+    expect(wrapper.find('[aria-label="Live observability"]').exists()).toBe(true);
+    expect(wrapper.find('a[href="#/planning/kickoff-1/observability"]').exists()).toBe(true);
+    expect(sent.some(request => request.path === '/api/v1/kickoffs/kickoff-1/observability')).toBe(true);
+  });
+
   it('shows the discussion as Markdown, the questions, the proposal and the planning context', async () => {
     const { wrapper } = await open();
     const discussion = wrapper.get('[data-panel="discussion"]');

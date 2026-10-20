@@ -27,8 +27,8 @@ high-value problems, adds measurement, and then lets real use decide what follow
 
 ## Steps
 
-- **Task observability.** Initial implementation, 20 October 2026: provider item and tool lifecycle
-  metadata, a bounded read projection over the existing journals, a compact task network and a
+- **Task and planning observability.** Initial implementation, 20 October 2026: provider item and tool lifecycle
+  metadata, a shared bounded read projection over the existing journals, compact task and planning networks and a
   dedicated observability page with filters, inspection and event replay. Completed participants
   remain visible in grey. Capture coverage and limitations are explicit
   ([OBSERVABILITY.md](OBSERVABILITY.md)). Deeper inference tracing and comparison of attempts are

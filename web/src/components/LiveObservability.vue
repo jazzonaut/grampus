@@ -1,14 +1,16 @@
 <script setup lang="ts">
-// Keeps the task's real communication network visible above its workflow and decisions.
+// Shares the compact observed communication network between tasks and planning conversations.
 import { computed } from 'vue';
+import type { ActivitySubjectV1 } from '../../../src/server/api-types';
 import UButton from '@nuxt/ui/components/Button.vue';
 import { useObservability } from '../observability/useObservability';
 import { compactGraph, graphFrame } from '../observability/graph';
 import { href, navigate } from '../router';
 import ExecutionGraph from './ExecutionGraph.vue';
 
-const props = defineProps<{ id: string }>();
-const activity = useObservability(() => props.id);
+const props = defineProps<ActivitySubjectV1>();
+const activity = useObservability(() => props);
+const destination = computed(() => ({ name: 'observability' as const, kind: props.kind, id: props.id }));
 const frame = computed(() =>
   compactGraph(graphFrame(activity.poll.data.value?.nodes ?? [], activity.events.value, true)),
 );
@@ -20,11 +22,12 @@ const frame = computed(() =>
       <div>
         <h2 class="font-semibold text-highlighted">Live observability</h2>
         <p class="text-xs text-muted">
-          Observed agents, models, tools and controller decisions. Completed participants remain in grey.
+          Moving dots show active connections; pulsing nodes show recorded work in progress. Completed participants
+          remain in grey.
         </p>
       </div>
       <UButton
-        :to="href({ name: 'observability', id })"
+        :to="href(destination)"
         color="neutral"
         variant="outline"
         size="sm"
@@ -42,7 +45,7 @@ const frame = computed(() =>
       :edges="frame.edges"
       :live="!activity.poll.error.value"
       compact
-      @select="navigate({ name: 'observability', id })"
+      @select="navigate(destination)"
     />
     <p class="mt-2 text-xs text-muted">
       Provider-reported activity; missing telemetry remains unknown. Updates approximately every second with default
