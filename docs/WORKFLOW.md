@@ -207,6 +207,12 @@ worktree and follows the ordinary evidence and local-delivery gates. Variants ex
 Planning is reused once; a profile's planning assignment does not start another planner during a
 comparison. Plans revised against retained work cannot be used as fresh comparison templates.
 
+Comparison members use **Approve all profiles** and **Run comparison** on the comparison screen;
+their individual initial approval and continuation buttons are disabled with directions there.
+If a member was already approved individually but has never started, batch approval accepts that
+exact unchanged approval and approves the remaining profiles. It still checks every member's
+version, plan and assignments together, and never adopts an approval with retained work.
+
 Settled failures remain in the results and the next variant can run. Questions, supervised
 checkpoints, user pauses and uncertain operations wait for a decision. Open the member task for its
 normal answer or recovery actions, then return to **Run comparison** to continue the group.

@@ -5,6 +5,8 @@ import { dirname, join } from 'node:path';
 import { hostname } from 'node:os';
 import { z } from 'zod';
 import type { Store } from '../persistence/store.js';
+import type { Task } from '../domain/workflow.js';
+import { deepEqual } from '../domain/deep-equal.js';
 import {
   comparisonDigest,
   comparisonDecisionKey,
@@ -129,13 +131,19 @@ export class Comparisons {
       requireComparisonDecision(value, expected);
       if (value.status !== 'draft' || value.owner) throw new Error('Comparison is not awaiting approval');
       for (const run of value.runs) {
-        const state = this.store.get(run.taskId).guided;
+        const task = this.store.get(run.taskId);
+        const state = task.guided;
         if (
           !state ||
+          task.version !== run.version ||
+          state.version !== run.version ||
+          state.digest !== run.digest ||
+          !deepEqual(task.brief, state.plan.brief) ||
           sharedPlanDigest(state.plan) !== value.sharedDigest ||
           guidedPlanDigest(state.plan) !== run.digest
         )
           throw new StaleStateError('A comparison member no longer matches the shared plan');
+        if (approvedUnstartedMember(this.store, task, run)) continue;
         new GuidedTasks(this.store).approve(run.taskId, run.version, run.digest);
       }
       value.approvedDigest = value.digest;
@@ -263,6 +271,24 @@ export class Comparisons {
       value.preferredTaskId = taskId;
     });
   }
+}
+
+/** An earlier individual approval must not strand a batch, but retained work cannot bypass approval. */
+function approvedUnstartedMember(store: Store, task: Task, run: Comparison['runs'][number]): boolean {
+  const state = task.guided;
+  return (
+    !task.deletedAt &&
+    task.phase === 'ready' &&
+    task.approvedVersion === run.version &&
+    task.attempt === null &&
+    state?.status === 'ready' &&
+    state.approvedDigest === run.digest &&
+    state.stage === 'workspace' &&
+    state.owner === null &&
+    state.pending === null &&
+    state.workspaceId === null &&
+    !store.workspaces().some(workspace => workspace.taskId === task.id)
+  );
 }
 
 /** A completed or failed member advances only after its controller and workspace lease settle. */

@@ -54,6 +54,8 @@ export interface TaskActionFacts extends TaskStatusFacts {
   /** A request to finish the current operation and pause before the next one. */
   pauseRequested: boolean;
   taskId: string;
+  /** Membership directs initial approval and continuation to the comparison instead of this task. */
+  comparisonId: string | null;
   /** The decision key of the displayed state (`guidedDecisionKey`). */
   expected: string;
   stage: Stage;
@@ -403,6 +405,7 @@ const builders = {
       path: route(f, 'approve'),
       expected: f.expected,
       body: { expected: f.expected, version: f.version, digest: f.digest },
+      disabledReason: f.comparisonId ? 'Open Comparisons and choose Approve all profiles for this comparison.' : null,
     }),
   run: f =>
     action({
@@ -412,7 +415,7 @@ const builders = {
       description: 'Continues the approved task to its next decision point.',
       path: route(f, 'run'),
       expected: f.expected,
-      disabledReason: f.poolFull,
+      disabledReason: f.comparisonId ? 'Open Comparisons and choose Run comparison to continue the group.' : f.poolFull,
     }),
   authorize: f =>
     action({
