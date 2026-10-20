@@ -201,6 +201,16 @@ export const stopPresentation: Readonly<Record<StopReasonCode, StopPresentation>
     'Repair allowance used up',
     "The check still fails and this slice's shared repair allowance is used up.",
   ),
+  READINESS_REPAIR_EXHAUSTED: failure(
+    'failed_check',
+    'Readiness allowance used up',
+    'A mechanical check still fails and this slice has no automatic readiness repairs left. Behavioural repairs have a separate allowance.',
+  ),
+  READINESS_NO_PROGRESS: failure(
+    'failed_check',
+    'Readiness repair made no progress',
+    'The same mechanical check failed on unchanged content after a readiness repair.',
+  ),
   QUALITY_ASSESSMENT_FAILED: failure(
     'review_findings',
     'Quality assessment failed',
@@ -328,6 +338,11 @@ export function stageActivity(
       );
     case 'validation':
       return activity('Running validation', 'Running the approved validation command and collecting its result.');
+    case 'readiness':
+      return activity(
+        'Checking implementation readiness',
+        'Running the approved formatting, lint or type checks before behavioural validation.',
+      );
     case 'submission':
       return activity(
         'Collecting change evidence',

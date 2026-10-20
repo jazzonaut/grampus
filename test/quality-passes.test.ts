@@ -109,7 +109,7 @@ test('a guided task gates on its selected lenses; low-level tasks keep the simpl
 
 test('prompts carry the approved lens and edit pass instructions verbatim', () => {
   const command = { name: 'Check', file: 'node', args: [], timeoutMs: 1000 };
-  const checks = { validation: command, acceptance: [{ ...command, expectedStdout: 'ok' }] };
+  const checks = { readiness: [], validation: command, acceptance: [{ ...command, expectedStdout: 'ok' }] };
   const prompt = reviewPrompt({
     arbitrating: false,
     verdicts: '[]',
@@ -140,6 +140,7 @@ test('prompts carry the approved lens and edit pass instructions verbatim', () =
     priorFindings: [],
     lenses: [],
     checks: {
+      readiness: [],
       validation: { name: 'Unit checks', file: 'node', args: ['--test'], timeoutMs: 1000 },
       acceptance: [acceptance],
     },

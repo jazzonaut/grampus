@@ -23,6 +23,7 @@ function startNextSlice(state: GuidedState): void {
   state.feedback = '';
   state.reviewCycle = freshReviewCycle();
   state.repairCycle = freshRepairCycle();
+  state.readinessCycle = freshRepairCycle();
   state.implementationContinuation = null;
   state.reviewContinuation = null;
   state.failedCheckId = null;

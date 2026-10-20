@@ -14,6 +14,7 @@ import type { DeliverySpec } from '../../execution/deliveries.js';
 import type { RepositorySnapshot } from '../../repository/artifacts.js';
 import type { CheckSpec, RepositoryCheck } from '../../verification/checks.js';
 import { deepEqual } from '../../domain/deep-equal.js';
+import { pendingReadiness } from '../../domain/readiness.js';
 import { required, type GuidedState, type Stage } from './state.js';
 
 /** The approved first-implementation or repair assignment, decided from retained slice executions. */
@@ -109,6 +110,14 @@ export function validationSpec(state: GuidedState): CheckSpec {
   };
 }
 
+/** The first readiness check without a passing result on this exact artifact in this execution. */
+export function dueReadiness(
+  state: GuidedState,
+  checks: readonly Pick<RepositoryCheck, 'phase' | 'spec'>[],
+): CheckSpec | null {
+  return pendingReadiness(currentSlice(state).readiness, required(state, 'snapshot'), checks);
+}
+
 /**
  * The request of the slice's acceptance check at `index`, bound to the current artifact and the task's
  * active criteria; throws without a current snapshot or when the slice has no such check.
@@ -175,7 +184,12 @@ export function deliverySpec(state: GuidedState): DeliverySpec {
 
 /** After editing, refresh prerequisites when any preparation is approved; otherwise validate directly. */
 export function afterImplementation(state: GuidedState): Stage {
-  return currentSlice(state).preparation || state.plan.preparation ? 'refresh' : 'validation';
+  return currentSlice(state).preparation || state.plan.preparation ? 'refresh' : afterPreparation(state);
+}
+
+/** Readiness runs after prerequisite refresh and before behavioural validation on every attempt. */
+export function afterPreparation(state: GuidedState): Stage {
+  return currentSlice(state).readiness.length ? 'readiness' : 'validation';
 }
 
 /** The next selected edit pass that has not yet run in this slice, or null. */

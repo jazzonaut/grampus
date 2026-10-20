@@ -95,7 +95,7 @@ export function reviewProgress(
 export function recordRepairDecision(
   { store, id, state }: SettleContext,
   decision: {
-    source: 'validation' | 'verification' | 'review';
+    source: 'readiness' | 'validation' | 'verification' | 'review';
     action: 'repair' | 'arbitration' | 'stop';
     reason: string;
     resultId: string;
@@ -103,6 +103,19 @@ export function recordRepairDecision(
     progress: keyof typeof progressDescriptions;
   },
 ): void {
+  const cycle = decision.source === 'readiness' ? state.readinessCycle : state.repairCycle;
+  const allowance =
+    decision.source === 'readiness'
+      ? state.plan.workflowPolicy.readinessRounds
+      : state.plan.workflowPolicy.repairRounds;
+  const label =
+    decision.source === 'verification'
+      ? 'Acceptance'
+      : decision.source === 'review'
+        ? 'Review'
+        : decision.source === 'readiness'
+          ? 'Readiness'
+          : 'Validation';
   store.append(id, state.version, 'guided.repair_decided', {
     ...decision,
     trigger: outputExcerpt(decision.trigger, checkOutputLimits.feedbackCharacters),
@@ -110,9 +123,9 @@ export function recordRepairDecision(
     executionId: state.executionId,
     reviewId: state.reviewId,
     artifact: state.snapshot?.artifact ?? null,
-    used: state.repairCycle.used,
-    allowance: state.plan.workflowPolicy.repairRounds,
+    used: cycle.used,
+    allowance,
     reasonCode: decision.action === 'repair' ? null : decision.reason,
-    note: `${decision.source === 'verification' ? 'Acceptance' : decision.source === 'review' ? 'Review' : 'Validation'}: ${decision.action}. Shared repairs used before this decision: ${state.repairCycle.used}/${state.plan.workflowPolicy.repairRounds}. Progress: ${progressDescriptions[decision.progress]}.`,
+    note: `${label}: ${decision.action}. ${decision.source === 'readiness' ? 'Readiness' : 'Shared behavioural'} repairs used before this decision: ${cycle.used}/${allowance}. Progress: ${progressDescriptions[decision.progress]}.`,
   });
 }

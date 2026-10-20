@@ -17,7 +17,7 @@ export function workflowSummary(plan: GuidedPlan): string {
   const spending = `Task-wide allowance: ${policy.maxTaskTurns} agent turns; ${policy.maxTaskTokens ? `${policy.maxTaskTokens.toLocaleString('en-GB')} provider tokens` : 'token threshold disabled'}. Includes linked planning, retries, all slices and plan versions. Checked before each agent turn; an active turn may exceed the token threshold.`;
   const mode =
     policy.mode === 'automatic'
-      ? `Automatic workflow: implement, validate, repair, independently review and deliver within the approved scope. Up to ${policy.repairRounds} shared ${policy.repairRounds === 1 ? 'repair' : 'repairs'} per slice across validation, review and acceptance.`
+      ? `Automatic workflow: implement, check readiness, validate, repair, independently review and deliver within the approved scope. Per slice: ${policy.readinessRounds} readiness repairs for declared formatting, lint and type checks; ${policy.repairRounds} shared behavioural repairs across validation, review and acceptance. Both allowances survive retries and restarts; every attempt runs readiness again. Size both allowances for the approved work and check coverage.`
       : 'Supervised workflow: pause for file authorization and quality assessment.';
   return `${mode} ${spending} Conversations resume within a slice and start fresh after ${policy.maxSessionTurns} turns or ${policy.maxContextTokens.toLocaleString('en-GB')} observed context tokens. Each slice and arbitration starts fresh.`;
 }
@@ -59,6 +59,7 @@ function sliceView(plan: GuidedPlan, index: number): PlanSliceView {
       delete: [...(slice.scope.delete ?? [])],
     },
     preparation: slice.preparation ? command(slice.preparation) : null,
+    readiness: slice.readiness.map(check => ({ ...command(check), kind: check.kind })),
     validation: command(slice.validation),
     acceptance: slice.acceptance.map(check => ({
       ...command(check),

@@ -110,7 +110,8 @@ request.
 | `implementation` | `implementation.ts` | Supervised native editing by the implementer |
 | `quality_pass` | `quality-pass.ts` | Each selected edit quality pass, once per slice, as a scoped implementer turn |
 | `refresh` | `preparation.ts` | Optional preparation again after editing, limited to the slice's file scope |
-| `validation` | `checks.ts` | Run the approved validation command |
+| `readiness` | `readiness.ts` | Run each approved mechanical check on the current artifact, using a separate bounded slice allowance |
+| `validation` | `checks.ts` | Run the approved behavioural validation command |
 | `submission` | `submission.ts` | Submit the implementation with the latest passing check |
 | `review_execution` | `execution.ts` | Create the review (or arbitration) execution |
 | `review` | `review.ts` | Independent artifact review by the other provider |
@@ -134,7 +135,12 @@ In **automatic** mode (the default for new plans) scope is authorized by plan ap
 follows submission, and the reviewer's verdict on each selected quality lens becomes agent evidence
 at `assessment` before verification; a failed lens counts as a blocking finding. Edit quality passes
 run between `implementation` and validation on the slice's first successful implementation only
-([quality passes](WORKFLOW.md#quality-passes)). Ordinary validation and acceptance failures return to
+([quality passes](WORKFLOW.md#quality-passes)). Declared read-only formatting, lint and type checks run at `readiness` after the refresh.
+Their failures use `workflowPolicy.readinessRounds` (two by default, up to ten), persisted in
+`readinessCycle`. All attempts rerun readiness, but behavioural repairs and manual retries never
+replenish it. Submission independently checks that every readiness command passed on the exact
+artifact and instructions; readiness cannot substitute for validation. Ordinary behavioural
+validation and acceptance failures return to
 implementation with their evidence within `workflowPolicy.repairRounds`, shared with blocking
 review repairs (three by default, up to ten). Review can continue beyond two repairs when the
 artifact changes and the reviewer evidences resolution of every preceding blocker using
@@ -157,7 +163,7 @@ and results that cannot be adopted (`RESULT_MISMATCH`, `OPERATION_NEEDS_RECOVERY
 `SETTLEMENT_UNCONFIRMED`, ...). A failure without a specific code is `UNEXPECTED_ERROR` before dispatch
 or `RECOVERY_REQUIRED` after it.
 
-A blocked validation or acceptance check whose stop is an infrastructure problem (`CHECK_TIMEOUT`,
+A blocked readiness, validation or acceptance check whose stop is an infrastructure problem (`CHECK_TIMEOUT`,
 `CHECK_INTERRUPTED`, `CHECK_EXIT_UNCONFIRMED`, `CHECK_OUTPUT_UNAVAILABLE` or `CHECK_ERROR`) and whose
 retained record proves a settled process tree can be rerun with `GuidedTasks.rerunChecks`
 (`orchestration/guided/rerun.ts`): the same check spec on the same execution and attempt, after a
@@ -205,7 +211,7 @@ observations, never stable artifacts. Delivered slices remain part of the compar
 The visible task screen polls at `liveChangesIntervalMs`; hidden pages stop polling.
 
 `server/view-model/repairs.ts` renders recorded repair decisions with their progress assessment,
-triggering result and artifact, concrete failure diagnostics, and shared budget before and after the decision. The task screen
+triggering result and artifact, concrete failure diagnostics, and the relevant readiness or shared behavioural budget before and after the decision. `repair-results.ts` links each decision to the next attempt's observed checks and review verdict, stopping at the next decision, manual retry or delivery; changed bytes never establish a fix. The task screen
 keeps the remaining allowance visible; the timeline retains the full history.
 
 `GuidedTasks.pause` persists a request without aborting the active operation. Before the next dispatch,
@@ -247,8 +253,8 @@ form changes cumulative totals only through fresh approval.
 
 `persistence/store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a
 15-second busy timeout ([parallel tasks](#parallel-tasks-and-concurrency)). There is one schema,
-version 7, with no migrations. A new or empty
-file gets the schema; any other version, or a version 7 file missing a table, is refused with a
+version 8, with no migrations. A new or empty
+file gets the schema; any other version, or a version 8 file missing a table, is refused with a
 clear error after a read-only inspection, so the file is never modified. The default journal is
 `grampus.sqlite` in the data directory.
 
@@ -764,8 +770,8 @@ sequentially under durable ownership. Ordinary task dispatch also checks compari
 order. Settled failures are retained outcomes; human boundaries, pauses and uncertain operations
 wait. A dead driver needs explicit recovery, with no provider dispatch replay.
 
-The `comparisons` and `comparison_events` tables are part of journal schema 7. State changes and
-events share a transaction. Schema versions other than 7 are refused without migration.
+The `comparisons` and `comparison_events` tables are part of journal schema 8. State changes and
+events share a transaction. Schema versions other than 8 are refused without migration.
 Member tasks keep the existing execution, workspace, evidence, spending and verified-delivery
 contracts. Shared planning is retained once at comparison level rather than charged to every member.
 `orchestration/comparison-integration.ts` separates manual preference from an explicit fast-forward
@@ -847,6 +853,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `errors.ts` | `RecordNotFoundError` and `StaleStateError` |
 | `domain/` | `workflow.ts`, `workflow-policy.ts` | Briefs, versions, attempts, evidence, gates, slices and completion; workflow policy validation |
 | | `guided-plan.ts` | Plan normalization, slice file simulation and approval digest |
+| | `readiness.ts` | Approved mechanical check categories and exact-artifact readiness evidence |
 | | `model-profiles.ts`, `comparison.ts` | Fixed role assignments, comparison contracts and exact dispatch order |
 | | `delivery-outcome.ts` | Verified delivered heads, including explicit no-change outcomes |
 | | `quality-passes.ts` | Quality pass definitions, built-ins, plan selection and lens assessments |

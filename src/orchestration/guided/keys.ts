@@ -38,6 +38,8 @@ export function guidedDecisionKey(state: GuidedState, questionKey: string | null
     executionId: state.executionId,
     reviewId: state.reviewId,
     failedCheckId: state.failedCheckId,
+    readinessUsed: state.readinessCycle.used,
+    repairsUsed: state.repairCycle.used,
     guidance: state.guidance.map(message => message.id),
     questionKey,
   });

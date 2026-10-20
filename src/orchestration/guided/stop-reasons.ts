@@ -81,6 +81,10 @@ export const StopReasonCode = {
   CHECK_NO_PROGRESS: 'CHECK_NO_PROGRESS',
   /** A check failed after the slice's shared repair allowance was used up. */
   CHECK_REPAIR_EXHAUSTED: 'CHECK_REPAIR_EXHAUSTED',
+  /** A mechanical check failed after the slice's separate readiness allowance was used up. */
+  READINESS_REPAIR_EXHAUSTED: 'READINESS_REPAIR_EXHAUSTED',
+  /** A readiness repair left the same mechanical check failing on identical content. */
+  READINESS_NO_PROGRESS: 'READINESS_NO_PROGRESS',
   /** A recorded quality lens assessment did not pass (in practice the human's, in supervised mode). */
   QUALITY_ASSESSMENT_FAILED: 'QUALITY_ASSESSMENT_FAILED',
   /** Transient: a blocking review was recorded and the controller is choosing repair, arbitration or a stop. */

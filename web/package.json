@@ -1,6 +1,6 @@
 {
   "name": "grampus-dashboard",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Grampus dashboard client: Vue 3, Vite, Tailwind CSS 4 and Nuxt UI, served by the local Grampus server",

@@ -7,6 +7,7 @@ import type { SettleContext, StageOutcome } from '../src/orchestration/guided/co
 import type { GuidedState } from '../src/orchestration/guided/state.js';
 import { repairIneligibility, validationStage } from '../src/orchestration/guided/stages/checks.js';
 import { reviewStage } from '../src/orchestration/guided/stages/review.js';
+import { readinessStage } from '../src/orchestration/guided/stages/readiness.js';
 import { failureCode } from '../src/orchestration/guided/stages/implementation.js';
 import type { ImplementationRun } from '../src/persistence/records.js';
 import { rerunChecksIneligibility } from '../src/orchestration/guided/rerun.js';
@@ -31,12 +32,19 @@ const naming = builtInQualityPasses.find(pass => pass.id === 'naming')!;
 function guided(mode: 'automatic' | 'supervised', overrides: Record<string, unknown> = {}): GuidedState {
   return {
     plan: {
-      workflowPolicy: { mode, repairRounds: 2 },
+      workflowPolicy: { mode, readinessRounds: 2, repairRounds: 2 },
       quality: { passes: [simplification] },
       implementation: { provider: 'codex', model: null },
       review: { provider: 'claude', model: null },
       slices: [
-        { mode: 'commit', scope: { files: ['a.js'] }, validation, acceptance: [validation], message: 'Deliver' },
+        {
+          mode: 'commit',
+          scope: { files: ['a.js'] },
+          readiness: [],
+          validation,
+          acceptance: [validation],
+          message: 'Deliver',
+        },
       ],
     },
     sliceIndex: 0,
@@ -47,6 +55,7 @@ function guided(mode: 'automatic' | 'supervised', overrides: Record<string, unkn
     executionId: 'execution',
     reviewId: 'review',
     repairCycle: { used: 0, failures: [] },
+    readinessCycle: { used: 0, failures: [] },
     reviewCycle: { repairs: 0, history: [], arbitrating: false, arbitrationUsed: false },
     ...overrides,
   } as unknown as GuidedState;
@@ -204,6 +213,37 @@ test('a failed check spends the repair allowance, then stops as exhausted or wit
   });
   assert.equal(stopCode(settleValidation(repeated, failedCheck())), 'CHECK_NO_PROGRESS');
   assert.equal(stopCode(settleValidation(guided('supervised'), failedCheck())), 'CHECK_FAILED_SUPERVISED');
+});
+
+test('readiness exhaustion, unchanged content and infrastructure failures retain distinct stop reasons', () => {
+  const state = guided('automatic');
+  state.stage = 'readiness';
+  state.plan.slices[0]!.readiness = [{ ...validation, kind: 'types' }];
+  const check = failedCheck({
+    purpose: 'readiness',
+    spec: { ...validation, artifact, instructionsDigest: 'instructions', readiness: 'types' },
+  });
+  const settle = (current: GuidedState, result = check, recorded = record()) =>
+    readinessStage.settle(context(current, 'readiness', { checks: () => [result] }, recorded));
+  const recorded = record();
+  assert.equal(settle(state, check, recorded).kind, 'rerouted');
+  assert.equal(recorded.changes.at(-1)!.state.readinessCycle.used, 1);
+  assert.equal(recorded.changes.at(-1)!.state.repairCycle.used, 0);
+  assert.equal(stopCode(settle({ ...state, readinessCycle: { used: 2, failures: [] } })), 'READINESS_REPAIR_EXHAUSTED');
+  assert.equal(
+    stopCode(
+      settle({
+        ...state,
+        readinessCycle: { used: 1, failures: [{ purpose: 'readiness:Validation', artifact, issue: 'same' }] },
+      }),
+    ),
+    'READINESS_NO_PROGRESS',
+  );
+  const timeout = { ...check, result: { ...check.result!, reason: 'timed_out' as const } };
+  const timedOut = record();
+  assert.equal(stopCode(settle(state, timeout, timedOut)), 'CHECK_TIMEOUT');
+  assert.equal(timedOut.retries.length, 0);
+  assert.equal(timedOut.changes.at(-1)!.state.readinessCycle.used, 0);
 });
 
 function settleReview(

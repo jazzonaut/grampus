@@ -220,6 +220,26 @@ function numberField(name: string, label: string, target: string, value: number,
   return field({ name, label, input: 'number', value, required: true, min: bounds.min, max: bounds.max, target });
 }
 
+/** The separate mechanical and shared behavioural capacities the person explicitly approves. */
+function repairFields(policy: GuidedPlan['workflowPolicy']) {
+  return [
+    numberField(
+      'readiness-repairs',
+      'Readiness repair allowance per slice',
+      '/plan/workflowPolicy/readinessRounds',
+      policy.readinessRounds,
+      workflowPolicyBounds.readinessRounds,
+    ),
+    numberField(
+      'validation-repairs',
+      'Shared behavioural repair allowance per slice',
+      '/plan/workflowPolicy/repairRounds',
+      policy.repairRounds,
+      workflowPolicyBounds.repairRounds,
+    ),
+  ];
+}
+
 /**
  * The revision form: the whole plan as JSON first (files, checks, criteria and slices), then the
  * individual fields, which take precedence because they are applied after it.
@@ -276,13 +296,7 @@ export function revisionForm(plan: GuidedPlan, available: readonly QualityPassDe
         ],
         target: '/plan/workflowPolicy/mode',
       }),
-      numberField(
-        'validation-repairs',
-        'Shared repair allowance per slice',
-        '/plan/workflowPolicy/repairRounds',
-        policy.repairRounds,
-        workflowPolicyBounds.repairRounds,
-      ),
+      ...repairFields(policy),
       numberField(
         'task-turns',
         'Task-wide agent turn allowance',

@@ -59,6 +59,12 @@ defineProps<{ slice: PlanSliceView; index: number }>();
         </p>
       </div>
       <div class="flex flex-col gap-1">
+        <p v-for="check in slice.readiness" :key="check.kind" class="text-xs text-muted">
+          Readiness ({{ check.kind }}) · {{ check.name }} · {{ formatTimeout(check.timeoutMs) }}
+        </p>
+        <p v-if="!slice.readiness.length" class="text-xs text-muted">No separate readiness checks configured.</p>
+      </div>
+      <div class="flex flex-col gap-1">
         <p class="text-xs text-muted">
           Validation · {{ slice.validation.name }} · {{ formatTimeout(slice.validation.timeoutMs) }}
         </p>

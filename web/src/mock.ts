@@ -383,6 +383,7 @@ export const mockPlan: PlanView = {
       files: { edit: ['src/export.ts'], create: ['test/retry.test.ts'], delete: [] },
       preparation: null,
       validation: command,
+      readiness: [],
       acceptance: [{ ...command, name: 'Acceptance', expectedStdout: 'ok\n', expectations: null }],
       delivery: { mode: 'commit', message: 'Add export retry' },
     },
@@ -656,6 +657,7 @@ export const mockTask: TaskDetailV1 = {
     used: 1,
     allowance: 3,
     remaining: 2,
+    readiness: { used: 0, allowance: 2, remaining: 2, checks: 0 },
     decisions: [
       {
         sequence: 10,
@@ -667,6 +669,8 @@ export const mockTask: TaskDetailV1 = {
         budget: '0 of 3 repair rounds allocated before this decision; 2 remaining afterwards.',
         resultId: 'review-1',
         artifact: 'sha256:fixture',
+        results: [],
+        outcome: 'No settled result from the next attempt has been recorded.',
       },
     ],
   },

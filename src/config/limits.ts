@@ -41,11 +41,15 @@ export const planLimits = {
   slices: 64,
   /** Ordered acceptance checks in one slice; each runs under its own timeout and all must pass. */
   acceptanceChecks: 8,
+  /** One explicit check for each mechanical readiness kind, before behavioural validation. */
+  readinessChecks: 3,
 } as const;
 
 /** Inclusive ranges for an approved workflow policy. Settings defaults must also fall inside them. */
 export const workflowPolicyBounds = {
-  /** Shared validation, acceptance and review repair rounds per slice. */
+  /** Mechanical readiness repairs per slice, never replenished by behavioural repairs or retries. */
+  readinessRounds: { min: 0, max: 10 },
+  /** Shared behavioural validation, acceptance and review repair rounds per slice. */
   repairRounds: { min: 0, max: 10 },
   /** Turns before a fresh provider conversation. */
   maxSessionTurns: { min: 1, max: 50 },
@@ -403,6 +407,8 @@ export const stallLimits = {
 export const viewModelLimits = {
   /** Recent repair decisions shown on the running task. Full history remains in the journal. */
   repairDecisions: 12,
+  /** Bounded observed check/review results shown for one repair attempt. */
+  repairResults: 12,
   /** Timeline entries in one page when the request names no limit. */
   timelinePageEntries: 50,
   /** Largest timeline page a request may ask for. */

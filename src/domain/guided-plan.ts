@@ -16,6 +16,7 @@ import { pinnedContext, pinnedRepository } from '../repository/repository-contex
 import { normalizeReferences, referenceFolderSchema, type ReferenceFolder } from '../repository/reference-folders.js';
 import { acceptanceExpectationsSchema, validateExpectations } from './acceptance.js';
 import { normalizeWorkflowPolicy, workflowPolicySchema } from './workflow-policy.js';
+import { readinessKindSchema } from './readiness.js';
 import { availableQualityPasses, normalizeQuality, planQualitySchema } from './quality-passes.js';
 
 /** An approved command: an absolute executable with literal arguments, never a shell string. */
@@ -40,6 +41,8 @@ const sliceScopeSchema = editPolicySchema.pick({ files: true, create: true, dele
 /** The execution configuration of one brief slice, in the same order as the brief's slices. */
 const guidedSliceSchema = z.object({
   scope: sliceScopeSchema,
+  /** Explicit mechanical checks; empty when the repository has none. Approval binds their category. */
+  readiness: z.array(guidedCommandSchema.extend({ kind: readinessKindSchema })).max(planLimits.readinessChecks),
   preparation: guidedCommandSchema.exactOptional(),
   validation: guidedCommandSchema,
   /**
@@ -168,7 +171,7 @@ function observations(
 }
 
 /**
- * Normalises a validation, preparation or acceptance command. Only an acceptance command may carry
+ * Normalises a readiness, validation, preparation or acceptance command. Only an acceptance command may carry
  * `expectedStdout` and `expectations`; for any other command those fields are refused as unknown. An
  * omitted timeout takes `defaultTimeoutMs`, which preparation sets to its own, longer default.
  */
@@ -425,10 +428,33 @@ function acceptanceChecks(value: unknown, slice: number): GuidedSlice['acceptanc
   return checks;
 }
 
+/** Each readiness category is approved once, so a combined test command cannot be reclassified by output. */
+function readinessChecks(value: unknown, slice: number): GuidedSlice['readiness'] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > planLimits.readinessChecks)
+    throw new Error(
+      `Slice ${slice} readiness requires an ordered list of at most ${planLimits.readinessChecks} checks`,
+    );
+  const checks = (value as unknown[]).map((raw, index) =>
+    labelled(`Slice ${slice} readiness ${index + 1}`, () => {
+      const item = object(raw, ['kind', 'name', 'file', 'args', 'timeoutMs'], 'readiness command');
+      const { kind: inputKind, ...inputCommand } = item;
+      const kind = readinessKindSchema.parse(inputKind);
+      return { kind, ...command(inputCommand, false, `${kind} readiness`) };
+    }),
+  );
+  if (
+    new Set(checks.map(check => check.kind)).size !== checks.length ||
+    new Set(checks.map(check => check.name)).size !== checks.length
+  )
+    throw new Error(`Slice ${slice} readiness check kinds and names must be distinct`);
+  return checks;
+}
+
 function normalizeSlice(raw: unknown, simulation: FileSimulation, number: number): GuidedSlice {
   const item = object(
     raw,
-    ['scope', 'validation', 'acceptance', 'message', 'mode', 'preparation'],
+    ['scope', 'readiness', 'validation', 'acceptance', 'message', 'mode', 'preparation'],
     'slice configuration',
   );
   const mode = item.mode ?? 'commit';
@@ -441,6 +467,7 @@ function normalizeSlice(raw: unknown, simulation: FileSimulation, number: number
   return {
     scope,
     mode,
+    readiness: readinessChecks(item.readiness, number),
     ...(item.preparation === undefined
       ? {}
       : {

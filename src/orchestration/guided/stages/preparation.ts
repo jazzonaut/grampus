@@ -2,7 +2,7 @@
 // and again after implementation, without letting it stand in for validation or acceptance.
 import { deepEqual } from '../../../domain/deep-equal.js';
 import { adoptOne, mismatch, requireOrigin, requireSettled, type StageHandler } from '../context.js';
-import { preparationSpec } from '../specs.js';
+import { afterPreparation, preparationSpec } from '../specs.js';
 import { required } from '../state.js';
 import { checkIds } from './checks.js';
 import { guidedSnapshot, keepSnapshot } from '../snapshots.js';
@@ -57,7 +57,7 @@ export const preparationStage: StageHandler = {
     const after = result.after;
     return {
       kind: 'advance',
-      next: pending.stage === 'preparation' ? 'scope' : 'validation',
+      next: pending.stage === 'preparation' ? 'scope' : afterPreparation(state),
       update: current => {
         current.snapshot = keepSnapshot(store, after);
       },

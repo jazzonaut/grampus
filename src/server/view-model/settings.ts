@@ -105,6 +105,12 @@ const integerSettings: readonly (IntegerSpec & { key: IntegerSetting })[] = [
 
 const policySettings: readonly (IntegerSpec & { key: keyof typeof workflowPolicyBounds })[] = [
   {
+    key: 'readinessRounds',
+    label: 'Readiness repairs for new plans',
+    meaning:
+      'Separate automatic allowance per slice for explicitly approved formatting, lint and type checks. Retries never replenish it.',
+  },
+  {
     key: 'maxTaskTurns',
     label: 'Task-wide turns for new plans',
     meaning: 'Requested agent turns across linked planning, all versions and all slices.',
@@ -118,7 +124,8 @@ const policySettings: readonly (IntegerSpec & { key: keyof typeof workflowPolicy
   {
     key: 'repairRounds',
     label: 'Repair rounds for new plans',
-    meaning: 'Shared automatic repair rounds per slice across validation, review and acceptance.',
+    meaning:
+      'Shared automatic repair rounds per slice across behavioural validation, review and acceptance. Readiness is separate.',
   },
   {
     key: 'maxSessionTurns',

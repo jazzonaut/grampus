@@ -7,6 +7,7 @@
 // is in place: the stored object is returned unchanged, because fences and digests compare these
 // records by their serialised bytes.
 import { reasoningEffortSchema } from '../domain/model-profiles.js';
+import { readinessKindSchema } from '../domain/readiness.js';
 import { z } from 'zod';
 import { providerSchema } from '../providers/types.js';
 import { providerRuntimeSchema } from '../providers/executables.js';
@@ -174,6 +175,7 @@ export const checkSpecSchema = z.object({
   timeoutMs: z.number(),
   artifact: z.string(),
   instructionsDigest: z.string(),
+  readiness: readinessKindSchema.exactOptional(),
   criteria: z.array(z.string()).exactOptional(),
   expectedStdout: z.string().exactOptional(),
   expectations: acceptanceExpectationsSchema.exactOptional(),
@@ -197,7 +199,7 @@ export const repositoryCheckSchema = z.object({
   toolPid: pid.nullable(),
   result: checkProcessResultSchema.nullable(),
   error: z.string().nullable(),
-  purpose: z.enum(['validation', 'verification', 'preparation']),
+  purpose: z.enum(['validation', 'verification', 'preparation', 'readiness']),
   dispatch,
   /** Allocated just before dispatch; absent when the check stopped first. */
   receipt: checkReceiptSchema.exactOptional(),

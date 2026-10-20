@@ -73,7 +73,7 @@ Example:
 | `outputFlushIntervalMs` | `1000` | 100 to 60000, and shorter than `stallWarningMs` | Longest time streamed agent output is held in memory before it is journaled as one event. A crash loses at most this much display-only text |
 | `outputFlushBytes` | `8192` | 1024 to 1048576 | Buffered streamed output (UTF-8 bytes) that is journaled at once without waiting for the interval |
 | `defaultPreparationTimeoutMs` | `600000` | 100 to 600000 | Timeout written into new plans for preparation commands that omit `timeoutMs`. Preparation restores dependencies in a fresh worktree without caches, so it gets the longest allowed time |
-| `defaultCheckTimeoutMs` | `300000` | 100 to 600000 | Timeout written into new plans for validation and acceptance commands that omit `timeoutMs` |
+| `defaultCheckTimeoutMs` | `300000` | 100 to 600000 | Timeout written into new plans for readiness, validation and acceptance commands that omit `timeoutMs` |
 | `defaultWorkflowPolicy` | see below | see below | Workflow policy for new plans that omit it, or omit some of its fields |
 | `qualityPasses` | `[]` | up to 16 definitions | Custom quality passes a plan may select by id, in addition to the built-ins (see below) |
 | `defaultQualityPasses` | `["simplification"]` | up to 6 distinct known ids, or `[]` | Quality passes selected for new plans that omit `quality` |
@@ -86,7 +86,8 @@ Example:
 | Field | Default | Allowed | Meaning |
 | --- | --- | --- | --- |
 | `mode` | `"automatic"` | `"automatic"`, `"supervised"` | Automatic runs to a verified commit; supervised stops at file authorization and quality assessment |
-| `repairRounds` | `3` | 0 to 10 | Shared automatic repair rounds per slice across validation, review and acceptance; progress checks can stop earlier |
+| `readinessRounds` | `2` | 0 to 10 | Separate automatic repairs per slice for declared formatting, lint and type checks; retries and behavioural repairs never replenish it |
+| `repairRounds` | `3` | 0 to 10 | Shared automatic repair rounds per slice across behavioural validation, review and acceptance; progress checks can stop earlier |
 | `maxTaskTurns` | `20` | 1 to 1000 | Requested provider turns across linked planning, retries, slices and all plan versions; exhaustion stops before another turn |
 | `maxTaskTokens` | `0` | 0 to 1000000000 | Task token threshold; zero disables only the token gate. When enabled, missing or partial usage stops another turn. Active turns may exceed it |
 | `maxSessionTurns` | `6` | 1 to 50 | Turns before a fresh provider conversation |

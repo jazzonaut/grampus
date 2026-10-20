@@ -102,6 +102,12 @@ const headingId = useId();
             :command="slice.preparation"
             :summary="`Preparation: ${slice.preparation.name}`"
           />
+          <CommandDetails
+            v-for="check in slice.readiness"
+            :key="check.kind"
+            :command="check"
+            :summary="`Readiness (${check.kind}): ${check.name}`"
+          />
           <CommandDetails :command="slice.validation" :summary="`Validation: ${slice.validation.name}`" />
           <template v-for="(check, position) in slice.acceptance" :key="check.name">
             <CommandDetails

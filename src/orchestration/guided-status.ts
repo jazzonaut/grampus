@@ -225,6 +225,7 @@ function draftLines(task: Task, state: GuidedState): string[] {
         ? [`Preparation after implementation (within authorized scope): ${JSON.stringify(slice.preparation)}`]
         : []),
       `Scope: ${JSON.stringify(slice.scope)}`,
+      `Readiness: ${JSON.stringify(slice.readiness)}`,
       `Validation: ${JSON.stringify(slice.validation)}`,
       `Acceptance: ${JSON.stringify(slice.acceptance)}`,
       `Delivery: ${slice.mode}; ${slice.message}`,
@@ -233,7 +234,7 @@ function draftLines(task: Task, state: GuidedState): string[] {
   lines.push('', `Approval digest: ${state.digest}`);
   const policy = plan.workflowPolicy;
   lines.push(
-    `Workflow: ${policy.mode}; shared repairs per slice: ${policy.repairRounds}; arbitrator: ${JSON.stringify(plan.reviewPolicy?.arbitrator ?? null)}.${policy.mode === 'supervised' ? ' Fresh authorization and quality assessment are required for each repair.' : ''}`,
+    `Workflow: ${policy.mode}; readiness repairs per slice: ${policy.readinessRounds}; shared behavioural repairs per slice: ${policy.repairRounds}; arbitrator: ${JSON.stringify(plan.reviewPolicy?.arbitrator ?? null)}.${policy.mode === 'supervised' ? ' Fresh authorization and quality assessment are required for each repair.' : ''}`,
     `Quality passes: ${plan.quality.passes.map(pass => `${pass.id} (${pass.kind})`).join(', ') || 'none'}.`,
   );
   if (plan.revision) lines.push(`Retained revision checkpoint: ${JSON.stringify(plan.revision)}`);

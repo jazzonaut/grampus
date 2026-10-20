@@ -58,7 +58,7 @@ export interface Settings {
    * because preparation restores dependencies in a fresh worktree without caches.
    */
   defaultPreparationTimeoutMs: number;
-  /** Validation and acceptance timeout written into new plans that omit `timeoutMs`. */
+  /** Readiness, validation and acceptance timeout written into new plans that omit `timeoutMs`. */
   defaultCheckTimeoutMs: number;
   /** Workflow policy for new plans that omit it, or fields of it; approved plans keep their own copy. */
   defaultWorkflowPolicy: WorkflowPolicy;
@@ -98,6 +98,7 @@ export function defaultSettings(): Settings {
     defaultCheckTimeoutMs: 300_000,
     defaultWorkflowPolicy: {
       mode: 'automatic',
+      readinessRounds: 2,
       repairRounds: 3,
       maxSessionTurns: 6,
       maxContextTokens: 120_000,
@@ -153,6 +154,7 @@ const overridesSchema = z
     defaultWorkflowPolicy: z
       .strictObject({
         mode: z.enum(['automatic', 'supervised']).optional(),
+        readinessRounds: bounded(workflowPolicyBounds.readinessRounds).optional(),
         repairRounds: bounded(workflowPolicyBounds.repairRounds).optional(),
         maxSessionTurns: bounded(workflowPolicyBounds.maxSessionTurns).optional(),
         maxContextTokens: bounded(workflowPolicyBounds.maxContextTokens).optional(),

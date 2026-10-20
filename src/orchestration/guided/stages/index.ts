@@ -9,6 +9,7 @@ import { scopeStage } from './scope.js';
 import { implementationStage } from './implementation.js';
 import { qualityPassStage } from './quality-pass.js';
 import { validationStage, verificationStage } from './checks.js';
+import { readinessStage } from './readiness.js';
 import { submissionStage } from './submission.js';
 import { assessmentStage } from './assessment.js';
 import { reviewStage } from './review.js';
@@ -23,6 +24,7 @@ export const stageHandlers: Readonly<Record<ActiveStage, StageHandler>> = {
   implementation: implementationStage,
   quality_pass: qualityPassStage,
   refresh: preparationStage,
+  readiness: readinessStage,
   validation: validationStage,
   submission: submissionStage,
   review_execution: reviewExecutionStage,

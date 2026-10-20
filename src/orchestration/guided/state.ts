@@ -22,6 +22,7 @@ export const stageSchema = z.enum([
   'implementation',
   'quality_pass',
   'refresh',
+  'readiness',
   'validation',
   'submission',
   'assessment',
@@ -90,7 +91,7 @@ export const pendingSchema = z.object({
 });
 export type Pending = z.infer<typeof pendingSchema>;
 
-/** Shared repair spending for the current slice; survives manual retry and restarts. */
+/** Spending for one slice repair allowance; survives manual retry and restarts. */
 export const repairCycleSchema = z.object({
   used: z.number(),
   /** Failed artifacts per purpose; a repeat on the same artifact means the repair made no progress. */
@@ -122,7 +123,7 @@ export const qualityEditRecordSchema = z.object({
 });
 export type QualityEditRecord = z.infer<typeof qualityEditRecordSchema>;
 
-/** A new slice or revised plan starts with an unused shared repair allowance. */
+/** A new slice or revised plan starts each repair allowance unused. */
 export const freshRepairCycle = (): RepairCycle => ({ used: 0, failures: [] });
 
 /** A new slice or revised plan starts with no review repair spending or arbitration history. */
@@ -148,6 +149,8 @@ export const guidedStateSchema = z.object({
   /** The failed check on display; what rerun checks repeats and a repair quotes as evidence. */
   failedCheckId: z.string().nullable(),
   repairCycle: repairCycleSchema,
+  /** Mechanical readiness spending is per slice and survives every explicit or behavioural retry. */
+  readinessCycle: repairCycleSchema,
   reviewCycle: reviewCycleSchema,
   version: z.number(),
   plan: guidedPlanSchema,

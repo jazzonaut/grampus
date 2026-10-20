@@ -37,6 +37,11 @@ function latest(evidence: readonly Evidence[], kind: Evidence['kind'], pass?: st
   return evidence.findLast(item => item.kind === kind && (pass === undefined || item.pass === pass)) ?? null;
 }
 
+/** Refresh belongs before readiness when checks are declared, otherwise before behavioural validation. */
+function readinessPosition(ids: readonly string[]): number {
+  return ids.indexOf(ids.includes('readiness') ? 'readiness' : 'validate');
+}
+
 /** The strip position of an internal stage; `complete` is past every stage. */
 function position(facts: WorkflowFacts, ids: readonly string[]): number {
   const index = (id: string) => ids.indexOf(id);
@@ -55,6 +60,9 @@ function position(facts: WorkflowFacts, ids: readonly string[]): number {
       return next ? index(`quality:${next.id}`) : index('validate');
     }
     case 'refresh':
+      return readinessPosition(ids);
+    case 'readiness':
+      return index('readiness');
     case 'validation':
     case 'submission':
       return index('validate');
@@ -164,6 +172,19 @@ function stageSpecs(facts: WorkflowFacts): StageSpec[] {
         },
       };
     }),
+    ...(slice?.readiness.length
+      ? [
+          {
+            id: 'readiness',
+            kind: 'readiness' as const,
+            label: 'Readiness',
+            passed: {
+              evidence: 'controller-verified' as const,
+              detail: slice.readiness.map(check => check.name).join(', '),
+            },
+          },
+        ]
+      : []),
     {
       id: 'validate',
       kind: 'validate',

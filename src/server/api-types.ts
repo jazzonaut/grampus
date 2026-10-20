@@ -510,7 +510,7 @@ export interface StageItemView {
 export interface StageView {
   /** `plan`, `implement`, `quality:<pass id>`, `validate`, `review`, `accept` or `deliver`. */
   id: string;
-  kind: 'plan' | 'implement' | 'quality_pass' | 'validate' | 'review' | 'accept' | 'deliver';
+  kind: 'plan' | 'implement' | 'quality_pass' | 'readiness' | 'validate' | 'review' | 'accept' | 'deliver';
   label: string;
   state: StageState;
   /** Who established the result shown; null while nothing is recorded. */
@@ -628,6 +628,8 @@ export interface PlanSliceView {
   criteria: string[];
   files: { edit: string[]; create: string[]; delete: string[] };
   preparation: { name: string; file: string; args: string[]; timeoutMs: number } | null;
+  /** Explicit read-only mechanical checks, run before behavioural validation in this order. */
+  readiness: { kind: 'format' | 'lint' | 'types'; name: string; file: string; args: string[]; timeoutMs: number }[];
   validation: { name: string; file: string; args: string[]; timeoutMs: number };
   /** The acceptance checks in the order they run; at least one. */
   acceptance: PlanAcceptanceView[];
@@ -797,6 +799,9 @@ export interface RepairDecisionV1 {
   budget: string;
   resultId: string;
   artifact: string | null;
+  /** Controller-observed results after this decision, bounded to its next attempt. */
+  results: { name: string; outcome: string; artifact: string | null }[];
+  outcome: string;
 }
 
 /** Remaining automatic repair allowance; explicit manual retries remain separate decisions. */
@@ -804,6 +809,7 @@ export interface RepairsV1 {
   used: number;
   allowance: number;
   remaining: number;
+  readiness: { used: number; allowance: number; remaining: number; checks: number };
   decisions: RepairDecisionV1[];
 }
 

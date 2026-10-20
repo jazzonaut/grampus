@@ -28,6 +28,32 @@ import {
 } from '../specs.js';
 import { recordRepairDecision } from '../repair-policy.js';
 
+/** The approved budget and journal vocabulary for the failed check's declared stage. */
+function failureBudget(state: GuidedState, stage: GuidedState['stage']) {
+  if (stage === 'readiness')
+    return {
+      field: 'readinessCycle' as const,
+      allowance: state.plan.workflowPolicy.readinessRounds,
+      source: 'readiness' as const,
+      label: 'Readiness',
+      noProgress: 'READINESS_NO_PROGRESS' as const,
+      exhausted: 'READINESS_REPAIR_EXHAUSTED' as const,
+      event: 'guided.readiness_budget_used',
+      retry: 'guided.readiness_repair_requested',
+    };
+  if (stage !== 'validation' && stage !== 'verification') throw new Error(`No repair budget for stage ${stage}`);
+  return {
+    field: 'repairCycle' as const,
+    allowance: state.plan.workflowPolicy.repairRounds,
+    source: stage,
+    label: stage === 'validation' ? 'Validation' : 'Acceptance',
+    noProgress: 'CHECK_NO_PROGRESS' as const,
+    exhausted: 'CHECK_REPAIR_EXHAUSTED' as const,
+    event: 'guided.repair_budget_used',
+    retry: stage === 'validation' ? 'guided.validation_repair_requested' : 'guided.acceptance_repair_requested',
+  };
+}
+
 /** Every check of the current execution, including preparation runs. */
 export function checkIds({ store }: GuidedContext, state: GuidedState): string[] {
   return store.checks(required(state, 'executionId')).map(item => item.id);
@@ -85,7 +111,7 @@ export function repairIneligibility(state: GuidedState, result: RepositoryCheck)
  * evidence, or stops. A second failure of the same purpose on the same artifact means the last
  * repair changed nothing, so it stops early instead of spending tokens on the same content.
  */
-function settleFailure(
+export function settleCheckFailure(
   context: SettleContext,
   result: RepositoryCheck,
   acceptance: DueAcceptance | null,
@@ -93,17 +119,21 @@ function settleFailure(
   const { state, pending, change, prepareRetry } = context;
   const issue = checkIssue(result);
   const position = acceptance ? acceptancePosition(acceptance) : '';
-  const cycle = structuredClone(state.repairCycle);
+  const budget = failureBudget(state, pending.stage);
+  const cycle = structuredClone(state[budget.field]);
+  const purpose = result.spec.readiness ? `readiness:${result.spec.name}` : pending.stage;
   const noProgress = cycle.failures.some(
-    failure => failure.purpose === pending.stage && failure.artifact === state.snapshot?.artifact,
+    failure => failure.purpose === purpose && failure.artifact === state.snapshot?.artifact,
   );
-  const allowance = state.plan.workflowPolicy.repairRounds;
+  const allowance = budget.allowance;
   const ineligible = repairIneligibility(state, result);
   const canRepair = !ineligible && !noProgress && cycle.used < allowance;
+  const noProgressCode = budget.noProgress;
+  const exhaustedCode = budget.exhausted;
   recordRepairDecision(context, {
-    source: pending.stage === 'validation' ? 'validation' : 'verification',
+    source: budget.source,
     action: canRepair ? 'repair' : 'stop',
-    reason: ineligible ?? (noProgress ? 'CHECK_NO_PROGRESS' : canRepair ? 'CHECK_FAILED' : 'CHECK_REPAIR_EXHAUSTED'),
+    reason: ineligible ?? (noProgress ? noProgressCode : canRepair ? 'CHECK_FAILED' : exhaustedCode),
     resultId: result.id,
     trigger: `${result.spec.name}${position}: ${issue}`,
     progress: ineligible
@@ -120,13 +150,11 @@ function settleFailure(
   });
   if (canRepair) {
     cycle.used++;
-    cycle.failures.push({ purpose: pending.stage, artifact: required(state, 'snapshot').artifact, issue });
-    change('guided.repair_budget_used', current => {
-      current.repairCycle = cycle;
+    cycle.failures.push({ purpose, artifact: required(state, 'snapshot').artifact, issue });
+    change(budget.event, current => {
+      current[budget.field] = cycle;
     });
-    prepareRetry(
-      pending.stage === 'validation' ? 'guided.validation_repair_requested' : 'guided.acceptance_repair_requested',
-    );
+    prepareRetry(budget.retry);
     return { kind: 'rerouted', to: 'repair' };
   }
   const advice = ineligible
@@ -139,8 +167,8 @@ function settleFailure(
   return {
     kind: 'stop',
     reason: {
-      code: ineligible ?? (noProgress ? 'CHECK_NO_PROGRESS' : 'CHECK_REPAIR_EXHAUSTED'),
-      note: `${timeout}${pending.stage === 'validation' ? 'Validation' : 'Acceptance'} failed: ${issue}\n${advice}\nRetained check: ${result.id}`,
+      code: ineligible ?? (noProgress ? noProgressCode : exhaustedCode),
+      note: `${timeout}${budget.label} failed: ${issue}\n${advice}\nRetained check: ${result.id}`,
     },
   };
 }
@@ -160,7 +188,7 @@ function settleCheck(context: SettleContext): StageOutcome {
   if (!deepEqual(result.spec, acceptance ? acceptance.spec : validationSpec(state)))
     throw mismatch('Check result differs from the approved command or acceptance expectation');
   requireSettled(result, 'Check');
-  if (result.phase !== 'passed') return settleFailure(context, result, acceptance);
+  if (result.phase !== 'passed') return settleCheckFailure(context, result, acceptance);
   const last = !acceptance || acceptance.index === acceptance.total - 1;
   return {
     kind: 'advance',

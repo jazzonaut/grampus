@@ -24,6 +24,7 @@ import { captureRepository } from '../repository/repository-evidence.js';
 import { assertAcceptance, validateExpectations } from '../domain/acceptance.js';
 import { prepareEditing, validateEditPolicy, verifyEditingScope } from '../execution/edit-policy.js';
 import { lensOutcome, parseQualityAssessment, type QualityAssessment } from '../domain/quality-passes.js';
+import { pendingReadiness } from '../domain/readiness.js';
 
 export type { CheckSpec, RepositoryCheck } from '../persistence/records.js';
 export type { QualityAssessment } from '../domain/quality-passes.js';
@@ -39,6 +40,7 @@ const checkOptions = [
   'expectedStdout',
   'expectations',
   'preparation',
+  'readiness',
 ];
 
 /**
@@ -65,6 +67,13 @@ function validatePreparation(spec: CheckSpec): void {
 
 /** Criteria make a check an acceptance check, which alone may carry output assertions. */
 function validateCriteria(spec: CheckSpec): void {
+  if (
+    spec.readiness !== undefined &&
+    (!['format', 'lint', 'types'].includes(spec.readiness) ||
+      spec.criteria !== undefined ||
+      spec.preparation !== undefined)
+  )
+    throw new Error('Readiness requires a mechanical kind and cannot be preparation or acceptance');
   if (
     spec.criteria !== undefined &&
     (!Array.isArray(spec.criteria) ||
@@ -296,7 +305,13 @@ export class Checks {
     if (runner === runCheckProcess && process.platform !== 'win32')
       throw new Error('Repository checks currently require Windows 10 or later');
     const id = randomUUID();
-    const purpose = spec.preparation ? 'preparation' : spec.criteria ? 'verification' : 'validation';
+    const purpose = spec.preparation
+      ? 'preparation'
+      : spec.criteria
+        ? 'verification'
+        : spec.readiness
+          ? 'readiness'
+          : 'validation';
     const execution = this.request(executionId, spec, id, purpose);
     const check = this.get(id);
     const dispatched = await this.observe(execution, check, signal, runner);
@@ -578,6 +593,7 @@ export class Checks {
       const event = {
         checkId: id,
         dispatch: check.dispatch,
+        phase: check.phase,
         result: check.result,
         replayed: false,
         acceptedAsSuccess: false,
@@ -634,12 +650,18 @@ export class Checks {
         check.purpose === 'preparation'
       )
         throw new Error('Finish requires a passing check from this implementation; preparation is not validation');
+      if (check.purpose === 'readiness') throw new Error('Readiness cannot substitute for behavioural validation');
       const latest = this.store.checks(executionId).at(-1);
       if (latest?.id !== checkId)
         throw new Error('Use the latest check; newer failed or interrupted checks cannot be bypassed');
       const snapshot = await this.capture(execution);
       if (snapshot.artifact !== check.after.artifact)
         throw new Error('Repository changed after the check; run it again');
+      const guided = this.store.get(execution.taskId).guided;
+      const slice = guided?.plan.slices[execution.sliceIndex];
+      if (guided && !slice) throw new Error('The implementation has no approved slice');
+      if (slice && pendingReadiness(slice.readiness, snapshot, this.store.checks(executionId)))
+        throw new Error('Every approved readiness check must pass on this artifact before submission');
       this.store.transaction(() => {
         this.release(execution, runId);
         const workflow = new Workflow(this.store);

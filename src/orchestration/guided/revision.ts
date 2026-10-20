@@ -126,6 +126,7 @@ export function revisedState(
     retryAnchor: null,
     failedCheckId: null,
     repairCycle: freshRepairCycle(),
+    readinessCycle: freshRepairCycle(),
     status: 'draft',
     stage: draft.workspaceId ? 'execution' : 'workspace',
     sliceIndex: draft.completed.length,

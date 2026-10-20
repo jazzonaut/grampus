@@ -4,11 +4,11 @@ New plans default to automatic execution within their exact approved file scope:
 
 1. Prepare the worktree and prerequisites.
 2. Implement the current slice, then apply the selected edit quality passes.
-3. Run validation. Return ordinary failures to the implementer with their evidence.
+3. Run the approved mechanical readiness checks, then behavioural validation. Return ordinary failures to the implementer with their evidence, using the appropriate bounded allowance.
 4. Independently review correctness and maintainability, assessing each selected quality
    lens. Repair concrete blocking findings and failed lenses within the allowance and obtain
-   a new verdict. Validation, review and acceptance draw from one shared repair allowance.
-   The reviewer is shown the slice's approved validation and acceptance commands and judges
+   a new verdict. Behavioural validation, review and acceptance draw from one shared repair allowance. Declared formatting, lint and type checks have a separate readiness allowance.
+   The reviewer is shown the slice's approved readiness, validation and acceptance commands and judges
    whether they will establish each criterion; acceptance has not run yet, so its absence is
    never a finding. A criterion that needs the results of a later check is raised as a
    question rather than a blocker, because no repair can resolve it.
@@ -62,6 +62,46 @@ the current artifact. Grampus verifies each assessment's reviewer, attempt, vers
 artifact before recording it as **agent evidence**, rather than inferring it from a passing
 check. Runtime validation and acceptance remain controller evidence.
 
+## Implementation readiness
+
+Each slice can declare an ordered `readiness` list, with at most one command of each kind:
+`format`, `lint` and `types`. Each command includes `kind`, `name`, `file`, `args` and
+`timeoutMs`. For example, a TypeScript project may approve:
+
+```json
+"readiness": [
+  {
+    "kind": "types",
+    "name": "Typecheck",
+    "file": "node",
+    "args": ["node_modules/typescript/bin/tsc", "--noEmit"],
+    "timeoutMs": 60000
+  }
+]
+```
+
+Readiness runs after the edit quality passes and prerequisite refresh, before behavioural
+validation, on every attempt. Its commands must be read-only: use a formatting check, then let
+the implementer fix files within its authorised scope. Tests, mixed check scripts, installation
+and mutating formatters do not belong in readiness. The controller uses the declared category,
+never an error-message heuristic. Omitted readiness normalises to an empty list for approval;
+existing validation commands always use the behavioural allowance.
+
+`workflowPolicy.readinessRounds` allows two automatic readiness repairs per slice by default,
+separate from the three shared behavioural repairs. Both accept 0 to 10 and are visible and
+editable before approval. Both survive restarts, explicit retries and every repair of the same
+slice. A new slice or freshly approved plan revision starts fresh slice allowances; task-wide
+turn and token totals still include earlier work. Repeated failure of the same readiness command
+on unchanged content stops with `READINESS_NO_PROGRESS`; exhaustion uses
+`READINESS_REPAIR_EXHAUSTED`. Infrastructure stops spend neither allowance and retain the same
+explicit recovery or **Rerun checks** rules. Readiness passes never substitute for validation,
+review or acceptance, and submission requires them on the exact current artifact.
+
+Choose capacities for the task's scope and checks at approval. Running work never silently
+increases an approved allowance. The task screen shows both budgets and each repair's subsequent
+check results and review verdict, with artifact identities. Changed bytes and an implementer's
+completion message never establish that a defect was fixed.
+
 ## Quality passes
 
 Quality passes are declarative definitions, not code: an `id` (kebab-case), a `title`, a
@@ -112,7 +152,7 @@ replace the person's assessment.
 
 ## Rerun checks
 
-A validation or acceptance check that stops for an infrastructure reason on an unchanged
+A readiness, validation or acceptance check that stops for an infrastructure reason on an unchanged
 artifact can be rerun without a new implementation attempt: **Rerun checks** on the
 dashboard, or `task-rerun-checks <id> <decision-key>` with the key shown in `task-show`'s
 next action. It runs the same approved check spec again on the same execution and attempt,
@@ -228,7 +268,7 @@ comparison-export <comparison-id> <output-file> [json|csv|gzip]
 `profiles.json` is an ordered array of saved profile ids or full profile definitions.
 For integration, save the displayed preview's `target` object as `target.json`. `export` prints
 JSON to stdout, so ordinary shell redirection can save an individual run. All commands accept
-the usual `--db` journal selection. Schema 7 requires a fresh journal; other versions are refused
+the usual `--db` journal selection. Schema 8 requires a fresh journal; other versions are refused
 without migration. Development work does not update the installed application or its journal.
 
 ## Configuration
@@ -239,6 +279,7 @@ The policy is part of the approved plan, visible at approval and editable in
 ```json
 "workflowPolicy": {
   "mode": "automatic",
+  "readinessRounds": 2,
   "repairRounds": 3,
   "maxSessionTurns": 6,
   "maxContextTokens": 120000,
@@ -254,7 +295,7 @@ These are the defaults for a new plan that omits the policy or some of its field
 `mode` defaults to `automatic`. `mode: "supervised"` adds file-authorization and
 manual quality assessment checkpoints and leaves failed checks for a manual retry (see
 [the guided CLI](GUIDED-WORKFLOW.md#supervised-mode)).
-Repair rounds accept 0–10, defaulting to three. Validation, independent review and acceptance
+Behavioural repair rounds accept 0–10, defaulting to three. Behavioural validation, independent review and acceptance
 spend the same allowance for the current slice. It survives manual retry and restarts;
 a new slice or revised plan gets a new allowance. An explicit retry authorises one further
 attempt without replenishing automatic repairs. Infrastructure failures never spend it.
@@ -278,11 +319,11 @@ approval; the approval digest always covers the complete current plan.
 
 Each failed check or blocking review records `guided.repair_decided` in the same transaction
 as its state transition. It names the source, triggering result, execution, artifact, progress,
-action and shared budget before the decision. Review dispositions remain in the linked session's
+action and the relevant readiness or shared behavioural budget before the decision. Review dispositions remain in the linked session's
 structured reply. This makes the choice to repair, arbitrate or stop inspectable alongside the
 existing request/result, check and usage journals.
 
-The current controller uses journal schema 7, including fixed model assignments and durable comparisons alongside pause, guidance, task spending and ordered acceptance checks. Journals from
+The current controller uses journal schema 8, including explicit readiness checks and their durable allowance alongside model assignments, comparisons, pause, guidance, task spending and ordered acceptance checks. Journals from
 other schema versions are refused without modification; there is
 no migration. Keep the previous installed build with its journal to finish an existing task.
 

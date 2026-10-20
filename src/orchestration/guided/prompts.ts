@@ -57,7 +57,7 @@ export interface ReviewPromptInput {
   /** The plan's selected quality lenses, each assessed separately. */
   lenses: QualityPassDefinition[];
   /** The slice's approved validation and acceptance commands, which the reviewer judges as evidence. */
-  checks: Pick<GuidedSlice, 'validation' | 'acceptance'>;
+  checks: Pick<GuidedSlice, 'readiness' | 'validation' | 'acceptance'>;
 }
 
 /**
@@ -65,8 +65,8 @@ export interface ReviewPromptInput {
  * so a reviewer that demanded acceptance results would block every attempt with a finding no repair
  * can resolve; it judges whether the approved commands will establish the criteria instead.
  */
-function checkInstructions({ validation, acceptance }: ReviewPromptInput['checks']): string {
-  return `Approved checks for this slice (approved instructions, not untrusted claims): ${JSON.stringify({ validation, acceptance })}. The controller runs validation before review; approved acceptance runs after a passing review, so no acceptance result exists yet and its absence is not a finding. Judge whether these commands, when run against this artifact, will establish each criterion, and raise a blocking finding only where they will not or where the artifact contradicts a criterion. If a criterion can only be met with the results of a check that runs after review, return kind=question asking for a decision instead of a blocking finding, because no repair can resolve it.`;
+function checkInstructions({ readiness, validation, acceptance }: ReviewPromptInput['checks']): string {
+  return `Approved checks for this slice (approved instructions, not untrusted claims): ${JSON.stringify({ readiness, validation, acceptance })}. The controller runs mechanical readiness and behavioural validation before review; approved acceptance runs after a passing review, so no acceptance result exists yet and its absence is not a finding. Judge whether these commands, when run against this artifact, will establish each criterion, and raise a blocking finding only where they will not or where the artifact contradicts a criterion. If a criterion can only be met with the results of a check that runs after review, return kind=question asking for a decision instead of a blocking finding, because no repair can resolve it.`;
 }
 
 /**

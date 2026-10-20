@@ -8,7 +8,7 @@ import { deepEqual } from '../../domain/deep-equal.js';
 import type { Store } from '../../persistence/store.js';
 import type { StopReasonCode } from './stop-reasons.js';
 import type { GuidedState } from './state.js';
-import { dueAcceptance, validationSpec } from './specs.js';
+import { dueAcceptance, dueReadiness, validationSpec } from './specs.js';
 
 /**
  * Stops caused by the check's environment rather than by the implementation: the command timed out,
@@ -44,9 +44,11 @@ function checkIneligibility(store: Store, task: Task, state: GuidedState): strin
     return 'The check process tree was not confirmed settled; recover it instead of rerunning';
   // Acceptance resumes at the first check not yet passed on this artifact, which is the stopped one.
   const expected =
-    state.stage === 'validation'
-      ? validationSpec(state)
-      : dueAcceptance(state, activeCriteria(task), store.checks(state.executionId))?.spec;
+    state.stage === 'readiness'
+      ? dueReadiness(state, store.checks(state.executionId))
+      : state.stage === 'validation'
+        ? validationSpec(state)
+        : dueAcceptance(state, activeCriteria(task), store.checks(state.executionId))?.spec;
   if (!expected || !deepEqual(check.spec, expected))
     return 'The retained check differs from the approved check for this step';
   // A check without a before-snapshot never observed the workspace; the controller's fresh snapshot at
@@ -67,8 +69,8 @@ export function rerunChecksIneligibility(store: Store, task: Task): string | nul
   if (!state) return 'This task has no guided plan';
   // Runner ownership is the controller's to check: it claims the runner before rerunning.
   if (state.pending) return 'Recover the unfinished operation before rerunning checks';
-  if (state.status !== 'blocked' || (state.stage !== 'validation' && state.stage !== 'verification'))
-    return 'Rerun checks applies only to a stopped validation or acceptance check';
+  if (state.status !== 'blocked' || !['readiness', 'validation', 'verification'].includes(state.stage))
+    return 'Rerun checks applies only to a stopped validation or acceptance check, or a stopped readiness check';
   const code = state.stopReason?.code;
   if (!code || !rerunnableStops.has(code))
     return `Rerun checks applies after ${[...rerunnableStops].join(', ')}; this stop (${code ?? 'none'}) needs a retry, a revised plan or recovery`;

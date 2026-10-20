@@ -50,6 +50,7 @@ test('without config.json the built-in defaults apply and nothing is created', t
     defaultCheckTimeoutMs: 300_000,
     defaultWorkflowPolicy: {
       mode: 'automatic',
+      readinessRounds: 2,
       repairRounds: 3,
       maxSessionTurns: 6,
       maxContextTokens: 120_000,
@@ -80,6 +81,7 @@ test('a valid partial override merges over the defaults, including the nested wo
     defaultCheckTimeoutMs: 300_000,
     defaultWorkflowPolicy: {
       mode: 'supervised',
+      readinessRounds: 2,
       repairRounds: 1,
       maxSessionTurns: 6,
       maxContextTokens: 120_000,
@@ -152,6 +154,7 @@ test('injected settings supply new-plan defaults and a worker round trip keeps t
     ...defaultSettings(),
     defaultWorkflowPolicy: {
       mode: 'supervised' as const,
+      readinessRounds: 2,
       repairRounds: 0,
       maxSessionTurns: 3,
       maxContextTokens: 9000,

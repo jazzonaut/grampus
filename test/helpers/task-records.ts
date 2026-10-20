@@ -11,6 +11,7 @@ export function planRecord(fields: Partial<GuidedPlan> = {}): GuidedPlan {
   return {
     workflowPolicy: {
       mode: 'automatic',
+      readinessRounds: 2,
       repairRounds: 2,
       maxSessionTurns: 6,
       maxContextTokens: 120_000,
@@ -26,6 +27,7 @@ export function planRecord(fields: Partial<GuidedPlan> = {}): GuidedPlan {
     slices: [
       {
         scope: { files: [] },
+        readiness: [],
         validation: command,
         acceptance: [{ ...command, expectedStdout: '' }],
         message: 'Fixture delivery',
@@ -44,6 +46,7 @@ export function guidedRecord(fields: Partial<GuidedState> = {}): GuidedState {
     retryAnchor: null,
     failedCheckId: null,
     repairCycle: { used: 0, failures: [] },
+    readinessCycle: { used: 0, failures: [] },
     reviewCycle: { repairs: 0, history: [], arbitrating: false, arbitrationUsed: false },
     version: 1,
     plan: planRecord(),

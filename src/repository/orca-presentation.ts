@@ -18,6 +18,7 @@ const stages: Record<Stage, string> = {
   implementation: 'Implementing',
   quality_pass: 'Quality pass',
   refresh: 'Inspecting changes',
+  readiness: 'Checking implementation readiness',
   validation: 'Running checks',
   submission: 'Submitting changes',
   assessment: 'Assessing quality',

@@ -99,11 +99,14 @@ automatic mode (the default) starts the run straight away, unless the
 ## Run
 
 The task runs [automatically within the approved scope](WORKFLOW.md): preparation,
-implementation and any edit quality passes, validation, independent review with an assessment of
+implementation and any edit quality passes, mechanical readiness, behavioural validation, independent review with an assessment of
 each selected quality lens, acceptance and a verified local commit per slice. Questions, scope
 errors, exhausted repair allowances and operational failures stop for attention with the reason
 shown.
 
+- **Automatic repairs:** separate readiness and shared behavioural budgets, the triggering issue,
+  and observed check/review results from the following attempt. Both capacities are editable at
+  approval; the task-wide turn and token limits still apply to every attempt.
 - **Workflow strip:** each stage in order (quality passes come from the plan) with its state in
   words and who established it: *verified by Grampus* (checks, acceptance, the commit), *agent
   reported* (implementation, edit passes, the review and its lens verdicts) or *your

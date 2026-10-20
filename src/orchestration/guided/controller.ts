@@ -107,6 +107,7 @@ export class GuidedTasks {
         retryAnchor: null,
         failedCheckId: null,
         repairCycle: freshRepairCycle(),
+        readinessCycle: freshRepairCycle(),
         reviewCycle: freshReviewCycle(),
         status: 'draft',
         stage: 'workspace',
@@ -195,6 +196,7 @@ export class GuidedTasks {
         qualityEdits: state.qualityEdits,
         reviewCycle: state.reviewCycle,
         repairCycle: state.repairCycle,
+        readinessCycle: state.readinessCycle,
         failedCheckId: state.failedCheckId,
       });
       return state;

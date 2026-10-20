@@ -210,7 +210,7 @@ function activity(facts: TaskFacts, context: ViewContext, presentation: TaskPres
   const { state, progress, session } = facts.view;
   const stopping = presentation.status === 'stopping';
   const described = stageActivity(state.stage, {
-    repairing: !!state.failedCheckId && state.repairCycle.used > 0,
+    repairing: !!state.failedCheckId,
     reviewRepairs: state.reviewCycle.repairs,
     arbitrating: state.reviewCycle.arbitrating,
   });
@@ -275,6 +275,7 @@ function checkView(taskId: string, check: RepositoryCheck): CheckView {
     recovery_required: 'Needs recovery',
   };
   const purposeLabels: Record<RepositoryCheck['purpose'], string> = {
+    readiness: 'Readiness',
     preparation: 'Preparation',
     validation: 'Validation',
     verification: 'Acceptance',
