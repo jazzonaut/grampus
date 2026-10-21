@@ -3,6 +3,7 @@
 // journal's previews, which stay the original process evidence.
 import { stripVTControlCharacters } from 'node:util';
 import type { RepositoryCheck } from './checks.js';
+import type { CheckSummary } from '../persistence/records.js';
 import { openSync, readSync, closeSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
@@ -156,7 +157,7 @@ export function readCheckLog(
  * preview's head plus the log's tail. The tail usually holds the failure summary that a truncated preview
  * cut off. Falls back to the preview when the log cannot be read.
  */
-function summaryStream(check: RepositoryCheck, stream: 'stdout' | 'stderr'): string {
+function summaryStream(check: CheckSummary, stream: 'stdout' | 'stderr'): string {
   const preview = check.result?.[stream] ?? '';
   if (!check.result?.outputTruncated || !check.receipt) return preview;
   let fd: number | undefined;
@@ -252,7 +253,7 @@ export function timeoutSummary(check: RepositoryCheck, position = ''): string {
  * non-empty lines, else the result reason and exit code. A heuristic for display only; it never decides
  * a check's outcome.
  */
-export function checkIssue(check: RepositoryCheck): string {
+export function checkIssue(check: CheckSummary): string {
   const lines = plainOutput(
     `${check.error ?? ''}\n${summaryStream(check, 'stdout')}\n${summaryStream(check, 'stderr')}`,
   ).split('\n');

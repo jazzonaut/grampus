@@ -11,6 +11,7 @@ import { BoundaryError, parseBoundary, parseJson, validateInPlace } from '../pro
 import { repositorySnapshotSchema, type RepositorySnapshot } from '../repository/snapshot-schema.js';
 import { RecordNotFoundError } from './errors.js';
 import {
+  checkSummarySchema,
   deliverySchema,
   executionLeaseSchema,
   executionSchema,
@@ -20,6 +21,7 @@ import {
   taskSchema,
   workspaceSchema,
   type Delivery,
+  type CheckSummary,
   type Execution,
   type ExecutionLease,
   type ImplementationRun,
@@ -609,6 +611,20 @@ export class Store {
       .prepare('SELECT state FROM checks WHERE execution_id = ? ORDER BY rowid')
       .all(executionId)
       .map(row => record(repositoryCheckSchema, 'checks', row));
+  }
+
+  /**
+   * Display-only check history in creation order. SQLite removes snapshots before crossing into
+   * JavaScript, so dashboard caches never materialise a repository copy for every historical check.
+   * Evidence and recovery callers must use `check` or `checks` for the complete validated records.
+   */
+  checkSummaries(executionId: string): CheckSummary[] {
+    return this.db
+      .prepare(
+        "SELECT json_remove(state, '$.before', '$.after') AS state FROM checks WHERE execution_id = ? ORDER BY rowid",
+      )
+      .all(executionId)
+      .map(row => record(checkSummarySchema, 'checks', row));
   }
 
   /**

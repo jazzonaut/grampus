@@ -225,6 +225,11 @@ export const repositoryCheckSchema = z.object({
 /** One supervised check: request, snapshots, process identities and result. */
 export type RepositoryCheck = z.infer<typeof repositoryCheckSchema>;
 
+/** Display-only check metadata. Omitted snapshots cannot be used to establish artifact evidence. */
+export const checkSummarySchema = repositoryCheckSchema.omit({ before: true, after: true });
+/** A check's request, outcome and output preview, without repository contents. */
+export type CheckSummary = z.infer<typeof checkSummarySchema>;
+
 export const implementationRunSchema = z.object({
   id: z.string(),
   executionId: z.string(),

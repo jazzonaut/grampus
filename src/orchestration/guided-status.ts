@@ -139,7 +139,7 @@ function verdictOnDisplay(store: Store, state: GuidedState, review: Execution | 
   return { verdict: current ?? carried, carried: !!carried };
 }
 
-/** The leaf records of the current implementation execution, oldest first. */
+/** The full leaf records for explicit CLI inspection, never for a cached dashboard read. */
 function executionRecords(store: Store, execution: Execution | null) {
   return {
     checks: execution ? store.checks(execution.id) : [],
@@ -153,7 +153,7 @@ function executionRecords(store: Store, execution: Execution | null) {
  * consistent with each other. `next` is the single next action; `rerun` is offered only for a settled
  * infrastructure stop on the unchanged artifact. Throws when the task has no guided plan.
  */
-export function guidedTaskView(store: Store, id: string) {
+function taskView<T>(store: Store, id: string, records: (store: Store, execution: Execution | null) => T) {
   return store.transaction(() => {
     const task = new Workflow(store).get(id),
       state = new GuidedTasks(store).get(id);
@@ -192,9 +192,24 @@ export function guidedTaskView(store: Store, id: string) {
       lenses: verdict?.lenses ?? [],
       /** Recorded quality lens evidence for the current attempt, latest last, without pending markers. */
       qualityEvidence: task.evidence.filter(item => item.kind === 'quality' && !item.id.endsWith(':requested')),
-      ...executionRecords(store, execution),
+      ...records(store, execution),
     };
   });
+}
+
+/** The complete task view for explicit CLI inspection, including retained leaf evidence. */
+export function guidedTaskView(store: Store, id: string) {
+  return taskView(store, id, executionRecords);
+}
+
+/**
+ * Display-only task facts for dashboard caches. Snapshot-bearing leaf records stay in SQLite;
+ * artifact checks and recovery still read the full records through their owning controllers.
+ */
+export function guidedTaskSummary(store: Store, id: string) {
+  return taskView(store, id, (store, execution) => ({
+    checks: execution ? store.checkSummaries(execution.id) : [],
+  }));
 }
 
 type GuidedTaskView = ReturnType<typeof guidedTaskView>;

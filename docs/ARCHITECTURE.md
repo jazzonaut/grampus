@@ -688,7 +688,13 @@ pool read once per request; `ViewContext`) to those DTOs; nothing there writes.
   command names replaced (`task-retry` becomes "a repair attempt", `task-authorize` "the file authorization
   button" and so on).
 - **Bounded and cached.** Journal facts are cached by journal revision (`viewModelLimits.cachedViews`);
-  DTOs are rebuilt per request because workers and stalls change without a journal write. Responses never
+  DTOs are rebuilt per request because workers and stalls change without a journal write. Cached task
+  facts use `guidedTaskSummary` and `Store.checkSummaries`: SQLite removes each historical check's
+  before/after snapshots before returning JSON to JavaScript. Snapshot-bearing implementation and
+  delivery records are excluded from this display-only view. Otherwise the overview and task caches
+  retain duplicate repository contents for every check and can exhaust the dashboard heap as a task
+  runs. The projection validates the remaining check metadata; full snapshot validation stays with
+  controller evidence reads and explicit CLI inspection (`guidedTaskView`). Responses never
   carry file inventories, snapshots or raw check output: check output stays on the paged
   `/api/tasks/:id/check-output` route and file contents on `/changes`.
 

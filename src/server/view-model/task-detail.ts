@@ -5,12 +5,12 @@ import { z } from 'zod';
 import { serverLimits } from '../../config/limits.js';
 import type { Evidence } from '../../domain/workflow.js';
 import { selectedLenses } from '../../domain/quality-passes.js';
-import { guidedTaskView } from '../../orchestration/guided-status.js';
+import { guidedTaskSummary } from '../../orchestration/guided-status.js';
 import { guidedDecisionKey } from '../../orchestration/guided/keys.js';
 import { rerunChecksIneligibility } from '../../orchestration/guided/rerun.js';
 import { guidedSnapshot } from '../../orchestration/guided/snapshots.js';
 import type { JournalEvent, Store } from '../../persistence/store.js';
-import type { RepositoryCheck } from '../../persistence/records.js';
+import type { CheckSummary } from '../../persistence/records.js';
 import { checkIssue, outputExcerpt } from '../../verification/check-output.js';
 import type {
   ActivityV1,
@@ -46,8 +46,8 @@ import { spendingView } from './spending.js';
 import { usageView } from './usage.js';
 import { evidenceSource, workflowStages } from './workflow.js';
 
-/** The controller's task view (`guidedTaskView`). */
-export type GuidedTaskView = ReturnType<typeof guidedTaskView>;
+/** The controller's display-only task view (`guidedTaskSummary`). */
+export type GuidedTaskView = ReturnType<typeof guidedTaskSummary>;
 
 /** Everything the view model reads about one task from the journal. */
 export interface TaskFacts {
@@ -57,7 +57,7 @@ export interface TaskFacts {
   comparisonRetry: TaskActionFacts['comparisonRetry'];
   events: JournalEvent[];
   /** Checks of the current version and slice, across attempts, oldest first. */
-  checks: RepositoryCheck[];
+  checks: CheckSummary[];
   /** Implementation attempts after the first in this slice. */
   repairs: number;
   /** Why the stopped check cannot be rerun, or null when it can. */
@@ -76,7 +76,7 @@ const failureEvent = z.object({ action: z.string(), note: z.string() });
 
 /** Reads the task's facts from the journal; cached by journal revision by the caller. */
 export function taskFacts(store: Store, id: string): TaskFacts {
-  const view = guidedTaskView(store, id);
+  const view = guidedTaskSummary(store, id);
   const { state } = view;
   const snapshot = guidedSnapshot(store, state);
   const executions = store
@@ -100,7 +100,7 @@ export function taskFacts(store: Store, id: string): TaskFacts {
           }
         : null,
     events,
-    checks: executions.flatMap(execution => store.checks(execution.id)),
+    checks: executions.flatMap(execution => store.checkSummaries(execution.id)),
     repairs: executions.filter(execution => execution.stage === 'repair').length,
     rerunProblem: view.stale ? 'The plan is stale' : rerunChecksIneligibility(store, view.task),
     scope: pendingScopeFiles(state, view.workspace?.path ?? null, snapshot),
@@ -202,7 +202,7 @@ function actionError(facts: TaskFacts, context: ViewContext): TaskDetailV1['head
   return data ? { action: data.action, message: humanNote(data.note), at: last.at } : null;
 }
 
-function actorOf(facts: TaskFacts, check: RepositoryCheck | undefined): ActivityV1['actor'] {
+function actorOf(facts: TaskFacts, check: CheckSummary | undefined): ActivityV1['actor'] {
   const { state } = facts.view;
   if (check) return 'check';
   if (state.stage === 'review') return state.reviewCycle.arbitrating ? 'arbitrator' : 'reviewer';
@@ -284,7 +284,7 @@ function nextStep(facts: TaskActionFacts, presentation: TaskPresentation, title:
   return { kind: 'human', label, actionIds: resolvingActionIds(facts) };
 }
 
-function checkView(taskId: string, check: RepositoryCheck): CheckView {
+function checkView(taskId: string, check: CheckSummary): CheckView {
   const state: StageState =
     check.phase === 'passed'
       ? 'passed'
@@ -293,14 +293,14 @@ function checkView(taskId: string, check: RepositoryCheck): CheckView {
         : check.phase === 'running'
           ? 'active'
           : 'unknown';
-  const stateLabels: Record<RepositoryCheck['phase'], string> = {
+  const stateLabels: Record<CheckSummary['phase'], string> = {
     running: 'Running',
     passed: 'Passed',
     failed: 'Failed',
     interrupted: 'Interrupted',
     recovery_required: 'Needs recovery',
   };
-  const purposeLabels: Record<RepositoryCheck['purpose'], string> = {
+  const purposeLabels: Record<CheckSummary['purpose'], string> = {
     readiness: 'Readiness',
     preparation: 'Preparation',
     validation: 'Validation',

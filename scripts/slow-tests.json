@@ -12,6 +12,7 @@
   "comparison-retry-order",
   "comparison-retry-queue",
   "comparisons",
+  "dashboard-retention",
   "deliveries-commit",
   "deliveries-no-change",
   "deliveries-no-change-recovery",
