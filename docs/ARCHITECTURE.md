@@ -1023,7 +1023,8 @@ session's latest turn, coalescing each item, and the latest confirmed, settled m
 attributed agent update; a later completed candidate or question clears it. Grampus' own repository
 tools are labelled by their `repository.tool_*` events instead. The feed reads only turn and activity
 events, and only when a task detail is drawn, never for the overview. It never exposes partial
-structured replies or tool payloads. Silent work
+structured replies or tool payloads; the one argument kept is a redacted command preview
+(`commandPreview` in `providers/activity.ts`). Silent work
 has a prominent warning and an unknown-current-operation explanation; neither a quiet feed nor a
 provider tool completion establishes controller verification.
 

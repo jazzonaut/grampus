@@ -120,12 +120,14 @@ shown.
   words and who established it: *verified by Grampus* (checks, acceptance, the commit), *agent
   reported* (implementation, edit passes, the review and its lens verdicts) or *your
   assessment*. A stage that stopped before a result is Unknown, never passed.
-- **Current activity:** a specific observed activity such as **Running a command**, with elapsed
+- **Current activity:** a specific observed activity such as **Running pnpm test:e2e --shard=3/8**, with elapsed
   and last-activity times, **Stop now** and **Pause after this step**. The workflow stage remains
   secondary. Concurrent native tools are tracked individually; output does not hide a running
   tool. A latest confirmed message reply appears as an attributed agent update until a later turn
   completes with a candidate or question. Partial structured
-  output and raw tool payloads are not displayed, and exact commands may be unavailable.
+  output and raw tool payloads are not displayed. Commands show a shortened preview with the
+  provider's shell wrapper removed and emails, tokens and secrets redacted; a command the provider
+  does not describe is shown as **Running a command**.
 - **Recent activity:** up to six native tool observations from the displayed execution's latest
   turn, with each tool coalesced to its latest observation and a link to full activity history.
   Requests describe intent, while starts and completions describe provider observations. They

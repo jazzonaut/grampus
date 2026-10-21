@@ -17,6 +17,8 @@ const fieldsSchema = z.object({
   phase: z.string().optional(),
   providerTurnId: z.string().nullish(),
   text: z.string().optional(),
+  /** A redacted, shortened command preview recorded by the provider adapter. */
+  detail: z.string().optional(),
   note: z.string().optional(),
   reason: z.string().optional(),
   checkId: z.string().optional(),
@@ -94,7 +96,7 @@ export function baseActivity(taskId: string | null, row: ActivityRecord): Activi
     label: row.type.replaceAll('_', ' '),
     status: 'observed',
     provenance: 'observed',
-    preview: activityPreview(data.text ?? data.reason ?? outer.note ?? outer.reason),
+    preview: activityPreview(data.text ?? data.detail ?? data.reason ?? outer.note ?? outer.reason),
     durationMs: data.durationMs ?? null,
     correlation: {
       taskId,

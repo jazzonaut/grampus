@@ -8,6 +8,7 @@ import { Store } from '../src/persistence/store.js';
 import { Sessions } from '../src/execution/sessions.js';
 import { agentProgress } from '../src/orchestration/planner-progress.js';
 import { taskWorkView } from '../src/server/view-model/task-work.js';
+import { codexActivity, commandPreview } from '../src/providers/activity.js';
 
 test('native tool activity survives output deltas and unrelated tool completions', t => {
   const directory = mkdtempSync(join(tmpdir(), 'grampus-activity-'));
@@ -141,4 +142,43 @@ test('a later completed candidate supersedes the latest agent update', t => {
   assert.equal(taskWorkView(store, sessions.get(session.id)).update?.text, 'Halfway through the renderer.');
   settle('candidate', 'Renderer finished.');
   assert.equal(taskWorkView(store, sessions.get(session.id)).update, null);
+});
+
+test('live activity names the running command from a redacted, unwrapped preview', t => {
+  const emitted: { type: string; data: unknown }[] = [];
+  codexActivity(
+    'item/started',
+    {
+      turnId: 'turn',
+      item: {
+        id: 'shard',
+        type: 'commandExecution',
+        status: 'inProgress',
+        command: '"C:/Program Files/PowerShell/7/pwsh.exe" -Command "pnpm test:e2e --shard=3/8"',
+      },
+    },
+    event => emitted.push(event),
+  );
+  const detail = (emitted[0]?.data as { detail?: string }).detail;
+  assert.equal(detail, 'pnpm test:e2e --shard=3/8');
+  const redacted = commandPreview(`bash -lc 'curl -H "Authorization: Bearer abc123" https://x'`) ?? '';
+  assert.match(redacted, /^curl -H "Authorization: Bearer <redacted>/);
+  assert.doesNotMatch(redacted, /abc123/);
+  assert.equal(commandPreview('   '), null);
+
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  const sessions = new Sessions(store);
+  const session = sessions.create('codex', process.cwd());
+  const claim = sessions.claim(session.id, 'Implement');
+  const emit = (type: string, data: unknown) => sessions.event(session.id, claim.runId, { type, data });
+  emit('activity.started', { id: 'shard', kind: 'tool', name: 'commandExecution', detail });
+  const progress = () => agentProgress(store.sessionEvents(session.id), sessions.get(session.id), 'implementation')!;
+  assert.equal(progress().activity, 'Running pnpm test:e2e --shard=3/8');
+  // The completion repeats only the id; the preview is remembered.
+  emit('activity.completed', { id: 'shard', kind: 'tool', name: 'commandExecution', status: 'failed' });
+  assert.deepEqual(
+    taskWorkView(store, sessions.get(session.id)).recent.map(item => item.label),
+    ['Command failed: pnpm test:e2e --shard=3/8'],
+  );
 });

@@ -524,5 +524,7 @@ export const observabilityLimits = {
   maxPageEvents: 1000,
   previewCharacters: 600,
   activityNameCharacters: 120,
+  /** Characters of a redacted command preview shown in live activity. */
+  commandPreviewCharacters: 160,
   cursorCharacters: 512,
 } as const;

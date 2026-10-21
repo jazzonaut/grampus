@@ -24,7 +24,7 @@ defineProps<{ id: string; work: TaskWorkV1 }>();
     <p v-else class="mt-3 text-sm text-muted">No native tool activity recorded for the latest agent turn.</p>
     <p class="mt-2 text-xs text-muted">
       Provider observations from the latest turn. Tool completion does not establish that controller checks passed.
-      Exact commands and file details may be unavailable.
+      Commands are shortened and redacted; file details are not shown.
     </p>
   </section>
 </template>

@@ -19,8 +19,10 @@ The task page keeps this network above its working view. The activity card and r
 also read native tool observations, with separate verification context beside them. The compact feed
 shows the latest turn of the displayed execution, coalesces each tool item to its latest observation
 and retains at most six items. A confirmed, settled message reply can appear as the latest attributed
-agent update; partial structured output is not shown. Exact command arguments and file payloads are
-not captured by this feed, so a command may be described simply as **Running a command**. A stale
+agent update; partial structured output is not shown. A command is named by a redacted preview of at
+most 160 characters (Codex `commandExecution` items and Claude `Bash` requests), for example
+**Running pnpm test:e2e --shard=3/8**; output, file payloads and other tool arguments are never
+captured, and an undescribed command is **Running a command**. A stale
 activity warning reports silence without claiming that a process is stopped or making progress.
 
 Participants and connections come from recorded activity, not the approved workflow's stage

@@ -1,7 +1,22 @@
 // Owns metadata-only provider activity extraction. Observational parsing never broadens tool permissions.
+// The one argument kept is a redacted, shortened command preview, so live progress can say which
+// command is running; tool output, file contents and other arguments are never captured.
 import { z } from 'zod';
 import { observabilityLimits } from '../config/limits.js';
+import { sanitiseDetail } from '../health/health.js';
 import type { AgentEvent } from './types.js';
+
+/**
+ * A command as a person would type it: a provider's shell wrapper (`pwsh -Command "..."`, `bash -lc
+ * '...'`) is unwrapped, secrets are redacted and the text is shortened. Display only.
+ */
+export function commandPreview(command: unknown): string | null {
+  if (typeof command !== 'string' || !command.trim()) return null;
+  const wrapped = /(?:^|\s)-(?:Command|c|lc)\s+(["']?)([\s\S]*?)\1\s*$/i.exec(command.trim());
+  const text = sanitiseDetail(wrapped?.[2] ?? command);
+  const limit = observabilityLimits.commandPreviewCharacters;
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text || null;
+}
 
 const name = z.string().min(1).max(observabilityLimits.activityNameCharacters);
 const codexItem = z.object({
@@ -13,6 +28,7 @@ const codexItem = z.object({
     server: name.optional(),
     status: name.optional(),
     durationMs: z.number().nonnegative().nullish(),
+    command: z.string().optional(),
   }),
 });
 const toolKinds = new Set([
@@ -38,6 +54,9 @@ export function codexActivity(method: string, params: unknown, emit: (event: Age
       kind: toolKinds.has(item.type) ? 'tool' : 'model',
       name: item.tool ?? item.type,
       server: item.server ?? null,
+      ...(item.type === 'commandExecution' && commandPreview(item.command)
+        ? { detail: commandPreview(item.command) }
+        : {}),
       status: item.status ?? (method === 'item/completed' ? 'completed' : 'inProgress'),
       durationMs: item.durationMs ?? null,
     },
@@ -50,6 +69,7 @@ const blockSchema = z.object({
   name: name.optional(),
   tool_use_id: z.string().optional(),
   is_error: z.boolean().optional(),
+  input: z.object({ command: z.unknown().optional() }).loose().optional(),
 });
 const assistant = z.object({
   message: z.object({ id: z.string(), content: z.array(z.unknown()) }),
@@ -134,6 +154,9 @@ export class ClaudeActivity {
           id: block.id,
           kind: 'tool',
           name: block.name,
+          ...(block.name === 'Bash' && commandPreview(block.input?.command)
+            ? { detail: commandPreview(block.input?.command) }
+            : {}),
           messageId: data.message.id,
           requestId: data.request_id ?? null,
           parentItemId: data.parent_tool_use_id ?? null,

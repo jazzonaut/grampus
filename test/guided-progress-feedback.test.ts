@@ -81,3 +81,11 @@ test('native prompts leave broad and sharded verification to the controller', ()
   assert.match(workspaceInstructions, /Never run broad, whole-suite or sharded test runs yourself/);
   assert.doesNotMatch(workspaceInstructions, /meaningful checks/);
 });
+
+test('a repository rule to run the full suite is met by controller verification', () => {
+  assert.match(workspaceInstructions, /repository instructions require a full or broad suite/);
+  assert.match(
+    implementationPrompt({ slicePreparation: undefined, feedback: '' }),
+    /even where repository instructions ask for a full suite/,
+  );
+});

@@ -10,7 +10,14 @@ import { repositoryToolDefinitions } from '../repository/repository-tools.js';
 const grampusTools = new Set(
   repositoryToolDefinitions.flatMap(tool => [tool.name, `mcp__grampus_repository__${tool.name}`]),
 );
-const tools: Readonly<Record<string, { active: string; subject: string }>> = {
+/** How a tool is described while it runs and after; `detail` is a redacted command preview. */
+interface ToolDescription {
+  active: string;
+  subject: string;
+  detail?: string;
+}
+
+const tools: Readonly<Record<string, ToolDescription>> = {
   commandExecution: { active: 'Running a command', subject: 'Command' },
   Bash: { active: 'Running a command', subject: 'Command' },
   fileChange: { active: 'Changing files', subject: 'File change' },
@@ -23,10 +30,15 @@ const tools: Readonly<Record<string, { active: string; subject: string }>> = {
   imageView: { active: 'Inspecting an image', subject: 'Image inspection' },
 };
 
+/** A settled tool's outcome word; anything but a confirmed status is unknown, never success. */
+function outcome(status: unknown): string {
+  return status === 'completed' || status === 'failed' || status === 'interrupted' ? status : 'result unknown';
+}
+
 /** Folds provider item observations without treating authorisation or request generation as execution. */
 export class NativeProgress {
   private readonly active = new Map<string, string>();
-  private readonly descriptions = new Map<string, { active: string; subject: string }>();
+  private readonly descriptions = new Map<string, ToolDescription>();
   private readonly skipped = new Set<string>();
 
   /** The latest unfinished tool, or null when no tool execution is observed. */
@@ -47,24 +59,35 @@ export class NativeProgress {
     // Claude results carry only the tool id, so a skipped request is remembered by id.
     if (typeof data['name'] === 'string' && grampusTools.has(data['name'])) this.skipped.add(id);
     if (this.skipped.has(id)) return undefined;
+    const description = this.describe(id, data);
+    const suffix = description.detail ? `: ${description.detail}` : '';
+    if (type === 'activity.requested') return `${description.subject} requested${suffix}`;
+    if (type === 'activity.completed') {
+      this.active.delete(id);
+      return `${description.subject} ${outcome(data['status'])}${suffix}`;
+    }
+    const active = description.detail ? `Running ${description.detail}` : description.active;
+    this.active.delete(id);
+    this.active.set(id, active);
+    return type === 'activity.progress' ? active : `${description.subject} started${suffix}`;
+  }
+
+  /**
+   * The tool's description, fixed by its first observation. The redacted command preview arrives with
+   * the start or request only; later observations repeat just the id, so it is remembered here.
+   */
+  private describe(id: string, data: Record<string, unknown>): ToolDescription {
+    const known = this.descriptions.get(id);
+    const detail = typeof data['detail'] === 'string' && data['detail'] ? data['detail'] : undefined;
+    if (known && (known.detail || !detail)) return known;
     const name =
       typeof data['name'] === 'string'
         ? sanitiseDetail(data['name']).slice(0, serverLimits.progressTextCharacters)
         : 'tool';
-    const description = this.descriptions.get(id) ??
+    const base = known ??
       (Object.hasOwn(tools, name) ? tools[name] : undefined) ?? { active: `Using ${name}`, subject: name };
+    const description = detail ? { ...base, detail } : base;
     this.descriptions.set(id, description);
-    const { active, subject } = description;
-    if (type === 'activity.requested') return `${subject} requested`;
-    if (type === 'activity.completed') {
-      this.active.delete(id);
-      const status = data['status'];
-      if (status === 'completed') return `${subject} completed`;
-      if (status === 'failed' || status === 'interrupted') return `${subject} ${status}`;
-      return `${subject} result unknown`;
-    }
-    this.active.delete(id);
-    this.active.set(id, active);
-    return type === 'activity.progress' ? active : `${subject} started`;
+    return description;
   }
 }
