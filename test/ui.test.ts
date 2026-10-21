@@ -872,11 +872,10 @@ test('kickoff clarifies consequential ambiguity, validates generated commands an
   assert.deepEqual(answered.candidate!.implementation, { provider: 'claude', model: null });
   assert.throws(() => kickoffs.prepare(id, 'outdated-proposal'), /changed/);
   assert.match(seen, /User answers/);
-  const invalid = await kickoffs.send(id, 'Revise the checks');
-  assert.ok(invalid.error);
-  assert.equal(invalid.candidate, null);
-  assert.throws(() => kickoffs.prepare(id), /errors/);
-  await kickoffs.send(id, 'Return the complete corrected plan');
+  const corrected = await kickoffs.send(id, 'Revise the checks');
+  assert.equal(corrected.error, null);
+  assert.ok(corrected.candidate);
+  assert.match(seen, /Controller validation rejected/);
   const taskId = kickoffs.prepare(id),
     task = store.get(taskId);
   assert.equal(task.guided!.status, 'draft');
@@ -942,13 +941,10 @@ test('kickoff plans the full ticket across ordered slices on initial and resumed
   const question = await kickoffs.send(id);
   assert.equal(question.session.phase, 'awaiting_answer');
   assert.doesNotMatch(prompts[0]!, /Use one slice\./);
-  const incompleteView = await kickoffs.send(id, undefined, { output: 'yes' });
-  assert.match(incompleteView.error!, /Slices must cover every task criterion/);
-  assert.equal(incompleteView.candidate, null);
-  assert.throws(() => kickoffs.prepare(id), /errors/);
-  const proposed = await kickoffs.send(id, 'Cover every requirement in the complete plan');
+  const proposed = await kickoffs.send(id, undefined, { output: 'yes' });
   assert.equal(proposed.error, null);
   assert.equal(prompts.length, 3);
+  assert.match(prompts[2]!, /Slices must cover every task criterion/);
   for (const prompt of prompts) {
     assert.match(prompt, /1–64 ordered slices/);
     assert.match(prompt, /brief\.slices/);
@@ -1046,7 +1042,7 @@ test('a planned acceptance check without observations is refused naming its slic
   assert.match(view.error!, /^Slice 1 acceptance: Acceptance requires expectedStdout or expectations/);
   assert.equal(view.candidate, null);
   // Exit status alone never accepts, so the planner is told both ways to state what acceptance observes.
-  assert.match(prompt, /Every acceptance command must state what it observes/);
+  assert.match(prompt, /Every acceptance command states its observable result with expectedStdout or expectations/);
   assert.match(prompt, /expectations: \{stderr, stdoutJson, files/);
 });
 

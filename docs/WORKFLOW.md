@@ -6,6 +6,16 @@ not permissions, and planning does not have to predict helper filenames, setup c
 steps. A material change to the agreed outcome, exclusions or acceptance requirements still needs a
 decision and a revised approval.
 
+One coherent deliverable needs no `brief.slices`; its single execution entry uses every task
+criterion. Multiple deliverables reference exact task criterion strings from `brief.criteria`, with
+no duplicates within a slice, and together cover every criterion. The final slice verifies them all.
+Implementation detail belongs in the provisional approach, rather than independent slice criteria.
+
+If a completed planner reply contains an invalid plan, Grampus supplies the validation error and
+allows one fresh correction turn. The planner must preserve the requirements or ask a consequential
+question. A repeated invalid plan stops with its error visible; an explicit continuation includes
+that feedback. Interrupted, failed or uncertain provider calls are never automatically repeated.
+
 ## Candidate workflow
 
 1. Approve the brief, criteria, provisional approach, controller verification commands, model

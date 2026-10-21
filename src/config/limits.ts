@@ -29,6 +29,8 @@ export function formatBytes(bytes: number): string {
 
 /** Bounds on an approved guided plan. All are checked when the plan is normalised, before approval. */
 export const planLimits = {
+  /** Fresh correction turns for a completed invalid proposal per explicit planning request. */
+  plannerCorrections: 1,
   /** Recent command timing examples supplied to a planner, without unbounded historical output. */
   timingExamples: 16,
   /** Encoded size of a whole guided plan proposal; stops oversized planner output before parsing. */

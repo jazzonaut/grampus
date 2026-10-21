@@ -196,6 +196,10 @@ timeouts. They are not configurable because changing one would change what an ap
 piece of evidence means. Repository read budgets are described in
 [REPOSITORY-CONTEXT.md](REPOSITORY-CONTEXT.md).
 
+`planLimits.plannerCorrections` allows one fresh correction turn per explicit planning request
+after a completed proposal fails controller validation. It never repeats a failed, interrupted or
+uncertain provider dispatch. This bound is fixed rather than a configurable repair allowance.
+
 The dashboard's own polling interval (1.5 seconds) is set in the browser client and is not
 configurable. The dashboard server looks for stalls every 15 seconds and bounds health checks
 (`stallLimits` and `healthLimits` in `src/config/limits.ts`).

@@ -400,40 +400,68 @@ export class Kickoffs {
   }
 
   /**
-   * Sends one planning turn: the first request, a revision message or answers to the pending
-   * questions. A turn is never replayed; a reply is adopted as the candidate plan only if no newer
+   * Sends a planning request, allowing a bounded fresh correction of a completed invalid proposal.
+   * A turn is never replayed; a reply is adopted as the candidate plan only if no newer
    * request or context arrived while the planner was working. A request refused before the turn
    * (stale `expected`, an active planner, missing answers) throws and sends nothing; failures of the
    * turn or its reply are journaled as the kickoff error rather than thrown, so the conversation shows them.
    */
   async send(id: string, message?: string, answers?: Record<string, string>, signal?: AbortSignal, expected?: string) {
-    const { config, needsContext, request, boundary } = this.prepareTurn(id, message, answers, expected);
-    const prompt = plannerPrompt({
-      config,
-      needsContext,
-      request,
-      timings: this.store.checkTimings(config.repo, config.base),
-    });
-    const planning = runSession(
-      this.store,
-      id,
-      prompt,
-      {
-        repository: { repo: config.repo, base: config.base, references: config.references },
-        ...(answers ? { answers } : {}),
-        ...(signal ? { signal } : {}),
-      },
-      this.connector,
-    );
+    const prepared = this.prepareTurn(id, message, answers, expected);
+    const { config, request, boundary } = prepared;
+    let rejection = prepared.rejection;
     try {
-      const result = await planning;
-      if (result.reply) this.store.appendSession(id, 'kickoff.message', { role: 'assistant', text: result.reply.text });
-      if (result.status !== 'completed') throw new Error(result.error ?? `Planning ${result.status}`);
-      if (this.view(id).session.phase === 'recovery_required')
-        throw new Error('Planner shutdown is unconfirmed; recover before continuing');
-      if (result.reply?.kind !== 'question') {
+      for (let correction = 0; ; correction++) {
+        if (signal?.aborted) throw new Error('Planning interrupted');
+        const prompt = plannerPrompt({
+          config,
+          needsContext: correction === 0 ? prepared.needsContext : !this.view(id).session.providerSessionId,
+          request,
+          rejection,
+          timings: this.store.checkTimings(config.repo, config.base),
+        });
+        // runSession claims synchronously before its first await. Fence and journal a correction
+        // with that claim; provider work starts only after this synchronous transaction commits.
+        const { planning } = this.store.transaction(() => {
+          if (correction > 0) {
+            this.requireCurrentProposal(id, boundary);
+            this.store.appendSession(id, 'kickoff.error', { error: rejection });
+            this.store.appendSession(id, 'kickoff.plan_correction_requested', { correction, error: rejection });
+            this.store.appendSession(id, 'kickoff.error', { error: null });
+          }
+          return {
+            planning: runSession(
+              this.store,
+              id,
+              prompt,
+              {
+                repository: { repo: config.repo, base: config.base, references: config.references },
+                ...(answers && correction === 0 ? { answers } : {}),
+                ...(signal ? { signal } : {}),
+              },
+              this.connector,
+            ),
+          };
+        });
+        const result = await planning;
+        if (result.reply)
+          this.store.appendSession(id, 'kickoff.message', { role: 'assistant', text: result.reply.text });
+        if (result.status !== 'completed') throw new Error(result.error ?? `Planning ${result.status}`);
+        if (this.view(id).session.phase === 'recovery_required')
+          throw new Error('Planner shutdown is unconfirmed; recover before continuing');
+        if (result.reply?.kind === 'question') break;
         if (result.reply?.kind !== 'message') throw new Error('Planner must ask questions or supply a plan');
-        this.recordCandidate(id, boundary, planFromReply(result.reply.text, config));
+        this.requireCurrentProposal(id, boundary);
+        let plan: GuidedPlan;
+        try {
+          plan = planFromReply(result.reply.text, config);
+        } catch (error) {
+          rejection = error instanceof Error ? error.message : String(error);
+          if (correction >= planLimits.plannerCorrections) throw error;
+          continue;
+        }
+        this.recordCandidate(id, boundary, plan);
+        break;
       }
     } catch (error) {
       this.store.appendSession(id, 'kickoff.error', { error: error instanceof Error ? error.message : String(error) });
@@ -470,22 +498,27 @@ export class Kickoffs {
       const boundary = this.store.sessionEvents(id).at(-1)?.sequence;
       if (boundary === undefined) throw new Error('The planning message was not journaled');
       this.store.appendSession(id, 'kickoff.error', { error: null });
-      return { config, needsContext: context, request, boundary };
+      return { config, needsContext: context, request, boundary, rejection: view.error };
     });
+  }
+
+  /** Fences adoption and correction alike on the original request and confirmed idle settlement. */
+  private requireCurrentProposal(id: string, boundary: number): void {
+    const events = this.store.sessionEvents(id);
+    const latestRequest = events.findLast(userMessage);
+    const latestContext = events.findLast(event => event.type === 'kickoff.context_changed');
+    if (
+      latestRequest?.sequence !== boundary ||
+      (latestContext && latestContext.sequence > boundary) ||
+      new Sessions(this.store).get(id).phase !== 'idle'
+    )
+      throw new Error('A newer planning request or context arrived; inspect the current discussion');
   }
 
   /** Journals the candidate plan unless a newer request or context arrived during the turn. */
   private recordCandidate(id: string, boundary: number, plan: GuidedPlan): void {
     this.store.transaction(() => {
-      const events = this.store.sessionEvents(id);
-      const latestRequest = events.findLast(userMessage);
-      const latestContext = events.findLast(event => event.type === 'kickoff.context_changed');
-      if (
-        latestRequest?.sequence !== boundary ||
-        (latestContext && latestContext.sequence > boundary) ||
-        new Sessions(this.store).get(id).phase !== 'idle'
-      )
-        throw new Error('A newer planning request or context arrived; inspect the current discussion');
+      this.requireCurrentProposal(id, boundary);
       this.store.appendSession(id, 'kickoff.candidate', { plan });
     });
   }

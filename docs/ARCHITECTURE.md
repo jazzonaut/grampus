@@ -53,6 +53,13 @@ naming: until a plan exists the sidebar shows a short title derived from the req
 sentence or line, without control characters or markup delimiters, at most 60 characters at a word
 boundary; `orchestration/task-title.ts`), and then the latest proposed plan's `brief.title`.
 
+A completed but invalid plan is sent back to the planner with the controller's validation error,
+allowing one fresh correction turn per explicit request (`planLimits.plannerCorrections`). The
+rejection and correction request are journaled; correction does not approve a plan or create a
+workspace. Consequential questions wait for answers. Failures, interruptions, uncertain shutdowns
+and superseded requests or context never trigger automatic correction. If correction also fails,
+the error remains visible and an explicit continuation includes it as controller feedback.
+
 The planning contract requires acceptance based on observable behaviour, rather than source-text
 searches or exact test names. Consequential dependency uncertainties must be resolved with available
 read tools or raised as questions before a final proposal. Claims about standards conformance and
@@ -77,6 +84,9 @@ other provider from implementation.
 `domain/workflow.ts` holds the task record. A **brief** has a title, outcome, distinct criteria, plan and
 optional 1 to 64 ordered **slices**, each naming the exact task criteria it delivers. Slices must
 cover every criterion; the final slice is verified against all of them.
+For one coherent deliverable the planner omits `brief.slices`, avoiding duplicate criterion lists.
+When slices are present their criteria reference exact strings from `brief.criteria`, rather than
+paraphrases or independent requirements. The planner receives this rule on every turn.
 
 | Concept | Meaning |
 | --- | --- |
