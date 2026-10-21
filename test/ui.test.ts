@@ -1011,6 +1011,51 @@ test('generated inline checks with broken newline escaping are rejected before a
   assert.equal(store.workspaces().length, 0);
 });
 
+// Regression: a valid `import` check was refused as "Cannot use import statement outside a module",
+// although Node runs ES module syntax in `-e`, by detection or with --input-type=module.
+test('generated inline checks are compiled the way Node runs them, including ES modules', async t => {
+  const f = fixture(t),
+    store = new Store(join(f.root, 'grampus.sqlite'));
+  t.after(() => {
+    store.close();
+    f.cleanup();
+  });
+  const plan = (args: string[]) => {
+    const candidate = structuredClone(f.plan);
+    candidate.slices[0]!.validation.args = args;
+    return candidate;
+  };
+  const propose = async (args: string[]) => {
+    const connector: Connector = async () => ({
+      turn: async () => ({
+        status: 'completed',
+        reply: { kind: 'message', text: JSON.stringify(plan(args)), questions: [], findings: [] },
+        usage: null,
+        error: null,
+      }),
+      close: async () => {},
+      interrupt: async () => {},
+    });
+    const kickoffs = new Kickoffs(store, connector);
+    return kickoffs.send(kickoffs.create({ repo: f.repo, request: 'Verify the greeting' }));
+  };
+  const esm = "import assert from 'node:assert/strict';assert.equal(1, 1);console.log('ok');";
+  const detected = await propose(['-e', esm]);
+  assert.equal(detected.error, null, 'Node detects module syntax in -e');
+  assert.ok(detected.candidate);
+  const explicit = await propose(['--input-type=module', '-e', `${esm}await Promise.resolve();`]);
+  assert.equal(explicit.error, null, 'explicit module input, including top-level await');
+  const commonjs = await propose(['--input-type=commonjs', '-e', esm]);
+  assert.match(commonjs.error!, /invalid JavaScript/, 'explicit CommonJS input refuses import');
+  const broken = await propose([
+    '--input-type=module',
+    '-e',
+    "import assert from 'node:assert/strict';assert.equal(1,",
+  ]);
+  assert.match(broken.error!, /invalid JavaScript/);
+  assert.doesNotMatch(broken.error!, /outside a module/, 'a module syntax error is reported as such');
+});
+
 test('a planned acceptance check without observations is refused naming its slice, and the prompt requires them', async t => {
   const f = fixture(t),
     store = new Store(join(f.root, 'grampus.sqlite'));

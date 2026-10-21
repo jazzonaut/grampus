@@ -15,7 +15,7 @@ import { contextSummarySchema, pinnedContext, searchPinnedFiles } from '../repos
 import { GuidedTasks } from './guided/controller.js';
 import { normalizeGuidedPlan, guidedPlanDigest, guidedPlanSchema, type GuidedPlan } from '../domain/guided-plan.js';
 import { providerSchema, type Connector, type Provider } from '../providers/types.js';
-import { Script } from 'node:vm';
+import { inlineCheckError } from './inline-checks.js';
 import { explorationSummary } from '../repository/repository-tools.js';
 import { integrationSummary } from '../providers/integrations.js';
 import { planningUsage } from '../reporting/task-usage.js';
@@ -171,8 +171,8 @@ function planFromReply(reply: string, config: Kickoff): GuidedPlan {
 }
 
 /**
- * Inline Node checks are compiled (not run) before the plan is offered for approval, so an escaping
- * mistake in generated JavaScript goes back to the planner instead of failing after approval.
+ * Inline Node checks are compiled (not run) the way Node will run them before the plan is offered for
+ * approval, so a broken generated script goes back to the planner instead of failing after approval.
  */
 function requireValidInlineChecks(plan: GuidedPlan): void {
   const commands = [
@@ -183,16 +183,12 @@ function requireValidInlineChecks(plan: GuidedPlan): void {
     if (!command) continue;
     // Normalisation resolves `file: 'node'` to this executable, so this covers the planner's inline checks.
     if (command.file !== process.execPath) continue;
-    const evalIndex = command.args.findIndex(arg => arg === '-e' || arg === '--eval');
-    if (evalIndex < 0) continue;
-    try {
-      new Script(command.args[evalIndex + 1] ?? '');
-    } catch (error) {
+    const error = inlineCheckError(command.args);
+    if (error)
       throw new Error(
-        `Generated inline check "${command.name}" is invalid JavaScript. Ask the planner to correct string escaping and return the complete plan. ${error instanceof Error ? error.message : String(error)}`,
+        `Generated inline check "${command.name}" is invalid JavaScript. Ask the planner to correct the script (often its string escaping) and return the complete plan. ${error.message}`,
         { cause: error },
       );
-    }
   }
 }
 

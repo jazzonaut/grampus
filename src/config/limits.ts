@@ -371,6 +371,8 @@ export const processLimits = {
   baselineIssueCharacters: 2000,
   /** Attempts to remove a starting-commit export whose files a just-exited process may still hold. */
   baselineCleanupRetries: 5,
+  /** Deadline for `node --check` to parse one generated inline ES module check before approval. */
+  inlineCheckSyntaxMs: 10_000,
   /** Bounded local comparison probes retain every workspace and never repeat uncertain commands. */
   benchmarkRepetitions: 10,
   benchmarkCommands: 16,
