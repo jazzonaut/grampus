@@ -1,25 +1,42 @@
 # Grampus
 
-Grampus turns a request into an approved plan and carries out the work through
-implementation, checks, independent review and verified local Git delivery.
+Grampus runs a measured pipeline of coding agents on Orca and verifies the result itself.
 
 ## Language
 
-**Model profile**:
-A named set of provider, model and supported reasoning effort choices for the agent
-roles in a task. Each role's assignment stays fixed throughout a run; repair may have
-its own assignment.
+**Task**:
+One user request carried from spec to acceptance in its own worktree. It has one Orca Run and one
+event log.
 
-**Comparison**:
-A group of runs that carry out the same shared plan from the same starting point
-using different model profiles.
+**Recipe**:
+The stages a task runs and the agent, model and effort of each. Copied into the task when it is
+created. (Earlier versions called this a model profile.)
 
-**Run**:
-One execution of a task under a particular model profile, including its repair
-attempts and final outcome. A repair attempt is part of a run, rather than a new run.
+**Stage**:
+One kind of worker in the pipeline: spec, spec review, tests, build, review or repair. Each run of a
+stage is an Orca task with one or more dispatches.
+
+**Round**:
+One build or repair attempt, followed by verification, review and a decision. Round 0 is the build.
+
+**Driver**:
+The process that runs one task's pipeline, in the task's own Orca terminal. The only writer to the
+task's Run and event log.
+
+**Command**:
+A user decision (approve, revise, reply, continue, retry, accept, abandon) queued by the CLI, a chat
+agent or the dashboard and applied by the driver.
+
+**Guard**:
+The deterministic integrity check of a round: clean tree, new commits, no rewritten history, protected
+paths and tests intact.
+
+**Comparison** (**Planned**):
+One approved spec run under several recipes from the same base commit, scored side by side.
 
 ## Example dialogue
 
-User: Use the same plan to compare these two model profiles.
-Controller: Each run includes its own implementation, reviews, checks and repairs.
-User: Export the comparison and the full details of both runs.
+User: Start a Grampus task in VectorZero to add CSV export.
+Chat agent: Created the task. The spec writer is open as its own chat; discuss the details there.
+User: The spec looks right, approve it.
+Chat agent: Approved version 2. I will tell you when it needs you again.

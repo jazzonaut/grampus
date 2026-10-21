@@ -1,9 +1,0 @@
-{
-  "title": "Add a greeting command",
-  "outcome": "A command prints a greeting for the provided name.",
-  "criteria": [
-    "For the name Ada, output is exactly Hello, Ada! followed by one newline.",
-    "Without a name, output is exactly Hello, world! followed by one newline."
-  ],
-  "plan": "Inspect repository conventions, implement the greeting in one slice, simplify, test both examples, obtain an independent review, and verify the output before completion."
-}

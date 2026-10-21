@@ -10,8 +10,7 @@ import { join } from 'node:path';
 
 const root = join(import.meta.dirname, '..'),
   directory = join(root, 'dist', 'test');
-// Windows integration files each launch native supervisors and Git processes. CPU count alone
-// oversubscribes those shared services and makes unrelated fixture deadlines fail under load.
+// Each test file starts many Git processes; CPU count alone oversubscribes Windows under load.
 const windowsWorkerLimit = 4;
 const workers = Math.max(2, availableParallelism() - 1);
 const concurrency = process.platform === 'win32' ? Math.min(windowsWorkerLimit, workers) : workers;
@@ -33,9 +32,18 @@ const names =
           if (!area.length) throw new Error(`Unknown test file: ${name}`);
           return area;
         });
+// A driver test that never settles would otherwise hold the run open forever; force-exit ends a file
+// whose failed test left a driver loop running.
+const testTimeoutMs = 60_000;
 const result = spawnSync(
   process.execPath,
-  ['--test', `--test-concurrency=${concurrency}`, ...names.map(name => join(directory, name))],
+  [
+    '--test',
+    `--test-concurrency=${concurrency}`,
+    `--test-timeout=${testTimeoutMs}`,
+    '--test-force-exit',
+    ...names.map(name => join(directory, name)),
+  ],
   { stdio: 'inherit' },
 );
 process.exit(result.status ?? 1);

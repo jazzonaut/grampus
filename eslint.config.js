@@ -5,9 +5,7 @@ import tseslint from 'typescript-eslint';
 import globals from 'globals';
 
 export default tseslint.config(
-  // web/ is its own npm project with its own lint config (`cd web && npm run lint`); linting it from
-  // here would load web/eslint.config.js and fail whenever web/node_modules is not installed.
-  { ignores: ['dist/', 'node_modules/', 'web/', '.claude/', '.grampus/'] },
+  { ignores: ['dist/', 'node_modules/', '.claude/', '.grampus/'] },
   js.configs.recommended,
   {
     files: ['**/*.ts'],

@@ -1,866 +1,233 @@
-// Owns the command line: option parsing, dispatch to the controller and Ctrl+C handling. Option values
-// and JSON input files are validated by cli-input.ts before any command touches the journal. It decides
-// nothing itself: every state change goes through the owning controller module.
-//
-// Exit codes: 0 when the command reached its intended outcome, 130 when it was interrupted (Ctrl+C or a
-// requested stop), 1 for any other failure, block or recovery need, including an uncaught error.
-import { modelCommand } from './comparison-cli.js';
+#!/usr/bin/env node
+// The `grampus` command line. Every control action is a command queued for the task's driver, so the
+// CLI, an Orca chat agent using the Grampus skill and the dashboard all control tasks the same way.
+import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
-import { mkdtempSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
-import { Store, defaultDatabasePath } from './persistence/store.js';
-import { Workflow } from './domain/workflow.js';
-import { doctor } from './health/doctor.js';
-import { healthView, refreshHealth } from './health/health.js';
-import { runDemo } from './probes/demo.js';
-import { renderReport } from './reporting/report.js';
-import { Sessions, runSession } from './execution/sessions.js';
-import { Workspaces } from './repository/workspaces.js';
-import { OrcaCli } from './repository/orca.js';
-import { awaitDesktopPermit, ensureDesktop } from './server/desktop-launch.js';
-import { desktopProfile, desktopResponds, desktopRequest, readDesktopEndpoint } from './server/desktop-discovery.js';
-import { Executions } from './execution/executions.js';
-import { Checks } from './verification/checks.js';
-import { Deliveries } from './execution/deliveries.js';
-import { Implementations } from './execution/implementations.js';
-import { GuidedTasks } from './orchestration/guided/controller.js';
-import { guidanceInputSchema } from './orchestration/guided/guidance.js';
-import { RunnerPoolFullError } from './orchestration/guided/runner-pool.js';
-import { guidedTaskView, renderGuidedTask } from './orchestration/guided-status.js';
-import { defaultDataDirectory, updateInstallation, versionInformation, versionLabel } from './config/runtime.js';
-import { currentSettings, loadSettings, useSettings } from './config/settings.js';
-import {
-  answersFile,
-  assessmentFile,
-  assessmentOutcome,
-  briefFile,
-  checkSpecFile,
-  deliverySpecFile,
-  editPolicyFile,
-  executionRole,
-  milliseconds,
-  port,
-  positiveInteger,
-  provider,
-  readJsonFile,
-  requiredText,
-} from './cli-input.js';
+import { dataDirectory } from './config/paths.js';
+import { availableRecipes, currentSettings, loadSettings, useSettings } from './config/settings.js';
+import type { UserCommand } from './domain/events.js';
+import { OrcaCli } from './orca/client.js';
+import { createTask } from './pipeline/create-task.js';
+import { drive } from './pipeline/driver.js';
+import { foldEvents } from './pipeline/state.js';
+import { renderSummary, summarise, type TaskSummary } from './pipeline/status.js';
+import { installSkill, renderSkill } from './skill.js';
+import { listTaskIds, TaskStore } from './store/task-store.js';
 
-const help = `Grampus - local agent controller
+const usage = `Usage: grampus <command> [options]
 
-  grampus                        Open the local dashboard
-  --version, -v                  Show version and build
-  version [--json]               Show version, installation and data locations
-  update [--source <checkout>]   Install a new snapshot from the recorded checkout (--yes)
-  ui [--orca]                    Open the dashboard in your browser, or inside Orca (--port, optional --db)
-  open [--orca]                  Start or reconnect to the background dashboard
-  close                          Close the dashboard when its actions have settled
+  new --repo <path> [--recipe <name>] [--title <text>] <request...>   Start a task in a new Orca worktree
+  status [task] [--json]                                              Show tasks, or one task in detail
+  wait [task] [--json]                                                Block until something new needs you
+  approve <task> [--version <n>]                                      Approve the latest (or given) spec version
+  revise <task> <feedback...>                                         Ask the spec writer for a revision
+  reply <task> <message-id> <answer...>                               Answer a worker's question
+  continue <task> <guidance...>                                       Run another repair round with guidance
+  retry <task>                                                        Retry a stage that failed to start or exited
+  accept <task>                                                       Accept the task's verified branch
+  abandon <task> [reason...]                                          Abandon the task and release its workers
+  drive <task>                                                        Run a task's driver (Grampus starts it in Orca)
+  recipes                                                             List recipes
+  skill [install]                                                     Print the chat skill, or install it for Claude and Codex
 
-  doctor [--orca]                 Check the executables Grampus runs and store the result; no inference
-  demo                           Run a synthetic workflow in a fresh temporary database
-  create <brief.json>             Store title, outcome, criteria[], plan and optional ordered slices[]
-  approve <task-id> <version>     Approve that exact brief version
-  list                           List stored tasks
-  show <task-id>                  Show a task and completion blockers
-  report <task-id>                Print a Markdown report from the journal
-  model-profiles                 List saved model profiles
-  metrics <task-id>               Print a subscription-focused scorecard
-  export <task-id>                Print full retained run JSON
-  comparison-new <task-id> <profiles.json> Prepare shared-plan runs
-  comparison-list                List comparisons
-  comparison-show <id>           Inspect profiles, results and decision key
-  comparison-approve <id> <key>   Approve every displayed profile
-  comparison-run <id> <key>       Run variants sequentially
-  comparison-pause <id> <key>     Pause after the active operation settles
-  comparison-recover <id> <key>   Release a provably dead driver
-  comparison-select <id> <key> <task-id> Record preference without integration
-  comparison-integration-preview <id> Inspect target branch and selected commit
-  comparison-integrate <id> <key> <target.json> Explicit fast-forward
-  comparison-recover-integration <id> <key> Reconcile without replay
-  comparison-export <id> <file> [json|csv|gzip] Export all retained results
-  task-new <plan.json>            Prepare a guided task; no workspace creation or inference
-  task-show <task-id>             Show progress and next action (--details or --json)
-  task-approve <id> <version> <digest> Approve the entire guided plan shown above
-  task-run <id>                   Advance until input is needed or work stops
-  task-authorize <id>             Confirm native workspace execution and continue
-  task-assess <id> --outcome passed|failed|skipped --summary <text>
-                                  Record a quality assessment of the selected lenses and continue
-  task-answer <id> <answers.json> Answer pending questions and continue
-  task-diagnostic-allowance <id> <decision-key> [answers.json] Approve the displayed diagnostic supplement and continue
-  task-retry <id>                 Retry preparation, or start a fresh implementation attempt
-  task-rerun-checks <id> <decision-key>  Rerun a check stopped by a timeout or other infrastructure problem
-                                  on the unchanged artifact; no agent turn or new attempt
-  task-stop <id>                  Request a running guided controller to stop
-  task-pause <id>                 Finish the current operation, then pause
-  task-guide <id> <guidance.json> Queue text and target for a future agent turn
-  task-cancel-guidance <id> <message-id>  Withdraw an unassigned message
-  task-recover <id>               Reconcile saved results; never replay provider/Git work
-  task-revise <id> <version> <file.json>  Revise a settled recipe; retain files and require fresh approval
-  task-release-workspace <id>     Release a proved-unused failed standalone reservation
-  workspace-new <task-id> <version>  Create a worktree (--repo, --path, optional --base)
-                                  Orca mode: --orca --repo <path> --base <ref>; omit --path
-  workspace-list                 List workspace reservations
-  workspace-show <id>             Show saved workspace state and journal
-  workspace-inspect <id>          Verify Git identity and show current HEAD/dirty state
-  workspace-recover <id>          Reconcile interrupted creation without replaying Git
-  workspace-release <id>          Release unused reservation metadata without deleting files or branches
-  execution-new <workspace-id> <version> <codex|claude>  Start a linked attempt (--role implementation|review)
-  execution-list                 List linked task/session executions
-  execution-show <id>            Show linked session, workspace lease and execution events
-  execution-close <id>           Close an idle execution; never force-release a lease
-  execution-snapshot <id>        Inspect repository content, diff and instruction digest
-  execution-check <id> <file.json>  Run an explicit check against that snapshot (Windows)
-  execution-finish <id> <check-id> Submit implementation with the latest passing check
-  execution-assess <id> <file.json> Record an explicit quality lens assessment of the submitted artifact
-  execution-verify <id> <file.json> Verify current slice criteria (all task criteria for final slice)
-  execution-review <id>           Review a verified artifact (review execution; optional --answers-file)
-  execution-complete <id>         Recheck artifact and require every completion gate
-  execution-deliver <id> <file.json> Deliver current slice, ready the next or complete (Windows)
-  execution-implement <id> <file.json> Run supervised Claude/Codex editing with an explicit policy
-  implementation-show <id>        Show native editing scope, snapshots and result
-  implementation-recover <id>     Confirm native tool shutdown without replaying inference
-  delivery-show <id>              Show retained delivery request and process result
-  delivery-recover <id>           Reconcile interrupted delivery without replaying Git writes
-  execution-recover <id>          Recover a read-only operation after its controller exits
-  check-show <id>                Show retained command, snapshots and output
-  check-recover <id>             Reconcile a lost check using durable supervisor evidence
-  session-new <codex|claude>      Create a conversation (--cwd, optional --model)
-  session-send <id> <prompt>      Run one live turn (or use --prompt-file <path>)
-  session-answer <id> <file.json> Answer pending question ids with a JSON object
-  session-show <id>              Show saved identity, state, and session events
-  session-list                   List conversations
-  session-recover <id>           Reconcile only when recorded processes have exited
+Options: --home <dir> (data directory), --source cli|chat|dashboard (who is acting; default cli)`;
 
-Use --db <path> for persistent task commands, or GRAMPUS_HOME for the data directory.
-Live sessions use existing subscriptions. Ctrl+C requests interruption and waits for process exit.
-Agent turns have no deadline by default. --timeout-ms opts into a deadline; --interrupt-after-ms exercises cancellation after turn start.
-The demo remains synthetic. General provider tools and unattended scheduling remain disabled.
-Native file editing requires explicit authorization.`;
-
-const options = {
-  db: { type: 'string' },
-  orca: { type: 'boolean', default: false },
-  help: { type: 'boolean', short: 'h' },
-  cwd: { type: 'string' },
-  model: { type: 'string' },
-  'prompt-file': { type: 'string' },
-  'answers-file': { type: 'string' },
-  port: { type: 'string' },
-  'no-open': { type: 'boolean' },
-  background: { type: 'boolean' },
-  version: { type: 'boolean', short: 'v' },
-  source: { type: 'string' },
-  yes: { type: 'boolean' },
-  json: { type: 'boolean' },
-  details: { type: 'boolean' },
-  outcome: { type: 'string' },
-  summary: { type: 'string' },
-  repo: { type: 'string' },
-  path: { type: 'string' },
-  base: { type: 'string' },
-  role: { type: 'string' },
-  'fallback-reason': { type: 'string' },
-  'timeout-ms': { type: 'string' },
-  'interrupt-after-ms': { type: 'string' },
-} as const;
-
-/** One parsed invocation: the command, its positional arguments and option values. */
-interface Invocation {
-  action: string;
-  /** The first positional argument after the command, if any. */
-  id: string | undefined;
-  /** The second positional argument after the command, if any. */
-  second: string | undefined;
-  positionals: string[];
-  values: ReturnType<typeof parseArgs<{ options: typeof options; allowPositionals: true }>>['values'];
-}
-
-/** The first argument of a command that requires one. */
-function argument(invocation: Invocation, what = 'an argument'): string {
-  if (!invocation.id) throw new Error(`${invocation.action} requires ${what}`);
-  return invocation.id;
-}
-
-/** The journal named by `--db`, or the default one in the data directory. */
-function openStore(invocation: Invocation): Store {
-  return new Store(invocation.values.db ?? defaultDatabasePath());
-}
-
-/** Run `action` with an open journal, closing it however the action ends. */
-async function withStore<T>(invocation: Invocation, action: (store: Store) => Promise<T> | T): Promise<T> {
-  const store = openStore(invocation);
-  try {
-    return await action(store);
-  } finally {
-    store.close();
-  }
-}
-
-/**
- * Run `action` with an abort signal that Ctrl+C triggers. A SIGINT listener replaces Node's default of
- * exiting at once, so the command keeps running until its owned processes have exited and the outcome
- * is journaled; a second Ctrl+C only repeats the request. `notice` tells the person why it is waiting.
- */
-async function interruptible<T>(action: (signal: AbortSignal) => Promise<T>, notice?: string): Promise<T> {
-  const abort = new AbortController();
-  const stop = () => {
-    if (notice) console.error(notice);
-    abort.abort();
-  };
-  process.on('SIGINT', stop);
-  try {
-    return await action(abort.signal);
-  } finally {
-    process.off('SIGINT', stop);
-  }
-}
-
-const print = (value: unknown) => console.log(JSON.stringify(value, null, 2));
-/** Exit 130 for an interrupted phase and 1 for any other phase than `success`; the output is printed first. */
-const exitFor = (phase: string, success: string) => {
-  if (phase !== success) process.exitCode = phase === 'interrupted' ? 130 : 1;
-};
-
-/** `--timeout-ms`, when given; without it agent turns have no deadline. */
-function timeoutOption(invocation: Invocation): { timeoutMs?: number } {
-  const value = invocation.values['timeout-ms'];
-  return value ? { timeoutMs: milliseconds(value, 'timeout-ms') } : {};
-}
-
-function versionCommand(invocation: Invocation): void {
-  const { values } = invocation;
-  const info = versionInformation(currentSettings().dashboardPort);
-  console.log(
-    values.json
-      ? JSON.stringify(info, null, 2)
-      : values.version
-        ? versionLabel()
-        : `${versionLabel()}\nApplication: ${info.applicationRoot}\nData: ${info.dataDirectory}\nDashboard port: ${info.dashboardPort}\nNode: ${info.node} (${info.nodeExecutable})${info.build ? `\nSource: ${info.build.source}\nCommit: ${info.build.commit ?? 'unavailable'}${info.build.dirty ? ' (local changes)' : ''}\nBuilt: ${info.build.builtAt}\nSource digest: ${info.build.sourceDigest}` : ''}`,
-  );
-}
-
-/**
- * Start the dashboard and leave it running. Ctrl+C and SIGTERM close it only after active actions
- * settle; the handlers stay registered until that close has finished, so a signal never kills it midway.
- */
-async function uiCommand(invocation: Invocation): Promise<void> {
-  const { values } = invocation;
-  if (values.background) await awaitDesktopPermit();
-  const listen = port(values.port ?? String(currentSettings().dashboardPort));
-  const db = values.db ?? defaultDatabasePath();
-  const { startUi } = await import('./server/ui-server.js');
-  const ui = await startUi({
-    db,
-    port: listen,
-    health: () => doctor(),
-    settingsDirectory: defaultDataDirectory(),
-    orca: new OrcaCli(),
-    desktop: desktopProfile(defaultDataDirectory(), db),
+async function main(argv: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      home: { type: 'string' },
+      repo: { type: 'string' },
+      recipe: { type: 'string' },
+      title: { type: 'string' },
+      version: { type: 'string' },
+      source: { type: 'string' },
+      json: { type: 'boolean' },
+      help: { type: 'boolean' },
+    },
   });
-  if (values.background) console.log(`${versionLabel()} background dashboard started`);
-  else
-    console.log(
-      `${versionLabel()}\nGrampus dashboard: ${ui.url}\nJournal: ${ui.store.path}\nKeep this terminal open. Ctrl+C closes the dashboard after active actions settle.`,
-    );
-  if (!values['no-open'] && values.orca) {
-    try {
-      await new OrcaCli().openDashboard(process.cwd(), ui.url);
-    } catch {
-      console.error('Could not open Orca. The dashboard is running; open the link above in your browser.');
-    }
-  } else if (!values['no-open'] && process.platform === 'win32') {
-    // Opens the default browser without a shell, so the URL is never interpreted as a command line.
-    const { execFile } = await import('node:child_process');
-    execFile('rundll32.exe', ['url.dll,FileProtocolHandler', ui.url], { windowsHide: true }, error => {
-      if (error) console.error('Open the dashboard link above in your browser.');
-    });
+  const [command, ...rest] = positionals;
+  if (!command || values.help) {
+    console.log(usage);
+    return command ? 0 : 1;
   }
-  const close = () => {
-    void ui
-      .close()
-      .then(() => {
-        process.off('SIGINT', close);
-        process.off('SIGTERM', close);
-      })
-      .catch((error: unknown) => console.error(error instanceof Error ? error.message : String(error)));
-  };
-  process.on('SIGINT', close);
-  process.on('SIGTERM', close);
-}
-
-/** Native launchers use a short-lived command; the detached controller keeps its own logs and lifetime. */
-async function desktopCommand(invocation: Invocation): Promise<void> {
-  const { values, action } = invocation;
-  const profile = desktopProfile(defaultDataDirectory(), values.db ?? defaultDatabasePath());
-  if (action === 'close') {
-    const endpoint = readDesktopEndpoint(profile);
-    if (!endpoint || !(await desktopResponds(endpoint)))
-      throw new Error('No authenticated dashboard is available to close');
-    await desktopRequest(endpoint, true);
-    print({ ok: true, closing: true });
-    return;
-  }
-  const result = await ensureDesktop({ profile, port: port(values.port ?? String(currentSettings().dashboardPort)) });
-  if (!result.endpoint.url) throw new Error('Dashboard readiness is unconfirmed');
-  if (!values['no-open']) {
-    if (values.orca) await new OrcaCli().openDashboard(values.cwd ?? process.cwd(), result.endpoint.url);
-    else if (process.platform === 'win32') {
-      const { execFile } = await import('node:child_process');
-      await new Promise<void>((resolve, reject) => {
-        execFile(
-          'rundll32.exe',
-          ['url.dll,FileProtocolHandler', result.endpoint.url ?? ''],
-          { windowsHide: true },
-          error => (error ? reject(new Error('Could not open the dashboard browser')) : resolve()),
-        );
-      });
+  const dataDir = values.home ? resolve(values.home) : dataDirectory();
+  useSettings(loadSettings(dataDir));
+  const source = values.source ?? 'cli';
+  if (source !== 'cli' && source !== 'chat' && source !== 'dashboard') throw new Error(`Unknown --source ${source}.`);
+  const queue = (taskId: string | undefined, body: CommandBody) => queueCommand(dataDir, taskId, source, body);
+  switch (command) {
+    case 'new':
+      return newTask(dataDir, rest, values);
+    case 'drive':
+      return drive(TaskStore.open(dataDir, required(rest[0], 'task')), new OrcaCli(), line =>
+        console.log(`[${time()}] ${line}`),
+      );
+    case 'status':
+      return status(dataDir, rest[0], values.json ?? false);
+    case 'wait':
+      return wait(dataDir, rest[0], values.json ?? false);
+    case 'recipes':
+      console.log(JSON.stringify(availableRecipes(), null, 2));
+      return 0;
+    case 'skill':
+      return skill(selfCommand(dataDir), rest[0] === 'install');
+    default: {
+      const body = controlCommand(dataDir, command, rest, values.version);
+      if (body) return queue(rest[0], body);
+      console.error(usage);
+      return 1;
     }
   }
-  print({ ok: true, started: result.started });
 }
 
-/**
- * Run every integration check, store the result as the journal's latest health and print it with any
- * provider version change warning. Exit code 1 when a required integration is not healthy. A journal
- * that cannot be opened does not hide the result: it is printed and the storage problem reported.
- */
-async function doctorCommand(invocation: Invocation): Promise<void> {
-  const report = await doctor({ orca: invocation.values.orca });
-  let warnings: string[] = [];
-  try {
-    const store = new Store(invocation.values.db ?? defaultDatabasePath());
-    try {
-      await refreshHealth(store, () => Promise.resolve(report));
-      warnings = healthView(store).warnings;
-    } finally {
-      store.close();
+/** The command a control verb queues, or null for an unknown verb. */
+function controlCommand(
+  dataDir: string,
+  verb: string,
+  rest: string[],
+  version: string | undefined,
+): CommandBody | null {
+  switch (verb) {
+    case 'approve':
+      return { kind: 'approve', specVersion: approvedVersion(dataDir, required(rest[0], 'task'), version) };
+    case 'revise':
+      return { kind: 'revise', feedback: required(rest.slice(1).join(' '), 'feedback') };
+    case 'reply':
+      return {
+        kind: 'reply',
+        messageId: required(rest[1], 'message id'),
+        body: required(rest.slice(2).join(' '), 'answer'),
+      };
+    case 'continue':
+      return { kind: 'continue', guidance: required(rest.slice(1).join(' '), 'guidance') };
+    case 'retry':
+    case 'accept':
+      return { kind: verb };
+    case 'abandon': {
+      const reason = rest.slice(1).join(' ');
+      return reason ? { kind: 'abandon', reason } : { kind: 'abandon' };
     }
-  } catch (error) {
-    console.error(`Health result not stored: ${error instanceof Error ? error.message : String(error)}`);
+    default:
+      return null;
   }
-  print({ ...report, warnings });
-  if (report.integrations.some(item => item.required && item.status !== 'healthy')) process.exitCode = 1;
 }
 
-/** The synthetic demo, always in a fresh temporary journal that is kept for inspection. */
-function demoCommand(invocation: Invocation): void {
-  if (invocation.values.db) throw new Error('demo uses an isolated database; omit --db');
-  const path = join(mkdtempSync(join(tmpdir(), 'grampus-demo-')), 'grampus.sqlite');
-  const taskId = runDemo(path);
-  const store = new Store(path);
-  try {
-    console.log(renderReport(store, taskId));
-  } finally {
-    store.close();
-  }
-  console.log(`\nRetained demo database: ${path}`);
+type CommandBody = DistributiveOmit<UserCommand, 'id' | 'at' | 'source'>;
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+function queueCommand(
+  dataDir: string,
+  taskId: string | undefined,
+  source: 'cli' | 'chat' | 'dashboard',
+  body: CommandBody,
+): number {
+  const store = TaskStore.open(dataDir, required(taskId, 'task'));
+  const command = { ...body, id: randomUUID(), at: new Date().toISOString(), source } as UserCommand;
+  store.addCommand(command);
+  console.log(
+    `Queued ${command.kind} for ${taskId}. The task's driver applies it within a few seconds; check with \`grampus status ${taskId}\`.`,
+  );
+  return 0;
 }
 
-const taskCommands = [
-  'task-new',
-  'task-show',
-  'task-revise',
-  'task-release-workspace',
-  'task-approve',
-  'task-run',
-  'task-authorize',
-  'task-assess',
-  'task-answer',
-  'task-diagnostic-allowance',
-  'task-retry',
-  'task-rerun-checks',
-  'task-stop',
-  'task-pause',
-  'task-guide',
-  'task-cancel-guidance',
-  'task-recover',
-];
+async function newTask(
+  dataDir: string,
+  words: string[],
+  values: { repo?: string; recipe?: string; title?: string },
+): Promise<number> {
+  const created = await createTask(
+    {
+      dataDir,
+      repoPath: resolve(required(values.repo, '--repo')),
+      request: required(words.join(' '), 'request'),
+      ...(values.title ? { title: values.title } : {}),
+      ...(values.recipe ? { recipeName: values.recipe } : {}),
+      driveCommand: taskId => `${selfCommand(dataDir)} drive ${taskId}`,
+    },
+    new OrcaCli(),
+  );
+  console.log(`Created ${created.taskId}.\n  worktree: ${created.worktree}\n  driver terminal: ${created.terminal}`);
+  console.log('The spec writer starts shortly; discuss the request with it in its Orca chat.');
+  return 0;
+}
 
-/** Required positional arguments share one check so dispatch stays a small command table. */
-function requireTaskArgument(value: string | undefined, message: string): string {
-  if (!value) throw new Error(message);
+/** The command line that runs this CLI against this data directory, for terminals and skills. */
+function selfCommand(dataDir: string): string {
+  return `node "${resolve(process.argv[1] ?? '')}" --home "${dataDir}"`;
+}
+
+function skill(commandLine: string, install: boolean): number {
+  if (!install) {
+    console.log(renderSkill(commandLine));
+    return 0;
+  }
+  for (const path of installSkill(commandLine)) console.log(`Installed ${path}`);
+  return 0;
+}
+
+function summaries(dataDir: string, taskId: string | undefined): TaskSummary[] {
+  const ids = taskId ? [taskId] : listTaskIds(dataDir);
+  return ids.map(id => summarise(foldEvents(TaskStore.open(dataDir, id).events())));
+}
+
+function status(dataDir: string, taskId: string | undefined, json: boolean): number {
+  const all = summaries(dataDir, taskId);
+  if (json) console.log(JSON.stringify(taskId ? all[0] : all, null, 2));
+  else console.log(all.length ? all.map(renderSummary).join('\n\n') : 'No tasks.');
+  return 0;
+}
+
+/** Block until a task newly needs the user (a decision, a question or a finish), or the wait times out. */
+async function wait(dataDir: string, taskId: string | undefined, json: boolean): Promise<number> {
+  const started = new Date().toISOString();
+  const deadline = Date.now() + currentSettings().waitTimeoutSeconds * 1000;
+  for (;;) {
+    const fresh = summaries(dataDir, taskId).filter(summary => isNew(summary, started));
+    if (fresh.length) {
+      console.log(json ? JSON.stringify(fresh, null, 2) : fresh.map(renderSummary).join('\n\n'));
+      return 0;
+    }
+    if (Date.now() >= deadline) {
+      console.log(json ? '[]' : 'Nothing new needs you yet. Run `grampus wait` again to keep waiting.');
+      return 0;
+    }
+    await sleep(currentSettings().waitPollMs);
+  }
+}
+
+function isNew(summary: TaskSummary, since: string): boolean {
+  if (summary.needsYou && summary.needsYou.since > since) return true;
+  if (summary.questions.some(question => question.at > since)) return true;
+  if (summary.lastStop && !summary.finished && summary.lastStop.at > since) return true;
+  return false;
+}
+
+function approvedVersion(dataDir: string, taskId: string, version: string | undefined): number {
+  if (version) return Number(version);
+  const latest = foldEvents(TaskStore.open(dataDir, taskId).events()).specs.at(-1);
+  if (!latest) throw new Error(`Task ${taskId} has no spec yet.`);
+  return latest.version;
+}
+
+function required(value: string | undefined, name: string): string {
+  if (!value?.trim()) throw new Error(`Missing ${name}.\n\n${usage}`);
   return value;
 }
 
-/** Optional answers accompany the same explicit allowance decision, never a separate implied grant. */
-function diagnosticAnswers(file: string | undefined): Record<string, string> | undefined {
-  return file ? answersFile(file) : undefined;
+function time(): string {
+  return new Date().toLocaleTimeString();
 }
 
-/** Run one guided task command and return the id of the task to display afterwards. */
-async function guidedTaskAction(invocation: Invocation, tasks: GuidedTasks, signal: AbortSignal): Promise<string> {
-  const { action, values, positionals, second } = invocation;
-  const id = argument(invocation);
-  switch (action) {
-    case 'task-new': {
-      const file = resolve(id);
-      return tasks.create(readJsonFile(file), dirname(file)).id;
-    }
-    case 'task-revise': {
-      const message = 'task-revise requires the current version and revised plan JSON file';
-      const expectedVersion = positiveInteger(second, message);
-      const plan = positionals[3];
-      if (!plan) throw new Error(message);
-      const file = resolve(plan);
-      await tasks.revise(id, readJsonFile(file), dirname(file), expectedVersion);
-      return id;
-    }
-    case 'task-approve': {
-      const message = 'Approval requires a positive version and the displayed plan digest';
-      const expectedVersion = positiveInteger(second, message);
-      const digest = positionals[3];
-      if (!digest) throw new Error(message);
-      tasks.approve(id, expectedVersion, digest);
-      return id;
-    }
-    case 'task-run':
-      await tasks.run(id, signal);
-      return id;
-    case 'task-authorize':
-      await tasks.authorize(id, signal);
-      return id;
-    case 'task-assess':
-      await tasks.assess(id, assessmentOutcome(values.outcome), requiredText(values.summary, 'summary'), signal);
-      return id;
-    case 'task-answer':
-      await tasks.answer(
-        id,
-        answersFile(requireTaskArgument(second, 'task-answer requires an answers JSON file')),
-        signal,
-      );
-      return id;
-    case 'task-retry':
-      await tasks.retry(id, signal);
-      return id;
-    case 'task-diagnostic-allowance':
-      await tasks.approveDiagnosticAllowance(
-        id,
-        requireTaskArgument(second, 'task-diagnostic-allowance requires the decision key shown by task-show'),
-        signal,
-        diagnosticAnswers(positionals[3]),
-      );
-      return id;
-    case 'task-rerun-checks':
-      await tasks.rerunChecks(
-        id,
-        requireTaskArgument(second, 'task-rerun-checks requires the decision key shown by task-show'),
-        signal,
-      );
-      return id;
-    case 'task-release-workspace':
-      await tasks.releaseWorkspace(id);
-      return id;
-    case 'task-stop':
-      tasks.stop(id);
-      return id;
-    case 'task-pause':
-      tasks.pause(id);
-      return id;
-    case 'task-guide': {
-      const message = guidanceInputSchema.parse(readJsonFile(resolve(requiredText(second, 'guidance JSON file'))));
-      tasks.queueGuidance(id, message.text, message.target);
-      return id;
-    }
-    case 'task-cancel-guidance':
-      tasks.cancelGuidance(id, requiredText(second, 'queued message id'));
-      return id;
-    case 'task-recover':
-      await tasks.recover(id);
-      return id;
-    default:
-      return id;
-  }
-}
-
-/**
- * The guided task commands. Each prints the task's resulting state; commands that advance the task then
- * exit 130 when stopped and 1 when blocked or needing recovery. A full runner pool
- * refuses the command without changing anything, so the error names the command to repeat.
- */
-async function taskCommand(invocation: Invocation): Promise<void> {
-  const { action, values } = invocation;
-  if (!taskCommands.includes(action) || !invocation.id)
-    throw new Error('A supported guided task command and argument are required');
-  await withStore(invocation, store =>
-    interruptible(async signal => {
-      const tasks = new GuidedTasks(store);
-      const taskId = await guidedTaskAction(invocation, tasks, signal).catch((error: unknown) => {
-        if (error instanceof RunnerPoolFullError)
-          throw new Error(`${error.message} Run grampus ${action} ${argument(invocation)} again once a slot is free.`, {
-            cause: error,
-          });
-        throw error;
-      });
-      console.log(
-        values.json
-          ? JSON.stringify(guidedTaskView(store, taskId), null, 2)
-          : renderGuidedTask(store, taskId, values.details),
-      );
-      const state = tasks.get(taskId);
-      if (
-        ![
-          'task-new',
-          'task-show',
-          'task-approve',
-          'task-stop',
-          'task-pause',
-          'task-guide',
-          'task-cancel-guidance',
-        ].includes(action)
-      ) {
-        if (signal.aborted || state.stopRequested) process.exitCode = 130;
-        else if (['blocked', 'recovery_required'].includes(state.status) && state.stopReason?.code !== 'USER_PAUSED')
-          process.exitCode = 1;
-      }
-    }),
-  );
-}
-
-/** Low-level workspace commands; Orca mode requires a pinned `--base` and chooses its own destination. */
-async function workspaceCommand(invocation: Invocation): Promise<void> {
-  const { action, values } = invocation;
-  const commands = [
-    'workspace-new',
-    'workspace-list',
-    'workspace-show',
-    'workspace-inspect',
-    'workspace-recover',
-    'workspace-release',
-  ];
-  if (!commands.includes(action)) throw new Error('Unknown workspace command');
-  if (action === 'workspace-list') {
-    await withStore(invocation, store => print(new Workspaces(store).list()));
-    return;
-  }
-  const id = argument(invocation);
-  await withStore(invocation, async store => {
-    const workspaces = new Workspaces(store);
-    if (action === 'workspace-new') {
-      if (values.orca && values.path) throw new Error('Orca chooses the workspace destination; omit --path');
-      if (!values.repo) throw new Error('workspace-new requires --repo');
-      const expectedVersion = positiveInteger(invocation.second, 'A positive integer version is required');
-      if (values.orca) {
-        if (!values.base) throw new Error('Orca workspace creation requires --base to pin the starting ref');
-        print(await workspaces.createOrca(id, expectedVersion, values.repo, values.base));
-      } else {
-        if (!values.path) throw new Error('Standalone workspace creation requires --path');
-        print(await workspaces.create(id, expectedVersion, values.repo, values.path, values.base));
-      }
-    }
-    if (action === 'workspace-show') print({ workspace: workspaces.get(id), events: store.workspaceEvents(id) });
-    if (action === 'workspace-inspect') print(await workspaces.inspect(id));
-    if (action === 'workspace-recover') print(await workspaces.recover(id));
-    if (action === 'workspace-release') print(await workspaces.release(id));
-  });
-}
-
-const executionCommands = [
-  'execution-new',
-  'execution-list',
-  'execution-show',
-  'execution-close',
-  'execution-snapshot',
-  'execution-check',
-  'execution-finish',
-  'execution-assess',
-  'execution-verify',
-  'execution-review',
-  'execution-complete',
-  'execution-deliver',
-  'execution-implement',
-  'execution-recover',
-];
-
-/** The second positional argument of an execution command: a JSON file or, for `execution-finish`, a check id. */
-function inputFile(invocation: Invocation, what: string): string {
-  if (!invocation.second) throw new Error(`${invocation.action} requires ${what}`);
-  return invocation.second;
-}
-
-/**
- * The execution commands that do work: assessment, checks, review, editing and delivery. Long-running
- * ones are interruptible and set the exit code from their settled phase after printing it.
- */
-async function runExecutionWork(invocation: Invocation, store: Store, id: string): Promise<void> {
-  const { action, values } = invocation;
-  const workflow = new Workflow(store),
-    executions = new Executions(store),
-    checks = new Checks(store);
-  const showTask = () => print(workflow.get(executions.get(id).taskId));
-  switch (action) {
-    case 'execution-assess': {
-      const assessment = assessmentFile(inputFile(invocation, 'an assessment file'));
-      await checks.assess(id, assessment);
-      showTask();
-      if (assessment.outcome !== 'passed') process.exitCode = 1;
-      return;
-    }
-    case 'execution-complete':
-      await checks.complete(id);
-      showTask();
-      return;
-    case 'execution-finish':
-      await checks.finish(id, inputFile(invocation, 'a check id'));
-      showTask();
-      return;
-    case 'execution-deliver': {
-      const spec = deliverySpecFile(inputFile(invocation, 'a delivery specification file'));
-      const delivery = await interruptible(signal => new Deliveries(store).run(id, spec, signal));
-      print(delivery);
-      exitFor(delivery.phase, 'delivered');
-      return;
-    }
-    case 'execution-implement': {
-      const policy = editPolicyFile(inputFile(invocation, 'an edit policy file'));
-      const promptFile = values['prompt-file'];
-      const answers = values['answers-file'];
-      const result = await interruptible(signal =>
-        new Implementations(store).run(id, policy, promptFile ? readFileSync(promptFile, 'utf8') : undefined, {
-          signal,
-          ...timeoutOption(invocation),
-          ...(answers ? { answers: answersFile(answers) } : {}),
-        }),
-      );
-      print(result);
-      exitFor(result.phase, 'completed');
-      return;
-    }
-    case 'execution-check':
-    case 'execution-verify': {
-      const spec = checkSpecFile(inputFile(invocation, 'a check specification file'));
-      if ((spec.criteria !== undefined) !== (action === 'execution-verify'))
-        throw new Error('Only execution-verify requires criteria in the specification');
-      const check = await interruptible(
-        signal => checks.run(id, spec, signal),
-        'Stop requested; waiting for the owned tool processes to exit.',
-      );
-      print(check);
-      exitFor(check.phase, 'passed');
-      return;
-    }
-    case 'execution-review': {
-      const execution = executions.get(id);
-      const answers = values['answers-file'];
-      const result = await interruptible(signal =>
-        runSession(store, execution.sessionId, 'Review the verified artifact.', {
-          artifactReview: true,
-          signal,
-          ...(answers ? { answers: answersFile(answers) } : {}),
-          ...timeoutOption(invocation),
-        }),
-      );
-      print({ session: new Sessions(store).get(execution.sessionId), result });
-      if (result.status !== 'completed' || result.reply?.findings.some(item => item.severity === 'blocking'))
-        process.exitCode = result.status === 'interrupted' ? 130 : 1;
-      return;
-    }
-  }
-}
-
-/** Low-level execution commands: record keeping here, work in `runExecutionWork`. */
-async function executionCommand(invocation: Invocation): Promise<void> {
-  const { action, values } = invocation;
-  if (!executionCommands.includes(action)) throw new Error('Unknown execution command');
-  if (action === 'execution-list') {
-    await withStore(invocation, store => print(new Executions(store).list()));
-    return;
-  }
-  const id = argument(invocation);
-  await withStore(invocation, async store => {
-    const executions = new Executions(store);
-    switch (action) {
-      case 'execution-new':
-        print(
-          await executions.create(
-            id,
-            positiveInteger(invocation.second, 'A positive integer version is required'),
-            provider(invocation.positionals[3]),
-            {
-              role: executionRole(values.role),
-              model: values.model ?? null,
-              fallbackReason: values['fallback-reason'] ?? null,
-            },
-          ),
-        );
-        return;
-      case 'execution-show': {
-        const execution = executions.get(id);
-        print({
-          execution,
-          session: new Sessions(store).get(execution.sessionId),
-          lease: store.lease(execution.workspaceId),
-          checks: store.checks(id),
-          implementations: store.implementations(id),
-          deliveries: store.deliveries(id),
-          events: store.executionEvents(id),
-        });
-        return;
-      }
-      case 'execution-close':
-        executions.close(id);
-        print(executions.get(id));
-        return;
-      case 'execution-snapshot':
-        print(await new Checks(store).snapshot(id));
-        return;
-      case 'execution-recover':
-        executions.recoverReadOnly(id);
-        print(executions.get(id));
-        return;
-      default:
-        await runExecutionWork(invocation, store, id);
-    }
-  });
-}
-
-/**
- * Show or recover an implementation, delivery or check run. Recovery reconciles from saved evidence and
- * never replays a provider turn or Git write; a delivery that does not recover as delivered exits 1.
- */
-async function recordCommand(invocation: Invocation): Promise<void> {
-  const { action } = invocation;
-  const id = argument(invocation, 'an id');
-  await withStore(invocation, async store => {
-    if (action === 'implementation-show' || action === 'implementation-recover') {
-      const implementations = new Implementations(store);
-      print(action === 'implementation-show' ? implementations.get(id) : await implementations.recover(id));
-    } else if (action === 'delivery-show' || action === 'delivery-recover') {
-      const deliveries = new Deliveries(store);
-      const delivery = action === 'delivery-show' ? deliveries.get(id) : await deliveries.recover(id);
-      print(delivery);
-      if (action === 'delivery-recover' && delivery.phase !== 'delivered') process.exitCode = 1;
-    } else {
-      const checks = new Checks(store);
-      print(action === 'check-recover' ? checks.recover(id) : checks.get(id));
-    }
-  });
-}
-
-/** Conversation commands. `session-send` and `session-answer` run one live, interruptible turn. */
-async function sessionCommand(invocation: Invocation): Promise<void> {
-  const { action, values } = invocation;
-  const commands = ['session-new', 'session-send', 'session-answer', 'session-show', 'session-list', 'session-recover'];
-  if (!commands.includes(action)) throw new Error('Unknown session command');
-  if (action === 'session-list') {
-    await withStore(invocation, store => print(store.sessions()));
-    return;
-  }
-  const id = argument(invocation);
-  await withStore(invocation, async store => {
-    const sessions = new Sessions(store);
-    if (action === 'session-new')
-      print(sessions.create(provider(id, 'session provider'), values.cwd ?? process.cwd(), values.model ?? null));
-    if (action === 'session-show')
-      print({ session: sessions.get(id), execution: store.executionForSession(id), events: store.sessionEvents(id) });
-    if (action === 'session-recover') {
-      sessions.recover(id);
-      print(sessions.get(id));
-    }
-    if (action === 'session-send' || action === 'session-answer') {
-      const promptFile = values['prompt-file'];
-      const prompt = promptFile ? readFileSync(promptFile, 'utf8') : (invocation.second ?? '');
-      const answers = action === 'session-answer' ? answersFile(invocation.second ?? '') : undefined;
-      const interruptAfter = values['interrupt-after-ms'];
-      const result = await interruptible(
-        signal =>
-          runSession(store, id, prompt, {
-            signal,
-            ...(answers ? { answers } : {}),
-            ...timeoutOption(invocation),
-            ...(interruptAfter ? { interruptAfterMs: milliseconds(interruptAfter, 'interrupt-after-ms') } : {}),
-          }),
-        'Stop requested; waiting for the owned process to exit.',
-      );
-      print({ session: sessions.get(id), result });
-      if (result.status !== 'completed') process.exitCode = result.status === 'interrupted' ? 130 : 1;
-    }
-  });
-}
-
-/** The low-level brief workflow commands, and the fallback for any unknown command, which prints help. */
-async function briefCommand(invocation: Invocation): Promise<void> {
-  const { action } = invocation;
-  if (!['create', 'approve', 'list', 'show', 'report'].includes(action))
-    throw new Error(`Unknown command: ${action}\n${help}`);
-  await withStore(invocation, store => {
-    const workflow = new Workflow(store);
-    if (action === 'list') {
-      print(
-        workflow
-          .list()
-          .map(task => ({ id: task.id, title: task.brief.title, version: task.version, phase: task.phase })),
-      );
-      return;
-    }
-    const id = argument(invocation);
-    switch (action) {
-      case 'create':
-        print(workflow.create(briefFile(id)));
-        break;
-      case 'approve': {
-        const expectedVersion = positiveInteger(invocation.second, 'A positive integer version is required');
-        workflow.approve(id, expectedVersion);
-        console.log(`Approved ${id} version ${expectedVersion}`);
-        break;
-      }
-      case 'show':
-        print({ task: workflow.get(id), blockers: workflow.blockers(id) });
-        break;
-      case 'report':
-        console.log(renderReport(store, id));
-        break;
-    }
-  });
-}
-
-/**
- * Parse the arguments and dispatch: fixed commands first, then by command prefix. No command means the
- * dashboard. Unknown options make `parseArgs` throw, which exits 1.
- */
-async function main(): Promise<void> {
-  const { positionals, values } = parseArgs({ allowPositionals: true, options });
-  const [action = 'ui', id, second] = positionals;
-  const invocation: Invocation = { action, id, second, positionals, values };
-  if (values.help) {
-    console.log(help);
-    return;
-  }
-  // Loaded once per launch; workers started from here receive these values instead of rereading the file.
-  // An update never depends on settings, so an invalid config.json cannot block installing a fix.
-  if (action !== 'update') useSettings(loadSettings(defaultDataDirectory()));
-  if (values.version || action === 'version') versionCommand(invocation);
-  else if (action === 'update') await updateInstallation(values.source, values.yes);
-  else if (action === 'ui') await uiCommand(invocation);
-  else if (action === 'open' || action === 'close') await desktopCommand(invocation);
-  else if (action === 'doctor') await doctorCommand(invocation);
-  else if (action === 'demo') demoCommand(invocation);
-  else if (action.startsWith('comparison-') || ['model-profiles', 'metrics', 'export'].includes(action))
-    await withStore(invocation, store =>
-      interruptible(async signal => {
-        const result = await modelCommand(store, invocation, signal);
-        print(result);
-      }),
-    );
-  else if (action.startsWith('task-')) await taskCommand(invocation);
-  else if (action.startsWith('workspace-')) await workspaceCommand(invocation);
-  else if (action.startsWith('execution-')) await executionCommand(invocation);
-  else if (
-    [
-      'implementation-show',
-      'implementation-recover',
-      'delivery-show',
-      'delivery-recover',
-      'check-show',
-      'check-recover',
-    ].includes(action)
-  )
-    await recordCommand(invocation);
-  else if (action.startsWith('session-')) await sessionCommand(invocation);
-  else await briefCommand(invocation);
-}
-
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+main(process.argv.slice(2)).then(
+  code => {
+    process.exitCode = code;
+  },
+  (error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  },
+);

@@ -1,38 +1,24 @@
 {
   "name": "grampus",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
-  "description": "Local coding-agent workflow controller",
+  "description": "Coding-agent pipeline on Orca orchestration: spec, build, verify, review, repair, measured",
   "engines": {
     "node": ">=24.0.0"
   },
   "scripts": {
-    "build": "npm run build:server && npm --prefix web run build",
-    "build:server": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:prune": "eslint . --prune-suppressions",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm run build:server && node scripts/run-tests.mjs fast",
-    "test:all": "npm run build:server && node scripts/run-tests.mjs all",
+    "test": "npm run build && node scripts/run-tests.mjs fast",
+    "test:all": "npm run build && node scripts/run-tests.mjs all",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
     "check:full": "npm run typecheck && npm run lint && npm run format:check && npm run test:all",
-    "start": "node dist/src/cli.js",
-    "ui": "npm run build && node dist/src/cli.js ui",
-    "build:orca-plugin": "npm run build && node scripts/build-orca-plugin.mjs",
-    "install:local": "node scripts/install.mjs",
-    "doctor": "node dist/src/cli.js doctor",
-    "demo": "node dist/src/cli.js demo",
-    "probe": "node dist/src/probes/probe.js",
-    "probe:task": "node dist/src/probes/task-probe.js",
-    "probe:multifile": "node dist/src/probes/multifile-probe.js",
-    "probe:context": "node dist/src/probes/context-probe.js",
-    "probe:efficiency": "node dist/src/probes/efficiency-probe.js",
-    "probe:exploration": "node dist/src/probes/exploration-probe.js",
-    "probe:mcp": "node dist/src/probes/mcp-probe.js",
-    "probe:references": "node dist/src/probes/reference-probe.js"
+    "start": "node dist/src/cli.js"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -44,8 +30,9 @@
     "typescript-eslint": "8.71.2"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.302",
-    "@openai/codex": "0.163.0",
     "zod": "4.6.7"
+  },
+  "bin": {
+    "grampus": "dist/src/cli.js"
   }
 }

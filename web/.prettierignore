@@ -1,5 +1,0 @@
-# Formatting follows the root .prettierrc.json; this mirrors the root ignore list.
-dist/
-node_modules/
-package-lock.json
-*.md
