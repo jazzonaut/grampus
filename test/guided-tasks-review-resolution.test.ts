@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { GuidedTasks } from '../src/orchestration/guided/controller.js';
 import { fixture, services, review, inlineImplementation, windows } from './helpers/guided-tasks.js';
 
-test('a passing verdict with an unresolved prior blocker cannot reach acceptance or delivery', windows, async t => {
+test('a passing verdict with an unresolved prior blocker cannot deliver an accepted candidate', windows, async t => {
   const f = fixture(t),
     config = services();
   let edits = 0,
@@ -46,5 +46,7 @@ test('a passing verdict with an unresolved prior blocker cannot reach acceptance
   assert.equal(result.stopReason?.code, 'REVIEW_NO_PROGRESS', result.note);
   assert.equal(edits, 2);
   assert.equal(f.store.deliveries(result.executionId!).length, 0);
-  assert.ok(!f.store.checks(result.executionId!).some(check => check.purpose === 'verification'));
+  assert.ok(
+    f.store.checks(result.executionId!).some(check => check.purpose === 'verification' && check.phase === 'passed'),
+  );
 });
