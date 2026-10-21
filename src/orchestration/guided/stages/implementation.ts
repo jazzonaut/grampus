@@ -7,12 +7,11 @@ import { deepEqual } from '../../../domain/deep-equal.js';
 import { withReason, type StopReasonCode } from '../stop-reasons.js';
 import { adoptOne, mismatch, requireOrigin, requireSettled, workspacePath, type StageHandler } from '../context.js';
 import { required } from '../state.js';
-import { implementationPrompt } from '../prompts.js';
+import { implementationPrompt, progressFeedback } from '../prompts.js';
 import { afterEditing, currentSlice, editPolicy } from '../specs.js';
 import { keepSnapshot } from '../snapshots.js';
 import { withGuidance } from '../guidance.js';
 import { pendingDiagnosticAllowance } from '../../../execution/diagnostic-allowance.js';
-import { focusedRepairOutcome } from '../focused-repair.js';
 import { prepareWorkspaceContinuation } from '../../../execution/workspace-context.js';
 
 /**
@@ -129,13 +128,9 @@ export const implementationStage: StageHandler = {
         update: current => {
           update(current);
           current.policy = editPolicy(current, after);
-          current.feedback =
-            'The previous turn was a progress update, not a candidate submission. Continue the unfinished work, investigate ordinary failures and submit kind=candidate only when ready for verification.';
+          current.feedback = progressFeedback(current.feedback);
         },
       };
-    // Native agents own diagnostics and do not receive the scoped repair tool or its receipts.
-    const focused = result.policy.workspace ? null : focusedRepairOutcome(context, result, update);
-    if (focused) return focused;
     const next = afterEditing(state, after);
     return {
       kind: 'advance',

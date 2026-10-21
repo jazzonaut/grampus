@@ -233,8 +233,14 @@ test('an implementation turn refused for its prompt budget blocks with its own r
   const task = tasks.create(f.plan);
   tasks.approve(task.id, 1, task.guided!.digest);
   await tasks.run(task.id);
+  const message = tasks.queueGuidance(task.id, 'Keep the change small.', 'implementer').guidance[0]!;
   const stopped = await tasks.authorize(task.id);
   assert.equal(stopped.status, 'blocked', stopped.note);
   assert.equal(stopped.stopReason?.code, 'PROMPT_BUDGET_EXCEEDED');
   assert.equal(stopped.note, refusal);
+  // Nothing reached a provider, so the guidance is queued again rather than silently consumed.
+  assert.deepEqual(
+    stopped.guidance.map(item => item.id),
+    [message.id],
+  );
 });

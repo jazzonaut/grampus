@@ -25,10 +25,7 @@ function selectedCommit(store: Store, id: string, expected: string) {
     task.guided.status !== 'complete'
   )
     throw new Error('Selected result changed or is no longer verified');
-  const deliveries = store
-    .executions()
-    .filter(item => item.taskId === task.id)
-    .flatMap(item => store.deliveries(item.id));
+  const deliveries = store.executions(task.id).flatMap(item => store.deliveries(item.id));
   const delivery = deliveries.findLast(item => item.phase === 'delivered');
   const commit = delivery ? verifiedDeliveryHead(delivery) : null;
   if (!commit) throw new Error('Selected result has no verified delivery commit');

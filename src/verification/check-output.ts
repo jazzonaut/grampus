@@ -272,8 +272,13 @@ export function checkIssue(check: CheckSummary): string {
         .filter(line => line.trim())
         .slice(-6)
         .join('\n');
+  // The output of a command that exited cleanly can read as success; say why the check failed first.
+  const leftover =
+    check.result?.reason === 'descendants_remaining'
+      ? `The command exited ${check.result.exitCode ?? 'with an unknown code'} but left processes running after it (descendants_remaining), so its exit cannot be confirmed. Stop background servers, watchers or build daemons it starts.\n`
+      : '';
   return outputExcerpt(
-    text || `${check.result?.reason ?? check.phase}; exit ${check.result?.exitCode ?? 'unknown'}`,
+    `${leftover}${text || `${check.result?.reason ?? check.phase}; exit ${check.result?.exitCode ?? 'unknown'}`}`,
     limits.feedbackCharacters,
   );
 }

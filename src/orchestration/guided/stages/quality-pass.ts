@@ -1,7 +1,7 @@
 // Owns the `quality_pass` stage: explicitly assigned edit passes use native workspace access after
 // candidate submission and before validation. A settled pass never runs again in the slice;
 // unassigned passes are work for the ordinary implementer before it submits a candidate.
-import { Implementations } from '../../../execution/implementations.js';
+import { Implementations, type ImplementationRun } from '../../../execution/implementations.js';
 import { prepareEditing } from '../../../execution/edit-policy.js';
 import { boundedRepositoryFiles } from '../../../repository/repository-evidence.js';
 import { deepEqual } from '../../../domain/deep-equal.js';
@@ -24,6 +24,18 @@ function requirePass(state: GuidedState) {
 }
 
 /**
+ * The artifact a native pass started from: the latest candidate before `runs`' last entry, which is the
+ * implementation's candidate or the previous pass's. Progress turns in between move the slice snapshot
+ * but not where the pass began.
+ */
+function passStart(runs: readonly ImplementationRun[]): string | undefined {
+  return runs
+    .slice(0, -1)
+    .findLast(run => run.phase === 'completed' && run.result?.reply?.kind === 'candidate' && run.after)?.after
+    ?.artifact;
+}
+
+/**
  * The pass resumes the implementation conversation (the same execution and session), so the
  * implementer knows what it just changed when the model and context policy allow resumption.
  * Its workspace checkpoint is rebuilt on the implementation's result; settlement binds to that policy.
@@ -36,12 +48,14 @@ export const qualityPassStage: StageHandler = {
     const cwd = workspacePath(workspaces, state);
     const snapshot = requireGuidedSnapshot(store, state);
     const assignment = state.plan.modelProfile?.qualityPasses?.[pass.id] ?? state.plan.implementation;
+    // A previous progress update means this pass is under way; the agent resumes instead of restarting.
+    const continuing = store.implementations(required(state, 'executionId')).at(-1)?.result?.reply?.kind === 'message';
     // The policy was rebuilt on the previous turn's result; refuse it before the turn if it no longer fits.
     withReason('SCOPE_REJECTED', () => prepareEditing({ cwd, snapshot, policy }));
     await new Implementations(store, workspaces).run(
       required(state, 'executionId'),
       policy,
-      withGuidance(qualityPassPrompt({ pass, slicePreparation: currentSlice(state).preparation }), state),
+      withGuidance(qualityPassPrompt({ pass, slicePreparation: currentSlice(state).preparation, continuing }), state),
       { signal, timeoutMs: 0, stage: 'quality_pass', assignment, ...(state.answers ? { answers: state.answers } : {}) },
       services.implementationRunner,
     );
@@ -97,10 +111,14 @@ export const qualityPassStage: StageHandler = {
           current.policy = editPolicy(current, after);
         },
       };
+    const runs = store.implementations(executionId);
     const record: QualityEditRecord = {
       pass: pass.id,
       implementationId: result.id,
-      before: snapshot.artifact,
+      before:
+        (result.policy.workspace
+          ? passStart(runs.slice(0, runs.findIndex(run => run.id === result.id) + 1))
+          : undefined) ?? snapshot.artifact,
       after: after.artifact,
     };
     const next = afterEditing({ ...state, qualityEdits: [...state.qualityEdits, record] }, after);

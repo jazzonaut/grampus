@@ -7,6 +7,7 @@ import type { SettleContext, StageOutcome } from '../src/orchestration/guided/co
 import type { GuidedState } from '../src/orchestration/guided/state.js';
 import { repairIneligibility, validationStage } from '../src/orchestration/guided/stages/checks.js';
 import { reviewStage } from '../src/orchestration/guided/stages/review.js';
+import { assessmentStage } from '../src/orchestration/guided/stages/assessment.js';
 import { readinessStage } from '../src/orchestration/guided/stages/readiness.js';
 import { failureCode } from '../src/orchestration/guided/stages/implementation.js';
 import type { ImplementationRun } from '../src/persistence/records.js';
@@ -356,6 +357,23 @@ test('review settlement records why a verdict stops and when it reroutes', () =>
     },
   });
   assert.equal(stopCode(settleReview(repeated, blocking, 'failed')), 'REVIEW_NO_PROGRESS');
+  // Unchanged bytes cannot resolve their own blockers, even when the reviewer now passes them.
+  const resolvedPass = {
+    lenses: [lens('simplification', 'pass')],
+    priorFindings: [{ id: 'old:0', status: 'resolved' as const, evidence: 'Reviewer changed its mind' }],
+  };
+  assert.equal(
+    stopCode(settleReview(repeated, resolvedPass, 'passed', 'idle', record(), { previous: blocking })),
+    'REVIEW_NO_PROGRESS',
+  );
+  // Arbitration exists to judge an already blocked artifact, so it may pass the same bytes.
+  const arbitratingRepeated = guided('automatic', {
+    reviewCycle: { ...repeated.reviewCycle, arbitrating: true, arbitrationUsed: true },
+  });
+  const arbitrationPass = settleReview(arbitratingRepeated, resolvedPass, 'passed', 'idle', record(), {
+    previous: blocking,
+  });
+  assert.equal(arbitrationPass.kind === 'advance' && arbitrationPass.next, 'assessment');
   const changed = guided('automatic', {
     reviewCycle: {
       repairs: 1,
@@ -558,4 +576,14 @@ test('structural equality ignores key order and undefined properties, as the jou
   assert.ok(!deepEqual(null, {}));
   assert.ok(!deepEqual({ a: null }, { a: undefined }));
   assert.ok(deepEqual(null, null));
+});
+
+test('a missing automatic assessment is recovered from its queue; a supervised one asks again', () => {
+  const queued = { pass: 'simplification', artifact, summary: 'Reviewer assessment', outcome: 'passed' };
+  const settle = (mode: 'automatic' | 'supervised') =>
+    assessmentStage.settle(
+      context(guided(mode, { stage: 'assessment', assessments: [queued] }), 'assessment', { evidence: [] }, record()),
+    );
+  assert.deepEqual(settle('automatic'), { kind: 'missing' });
+  assert.equal(stopCode(settle('supervised')), 'ASSESSMENT_UNSETTLED');
 });

@@ -51,9 +51,18 @@ test('a review repair through delivery shows every stage passed with its evidenc
   let edits = 0,
     reviews = 0;
   const config = services();
-  config.implementationRunner = options =>
-    services(++edits === 1 ? "// needless explanation\nconsole.log('hello world');\n" : "console.log('hello world');\n")
-      .implementationRunner!(options);
+  // Implementation, the refactor pass, then the review repair: the repair changes the bytes the
+  // reviewer blocked, since unchanged bytes cannot resolve their own blockers.
+  config.implementationRunner = options => {
+    edits++;
+    return services(
+      edits === 1
+        ? "// needless explanation\nconsole.log('hello world');\n"
+        : edits === 2
+          ? "console.log('hello world'); // prints the greeting\n"
+          : "console.log('hello world');\n",
+    ).implementationRunner!(options);
+  };
   config.connector = async () => ({
     turn: async prompt => ({
       status: 'completed' as const,

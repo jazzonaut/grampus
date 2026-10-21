@@ -19,10 +19,7 @@ function discardSnapshot(store: Store, id: string) {
       .workspaces()
       .filter(workspace => workspace.taskId === id)
       .map(workspace => ({ workspace, lease: store.lease(workspace.id) })),
-    sessions: store
-      .executions()
-      .filter(execution => execution.taskId === id)
-      .map(execution => store.session(execution.sessionId)),
+    sessions: store.executions(id).map(execution => store.session(execution.sessionId)),
     comparisons: store.comparisons().filter(group => group.runs.some(run => run.taskId === id)),
   };
 }

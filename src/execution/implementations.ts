@@ -32,6 +32,11 @@ import { currentSettings, type Settings } from '../config/settings.js';
 import { Checks } from '../verification/checks.js';
 import { readImplementationResult, workerNodeOptions } from './worker-files.js';
 import { nativeCreationPaths } from './native-creations.js';
+import { gitControlDigest } from '../repository/artifacts.js';
+import { z } from 'zod';
+
+/** The Git control checkpoint journaled with a run's dispatch (`implementation.git_control`). */
+const gitControlEventSchema = z.object({ implementationId: z.string(), digest: z.string() });
 
 export type { ImplementationRun } from '../persistence/records.js';
 /** The request file the controller writes for the supervised implementation worker. */
@@ -113,16 +118,28 @@ export class Implementations {
     }
   }
 
-  /** Snapshots the workspace after the turn and records any edit outside the policy as the run's error. */
+  /**
+   * Snapshots the workspace after the turn and records any edit outside the policy as the run's error.
+   * A dispatched run must also leave Git control state (configuration, ignore files and hooks) as it was
+   * at dispatch: snapshots do not cover it, and a missing checkpoint is unknown, so never unchanged.
+   */
   private async verifyScope(run: ImplementationRun, execution: Execution): Promise<void> {
     if (!run.before) return;
     try {
+      const cwd = this.workspaces.path(execution.workspaceId);
       run.after = await captureRepository(this.workspaces, execution);
       verifyEditingScope(
-        { cwd: this.workspaces.path(execution.workspaceId), policy: run.policy, snapshot: run.before },
+        { cwd, policy: run.policy, snapshot: run.before },
         run.after,
         nativeCreationPaths(this.store.sessionEvents(execution.sessionId, ['tool.authorized']), run.id, run.before),
       );
+      if (run.dispatch !== 'requested') return;
+      const recorded = this.store
+        .executionEvents(execution.id, ['implementation.git_control'])
+        .map(event => gitControlEventSchema.parse(event.data))
+        .find(event => event.implementationId === run.id);
+      if (!recorded || recorded.digest !== (await gitControlDigest(cwd)))
+        throw new Error('Editing changed Git configuration, ignore rules or hooks');
     } catch (error) {
       run.error = error instanceof Error ? error.message : String(error);
     }
@@ -229,6 +246,7 @@ export class Implementations {
         snapshot: run.before,
       };
       prepareEditing(context);
+      const control = await gitControlDigest(context.cwd);
       if (options.signal?.aborted) throw new Error('Interrupted before native implementation dispatch');
       // The request file is written before the dispatch boundary below; from that commit on the worker may
       // have started a provider turn and is never started again.
@@ -246,6 +264,10 @@ export class Implementations {
       this.store.transaction(() => {
         run.dispatch = 'requested';
         this.save(run, 'implementation.dispatched');
+        this.store.appendExecution(execution.id, 'implementation.git_control', {
+          implementationId: run.id,
+          digest: control,
+        } satisfies z.infer<typeof gitControlEventSchema>);
       });
       run.process = await runner({
         file: process.execPath,

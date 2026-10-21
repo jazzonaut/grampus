@@ -43,6 +43,8 @@ test(
     const ready = await f.tasks.run(id);
     assert.equal(ready.status, 'awaiting_scope', ready.note);
     assert.notEqual(ready.executionId, submitted.executionId);
+    // A revision starts the attempt fresh: the first execution of version 2 is not a repair.
+    assert.equal(f.store.execution(ready.executionId!).stage, 'implementation');
     const assessed = await f.tasks.authorize(id);
     assert.equal(assessed.status, 'awaiting_assessment', assessed.note);
     const done = await f.tasks.assess(id, 'passed', 'Reinspected the revised task and its single output statement');

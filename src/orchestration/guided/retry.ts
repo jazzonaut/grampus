@@ -11,15 +11,15 @@ import { workspacePath, type GuidedContext } from './context.js';
 import { required, type GuidedState } from './state.js';
 import { automatic, preparationSpec } from './specs.js';
 import { guidedSnapshot, requireGuidedSnapshot } from './snapshots.js';
-import { repairDiagnostic } from '../../verification/failure-focus.js';
-import { currentSlice } from './specs.js';
 
 /** What a retry needs: everything in the handler context except retry itself. */
 export type RetryContext = Omit<GuidedContext, 'prepareRetry'>;
 
 /**
  * Compact, bounded evidence from the failed attempt for the next implementer turn: the failing check
- * (or the stop note), the previous reply and the latest review verdict.
+ * (or the stop note), the previous reply, the latest review verdict and any answers given but not yet
+ * delivered. Those answers belong to the closed session's questions, so the new attempt can only
+ * receive them here; dropping them would silently lose a person's decision.
  */
 function retryFeedback({ store, checks, executions }: RetryContext, state: GuidedState): string {
   const sessions = new Sessions(store);
@@ -29,10 +29,23 @@ function retryFeedback({ store, checks, executions }: RetryContext, state: Guide
     : state.executionId
       ? store.checks(state.executionId).findLast(check => check.phase === 'failed')
       : null;
+  // While a step runs, the note only names it ("Running review."); a review repair's reason is its verdict.
+  const note =
+    state.status === 'running'
+      ? state.reviewId
+        ? 'The independent review raised blocking findings; see review.'
+        : null
+      : outputExcerpt(state.note, checkOutputLimits.feedbackCharacters);
+  const answers = state.answers;
+  const undelivered = answers
+    ? (previous?.questions ?? []).flatMap(question =>
+        answers[question.id] === undefined ? [] : [{ question: question.prompt, answer: answers[question.id] }],
+      )
+    : [];
   return JSON.stringify({
-    reason: failedCheck ? checkIssue(failedCheck) : outputExcerpt(state.note, checkOutputLimits.feedbackCharacters),
+    reason: failedCheck ? checkIssue(failedCheck) : note,
+    ...(undelivered.length ? { answeredQuestions: undelivered } : {}),
     check: failedCheck ? checkFeedback(failedCheck) : null,
-    focusedRepair: failedCheck ? repairDiagnostic(failedCheck, currentSlice(state).diagnostics) : null,
     readiness: state.executionId
       ? store
           .checks(state.executionId)
@@ -84,6 +97,8 @@ export function prepareRetry(context: RetryContext, type: string, explicitSnapsh
       current.policy = null;
       current.assessments = [];
       current.answers = null;
+      // The failure is now in the feedback; a later stop of the new attempt must not quote it again.
+      current.failedCheckId = null;
       current.reviewCycle.arbitrating = false;
     });
   });
@@ -155,4 +170,30 @@ export async function preparationRetrySnapshot(
   )
     throw new Error('Preparation changed repository inputs; inspect and revise the plan before retrying');
   return snapshot;
+}
+
+/**
+ * A review turn that failed or was interrupted produced no verdict, so the verified candidate is still
+ * owed one. The review runs again in a fresh review execution on the same attempt, resuming the
+ * reviewer where the policy allows, instead of a new implementation attempt and its checks. The
+ * workspace must still hold exactly the reviewed artifact.
+ */
+export async function prepareReviewRetry(context: RetryContext, state: GuidedState): Promise<void> {
+  const { store, checks, executions, change } = context;
+  const snapshot = await checks.snapshot(required(state, 'executionId'));
+  const checked = required(state, 'snapshot');
+  if (snapshot.artifact !== checked.artifact || snapshot.instructionsDigest !== checked.instructionsDigest)
+    throw new Error('The workspace changed since the candidate was verified; use Retry repair for a new attempt');
+  store.transaction(() => {
+    const reviewId = state.reviewId;
+    if (reviewId && executions.get(reviewId).phase !== 'closed') executions.close(reviewId);
+    change('guided.review_retry_requested', current => {
+      current.reviewContinuation = reviewId ?? current.reviewContinuation;
+      current.reviewId = null;
+      current.stage = 'review_execution';
+      current.status = 'ready';
+      current.stopReason = null;
+      current.note = '';
+    });
+  });
 }

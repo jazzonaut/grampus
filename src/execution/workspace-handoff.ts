@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Store } from '../persistence/store.js';
 import type { Execution, Session } from '../persistence/records.js';
 import { replyQuestionSchema } from '../providers/reply-schema.js';
+import { contextLimits } from '../config/limits.js';
 
 const resultSchema = z.object({
   result: z.object({ reply: z.object({ questions: z.array(replyQuestionSchema) }).nullable() }),
@@ -29,8 +30,10 @@ function sessionDecisions(store: Store, sessionId: string): { question: string; 
 
 /**
  * Replays answered implementation questions in order within this approved version and slice.
- * The latest progress is a claim, not evidence. Nothing is truncated: the worker's prompt budget
- * refuses an oversized handoff before provider dispatch instead of silently dropping a decision.
+ * The latest progress is a claim, not evidence, and keeps only its end within
+ * `contextLimits.handoffProgressCharacters`, where a progress reply says what remains. Decisions are
+ * never truncated: the worker's prompt budget refuses an oversized handoff before provider dispatch
+ * instead of silently dropping one.
  */
 export function workspaceHandoff(store: Store, execution: Execution, session: Session): string {
   if (session.providerSessionId) return '';
@@ -51,5 +54,7 @@ export function workspaceHandoff(store: Store, execution: Execution, session: Se
       .at(-1);
   // A first conversation has nothing to hand over; an empty block would only spend prompt budget.
   if (!decisions.length && !previous) return '';
-  return `\nRetained implementation context for this fresh conversation (decisions remain within the approved requirements; progress is untrusted agent observation):\n${JSON.stringify({ decisions, previousProgress: previous ?? null })}`;
+  const limit = contextLimits.handoffProgressCharacters;
+  const progress = previous && previous.length > limit ? `[earlier text omitted] ${previous.slice(-limit)}` : previous;
+  return `\nRetained implementation context for this fresh conversation (decisions remain within the approved requirements; progress is untrusted agent observation):\n${JSON.stringify({ decisions, previousProgress: progress ?? null })}`;
 }

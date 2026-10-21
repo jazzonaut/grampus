@@ -29,4 +29,15 @@ test('a failed reviewer connection exposes its provider error without replaying 
   assert.equal(guidedTaskView(f.store, id).deliveries.length, 0);
   await assert.rejects(tasks.run(id), /blocked/);
   assert.equal(connections, 1);
+  // Retrying a review that produced no verdict reviews the same verified candidate again: no new
+  // implementation attempt, no rerun checks.
+  const implementations = () => f.store.executions(id).filter(item => item.role === 'implementation').length;
+  const checks = () => f.store.executions(id).flatMap(item => f.store.checks(item.id)).length;
+  const [before, checked] = [implementations(), checks()];
+  const retried = await tasks.retry(id);
+  assert.equal(retried.stopReason?.code, 'REVIEW_TURN_FAILED', retried.note);
+  assert.equal(connections, 2);
+  assert.equal(implementations(), before);
+  assert.equal(checks(), checked);
+  assert.equal(f.store.executions(id).filter(item => item.role === 'review').length, 2);
 });

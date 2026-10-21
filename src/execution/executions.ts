@@ -102,8 +102,9 @@ export class Executions {
   get(id: string): Execution {
     return this.store.execution(id);
   }
-  list(): Execution[] {
-    return this.store.executions();
+  /** Every execution, or only `taskId`'s, in creation order. */
+  list(taskId?: string): Execution[] {
+    return this.store.executions(taskId);
   }
 
   /**
@@ -304,9 +305,10 @@ export class Executions {
   ): Execution {
     const role = options.role ?? 'implementation';
     const sliceIndex = task.slice?.index ?? 0;
+    // A revision starts every attempt fresh, so only this version's earlier attempts make this a repair.
     const repeated = this.store
-      .executions()
-      .some(item => item.taskId === task.id && item.role === 'implementation' && item.sliceIndex === sliceIndex);
+      .executions(task.id)
+      .some(item => item.version === task.version && item.role === 'implementation' && item.sliceIndex === sliceIndex);
     return {
       stage:
         role === 'review' ? (options.arbitration ? 'arbitration' : 'review') : repeated ? 'repair' : 'implementation',

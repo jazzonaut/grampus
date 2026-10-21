@@ -38,8 +38,9 @@ recorded.
 
 ## Current verification limits
 
-Native implementation has no filesystem or command sandbox. Git and repository instruction
-changes are detected at settlement; this is not isolation from arbitrary native commands.
+Native implementation has no filesystem or command sandbox. Changes to HEAD, the index, repository
+instructions (including override and local instruction files), Git configuration, ignore rules and
+hooks are detected at settlement; this is not isolation from arbitrary native commands.
 Artifact digests exclude ignored dependencies, caches and external services. Passing checks and
 independent review do not establish correctness beyond their observed coverage.
 

@@ -21,7 +21,7 @@ const phaseLabels: Record<string, string> = {
 /** Missing phase measurements remain absent; they are never inferred from provider wall time. */
 export function executionPhases(store: Store, taskId: string) {
   const totals = new Map<string, { phase: string; observations: number; failed: number; elapsedMs: number }>();
-  const executions = store.executions().filter(item => item.taskId === taskId);
+  const executions = store.executions(taskId);
   const sessions = new Set([
     ...executions.map(item => item.sessionId),
     ...taskTurnUsage(store, taskId).map(item => item.sessionId),

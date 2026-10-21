@@ -44,16 +44,13 @@ function captureRun(store: Store, taskId: string) {
   return store.transaction(() => {
     const task = store.get(taskId);
     const events = store.events(taskId);
-    const executions = store
-      .executions()
-      .filter(item => item.taskId === taskId)
-      .map(execution => ({
-        record: execution,
-        events: store.executionEvents(execution.id),
-        checks: store.checks(execution.id),
-        implementations: store.implementations(execution.id),
-        deliveries: store.deliveries(execution.id),
-      }));
+    const executions = store.executions(taskId).map(execution => ({
+      record: execution,
+      events: store.executionEvents(execution.id),
+      checks: store.checks(execution.id),
+      implementations: store.implementations(execution.id),
+      deliveries: store.deliveries(execution.id),
+    }));
     const ids = new Set(executions.map(item => item.record.sessionId));
     for (const turn of taskTurnUsage(store, taskId)) ids.add(turn.sessionId);
     for (const event of events.filter(item => item.type === 'guided.kickoff_linked')) {

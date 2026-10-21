@@ -22,12 +22,13 @@ export function implementer(
   { id, state, store }: GuidedContext & { state: GuidedState },
   excluding?: string,
 ): GuidedAgent {
+  // Matches the execution's own usage stage (executions.ts): a revision starts every attempt fresh.
   const repairing = store
-    .executions()
+    .executions(id)
     .some(
       item =>
         item.id !== excluding &&
-        item.taskId === id &&
+        item.version === state.version &&
         item.role === 'implementation' &&
         item.sliceIndex === state.sliceIndex,
     );

@@ -97,10 +97,7 @@ export function runMetrics(store: Store, taskId: string) {
   const startedAt = timing?.startedAt ?? turns[0]?.requestedAt ?? null;
   const completedAt = timing?.completedAt ?? completionTime(task.guided?.status, events);
   const times = turns.flatMap(turn => (turn.wallMs === null ? [] : [turn.wallMs]));
-  const checks = store
-    .executions()
-    .filter(item => item.taskId === taskId)
-    .flatMap(item => store.checks(item.id));
+  const checks = store.executions(taskId).flatMap(item => store.checks(item.id));
   return {
     taskId,
     title: task.brief.title,

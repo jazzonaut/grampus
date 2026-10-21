@@ -2,11 +2,13 @@
 // through Git plumbing with no filters, hooks or diff drivers, and hashed into one artifact digest.
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync } from 'node:fs';
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { lstatSync, readdirSync, readFileSync, readlinkSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { formatBytes, processLimits, repositoryLimits } from '../config/limits.js';
 import type { RepositorySnapshot } from './snapshot-schema.js';
 import { lsTreeLongEntry } from './git-output.js';
+import { instructionFileNames, instructionPath } from './repository-context.js';
 import { systemErrorCode } from '../process/boundary.js';
 
 export type { RepositorySnapshot } from './snapshot-schema.js';
@@ -159,7 +161,7 @@ function addInheritedInstructions(cwd: string, instructions: RepositorySnapshot[
   let parent = resolve(cwd);
   let level = 0;
   for (;;) {
-    for (const name of ['AGENTS.md', 'CLAUDE.md']) {
+    for (const name of instructionFileNames) {
       if (level === 0 && instructions.some(item => item.path === name)) continue;
       const content = readEvidenceFile(join(parent, name));
       if (content !== null)
@@ -210,8 +212,7 @@ export async function snapshotRepository(cwd: string, base: string): Promise<Rep
       sha256: content === null ? null : digest(content),
       executable: content !== null && process.platform !== 'win32' && !!(lstatSync(path).mode & 0o111),
     });
-    if (content !== null && ['AGENTS.md', 'CLAUDE.md'].includes(basename(name)))
-      instructions.push({ path: name, content: content.toString('utf8') });
+    if (content !== null && instructionPath(name)) instructions.push({ path: name, content: content.toString('utf8') });
     const original = baseline.get(name);
     const change = fileChange(name, content, original?.oid ?? null, objectFormat);
     if (!change) continue;
@@ -228,4 +229,61 @@ export async function snapshotRepository(cwd: string, base: string): Promise<Rep
   const instructionsDigest = digest(JSON.stringify(instructions));
   const artifact = `sha256:${digest(JSON.stringify({ head, index, files, diff, instructionsDigest }))}`;
   return { artifact, head, index, files, diff, instructions, instructionsDigest };
+}
+
+/** A digest of one control file or link; missing is a value of its own, never an error. */
+function controlEntry(path: string): string | null {
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch (error) {
+    if (systemErrorCode(error) === 'ENOENT') return null;
+    throw error;
+  }
+  if (stat.isSymbolicLink()) return `link:${readlinkSync(path)}`;
+  if (stat.isDirectory()) return 'directory';
+  if (stat.size > repositoryLimits.fileBytes) return `oversized:${stat.size}:${stat.mtimeMs}`;
+  return digest(readFileSync(path));
+}
+
+/** The user-level ignore file Git reads when `core.excludesFile` is unset. */
+function defaultExcludesFile(): string {
+  const base = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+  return join(base, 'git', 'ignore');
+}
+
+/**
+ * Git control state that changes what Git hides, runs or commits without changing a snapshot: the
+ * effective configuration at every level, the ignore files outside the worktree and the hooks Git
+ * would run. Snapshots exclude it so a person's own Git setup never invalidates evidence; native
+ * execution compares it around a turn because an agent with a shell can change it.
+ */
+export async function gitControlDigest(cwd: string): Promise<string> {
+  const config = await git(cwd, ['config', '--list', '--show-origin', '-z']);
+  const [common = '', hooks = ''] = (
+    await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir', '--git-path', 'hooks'])
+  )
+    .split(/\r?\n/)
+    .filter(Boolean);
+  // `-z` output alternates origin and `key\nvalue`; keys are already lower case. The last value wins.
+  const excludes = config
+    .split('\0')
+    .filter((entry, index) => index % 2 === 1 && entry.startsWith('core.excludesfile\n'))
+    .map(entry => entry.slice(entry.indexOf('\n') + 1))
+    .at(-1);
+  const excludesFile = excludes ? resolve(excludes.replace(/^~(?=$|[\\/])/, homedir())) : defaultExcludesFile();
+  let hookNames: string[] = [];
+  try {
+    hookNames = readdirSync(hooks).sort();
+  } catch (error) {
+    if (systemErrorCode(error) !== 'ENOENT' && systemErrorCode(error) !== 'ENOTDIR') throw error;
+  }
+  return digest(
+    JSON.stringify({
+      config,
+      exclude: controlEntry(join(common, 'info', 'exclude')),
+      excludesFile: [excludesFile, controlEntry(excludesFile)],
+      hooks: [hooks, hookNames.map(name => [name, controlEntry(join(hooks, name))])],
+    }),
+  );
 }

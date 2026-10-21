@@ -24,13 +24,8 @@ export class DiagnosticBudget {
     const run = this.store.implementation(this.implementationId),
       execution = this.store.execution(run.executionId);
     return this.store
-      .executions()
-      .filter(
-        item =>
-          item.taskId === execution.taskId &&
-          item.version === execution.version &&
-          item.sliceIndex === execution.sliceIndex,
-      )
+      .executions(execution.taskId)
+      .filter(item => item.version === execution.version && item.sliceIndex === execution.sliceIndex)
       .flatMap(item =>
         this.store.executionEvents(item.id, [
           'implementation.diagnostic_requested',

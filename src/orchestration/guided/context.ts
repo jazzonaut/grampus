@@ -130,7 +130,7 @@ export function adoptOne<T extends { id: string }>(items: T[], pending: Pending)
  */
 export function requireOrigin(context: GuidedContext, executionId: string, runId: string, pending: Pending): void {
   const lease = context.store
-    .executionEvents(executionId)
+    .executionEvents(executionId, ['lease.acquired'])
     .flatMap(event => {
       if (event.type !== 'lease.acquired') return [];
       const parsed = leaseOriginSchema.safeParse(event.data);

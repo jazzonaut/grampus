@@ -79,7 +79,10 @@ continue indefinitely.
 A submitted candidate is not success. Each check binds to the version, attempt, artifact and
 repository instructions; every named acceptance check must pass. Acceptance observations must verify
 behaviour, not just an exit status or invented success marker. The independent reviewer sees those
-actual results before issuing a verdict. Later edits require fresh checks and review.
+actual results, and only the checks bound to the artifact it reviews, before issuing a verdict;
+without repository exploration it receives bounded output excerpts in place of `grampus_read_check`.
+A reviewer cannot pass bytes it already blocked; only arbitration may. Later edits require fresh
+checks and review.
 
 Infrastructure failures, unknown exits, mutating checks and unavailable evidence remain explicit
 stops. No-progress and exhausted repair allowances stop for attention. Ordinary confirmed check
@@ -482,9 +485,11 @@ controller-run checks. Declared independent readiness checks can run together un
 
 Progress turns preserve the execution and provider conversation. Approved turn/context thresholds
 rotate the provider conversation only between settled turns, keeping the current artifact, brief,
-criteria, answered implementation questions and the latest implementation summary. The original
-question text accompanies each answer; summaries remain untrusted observations. An oversized
-handoff is refused before provider dispatch rather than silently dropping decisions.
+criteria, answered implementation questions and the latest implementation summary (its last
+4,000 characters). The original question text accompanies each answer; summaries remain untrusted
+observations. Decisions are never truncated: an oversized handoff is refused before provider
+dispatch rather than silently dropping one. Answers given at workspace confirmation and not yet
+delivered travel with the retry feedback when a person chooses **Retry repair** instead.
 Repairs create a new attempt and may resume the slice conversation.
 Implementation and review never share a conversation.
 

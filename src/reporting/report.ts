@@ -44,8 +44,7 @@ export function renderReport(store: Store, id: string): string {
     briefSlices = task.brief.slices;
   const usage = taskUsage(store, id);
   const exploration = store
-    .executions()
-    .filter(execution => execution.taskId === id)
+    .executions(id)
     .map(execution => ({
       role: execution.role,
       sessionId: execution.sessionId,

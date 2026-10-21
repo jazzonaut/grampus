@@ -44,6 +44,24 @@ export interface QualityPassPromptInput {
   pass: QualityPassDefinition;
   /** Suggested setup or generation for the implementer, without restricting native commands. */
   slicePreparation: GuidedCommand | undefined;
+  /** The pass's previous turn was a progress update rather than its candidate. */
+  continuing?: boolean;
+}
+
+/** Sent after a progress update so the agent resumes rather than restarts. */
+export const progressContinuationNote =
+  'The previous turn was a progress update, not a candidate submission. Continue the unfinished work, investigate ordinary failures and submit kind=candidate only when ready for verification.';
+
+/**
+ * Implementation feedback after a progress update: the continuation note ahead of the evidence that
+ * started the work, so a fresh conversation after rotation still sees the failure it is repairing.
+ * Idempotent, so repeated progress turns never stack the note.
+ */
+export function progressFeedback(feedback: string): string {
+  if (feedback.startsWith(progressContinuationNote)) return feedback;
+  return feedback
+    ? `${progressContinuationNote}\n\nEvidence this work responds to:\n${feedback}`
+    : progressContinuationNote;
 }
 
 /**
@@ -51,11 +69,11 @@ export interface QualityPassPromptInput {
  * successful turn. The pass instructions come from the approved plan. Validation runs only after the
  * passes, so a pass must keep the slice's behaviour and tests.
  */
-export function qualityPassPrompt({ pass, slicePreparation }: QualityPassPromptInput): string {
+export function qualityPassPrompt({ pass, slicePreparation, continuing }: QualityPassPromptInput): string {
   const preparation = slicePreparation
     ? `Suggested setup: ${JSON.stringify(slicePreparation)}. Adapt and run it yourself when needed.\n`
     : '';
-  return `Apply the approved ${JSON.stringify(pass.title)} quality pass (${pass.id}) using native workspace tools. Approved instructions:\n${pass.instructions}\nPreserve the slice's required behaviour and never weaken a valid test. Adapt files and commands as needed. Complete meaningful checks and submit kind=candidate when ready for controller validation, acceptance and independent review. If nothing needs to change, submit the unchanged candidate and explain why. Use kind=message for unfinished progress; ask kind=question only for a consequential user decision.\n${preparation}`;
+  return `${continuing ? `${progressContinuationNote}\n` : ''}Apply the approved ${JSON.stringify(pass.title)} quality pass (${pass.id}) using native workspace tools. Approved instructions:\n${pass.instructions}\nPreserve the slice's required behaviour and never weaken a valid test. Adapt files and commands as needed. Complete meaningful checks and submit kind=candidate when ready for controller validation, acceptance and independent review. If nothing needs to change, submit the unchanged candidate and explain why. Use kind=message for unfinished progress; ask kind=question only for a consequential user decision.\n${preparation}`;
 }
 
 /** What the review prompt depends on. */

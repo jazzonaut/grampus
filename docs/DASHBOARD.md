@@ -193,7 +193,7 @@ Up to `maxConcurrentTasks` guided tasks (2 by default, at most 4, see
 source repository. The home screen shows how many slots are taken, for example **1 of 2 guided
 tasks running**. A task stopped for recovery keeps its slot until **Recover saved work** settles
 it. While every slot is taken, **Continue task**, **Confirm workspace and start**, **Refresh
-file checkpoint**, the assessment and answer forms, **Retry**, **Retry preparation** and **Rerun
+file checkpoint**, the assessment and answer forms, **Retry**, **Retry preparation**, **Retry review** and **Rerun
 checks** are disabled with the reason, for example **2 of 2 tasks are already running**. An action
 sent anyway (from a page shown before the pool filled) is refused before any worker starts and the
 page shows a calm **Waiting for a free runner slot** notice; nothing changed. Nothing is queued:
@@ -213,6 +213,7 @@ the fields.
 | **Retry repair** | Starts a fresh attempt, keeping files and resuming eligible conversations. For a comparison, queues behind the active run or starts immediately when idle, including after the comparison completes. Queued retries are labelled and duplicate clicks are disabled |
 | **Rerun checks** | Shown only when a validation or acceptance check stopped for an infrastructure reason (timeout, interruption, lost output, abnormal exit or runner error) on an unchanged change. Runs the same check again with no agent turn and no new attempt; refused if the workspace changed since |
 | **Retry preparation** | Reruns a failed preparation step in the same attempt |
+| **Retry review** | Shown when a review turn failed or was interrupted without a verdict. Reviews the same verified candidate again in a fresh review execution, with no new implementation attempt or checks; refused if the workspace changed since. **Retry repair** remains available for a new attempt |
 | **Recover saved work** | Runs the same conservative receipt checks as `task-recover` after a controller exits |
 | **Revise this task's plan** | At a settled point, edit the name, outcome, approach, workflow mode, repair, task spending and conversation limits, review repairs and arbitration, quality passes (chosen and ordered), or (advanced) the plan JSON with files, checks, criteria and remaining slices. Needs fresh approval |
 | **Release unused reservation** | Clears a failed standalone worktree reservation once Git exit and absence of files are confirmed. Deletes nothing |

@@ -146,9 +146,15 @@ setup, generation, formatting, diagnostics and selected edit quality passes with
 Optional file lists and slice setup/formatting commands are suggestions, not runtime permissions.
 The `scope` checkpoint captures the current artifact and builds a workspace policy, rather than
 an exact file grant. The worker preserves controller-owned Git and repository instruction state.
+Settlement also compares a Git control digest taken at dispatch (`gitControlDigest`: effective Git
+configuration at every level, `info/exclude`, the global ignore file and the hooks directory), which
+snapshots deliberately exclude, so an agent cannot hide files from delivery or install hooks unnoticed.
 
 A completed provider turn with `kind=message` is unfinished progress: the next `implementation`
-step continues the same execution on the resulting artifact, without spending repair allowance.
+step continues the same execution on the resulting artifact, without spending repair allowance. The
+repair evidence that started the work stays in its feedback behind a continuation note, so a fresh
+conversation after rotation still sees the failure it is fixing; an edit quality pass is told it is
+resuming and records the artifact the pass started from.
 Only `kind=candidate` advances to readiness and validation. Questions wait for an answer.
 Task-wide spending and context rotation apply at each settled turn. There is no automatic
 post-turn formatter or diagnostic-family budget in native execution.
@@ -460,7 +466,8 @@ continue to prevent reuse. Deleted tasks cannot dispatch further work. Ordinary 
 still refuse uncertain operations.
 
 A repository snapshot (`repository/artifacts.ts`, `repository/repository-evidence.ts`) hashes HEAD, index entries, the raw
-bytes of tracked and non-ignored untracked files and discovered `AGENTS.md`/`CLAUDE.md` instructions
+bytes of tracked and non-ignored untracked files and discovered `AGENTS.md`, `AGENTS.override.md`,
+`CLAUDE.md` and `CLAUDE.local.md` instructions
 into a SHA-256 artifact digest. A stable capture takes two matching reads. Git plumbing reads raw
 blobs without filters or diff drivers. Ignored dependencies, environment and external services are
 outside the digest. Symlinks and submodules are refused.
@@ -919,7 +926,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `quality-passes.ts` | Quality pass definitions, built-ins, plan selection and lens assessments |
 | | `acceptance.ts` | Acceptance expectations and observations against retained output |
 | | `deep-equal.ts` | Structural equality for stored JSON-shaped records |
-| `orchestration/guided/` | `controller.ts`, `diagnostic-approval.ts`, `focused-repair.ts` | Guided task controller, explicit diagnostic decisions and focused repair prerequisites |
+| `orchestration/guided/` | `controller.ts`, `diagnostic-approval.ts` | Guided task controller and explicit diagnostic decisions |
 | | `runner-pool.ts` | The bounded runner pool (`maxConcurrentTasks`), its typed refusal and the pool view |
 | | `state.ts`, `keys.ts`, `stop-reasons.ts` | Guided state types; decision and question keys; typed stop reason codes |
 | | `context.ts`, `specs.ts`, `prompts.ts` | Stage handler contract and result adoption; exact leaf requests; agent prompts |

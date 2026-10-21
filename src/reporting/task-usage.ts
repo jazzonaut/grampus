@@ -379,12 +379,7 @@ function interventions(events: JournalEvent[]): Interventions {
 
 /** The Grampus sessions whose turns count for a task: its executions and its planning conversation. */
 function linkedSessions(store: Store, taskId: string): string[] {
-  const ids = new Set(
-    store
-      .executions()
-      .filter(item => item.taskId === taskId)
-      .map(item => item.sessionId),
-  );
+  const ids = new Set(store.executions(taskId).map(item => item.sessionId));
   for (const event of store.events(taskId, ['guided.kickoff_linked'])) {
     const linked = linkedSession.safeParse(event.data);
     if (linked.success) ids.add(linked.data.sessionId);
@@ -402,10 +397,19 @@ export function taskUsage(store: Store, taskId: string): TaskUsage {
   return aggregateUsage(
     store,
     linkedSessions(store, taskId),
-    store.executions().filter(item => item.taskId === taskId && item.stage === 'repair').length,
+    store.executions(taskId).filter(item => item.stage === 'repair').length,
     interventions(events),
     events,
   );
+}
+
+/**
+ * The task's turn and token measurements without its event journal: what the spending gate needs
+ * before every agent step. Interventions, repair counts and timing are left empty, so use
+ * {@link taskUsage} for display and reports.
+ */
+export function taskSpendingUsage(store: Store, taskId: string): TaskUsage {
+  return aggregateUsage(store, linkedSessions(store, taskId), 0, interventions([]));
 }
 
 /** Measured planning usage before or after conversion; the linked task uses the same session ledger. */

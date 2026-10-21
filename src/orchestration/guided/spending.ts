@@ -2,7 +2,7 @@
 // counter, so restarting, revising, repairing or rotating conversations cannot replenish them.
 import type { WorkflowPolicy } from '../../domain/workflow-policy.js';
 import type { Store } from '../../persistence/store.js';
-import { taskUsage, type TaskUsage, type UsageField } from '../../reporting/task-usage.js';
+import { taskSpendingUsage, type TaskUsage, type UsageField } from '../../reporting/task-usage.js';
 import type { GuidedState } from './state.js';
 import type { StopReasonCode } from './stop-reasons.js';
 
@@ -89,7 +89,8 @@ const codes = {
 /** Refuses only agent stages; settlement, checks, recovery and already verified delivery remain possible. */
 export function spendingStop(store: Store, id: string, state: GuidedState) {
   if (!['implementation', 'quality_pass', 'review'].includes(state.stage)) return null;
-  const spending = spendingStatus(taskUsage(store, id), state.plan.workflowPolicy);
+  // Runs before every agent step under the write lock, so it reads sessions, never the task journal.
+  const spending = spendingStatus(taskSpendingUsage(store, id), state.plan.workflowPolicy);
   return spending.status === 'available'
     ? null
     : {

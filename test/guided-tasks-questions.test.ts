@@ -210,3 +210,40 @@ test(
     assert.equal(done.status, 'complete', done.note);
   },
 );
+
+test('a retry from workspace confirmation keeps answers that were not yet delivered', windows, async t => {
+  const f = fixture(t);
+  let calls = 0;
+  const question: Reply = {
+    kind: 'question',
+    text: 'Confirm greeting',
+    questions: [{ id: 'wording', prompt: 'Use hello world?', choices: ['yes'] }],
+    findings: [],
+  };
+  const tasks = new GuidedTasks(f.store, {
+    ...services(),
+    implementationRunner: options => {
+      calls++;
+      const request = JSON.parse(readFileSync(options.args.at(-1)!, 'utf8')) as { prompt: string };
+      if (calls === 2) {
+        assert.match(request.prompt, /Use hello world\?/);
+        assert.match(request.prompt, /yes, hello world/);
+      }
+      return services(
+        calls === 1 ? "console.log('partial');\n" : "console.log('hello world');\n",
+        calls === 1 ? question : message,
+      ).implementationRunner!(options);
+    },
+  });
+  const id = f.create();
+  await tasks.run(id);
+  await tasks.authorize(id);
+  const answered = await tasks.answer(id, { wording: 'yes, hello world' });
+  assert.equal(answered.status, 'awaiting_scope', answered.note);
+  const retried = await tasks.retry(id);
+  assert.equal(retried.status, 'awaiting_scope', retried.note);
+  assert.notEqual(retried.executionId, answered.executionId);
+  const checkpoint = await tasks.authorize(id);
+  assert.equal(checkpoint.status, 'awaiting_assessment', checkpoint.note);
+  assert.equal(calls, 2);
+});

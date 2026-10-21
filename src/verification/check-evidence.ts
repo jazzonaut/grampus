@@ -11,21 +11,23 @@ import { checkFeedback } from './check-output.js';
  */
 export function taskCheckEvidence(store: Store, execution: Execution): RepositoryCheck[] {
   return store
-    .executions()
-    .filter(item => item.taskId === execution.taskId && item.version === execution.version)
+    .executions(execution.taskId)
+    .filter(item => item.version === execution.version)
     .flatMap(item => store.checks(item.id))
     .filter(check => !['running', 'recovery_required'].includes(check.phase));
 }
 
 /**
- * JSON summary of the last five checks for a prompt. Output previews and the command line are dropped to
- * keep the prompt small; agents read full output through `grampus_read_check`.
+ * Every retained check bound to the reviewed artifact, never results for other bytes. Without the
+ * `grampus_read_check` tool the bounded output excerpts stay in, because they are all the reviewer sees.
  */
-export function checkEvidenceSummary(checks: RepositoryCheck[]): string {
+export function reviewCheckEvidence(checks: RepositoryCheck[], artifact: string | null, readable: boolean): string {
   return JSON.stringify(
-    checks.slice(-5).map(check => {
-      const { stdout: _stdout, stderr: _stderr, command: _command, ...summary } = checkFeedback(check);
-      return summary;
-    }),
+    checks
+      .filter(check => check.spec.artifact === artifact)
+      .map(check => {
+        const { stdout, stderr, command: _command, readMore, ...summary } = checkFeedback(check);
+        return readable ? { ...summary, readMore } : { ...summary, stdout, stderr };
+      }),
   );
 }

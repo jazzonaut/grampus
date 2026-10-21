@@ -85,6 +85,7 @@ export type ActionId =
   | 'diagnostic-allowance'
   | 'retry'
   | 'retry-preparation'
+  | 'retry-review'
   | 'rerun-checks'
   | 'recover'
   | 'release-workspace'

@@ -30,13 +30,8 @@ export function reusableRestore(
     return null;
   const { artifact: _artifact, ...expected } = check.spec;
   const candidates = store
-    .executions()
-    .filter(
-      item =>
-        item.workspaceId === execution.workspaceId &&
-        item.taskId === execution.taskId &&
-        item.version === execution.version,
-    )
+    .executions(execution.taskId)
+    .filter(item => item.workspaceId === execution.workspaceId && item.version === execution.version)
     .flatMap(item => store.checks(item.id));
   const source = candidates.findLast(item => {
     const { artifact: _previous, ...spec } = item.spec;

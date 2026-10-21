@@ -270,6 +270,11 @@ export const contextLimits = {
   fileBytes: 128 * KiB,
   /** Files in selected or required context. */
   files: 256,
+  /**
+   * Characters of the untrusted latest progress carried into a fresh native conversation. Answered
+   * decisions are never truncated; this keeps one long reply from making every rotation overflow.
+   */
+  handoffProgressCharacters: 4000,
 } as const;
 
 /** Reference folders: read-only roots approved with the plan. */

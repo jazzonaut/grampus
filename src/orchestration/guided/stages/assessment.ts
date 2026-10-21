@@ -30,6 +30,9 @@ export const assessmentStage: StageHandler = {
       pending,
     );
     // Assessment writes nothing to the repository, so a missing result is safe to ask for again.
+    // Automatic mode records the reviewer's own queued verdicts: recovery repeats the step with the
+    // queue intact rather than asking a person to retype what the reviewer already supplied.
+    if (!result && automatic(state)) return { kind: 'missing' };
     if (!result)
       return {
         kind: 'wait',

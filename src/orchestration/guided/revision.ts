@@ -90,7 +90,7 @@ export async function draftRevision(
  * transaction that commits the revision.
  */
 export function requireLinkedSessionsSettled({ id, store, executions }: GuidedContext): void {
-  const linked = executions.list().filter(execution => execution.taskId === id);
+  const linked = executions.list(id);
   if (
     linked.some(execution => {
       const session = store.session(execution.sessionId);

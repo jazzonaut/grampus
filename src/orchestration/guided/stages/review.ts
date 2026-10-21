@@ -281,7 +281,15 @@ function settleReview(context: SettleContext): StageOutcome {
     return settleUnpassed(context, verdict);
   if (automatic(state)) {
     const reply = session.lastReply;
-    const progress = reply ? reviewProgress(priorBlockingFindings(context, state), [], reply, true) : 'unknown';
+    // As in a blocking verdict, the same bytes cannot resolve their own blockers. Arbitration alone
+    // judges an already blocked artifact, so only the reviewer is held to a changed one.
+    const repeatedArtifact =
+      !state.reviewCycle.arbitrating && state.reviewCycle.history.some(item => item.artifact === execution.artifact);
+    const progress = repeatedArtifact
+      ? 'stalled'
+      : reply
+        ? reviewProgress(priorBlockingFindings(context, state), [], reply, true)
+        : 'unknown';
     if (progress !== 'progress') {
       const code = state.reviewCycle.arbitrating
         ? 'ARBITRATION_UNRESOLVED'

@@ -132,8 +132,18 @@ export function contextPaths(value: unknown): string[] {
     throw new Error(`Context files must be at most ${contextLimits.files} distinct exact repository paths`);
   return parsed.data;
 }
-/** Whether a path is a repository instruction file (`AGENTS.md` or `CLAUDE.md` in any directory). */
-export const instructionPath = (path: string) => ['AGENTS.md', 'CLAUDE.md'].includes(basename(path));
+/**
+ * File names the pinned providers load as repository instructions in any directory. Codex reads
+ * `AGENTS.override.md` in place of `AGENTS.md`; Claude adds the usually ignored `CLAUDE.local.md`.
+ */
+export const instructionFileNames: readonly string[] = [
+  'AGENTS.md',
+  'AGENTS.override.md',
+  'CLAUDE.md',
+  'CLAUDE.local.md',
+];
+/** Whether a path is a repository instruction file ({@link instructionFileNames} in any directory). */
+export const instructionPath = (path: string) => instructionFileNames.includes(basename(path));
 
 /**
  * What a planner was shown of `tree`. `digest` binds the inventory to the exact selection, so a reply can

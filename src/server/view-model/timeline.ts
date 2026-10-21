@@ -46,6 +46,7 @@ const summaries: Readonly<Record<string, string>> = {
   'guided.comparison_retry_queued': 'Comparison repair retry queued',
   'guided.repair_decided': 'Repair policy decision',
   'guided.preparation_retry_requested': 'Preparation retry requested',
+  'guided.review_retry_requested': 'Review retry requested',
   'guided.checks_rerun_requested': 'Check rerun requested',
   'guided.recovery_requested': 'Recovery requested',
   'guided.recovery_blocked': 'Recovery could not prove what happened',

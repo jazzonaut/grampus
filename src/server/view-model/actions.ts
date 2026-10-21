@@ -509,6 +509,17 @@ const builders = {
       expected: f.expected,
       disabledReason: retryProblem(f),
     }),
+  'retry-review': f =>
+    action({
+      id: 'retry-review',
+      label: 'Retry review',
+      kind: 'primary',
+      description:
+        'Runs the independent review again on the unchanged, already verified candidate. No new implementation attempt or checks.',
+      path: route(f, 'retry'),
+      expected: f.expected,
+      disabledReason: retryProblem(f),
+    }),
   'retry-preparation': f =>
     action({
       id: 'retry-preparation',
@@ -627,6 +638,20 @@ export function resolvingActionIds(f: TaskActionFacts): TaskActionId[] {
   return settledResolving(f);
 }
 
+/** What resolves a blocked task: the stop reason decides, then the stopped stage. */
+function blockedResolving(f: TaskActionFacts): TaskActionId[] {
+  if (f.stopCode === 'DIAGNOSTIC_ALLOWANCE_REQUIRED')
+    return f.diagnosticAllowance && f.diagnosticAllowance.to > f.diagnosticAllowance.from
+      ? ['diagnostic-allowance', 'revise']
+      : ['revise'];
+  if (isSpendingStop(f.stopCode)) return ['revise'];
+  if (f.stopCode === 'GUIDANCE_PENDING') return [];
+  if (f.stopCode === 'USER_PAUSED') return ['run'];
+  if (f.stage === 'preparation' || f.stage === 'refresh') return ['retry-preparation'];
+  if (f.stage === 'review' && f.stopCode === 'REVIEW_TURN_FAILED') return ['retry-review', 'retry'];
+  return f.rerunProblem === null ? ['rerun-checks', 'retry'] : ['retry'];
+}
+
 function settledResolving(f: TaskActionFacts): TaskActionId[] {
   switch (f.status) {
     case 'draft':
@@ -640,15 +665,7 @@ function settledResolving(f: TaskActionFacts): TaskActionId[] {
     case 'awaiting_answer':
       return ['answer'];
     case 'blocked':
-      if (f.stopCode === 'DIAGNOSTIC_ALLOWANCE_REQUIRED')
-        return f.diagnosticAllowance && f.diagnosticAllowance.to > f.diagnosticAllowance.from
-          ? ['diagnostic-allowance', 'revise']
-          : ['revise'];
-      if (isSpendingStop(f.stopCode)) return ['revise'];
-      if (f.stopCode === 'GUIDANCE_PENDING') return [];
-      if (f.stopCode === 'USER_PAUSED') return ['run'];
-      if (f.stage === 'preparation' || f.stage === 'refresh') return ['retry-preparation'];
-      return f.rerunProblem === null ? ['rerun-checks', 'retry'] : ['retry'];
+      return blockedResolving(f);
     case 'running':
       return ['recover'];
     case 'recovery_required':

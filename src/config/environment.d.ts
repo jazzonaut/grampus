@@ -24,6 +24,8 @@ declare global {
       CLAUDE_CONFIG_DIR?: string;
       /** An API key source that the Claude adapter refuses in favour of a first-party subscription. */
       ANTHROPIC_API_KEY?: string;
+      /** Git's user configuration root, which locates the default global ignore file. */
+      XDG_CONFIG_HOME?: string;
       /** Windows per-user application data root for the default data directory. */
       LOCALAPPDATA?: string;
       /** Windows roaming application data root, required by the Orca CLI to locate its runtime. */

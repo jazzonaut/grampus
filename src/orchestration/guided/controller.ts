@@ -26,7 +26,7 @@ import { guidedDecisionDigest, guidedDecisionKey, guidedQuestionKey } from './ke
 import { rerunChecksIneligibility } from './rerun.js';
 import { assertRunnerAvailable } from './runner-pool.js';
 import { recoverLeafOperations } from './recovery.js';
-import { implementationRetrySnapshot, preparationRetrySnapshot, prepareRetry } from './retry.js';
+import { implementationRetrySnapshot, preparationRetrySnapshot, prepareRetry, prepareReviewRetry } from './retry.js';
 import { draftRevision, requireLinkedSessionsSettled, revisedState } from './revision.js';
 import { afterImplementation } from './specs.js';
 import { keepSnapshot } from './snapshots.js';
@@ -529,12 +529,22 @@ export class GuidedTasks {
           markStopped(state, outcome.status, outcome.reason);
         });
         return;
-      case 'stop':
-        this.change(id, token, 'guided.blocked', state => {
-          state.pending = null;
-          markStopped(state, 'blocked', outcome.reason);
-        });
+      case 'stop': {
+        // A prompt budget refusal is settled before provider dispatch, so its guidance was never sent.
+        const unsent = outcome.reason.code === 'PROMPT_BUDGET_EXCEEDED' ? pending.guidance : [];
+        this.change(
+          id,
+          token,
+          'guided.blocked',
+          state => {
+            state.pending = null;
+            state.guidance = [...unsent, ...state.guidance];
+            markStopped(state, 'blocked', outcome.reason);
+          },
+          unsent.length ? { restoredGuidance: unsent.map(message => message.id) } : undefined,
+        );
         return;
+      }
       case 'missing':
         if (!recovering) throw new GuidedStopError('RESULT_MISSING', 'The operation returned without a durable result');
         // Explicit recovery proves no leaf dispatch, so the unspent batch can be restored safely.
@@ -795,7 +805,10 @@ export class GuidedTasks {
           await this.drive(id, token, signal);
           return;
         }
-        prepareRetry(context, 'guided.retry_requested', await implementationRetrySnapshot(context, state));
+        // A review turn without a verdict is retried as a review; anything else is a new attempt.
+        if (state.status === 'blocked' && state.stage === 'review' && state.stopReason?.code === 'REVIEW_TURN_FAILED')
+          await prepareReviewRetry(context, state);
+        else prepareRetry(context, 'guided.retry_requested', await implementationRetrySnapshot(context, state));
         await this.drive(id, token, signal);
       },
       { signal, expected: allowed },

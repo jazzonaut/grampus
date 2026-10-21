@@ -450,6 +450,19 @@ export class Store {
       .map(row => record(sessionSchema, 'sessions', row));
   }
 
+  /**
+   * Every session continuing one provider conversation, in creation order. The match runs in SQLite so
+   * a turn does not parse every session in the journal.
+   */
+  conversationSessions(provider: string, providerSessionId: string): Session[] {
+    return this.db
+      .prepare(
+        "SELECT state FROM sessions WHERE json_extract(state, '$.provider') = ? AND json_extract(state, '$.providerSessionId') = ? ORDER BY rowid",
+      )
+      .all(provider, providerSessionId)
+      .map(row => record(sessionSchema, 'sessions', row));
+  }
+
   /** Inserts or replaces a session record. */
   saveSession(id: string, state: Session): void {
     this.db

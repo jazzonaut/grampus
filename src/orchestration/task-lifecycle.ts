@@ -56,9 +56,7 @@ export class TaskLifecycle {
     )
       throw new Error('Stop the task and confirm settlement or recovery first');
     assertTaskExecutionIdle(this.store, id);
-    if (
-      this.store.executions().some(execution => execution.taskId === id && this.store.session(execution.sessionId).run)
-    )
+    if (this.store.executions(id).some(execution => this.store.session(execution.sessionId).run))
       throw new Error('An agent still owns a session; stop or recover it first');
     if (
       this.store

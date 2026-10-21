@@ -41,9 +41,9 @@ export function sessionContinuation(
   session: Session,
   policy: WorkflowPolicy = currentSettings().defaultWorkflowPolicy,
 ) {
-  const peers = store
-    .sessions()
-    .filter(item => item.provider === session.provider && item.providerSessionId === session.providerSessionId);
+  if (!session.providerSessionId)
+    return { resume: false, reason: 'No resumable provider conversation', turns: 0, inputTokens: null };
+  const peers = store.conversationSessions(session.provider, session.providerSessionId);
   const events = peers
     .flatMap(item => {
       const history = store.sessionEvents(item.id, [
@@ -71,24 +71,18 @@ export function sessionContinuation(
         turnResultStatusSchema.safeParse(event.data).data?.result.status === 'completed',
     );
   const outdatedTools = session.provider === 'codex' && session.toolsetVersion !== agentToolsetVersion;
-  const reason = !session.providerSessionId
-    ? 'No resumable provider conversation'
-    : !ran
-      ? 'No turn ran in the provider conversation, so it was never saved'
-      : outdatedTools
-        ? 'Start fresh to install the current evidence and dependency tools'
-        : turns >= policy.maxSessionTurns
-          ? `Conversation reached ${policy.maxSessionTurns} turns`
-          : inputTokens !== null && inputTokens >= threshold
-            ? `Current context reached ${threshold} input tokens`
-            : 'Continue the same slice with its existing context';
+  const reason = !ran
+    ? 'No turn ran in the provider conversation, so it was never saved'
+    : outdatedTools
+      ? 'Start fresh to install the current evidence and dependency tools'
+      : turns >= policy.maxSessionTurns
+        ? `Conversation reached ${policy.maxSessionTurns} turns`
+        : inputTokens !== null && inputTokens >= threshold
+          ? `Current context reached ${threshold} input tokens`
+          : 'Continue the same slice with its existing context';
   return {
     resume:
-      !!session.providerSessionId &&
-      ran &&
-      !outdatedTools &&
-      turns < policy.maxSessionTurns &&
-      (inputTokens === null || inputTokens < threshold),
+      ran && !outdatedTools && turns < policy.maxSessionTurns && (inputTokens === null || inputTokens < threshold),
     reason,
     turns,
     inputTokens,

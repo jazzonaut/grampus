@@ -23,10 +23,7 @@ const arbitrationApproval = 'Explicitly approved fresh arbitration after indepen
 
 /** Every execution of the task, of either role; settlement then picks the new one of its own role. */
 function executionIds({ id, executions }: GuidedContext): string[] {
-  return executions
-    .list()
-    .filter(item => item.taskId === id)
-    .map(item => item.id);
+  return executions.list(id).map(item => item.id);
 }
 
 /**
@@ -41,7 +38,7 @@ async function requireRevisionAnchor({ id, executions, workspaces }: GuidedConte
   if (
     !revision ||
     state.sliceIndex !== revision.sliceIndex ||
-    executions.list().some(execution => execution.taskId === id && execution.version === state.version)
+    executions.list(id).some(execution => execution.version === state.version)
   )
     return;
   const workspace = (await workspaces.inspect(required(state, 'workspaceId'), false)).workspace;
@@ -65,7 +62,7 @@ async function requireRevisionAnchor({ id, executions, workspaces }: GuidedConte
 function settleExecution(context: SettleContext, role: 'implementation' | 'review'): StageOutcome {
   const { id, state, pending, executions, workflow, store } = context;
   const result = adoptOne(
-    executions.list().filter(item => item.taskId === id && item.role === role),
+    executions.list(id).filter(item => item.role === role),
     pending,
   );
   if (!result) return { kind: 'missing' };

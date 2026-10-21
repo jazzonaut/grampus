@@ -32,7 +32,7 @@ import {
   type Provider,
   type TurnResult,
 } from '../providers/types.js';
-import { taskCheckEvidence, checkEvidenceSummary } from '../verification/check-evidence.js';
+import { taskCheckEvidence, reviewCheckEvidence } from '../verification/check-evidence.js';
 import { OutputBuffer, deltaText } from './output-buffer.js';
 import { parseBoundary } from '../process/boundary.js';
 import { workspaceHandoff } from './workspace-handoff.js';
@@ -732,7 +732,8 @@ async function turnAccess(
     const snapshot = await captureRepository(workspaces, review);
     const plan = new Workflow(store).get(execution.taskId).guided?.plan;
     const checks = taskCheckEvidence(store, execution);
-    const evidence = `\nRetained check evidence (use grampus_read_check for complete output):\n${checkEvidenceSummary(checks)}`;
+    const readable = !!plan?.context.exploration;
+    const evidence = `\nRetained check evidence for the reviewed artifact (${readable ? 'use grampus_read_check for complete output' : 'bounded output excerpts; complete output is not available to this review'}):\n${reviewCheckEvidence(checks, review.artifact, readable)}`;
     // The request (task context, verdict history, lenses) and the evidence come first; the repository
     // context fills what remains of the turn's budget.
     const budget = new PromptBudget();
@@ -743,8 +744,7 @@ async function turnAccess(
     );
     const context = await reviewContext(store, workspaces, review, snapshot, !!claim.session.providerSessionId, budget);
     claim.prompt += `\n\n${context}${evidence}`;
-    if (plan?.context.exploration)
-      access = { repo: claim.session.cwd, snapshot, references: plan.references ?? [], checks };
+    if (readable) access = { repo: claim.session.cwd, snapshot, references: plan.references ?? [], checks };
     run.emit({ type: 'review.context', data: { artifact: review.artifact, prompt: claim.prompt } });
   }
   run.requireRunning();
