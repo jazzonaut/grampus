@@ -43,12 +43,12 @@ export const readinessStage: StageHandler = {
       requireSettled(result, 'Readiness');
     }
     const infrastructure = results.find(result => result.phase !== 'passed' && observationProblem(result));
-    if (infrastructure) return settleCheckFailure(context, infrastructure, null);
+    if (infrastructure) return settleCheckFailure(context, infrastructure, null, 'readiness');
     const next = dueReadiness(state, checks, true);
     if (!next) {
       const failedSpec = dueReadiness(state, checks);
       const failed = failedSpec ? checks.findLast(check => deepEqual(check.spec, failedSpec)) : undefined;
-      if (failed) return settleCheckFailure(context, failed, null);
+      if (failed) return settleCheckFailure(context, failed, null, 'readiness');
     }
     return {
       kind: 'advance',

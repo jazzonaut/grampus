@@ -29,6 +29,8 @@ export const stageSchema = z.enum([
   'review_execution',
   'review',
   'verification',
+  /** A failed validation or acceptance check reruns on the starting commit before a repair is spent. */
+  'baseline',
   'delivery',
   'complete',
 ]);
@@ -237,5 +239,7 @@ export interface GuidedServices {
   workspaces?: Workspaces;
   implementationRunner?: (options: CheckProcessOptions) => Promise<CheckProcessResult>;
   preparationRunner?: (options: CheckProcessOptions) => Promise<CheckProcessResult>;
+  /** Runs a failed check on the starting commit; tests replace it. */
+  baselineRunner?: (options: CheckProcessOptions) => Promise<CheckProcessResult>;
   connector?: Connector;
 }

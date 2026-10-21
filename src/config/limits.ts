@@ -367,6 +367,10 @@ export const serverLimits = {
 
 /** Process control. These bound startup, shutdown and IPC so that no wait is unbounded. */
 export const processLimits = {
+  /** Characters of a starting-commit failure quoted in a stop note. */
+  baselineIssueCharacters: 2000,
+  /** Attempts to remove a starting-commit export whose files a just-exited process may still hold. */
+  baselineCleanupRetries: 5,
   /** Bounded local comparison probes retain every workspace and never repeat uncertain commands. */
   benchmarkRepetitions: 10,
   benchmarkCommands: 16,

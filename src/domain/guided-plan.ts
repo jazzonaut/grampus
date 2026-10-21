@@ -30,6 +30,12 @@ const guidedCommandSchema = z.object({
   timeoutMs: z.number(),
   reuse: checkReuseSchema.exactOptional(),
   restore: restorePolicySchema.exactOptional(),
+  /**
+   * Guards existing behaviour that must already pass before the change (a full or sharded regression
+   * suite). Only such a check is rerun on the starting commit when it fails, because a check of new
+   * behaviour is expected to fail there.
+   */
+  regression: z.literal(true).exactOptional(),
 });
 export type GuidedCommand = z.infer<typeof guidedCommandSchema>;
 
@@ -203,12 +209,14 @@ function command(
   defaultName = acceptance ? 'Acceptance' : 'Validation',
   defaultTimeoutMs = currentSettings().defaultCheckTimeoutMs,
 ): AcceptanceCommand {
-  const fields = ['name', 'file', 'args', 'timeoutMs', 'expectedStdout', 'expectations'] as const;
+  const fields = ['name', 'file', 'args', 'timeoutMs', 'expectedStdout', 'expectations', 'regression'] as const;
   const item = object(
     value,
-    acceptance ? fields : ['name', 'file', 'args', 'timeoutMs', 'reuse', 'restore'],
+    acceptance ? fields : ['name', 'file', 'args', 'timeoutMs', 'reuse', 'restore', 'regression'],
     `${defaultName.toLowerCase()} command`,
   );
+  if (item.regression !== undefined && (item.regression !== true || (!acceptance && defaultName !== 'Validation')))
+    throw new Error('Only validation and acceptance commands may set regression, and only to true');
   if (
     item.reuse !== undefined &&
     defaultName !== 'Validation' &&
@@ -228,6 +236,7 @@ function command(
     timeoutMs: timeout(item.timeoutMs, defaultTimeoutMs),
     ...(item.reuse === undefined ? {} : { reuse: checkReuseSchema.parse(item.reuse) }),
     ...(item.restore === undefined ? {} : { restore: restorePolicySchema.parse(item.restore) }),
+    ...(item.regression === true ? { regression: true as const } : {}),
     ...observed,
   };
 }

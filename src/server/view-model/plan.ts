@@ -86,11 +86,12 @@ function sliceView(plan: GuidedPlan, index: number): PlanSliceView {
     preparation: slice.preparation ? command(slice.preparation) : null,
     formatting: slice.formatting ? command(slice.formatting) : null,
     readiness: slice.readiness.map(check => ({ ...command(check), kind: check.kind })),
-    validation: command(slice.validation),
+    validation: { ...command(slice.validation), regression: slice.validation.regression === true },
     acceptance: slice.acceptance.map(check => ({
       ...command(check),
       expectedStdout: check.expectedStdout ?? null,
       expectations: check.expectations ? JSON.stringify(check.expectations, null, 2) : null,
+      regression: check.regression === true,
     })),
     delivery: { mode: slice.mode, message: slice.message },
   };

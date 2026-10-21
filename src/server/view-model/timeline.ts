@@ -24,6 +24,7 @@ const stageNames: Readonly<Record<Stage, string>> = {
   assessment: 'quality assessment',
   review_execution: 'review setup',
   review: 'independent review',
+  baseline: 'starting-commit check',
   verification: 'acceptance',
   delivery: 'local delivery',
   complete: 'completion',

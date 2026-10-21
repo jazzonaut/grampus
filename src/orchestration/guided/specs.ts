@@ -125,8 +125,10 @@ function preparationScope(policy: EditPolicy | null) {
 /** The validation request, bound to the current artifact; throws without a current snapshot. */
 export function validationSpec(state: GuidedState): CheckSpec {
   const snapshot = required(state, 'snapshot');
+  // `regression` decides what happens after a failure; it is not part of what runs.
+  const { regression: _regression, ...command } = currentSlice(state).validation;
   return {
-    ...currentSlice(state).validation,
+    ...command,
     artifact: snapshot.artifact,
     instructionsDigest: snapshot.instructionsDigest,
   };
@@ -161,14 +163,25 @@ export function readinessBatch(state: GuidedState, checks: readonly RepositoryCh
  */
 export function acceptanceSpec(state: GuidedState, criteria: string[], index: number): CheckSpec {
   const snapshot = required(state, 'snapshot');
-  const command = currentSlice(state).acceptance[index];
-  if (!command) throw new Error(`The current slice has no acceptance check ${index + 1}`);
+  const approved = currentSlice(state).acceptance[index];
+  if (!approved) throw new Error(`The current slice has no acceptance check ${index + 1}`);
+  const { regression: _regression, ...command } = approved;
   return {
     ...command,
     artifact: snapshot.artifact,
     instructionsDigest: snapshot.instructionsDigest,
     criteria,
   };
+}
+
+/**
+ * Whether the approved validation or acceptance command behind `spec` guards existing behaviour, so a
+ * failure is worth rerunning on the starting commit. Acceptance names are distinct within a slice.
+ */
+export function regressionCheck(state: GuidedState, spec: Pick<CheckSpec, 'name' | 'criteria'>): boolean {
+  const slice = currentSlice(state);
+  const command = spec.criteria ? slice.acceptance.find(item => item.name === spec.name) : slice.validation;
+  return command?.regression === true;
 }
 
 /** The acceptance check a verification step runs: its position, the slice's count and exact request. */

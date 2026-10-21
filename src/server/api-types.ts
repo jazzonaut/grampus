@@ -655,6 +655,8 @@ export interface PlanAcceptanceView {
   expectedStdout: string | null;
   /** Additional observations as formatted JSON, or null. */
   expectations: string | null;
+  /** Guards existing behaviour: a failure is first rerun on the starting commit before a repair is spent. */
+  regression: boolean;
 }
 
 /** One slice of the plan. */
@@ -680,7 +682,8 @@ export interface PlanSliceView {
   } | null;
   /** Explicit read-only mechanical checks, run before behavioural validation in this order. */
   readiness: { kind: 'format' | 'lint' | 'types'; name: string; file: string; args: string[]; timeoutMs: number }[];
-  validation: { name: string; file: string; args: string[]; timeoutMs: number };
+  /** `regression`: a failure is first rerun on the starting commit before a repair is spent. */
+  validation: { name: string; file: string; args: string[]; timeoutMs: number; regression: boolean };
   /** The acceptance checks in the order they run; at least one. */
   acceptance: PlanAcceptanceView[];
   delivery: { mode: 'commit' | 'no_change'; message: string };

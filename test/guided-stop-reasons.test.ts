@@ -587,3 +587,31 @@ test('a missing automatic assessment is recovered from its queue; a supervised o
   assert.deepEqual(settle('automatic'), { kind: 'missing' });
   assert.equal(stopCode(settle('supervised')), 'ASSESSMENT_UNSETTLED');
 });
+
+test('a failed regression check runs on the starting commit before a repair is spent', () => {
+  const regression = guided('automatic');
+  regression.plan.slices[0]!.validation = { ...regression.plan.slices[0]!.validation, regression: true };
+  const first = record();
+  const baseline = settleValidation(regression, failedCheck(), first);
+  assert.equal(baseline.kind === 'advance' && baseline.next, 'baseline');
+  assert.deepEqual(first.changes, [], 'nothing is spent before the starting-commit run');
+  const recorded = record();
+  const repair = validationStage.settle(
+    context(
+      regression,
+      'validation',
+      {
+        checks: () => [failedCheck()],
+        executionEvents: () => [
+          {
+            type: 'lease.acquired',
+            data: { runId: 'check', controllerPid: 1, controllerStartedAt: null, host: 'host' },
+          },
+          { type: 'baseline.completed', data: { checkId: 'check' } },
+        ],
+      },
+      recorded,
+    ),
+  );
+  assert.deepEqual(repair, { kind: 'rerouted', to: 'repair' }, 'once run there, the ordinary decision follows');
+});

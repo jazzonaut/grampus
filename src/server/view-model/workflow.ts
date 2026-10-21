@@ -47,44 +47,40 @@ function assessmentPosition(facts: WorkflowFacts, ids: readonly string[]): numbe
   return ids.indexOf(facts.plan.workflowPolicy.mode === 'supervised' ? 'assessment' : 'review');
 }
 
+/** Stages that always sit on one strip step. */
+const fixedSteps: Readonly<Partial<Record<Stage, string>>> = {
+  workspace: 'implement',
+  execution: 'implement',
+  preparation: 'implement',
+  scope: 'implement',
+  implementation: 'implement',
+  readiness: 'readiness',
+  validation: 'validate',
+  submission: 'validate',
+  review_execution: 'review',
+  review: 'review',
+  verification: 'accept',
+  baseline: 'accept',
+  delivery: 'deliver',
+};
+
 /** The strip position of an internal stage; `complete` is past every stage. */
 function position(facts: WorkflowFacts, ids: readonly string[]): number {
   const index = (id: string) => ids.indexOf(id);
   if (!facts.approved && facts.stage !== 'complete') return index('plan');
-  switch (facts.stage) {
-    case 'workspace':
-    case 'execution':
-    case 'preparation':
-    case 'scope':
-    case 'implementation':
-      return index('implement');
-    case 'quality_pass': {
-      const next = selectedEditPasses(facts.plan.quality).find(
-        pass =>
-          !!facts.plan.modelProfile?.qualityPasses?.[pass.id] &&
-          !facts.qualityEdits.some(edit => edit.pass === pass.id),
-      );
-      return next ? index(`quality:${next.id}`) : index('validate');
-    }
-    case 'refresh':
-      return readinessPosition(ids);
-    case 'readiness':
-      return index('readiness');
-    case 'validation':
-    case 'submission':
-      return index('validate');
-    case 'assessment':
-      return assessmentPosition(facts, ids);
-    case 'review_execution':
-    case 'review':
-      return index('review');
-    case 'verification':
-      return index('accept');
-    case 'delivery':
-      return index('deliver');
-    case 'complete':
-      return ids.length;
+  const fixed = fixedSteps[facts.stage];
+  if (fixed) return index(fixed);
+  if (facts.stage === 'quality_pass') {
+    const next = selectedEditPasses(facts.plan.quality).find(
+      pass =>
+        !!facts.plan.modelProfile?.qualityPasses?.[pass.id] && !facts.qualityEdits.some(edit => edit.pass === pass.id),
+    );
+    return next ? index(`quality:${next.id}`) : index('validate');
   }
+  if (facts.stage === 'refresh') return readinessPosition(ids);
+  if (facts.stage === 'assessment') return assessmentPosition(facts, ids);
+  // `complete` is past every stage.
+  return ids.length;
 }
 
 /** How the stage the task is at is drawn, from the task's presentation status. */

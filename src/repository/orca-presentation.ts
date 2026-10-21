@@ -25,6 +25,7 @@ const stages: Record<Stage, string> = {
   review_execution: 'Preparing independent review',
   review: 'Independent review',
   verification: 'Checking acceptance',
+  baseline: 'Checking the starting commit',
   delivery: 'Delivering locally',
   complete: 'Completion unconfirmed',
 };

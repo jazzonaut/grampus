@@ -23,6 +23,7 @@ import {
   automatic,
   currentSlice,
   dueAcceptance,
+  regressionCheck,
   validationSpec,
   type DueAcceptance,
 } from '../specs.js';
@@ -108,28 +109,58 @@ export function repairIneligibility(state: GuidedState, result: RepositoryCheck)
   return null;
 }
 
+/** Whether the failed check has already been run on the starting commit. */
+export function checkedOnStartingCommit({ store }: GuidedContext, result: RepositoryCheck): boolean {
+  return store
+    .executionEvents(result.executionId, ['baseline.completed'])
+    .some(event => (event.data as { checkId?: unknown }).checkId === result.id);
+}
+
+/**
+ * A regression check's failure not yet run on the starting commit is run there first. Checks of new
+ * behaviour are expected to fail there, so only checks the plan marks as regressions qualify.
+ */
+function startingCommitDue(context: SettleContext, result: RepositoryCheck, stage: GuidedState['stage']): boolean {
+  return (
+    stage !== 'readiness' && regressionCheck(context.state, result.spec) && !checkedOnStartingCommit(context, result)
+  );
+}
+
 /**
  * Spends one repair from the slice allowance and returns to implementation with the failure as
  * evidence, or stops. A second failure of the same purpose on the same artifact means the last
  * repair changed nothing, so it stops early instead of spending tokens on the same content.
+ * Before a validation or acceptance repair is spent, the check first runs on the starting commit
+ * (the `baseline` stage), because no repair of this change can fix a failure that predates it.
+ * `stage` is the check's own stage: the pending step's, or the failed check's when settlement resumes
+ * from the starting-commit run.
  */
 export function settleCheckFailure(
   context: SettleContext,
   result: RepositoryCheck,
   acceptance: DueAcceptance | null,
+  stage: GuidedState['stage'],
 ): StageOutcome {
-  const { state, pending, change, prepareRetry } = context;
+  const { state, change, prepareRetry } = context;
   const issue = checkIssue(result);
   const position = acceptance ? acceptancePosition(acceptance) : '';
-  const budget = failureBudget(state, pending.stage);
+  const budget = failureBudget(state, stage);
   const cycle = structuredClone(state[budget.field]);
-  const purpose = result.spec.readiness ? `readiness:${result.spec.name}` : pending.stage;
+  const purpose = result.spec.readiness ? `readiness:${result.spec.name}` : stage;
   const noProgress = cycle.failures.some(
     failure => failure.purpose === purpose && failure.artifact === state.snapshot?.artifact,
   );
   const allowance = budget.allowance;
   const ineligible = repairIneligibility(state, result);
   const canRepair = !ineligible && !noProgress && cycle.used < allowance;
+  if (canRepair && startingCommitDue(context, result, stage))
+    return {
+      kind: 'advance',
+      next: 'baseline',
+      update: current => {
+        current.failedCheckId = result.id;
+      },
+    };
   const noProgressCode = budget.noProgress;
   const exhaustedCode = budget.exhausted;
   recordRepairDecision(context, {
@@ -190,7 +221,7 @@ function settleCheck(context: SettleContext): StageOutcome {
   if (!deepEqual(result.spec, acceptance ? acceptance.spec : validationSpec(state)))
     throw mismatch('Check result differs from the approved command or acceptance expectation');
   requireSettled(result, 'Check');
-  if (result.phase !== 'passed') return settleCheckFailure(context, result, acceptance);
+  if (result.phase !== 'passed') return settleCheckFailure(context, result, acceptance, pending.stage);
   const last = !acceptance || acceptance.index === acceptance.total - 1;
   return {
     kind: 'advance',

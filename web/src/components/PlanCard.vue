@@ -121,11 +121,14 @@ const headingId = useId();
             :command="check"
             :summary="`Readiness (${check.kind}): ${check.name}`"
           />
-          <CommandDetails :command="slice.validation" :summary="`Validation: ${slice.validation.name}`" />
+          <CommandDetails
+            :command="slice.validation"
+            :summary="`Validation: ${slice.validation.name}${slice.validation.regression ? ' · regression suite' : ''}`"
+          />
           <template v-for="(check, position) in slice.acceptance" :key="check.name">
             <CommandDetails
               :command="check"
-              :summary="`Acceptance${slice.acceptance.length > 1 ? ` ${position + 1} of ${slice.acceptance.length}` : ''}: ${check.name}`"
+              :summary="`Acceptance${slice.acceptance.length > 1 ? ` ${position + 1} of ${slice.acceptance.length}` : ''}: ${check.name}${check.regression ? ' · regression suite' : ''}`"
             />
             <p v-if="check.expectedStdout !== null" class="text-xs text-muted">Exact expected stdout (JSON escaped)</p>
             <pre v-if="check.expectedStdout !== null" class="grampus-code" data-expected-stdout>{{

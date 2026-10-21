@@ -46,6 +46,11 @@ export const stopPresentation: Readonly<Record<StopReasonCode, StopPresentation>
     'Browser environment failed',
     'Inspect the retained browser lifecycle failure before explicitly rerunning checks. No implementation repair was spent.',
   ),
+  CHECK_FAILS_WITHOUT_CHANGE: blocked(
+    'failed_check',
+    'Check fails without this change',
+    'The failed check also fails on the commit this change started from, so no repair was spent. Fix the check or its environment, or revise the plan; Retry repair if the change is still responsible.',
+  ),
   TASK_TURN_LIMIT: wait(
     'blocked',
     'Task turn allowance exhausted',
@@ -312,68 +317,55 @@ const statusLabels: Readonly<Record<Status, string>> = {
   complete: 'Delivered locally',
 };
 
+/** Stages whose activity does not depend on the task's repair or arbitration context. */
+const fixedActivities: Readonly<Partial<Record<Stage, readonly [title: string, description: string]>>> = {
+  workspace: ['Preparing the workspace', 'Creating the worktree and checking its repository baseline.'],
+  execution: ['Preparing implementation', 'Capturing repository context for the implementer.'],
+  preparation: ['Preparing the workspace', 'Running the approved preparation command before implementation.'],
+  refresh: ['Preparing checks', 'Refreshing prerequisites within the approved plan before validation.'],
+  scope: ['Inspecting the workspace', 'Capturing the candidate baseline and repository instructions.'],
+  quality_pass: [
+    'Running a quality pass',
+    'The implementer is applying an approved quality pass using native workspace tools.',
+  ],
+  validation: ['Running validation', 'Running the approved validation command and collecting its result.'],
+  readiness: [
+    'Checking implementation readiness',
+    'Running the approved formatting, lint or type checks before behavioural validation.',
+  ],
+  submission: ['Collecting change evidence', 'Checking the changed files and retaining the implementation result.'],
+  assessment: ['Recording quality assessments', 'Saving the assessment of each selected quality lens.'],
+  review_execution: ['Preparing independent review', 'Capturing the change and its evidence for the reviewer.'],
+  verification: ['Checking acceptance criteria', 'Running the approved acceptance command and collecting evidence.'],
+  baseline: [
+    'Checking the starting commit',
+    'Running the failed check on the commit this change started from, to see whether it fails without the change.',
+  ],
+  delivery: ['Delivering locally', 'Verifying the final change and creating the local commit.'],
+  complete: ['Finishing the task', 'Saving the final task result.'],
+};
+
 /** What the controller is doing at each stage: a title and one sentence. */
 export function stageActivity(
   stage: Stage,
   context: { repairing: boolean; reviewRepairs: number; arbitrating: boolean },
 ): { title: string; description: string } {
-  const activity = (title: string, description: string) => ({ title, description });
-  switch (stage) {
-    case 'workspace':
-      return activity('Preparing the workspace', 'Creating the worktree and checking its repository baseline.');
-    case 'execution':
-      return activity('Preparing implementation', 'Capturing repository context for the implementer.');
-    case 'preparation':
-      return activity('Preparing the workspace', 'Running the approved preparation command before implementation.');
-    case 'refresh':
-      return activity('Preparing checks', 'Refreshing prerequisites within the approved plan before validation.');
-    case 'scope':
-      return activity('Inspecting the workspace', 'Capturing the candidate baseline and repository instructions.');
-    case 'implementation':
-      return activity(
-        context.repairing
-          ? 'Repairing the check failure'
-          : context.reviewRepairs
-            ? 'Addressing review findings'
-            : 'Implementing the change',
-        'The implementer is adapting the approach with native workspace tools.',
-      );
-    case 'quality_pass':
-      return activity(
-        'Running a quality pass',
-        'The implementer is applying an approved quality pass using native workspace tools.',
-      );
-    case 'validation':
-      return activity('Running validation', 'Running the approved validation command and collecting its result.');
-    case 'readiness':
-      return activity(
-        'Checking implementation readiness',
-        'Running the approved formatting, lint or type checks before behavioural validation.',
-      );
-    case 'submission':
-      return activity(
-        'Collecting change evidence',
-        'Checking the changed files and retaining the implementation result.',
-      );
-    case 'assessment':
-      return activity('Recording quality assessments', 'Saving the assessment of each selected quality lens.');
-    case 'review_execution':
-      return activity('Preparing independent review', 'Capturing the change and its evidence for the reviewer.');
-    case 'review':
-      return activity(
-        context.arbitrating ? 'Arbitrating review findings' : 'Reviewing the change',
-        'The reviewer is inspecting the change and its supporting evidence.',
-      );
-    case 'verification':
-      return activity(
-        'Checking acceptance criteria',
-        'Running the approved acceptance command and collecting evidence.',
-      );
-    case 'delivery':
-      return activity('Delivering locally', 'Verifying the final change and creating the local commit.');
-    case 'complete':
-      return activity('Finishing the task', 'Saving the final task result.');
-  }
+  if (stage === 'implementation')
+    return {
+      title: context.repairing
+        ? 'Repairing the check failure'
+        : context.reviewRepairs
+          ? 'Addressing review findings'
+          : 'Implementing the change',
+      description: 'The implementer is adapting the approach with native workspace tools.',
+    };
+  if (stage === 'review')
+    return {
+      title: context.arbitrating ? 'Arbitrating review findings' : 'Reviewing the change',
+      description: 'The reviewer is inspecting the change and its supporting evidence.',
+    };
+  const [title, description] = fixedActivities[stage] ?? ['Working', 'The controller is running the current step.'];
+  return { title, description };
 }
 
 /** The facts the task status depends on. */

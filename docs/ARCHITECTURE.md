@@ -124,6 +124,7 @@ request.
 | `validation` | `checks.ts` | Run the approved behavioural validation command |
 | `submission` | `submission.ts` | Submit the implementation with the latest passing check |
 | `verification` | `checks.ts` | Run acceptance against the active criteria before independent review |
+| `baseline` | `baseline.ts` | Rerun a failed regression check on the starting commit before a repair is spent; stop if it fails there too |
 | `review_execution` | `execution.ts` | Create the review (or arbitration) execution |
 | `review` | `review.ts` | Independent artifact review by the other provider |
 | `assessment` | `assessment.ts` | Record one quality lens assessment per step until every selected lens is recorded |

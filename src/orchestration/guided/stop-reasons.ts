@@ -34,6 +34,8 @@ export const StopReasonCode = {
   DIAGNOSTIC_ALLOWANCE_REQUIRED: 'DIAGNOSTIC_ALLOWANCE_REQUIRED',
   /** Retained browser output establishes lifecycle failure without an implementation assertion. */
   CHECK_ENVIRONMENT_FAILED: 'CHECK_ENVIRONMENT_FAILED',
+  /** The failed check fails the same way on the starting commit, so a repair of this change cannot fix it. */
+  CHECK_FAILS_WITHOUT_CHANGE: 'CHECK_FAILS_WITHOUT_CHANGE',
 
   // Settled failures that stop for attention.
   /** An approved preparation command settled without passing. */

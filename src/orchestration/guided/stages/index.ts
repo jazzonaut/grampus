@@ -14,6 +14,7 @@ import { submissionStage } from './submission.js';
 import { assessmentStage } from './assessment.js';
 import { reviewStage } from './review.js';
 import { deliveryStage } from './delivery.js';
+import { baselineStage } from './baseline.js';
 
 /** The handler for every stage that dispatches work, in workflow order. */
 export const stageHandlers: Readonly<Record<ActiveStage, StageHandler>> = {
@@ -31,5 +32,6 @@ export const stageHandlers: Readonly<Record<ActiveStage, StageHandler>> = {
   review: reviewStage,
   assessment: assessmentStage,
   verification: verificationStage,
+  baseline: baselineStage,
   delivery: deliveryStage,
 };

@@ -89,6 +89,19 @@ stops. No-progress and exhausted repair allowances stop for attention. Ordinary 
 failures return to the agent in automatic mode; the agent may investigate and repair a defective test
 with concrete evidence, but must not weaken a valid requirement to obtain a pass.
 
+A validation or acceptance command the plan marks `regression: true` guards existing behaviour that
+must already pass before the change, such as a full or sharded regression suite. Before such a
+failure spends a repair, the `baseline` step runs the same command on a read-only `git archive`
+export of the commit the candidate started from, reusing the workspace's installed `node_modules`,
+`.venv` or `venv` folders through links. If it fails there too, the task stops with
+`CHECK_FAILS_WITHOUT_CHANGE` and no repair is spent: fix the check or its environment, revise the
+plan, or choose **Retry repair** if the change is still responsible. If it passes there, or the export
+cannot stand for the starting commit (changed dependency manifests, an unconfirmed or partial run,
+any setup error), the ordinary repair decision follows. The run is a decision aid, never evidence,
+and runs at most once per failed check. Checks of new behaviour are not marked, because they are
+expected to fail before the change. An export lacks ignored generated files, so a check that needs
+them may fail there for that reason alone.
+
 ## Quality passes
 
 Ordinary selected edit passes, such as refactor or documentation, are instructions for the implementer
