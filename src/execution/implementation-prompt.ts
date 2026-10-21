@@ -40,7 +40,7 @@ function fixedText(prompt: string, { policy, snapshot }: EditingContext, explora
  * @throws PromptBudgetError when the required parts cannot fit the turn prompt budget; Error when the
  *   starting context cannot be built for the snapshot.
  */
-export function implementationTurn(
+function scopedImplementationTurn(
   prompt: string,
   session: Pick<Session, 'provider' | 'providerSessionId' | 'cwd'>,
   editing: EditingContext,
@@ -80,4 +80,18 @@ function deferredEditingPaths({ policy, snapshot }: EditingContext): Set<string>
     )
     .map(file => file.path);
   return new Set([...policy.files, ...(policy.create ?? []), ...(policy.delete ?? []), ...paths]);
+}
+
+/** Builds native workspace context without imposing scoped-file prompt requirements. */
+export function implementationTurn(
+  prompt: string,
+  session: Pick<Session, 'provider' | 'providerSessionId' | 'cwd'>,
+  editing: EditingContext,
+  context: GuidedPlan['context'] | undefined,
+): ImplementationTurn {
+  if (!editing.policy.workspace) return scopedImplementationTurn(prompt, session, editing, context);
+  const snapshot = editing.snapshot;
+  const text = `${prompt}\n\nWorking directory: ${session.cwd}\nCurrent artifact: ${snapshot.artifact}\nRepository instructions:\n${JSON.stringify(snapshot.instructions)}\nUse native tools to read current files; earlier conversation contents may be stale.`;
+  requirePromptBudget(text);
+  return { prompt: text, coverage: null, exploration: true };
 }

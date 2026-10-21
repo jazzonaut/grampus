@@ -1,5 +1,5 @@
 // Owns the workflow strip: the ordered stages of the current slice (plan, implement, each selected edit
-// quality pass, validate, review with one item per selected lens, accept, deliver), each with its state
+// assigned quality pass, validate, accept, review with one item per selected lens, deliver), each with its state
 // and who established it. Stages come from the approved plan, so configurable passes appear as data.
 import type { Evidence } from '../../domain/workflow.js';
 import type { GuidedPlan } from '../../domain/guided-plan.js';
@@ -42,6 +42,11 @@ function readinessPosition(ids: readonly string[]): number {
   return ids.indexOf(ids.includes('readiness') ? 'readiness' : 'validate');
 }
 
+/** Supervised quality input precedes acceptance; reviewer assessments follow acceptance. */
+function assessmentPosition(facts: WorkflowFacts, ids: readonly string[]): number {
+  return ids.indexOf(facts.plan.workflowPolicy.mode === 'supervised' ? 'assessment' : 'review');
+}
+
 /** The strip position of an internal stage; `complete` is past every stage. */
 function position(facts: WorkflowFacts, ids: readonly string[]): number {
   const index = (id: string) => ids.indexOf(id);
@@ -55,7 +60,9 @@ function position(facts: WorkflowFacts, ids: readonly string[]): number {
       return index('implement');
     case 'quality_pass': {
       const next = selectedEditPasses(facts.plan.quality).find(
-        pass => !facts.qualityEdits.some(edit => edit.pass === pass.id),
+        pass =>
+          !!facts.plan.modelProfile?.qualityPasses?.[pass.id] &&
+          !facts.qualityEdits.some(edit => edit.pass === pass.id),
       );
       return next ? index(`quality:${next.id}`) : index('validate');
     }
@@ -67,6 +74,7 @@ function position(facts: WorkflowFacts, ids: readonly string[]): number {
     case 'submission':
       return index('validate');
     case 'assessment':
+      return assessmentPosition(facts, ids);
     case 'review_execution':
     case 'review':
       return index('review');
@@ -160,18 +168,14 @@ function stageSpecs(facts: WorkflowFacts): StageSpec[] {
         detail: facts.repairs ? `${facts.repairs} ${facts.repairs === 1 ? 'repair' : 'repairs'}` : null,
       },
     },
-    ...selectedEditPasses(facts.plan.quality).map((pass): StageSpec => {
-      const edit = facts.qualityEdits.find(item => item.pass === pass.id);
-      return {
+    ...selectedEditPasses(facts.plan.quality)
+      .filter(pass => facts.plan.modelProfile?.qualityPasses?.[pass.id])
+      .map((pass): StageSpec => ({
         id: `quality:${pass.id}`,
         kind: 'quality_pass',
         label: pass.title,
-        passed: {
-          evidence: edit ? 'agent-reported' : null,
-          detail: edit ? (edit.before === edit.after ? 'No changes needed' : 'Changed the files') : null,
-        },
-      };
-    }),
+        passed: { evidence: 'agent-reported', detail: 'Explicitly assigned edit quality pass' },
+      })),
     ...(slice?.readiness.length
       ? [
           {
@@ -194,12 +198,16 @@ function stageSpecs(facts: WorkflowFacts): StageSpec[] {
         detail: slice?.validation.name ?? null,
       },
     },
-    {
-      id: 'review',
-      kind: 'review',
-      label: 'Review',
-      passed: { evidence: 'agent-reported', detail: 'Independent review' },
-    },
+    ...(facts.plan.workflowPolicy.mode === 'supervised' && selectedLenses(facts.plan.quality).length
+      ? [
+          {
+            id: 'assessment',
+            kind: 'quality_pass' as const,
+            label: 'Quality assessment',
+            passed: { evidence: 'human-assessed' as const, detail: 'Your recorded quality assessment' },
+          },
+        ]
+      : []),
     {
       id: 'accept',
       kind: 'accept',
@@ -208,6 +216,12 @@ function stageSpecs(facts: WorkflowFacts): StageSpec[] {
         evidence: 'controller-verified',
         detail: slice?.acceptance.map(check => check.name).join(', ') ?? null,
       },
+    },
+    {
+      id: 'review',
+      kind: 'review',
+      label: 'Review',
+      passed: { evidence: 'agent-reported', detail: 'Independent review of the verified candidate' },
     },
     {
       id: 'deliver',

@@ -31,6 +31,64 @@ const expectedReply = {
   lenses: null,
 };
 
+/** A native execution capability; adapter tests do not write into this directory. */
+function workspaceOptions(events: AgentEvent[]): ConnectOptions {
+  const connection = options(events);
+  const snapshot = {
+    artifact: `sha256:${'0'.repeat(64)}`,
+    instructionsDigest: '0'.repeat(64),
+    head: 'fixture',
+    index: 'fixture',
+    files: [],
+    diff: [],
+    instructions: [],
+  };
+  return {
+    ...connection,
+    editing: {
+      cwd: connection.cwd,
+      policy: {
+        workspace: true,
+        files: [],
+        artifact: snapshot.artifact,
+        instructionsDigest: snapshot.instructionsDigest,
+      },
+      snapshot,
+    },
+  };
+}
+
+test('adaptive Codex execution enables native tools and confirms full access before dispatch', async t => {
+  const recorded = JSON.parse(readFileSync(protocolFixture('codex-turn.json'), 'utf8'));
+  for (const entry of recorded.exchange) {
+    if (entry.client?.method === 'thread/start') {
+      entry.client.params.approvalPolicy = 'never';
+      entry.client.params.sandbox = 'danger-full-access';
+      entry.client.params.config.web_search = 'live';
+    }
+    if (entry.server?.result?.thread) {
+      entry.server.result.approvalPolicy = 'never';
+      entry.server.result.sandbox = { type: 'dangerFullAccess' };
+    }
+  }
+  const root = mkdtempSync(join(tmpdir(), 'grampus-native-protocol-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, 'native.json');
+  writeFileSync(file, JSON.stringify(recorded));
+  const session = await connectCodex(workspaceOptions([]), () => replayServer(file));
+  t.after(() => session.close());
+  assert.equal(codexAppServerArguments(true).includes('--disable'), false);
+  assert.ok(codexAppServerArguments(true).includes('shell_tool'));
+  assert.equal((await session.turn('Inspect and implement with native tools.')).status, 'completed');
+  for (const entry of recorded.exchange)
+    if (entry.server?.result?.thread) entry.server.result.sandbox = { type: 'readOnly' };
+  writeFileSync(file, JSON.stringify(recorded));
+  await assert.rejects(
+    connectCodex(workspaceOptions([]), () => replayServer(file)),
+    /did not confirm unrestricted/,
+  );
+});
+
 test('the recorded Codex handshake replays through the adapter handshake and its notifications classify', async t => {
   const rpc = replayServer('codex-handshake.recorded.json');
   t.after(() => rpc.close());
@@ -176,6 +234,18 @@ function recordedQuery(seen: { options?: Record<string, unknown> }) {
     };
   }) as unknown as typeof query;
 }
+
+test('adaptive Claude execution exposes the native preset without per-file permission hooks', async t => {
+  const seen: { options?: Record<string, unknown> } = {};
+  const session = await connectClaude(workspaceOptions([]), recordedQuery(seen));
+  t.after(() => session.close());
+  assert.deepEqual(seen.options?.['tools'], { type: 'preset', preset: 'claude_code' });
+  assert.equal(seen.options?.['permissionMode'], 'bypassPermissions');
+  assert.equal(seen.options?.['allowDangerouslySkipPermissions'], true);
+  assert.equal(seen.options?.['hooks'], undefined);
+  assert.match(JSON.stringify(seen.options?.['systemPrompt']), /kind=candidate/);
+  assert.equal((await session.turn('Inspect and implement with native tools.')).status, 'completed');
+});
 
 test('a recorded Claude SDK turn replays to the typed events, usage and structured reply', async t => {
   const events: AgentEvent[] = [];

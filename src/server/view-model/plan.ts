@@ -26,10 +26,10 @@ export function workflowSummary(plan: GuidedPlan): string {
   const spending = `Task-wide allowance: ${policy.maxTaskTurns} agent turns; ${policy.maxTaskTokens ? `${policy.maxTaskTokens.toLocaleString('en-GB')} provider tokens` : 'token threshold disabled'}. Includes linked planning, retries, all slices and plan versions. Checked before each agent turn; an active turn may exceed the token threshold.`;
   const mode =
     policy.mode === 'automatic'
-      ? `Automatic workflow: implement, check readiness, validate, repair, independently review and deliver within the approved scope. Per slice: ${policy.readinessRounds} readiness repairs for declared formatting, lint and type checks; ${policy.repairRounds} shared behavioural repairs across validation, review and acceptance. Both allowances survive retries and restarts; every attempt requires current readiness evidence. Size both allowances for the approved work and check coverage.`
-      : 'Supervised workflow: pause for file authorization and quality assessment.';
+      ? `Adaptive workflow: the agent uses native tools, chooses project files and commands, and continues unfinished work until it submits a candidate. Grampus checks readiness, validation and acceptance, obtains independent review, then delivers locally. Per slice: ${policy.readinessRounds} readiness repairs and ${policy.repairRounds} shared repairs across validation, acceptance and review. Allowances survive retries and restarts.`
+      : 'Supervised adaptive workflow: confirm workspace execution and assess candidate quality. The agent can choose project files and local commands.';
   const restore = plan.preparation?.restore
-    ? ' Declared prerequisite restoration runs after slice generation before final checks, using the final dependency inputs.'
+    ? ' The approved bootstrap restores prerequisites before implementation; the agent handles later dependency changes.'
     : '';
   const context = policy.maxContextTokens
     ? `${policy.maxContextTokens.toLocaleString('en-GB')} observed context tokens`
@@ -48,8 +48,8 @@ export function reviewSummary(plan: GuidedPlan): string {
       ? `Fresh arbitration: ${providerLabel(arbitrator.provider)}, model ${arbitrator.model ?? 'provider default'}.`
       : 'Unresolved findings stop for your decision.',
     plan.workflowPolicy.mode === 'automatic'
-      ? 'Repairs continue within the approved scope with a fresh independent verdict.'
-      : 'Each repair requires fresh file authorization and quality assessment.',
+      ? 'Repairs preserve the agreed outcome and acceptance requirements; implementation details may adapt.'
+      : 'Each repair requires workspace confirmation and quality assessment.',
   ].join(' ');
 }
 
@@ -57,7 +57,7 @@ export function reviewSummary(plan: GuidedPlan): string {
 export function qualitySummary(plan: GuidedPlan): string {
   if (!plan.quality.passes.length)
     return 'None selected. Independent review still checks the change; no quality assessment is recorded.';
-  return `Lenses are assessed by the independent reviewer${plan.workflowPolicy.mode === 'supervised' ? ' and recorded from your quality assessment' : ''}. Edit passes run in this order once per slice, after the first successful implementation and before validation; repairs do not run them again.`;
+  return `Lenses are assessed by the independent reviewer${plan.workflowPolicy.mode === 'supervised' ? ' and recorded from your quality assessment' : ''}. The implementer includes ordinary edit passes before candidate submission, including repairs. Explicitly assigned edit-pass models run their own native turn once per slice.`;
 }
 
 function sliceView(plan: GuidedPlan, index: number): PlanSliceView {
@@ -141,7 +141,7 @@ export function modelAssignments(plan: GuidedPlan): NonNullable<PlanView['modelA
     { role: 'Implementation', assignment: plan.implementation },
     { role: 'Repair', assignment: profile?.repair ?? plan.implementation },
     ...plan.quality.passes
-      .filter(pass => pass.kind === 'edit')
+      .filter(pass => pass.kind === 'edit' && !!profile?.qualityPasses?.[pass.id])
       .map(pass => ({ role: pass.title, assignment: profile?.qualityPasses?.[pass.id] ?? plan.implementation })),
     { role: 'Independent review', assignment: plan.review },
     { role: 'Arbitration', assignment: plan.reviewPolicy?.arbitrator },

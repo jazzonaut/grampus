@@ -66,7 +66,7 @@ export interface RecordEvent {
 }
 
 /** The single journal format this build accepts; other versions are never migrated. */
-export const journalSchemaVersion = 13;
+export const journalSchemaVersion = 14;
 const schema = `
   CREATE TABLE tasks (
     id TEXT PRIMARY KEY,

@@ -178,7 +178,7 @@ export function settleCheckFailure(
 /**
  * Adopts the one new check of this step, only if it ran under this controller with exactly the approved
  * request. A pass on validation becomes the evidence submitted with the implementation; a passed
- * acceptance check leads to the next one, and the last to delivery.
+ * acceptance check leads to the next one, and the last to independent review.
  */
 function settleCheck(context: SettleContext): StageOutcome {
   const { state, pending, store } = context;
@@ -194,7 +194,7 @@ function settleCheck(context: SettleContext): StageOutcome {
   const last = !acceptance || acceptance.index === acceptance.total - 1;
   return {
     kind: 'advance',
-    next: pending.stage === 'validation' ? 'submission' : last ? 'delivery' : 'verification',
+    next: pending.stage === 'validation' ? 'submission' : last ? 'review_execution' : 'verification',
     update: current => {
       current.failedCheckId = null;
       if (pending.stage === 'validation') current.validationId = result.id;
@@ -214,7 +214,7 @@ export const validationStage: StageHandler = {
 
 /**
  * Runs the next acceptance check against every active criterion; passing them all is the last gate
- * before delivery.
+ * before independent review and delivery.
  */
 export const verificationStage: StageHandler = {
   known: checkIds,

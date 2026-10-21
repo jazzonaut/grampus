@@ -46,35 +46,11 @@ export function currentSlice(state: GuidedState): GuidedSlice {
   return slice;
 }
 
-/**
- * The exact edit policy for the current slice on `snapshot`. Planned creations that already exist
- * (from an earlier interrupted attempt) become edits, and planned deletions already done drop out.
- * Returns null when a deletion-only slice has nothing left to delete, so no editing turn is needed.
- */
+/** Binds native workspace execution to the captured artifact; no-change slices do not edit. */
 export function editPolicy(state: GuidedState, snapshot: RepositorySnapshot): EditPolicy | null {
-  const scope = currentSlice(state).scope;
-  const present = (path: string) => snapshot.files.some(file => file.path === path && file.sha256 !== null);
-  const creations = scope.create ?? [],
-    deletions = scope.delete ?? [];
-  if (
-    !scope.directories?.length &&
-    !scope.files.length &&
-    !creations.length &&
-    deletions.length &&
-    !deletions.some(present)
-  )
-    return null;
-  const created = creations.filter(present),
-    toCreate = creations.filter(path => !present(path)),
-    toDelete = deletions.filter(present);
-  return {
-    artifact: snapshot.artifact,
-    instructionsDigest: snapshot.instructionsDigest,
-    files: [...scope.files, ...created],
-    ...(scope.directories ? { directories: scope.directories } : {}),
-    ...(toCreate.length ? { create: toCreate } : {}),
-    ...(toDelete.length ? { delete: toDelete } : {}),
-  };
+  return currentSlice(state).mode === 'no_change'
+    ? null
+    : { workspace: true, artifact: snapshot.artifact, instructionsDigest: snapshot.instructionsDigest, files: [] };
 }
 
 /**
@@ -242,9 +218,9 @@ export function deliverySpec(state: GuidedState): DeliverySpec {
   };
 }
 
-/** After editing, refresh prerequisites when any preparation is approved; otherwise validate directly. */
+/** Agents finish setup before submission, so a candidate proceeds directly to controller checks. */
 export function afterImplementation(state: GuidedState): Stage {
-  return currentSlice(state).preparation || state.plan.preparation ? 'refresh' : afterPreparation(state);
+  return afterPreparation(state);
 }
 
 /** Readiness runs after prerequisite refresh and before behavioural validation on every attempt. */
@@ -255,7 +231,10 @@ export function afterPreparation(state: GuidedState): Stage {
 /** The next selected edit pass that has not yet run in this slice, or null. */
 export function pendingEditPass(state: GuidedState): QualityPassDefinition | null {
   return (
-    selectedEditPasses(state.plan.quality).find(pass => !state.qualityEdits.some(done => done.pass === pass.id)) ?? null
+    selectedEditPasses(state.plan.quality).find(
+      pass =>
+        !!state.plan.modelProfile?.qualityPasses?.[pass.id] && !state.qualityEdits.some(done => done.pass === pass.id),
+    ) ?? null
   );
 }
 

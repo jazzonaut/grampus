@@ -1,6 +1,7 @@
 // Owns the Claude adapter: one Agent SDK query per turn with Grampus' tool policy, hooks and MCP
 // servers. Fields the controller relies on are validated by claude-protocol.ts before they are used.
 import { modelAssignmentSchema } from '../domain/model-profiles.js';
+import { workspaceInstructions } from '../execution/workspace-instructions.js';
 import { claudeSubscription } from './subscription-limits.js';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -12,6 +13,7 @@ import {
   query,
   createSdkMcpServer,
   type HookCallback,
+  type Options,
   type CanUseTool,
   type PermissionResult,
   type Query,
@@ -159,6 +161,26 @@ function canDeleteFiles(editing: EditingContext | undefined): editing is Editing
   );
 }
 
+/** Selects the native adaptive toolset or the explicitly scoped low-level toolset. */
+function toolConfiguration(
+  options: ConnectOptions,
+): Pick<Options, 'tools' | 'permissionMode' | 'allowDangerouslySkipPermissions' | 'systemPrompt' | 'hooks'> {
+  const editing = options.editing;
+  if (editing?.policy.workspace)
+    return {
+      tools: { type: 'preset', preset: 'claude_code' },
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: `${workspaceInstructions}\n${mcpInstructions}` },
+    };
+  return {
+    tools: editing ? ['Read', 'Edit', 'Write', 'ToolSearch'] : ['ToolSearch'],
+    permissionMode: 'default',
+    systemPrompt: `${editing ? editingInstructions : instructions}\n${mcpInstructions}${options.repository ? `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}` : ''}`,
+    ...(editing ? { hooks: { PreToolUse: [{ hooks: [editingHook(options, editing)] }] } } : {}),
+  };
+}
+
 /** One SDK query with controller-fenced tools, ownership and confirmed process shutdown. */
 export class ClaudeSession implements AgentSession {
   private readonly input = new InputQueue();
@@ -206,9 +228,7 @@ export class ClaudeSession implements AgentSession {
       prompt: this.input,
       options: {
         cwd: options.cwd,
-        // The only built-in tools; Claude never gets a shell. Deletion goes through grampus_files.
-        tools: editing ? ['Read', 'Edit', 'Write', 'ToolSearch'] : ['ToolSearch'],
-        permissionMode: 'default',
+        ...toolConfiguration(options),
         mcpServers: {
           ...projectMcpServers(options.configurationCwd ?? options.cwd, options.cwd),
           ...(fileServer ? { grampus_files: fileServer } : {}),
@@ -224,11 +244,9 @@ export class ClaudeSession implements AgentSession {
         },
         // The user's own MCP configuration still loads natively alongside the servers passed here.
         strictMcpConfig: false,
-        systemPrompt: `${editing ? editingInstructions : instructions}\n${mcpInstructions}${options.repository ? `\n${explorationInstructions}\n${referenceInstructions(options.repository.references ?? [])}` : ''}`,
         outputFormat: { type: 'json_schema', schema: replyOutputSchema },
         maxTurns: currentSettings().claudeMaxTurns,
         includePartialMessages: true,
-        ...(editing ? { hooks: { PreToolUse: [{ hooks: [editingHook(options, editing)] }] } } : {}),
         // Subscription login only; background tasks are off so no agent work runs outside the turn.
         env: { ...subscriptionEnvironment(), CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' },
         canUseTool: this.canUseTool(owned),
@@ -270,6 +288,11 @@ export class ClaudeSession implements AgentSession {
     const options = this.options;
     return (name, input) => {
       const decide = (): PermissionResult => {
+        if (options.editing?.policy.workspace) {
+          if (!owned()) return { behavior: 'deny', message: 'The implementation turn is no longer active' };
+          options.emit({ type: 'tool.authorized', data: { tool: name, access: 'workspace' } });
+          return { behavior: 'allow', updatedInput: input };
+        }
         if (options.commands && isImplementationTool(name) && owned())
           return { behavior: 'allow', updatedInput: input };
         if (allowMcpTool(name, options.emit, owned())) return { behavior: 'allow', updatedInput: input };

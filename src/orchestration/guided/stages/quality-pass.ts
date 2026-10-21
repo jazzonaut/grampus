@@ -13,6 +13,7 @@ import { afterEditing, currentSlice, editPolicy, pendingEditPass } from '../spec
 import { failureCode } from './implementation.js';
 import { keepSnapshot, requireGuidedSnapshot } from '../snapshots.js';
 import { withGuidance } from '../guidance.js';
+import { prepareWorkspaceContinuation } from '../../../execution/workspace-context.js';
 
 /** The pending edit pass with the policy and snapshot it runs under; a pass never runs without both. */
 function requirePass(state: GuidedState) {
@@ -31,6 +32,7 @@ export const qualityPassStage: StageHandler = {
   known: ({ store }, state) => store.implementations(required(state, 'executionId')).map(item => item.id),
   async perform({ state, store, workspaces, services, signal }) {
     const { pass, policy } = requirePass(state);
+    if (policy.workspace) prepareWorkspaceContinuation(store, required(state, 'executionId'));
     const cwd = workspacePath(workspaces, state);
     const snapshot = requireGuidedSnapshot(store, state);
     const assignment = state.plan.modelProfile?.qualityPasses?.[pass.id] ?? state.plan.implementation;
@@ -64,20 +66,31 @@ export const qualityPassStage: StageHandler = {
         },
       };
     const after = result.after;
-    withReason('SCOPE_REJECTED', () =>
-      boundedRepositoryFiles(
-        workspacePath(workspaces, state),
-        after,
-        state.plan.context.files,
-        state.plan.context.exploration,
-      ),
-    );
+    if (!result.policy.workspace)
+      withReason('SCOPE_REJECTED', () =>
+        boundedRepositoryFiles(
+          workspacePath(workspaces, state),
+          after,
+          state.plan.context.files,
+          state.plan.context.exploration,
+        ),
+      );
     if (result.result?.reply?.kind === 'question')
       return {
         kind: 'wait',
         next: 'quality_pass',
         status: 'awaiting_answer',
         reason: { code: 'AGENT_QUESTION', note: 'Answer the quality pass questions with task-answer.' },
+        update: current => {
+          current.answers = null;
+          current.snapshot = keepSnapshot(store, after);
+          current.policy = editPolicy(current, after);
+        },
+      };
+    if (result.policy.workspace && result.result?.reply?.kind !== 'candidate')
+      return {
+        kind: 'advance',
+        next: 'quality_pass',
         update: current => {
           current.answers = null;
           current.snapshot = keepSnapshot(store, after);

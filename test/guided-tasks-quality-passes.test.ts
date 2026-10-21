@@ -10,6 +10,7 @@ import { builtInQualityPasses } from '../src/domain/quality-passes.js';
 import { runCheckProcess, type CheckProcessOptions } from '../src/process/check-process.js';
 import type { Reply, TurnResult } from '../src/providers/types.js';
 import { windows, message, services, fixture } from './helpers/guided-tasks.js';
+import { profile } from './helpers/model-profiles.js';
 
 /** An offline implementer turn that writes `source` (or nothing) to greeting.js and settles as `status`. */
 function turn(
@@ -68,6 +69,14 @@ test(
     const task = tasks.create({
       ...f.plan,
       workflowPolicy: { mode: 'automatic' },
+      modelProfile: {
+        ...profile,
+        id: 'edit-passes',
+        qualityPasses: {
+          refactor: { provider: 'codex', model: null },
+          documentation: { provider: 'codex', model: null },
+        },
+      },
       quality: { passes: ['naming', 'refactor', 'documentation'] },
     });
     assert.deepEqual(
@@ -82,7 +91,7 @@ test(
     const instructions = (id: string) => builtInQualityPasses.find(pass => pass.id === id)!.instructions;
     assert.ok(prompts[1]!.includes(instructions('refactor')));
     assert.ok(prompts[2]!.includes(instructions('documentation')));
-    assert.doesNotMatch(prompts[3]!, /quality pass/);
+    assert.doesNotMatch(prompts[3]!, /Apply the approved/);
     assert.match(prompts[3]!, /Earlier attempt evidence/);
     assert.deepEqual(
       waiting.qualityEdits.map(edit => [edit.pass, edit.before === edit.after]),
@@ -119,7 +128,16 @@ test('a failed edit pass stops before validation with QUALITY_PASS_FAILED', wind
   config.implementationRunner = options =>
     ++turns === 1 ? turn(options, "console.log('hello world');\n") : turn(options, null, 'failed');
   const tasks = new GuidedTasks(f.store, config);
-  const task = tasks.create({ ...f.plan, workflowPolicy: { mode: 'automatic' }, quality: { passes: ['refactor'] } });
+  const task = tasks.create({
+    ...f.plan,
+    workflowPolicy: { mode: 'automatic' },
+    quality: { passes: ['refactor'] },
+    modelProfile: {
+      ...profile,
+      id: 'edit-pass-failure',
+      qualityPasses: { refactor: { provider: 'codex', model: null } },
+    },
+  });
   tasks.approve(task.id, 1, task.guided!.digest);
   const stopped = await tasks.run(task.id);
   assert.equal(stopped.status, 'blocked', stopped.note);

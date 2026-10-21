@@ -45,7 +45,16 @@ export function sessionContinuation(
     .sessions()
     .filter(item => item.provider === session.provider && item.providerSessionId === session.providerSessionId);
   const events = peers
-    .flatMap(item => store.sessionEvents(item.id, ['turn.requested', 'turn.result', 'context.updated']))
+    .flatMap(item => {
+      const history = store.sessionEvents(item.id, [
+        'turn.requested',
+        'turn.result',
+        'context.updated',
+        'session.context_reset',
+      ]);
+      const reset = history.findLastIndex(event => event.type === 'session.context_reset');
+      return history.slice(reset + 1);
+    })
     .sort((a, b) => a.sequence - b.sequence);
   const turns = events.filter(event => event.type === 'turn.requested').length;
   const context = contextUpdateSchema.safeParse(events.findLast(event => event.type === 'context.updated')?.data);

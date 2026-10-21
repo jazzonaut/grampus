@@ -9,6 +9,7 @@ const command = { name: 'Fixture check', file: process.execPath, args: ['-e', ''
 /** A minimal normalised plan for one no-change slice. It is never dispatched. */
 export function planRecord(fields: Partial<GuidedPlan> = {}): GuidedPlan {
   return {
+    execution: 'adaptive',
     workflowPolicy: {
       mode: 'automatic',
       readinessRounds: 2,

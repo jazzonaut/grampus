@@ -27,6 +27,16 @@ high-value problems, adds measurement, and then lets real use decide what follow
 
 ## Steps
 
+- **Adaptive candidate workflow.** Implemented: native implementation tools for both providers without
+  per-file or diagnostic-command allowlists; provisional planning with optional file suggestions;
+  explicit candidate submission; continued progress turns on the same execution; implementation-owned
+  setup, formatting and edit quality passes; acceptance before independent review; context rotation
+  between progress turns. Approval, artifact-bound evidence, spending, uncertain-exit recovery and
+  verified local Git delivery remain controller-owned. Journal schema 14, without migrations.
+  Native execution has no filesystem or command sandbox. A live Codex implementation and Claude review greeting pilot reached verified local delivery.
+  Direct-agent comparisons and a representative real-project pilot remain **Planned**. See [WORKFLOW.md](WORKFLOW.md).
+
+
 - **Measured task-friction follow-up.** Implemented: explicit bounded diagnostic supplement
   approvals, including answers in the same decision; focused browser failure probes before broader
   finishing checks; conservative browser lifecycle stops without implementation repair spending;

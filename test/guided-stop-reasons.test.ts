@@ -420,7 +420,7 @@ test('a passing review records one assessment per selected lens and stops when a
 
   const none = guided('automatic', { plan: { ...guided('automatic').plan, quality: { passes: [] } } });
   const direct = settleReview(none, {}, 'passed');
-  assert.equal(direct.kind === 'advance' && direct.next, 'verification');
+  assert.equal(direct.kind === 'advance' && direct.next, 'delivery');
 });
 
 test('a failed selected lens is a blocking finding in automatic mode only', () => {
@@ -451,7 +451,7 @@ test('a failed selected lens is a blocking finding in automatic mode only', () =
   );
   assert.equal(ignored.kind === 'advance' && ignored.next, 'assessment');
   const supervised = settleReview(guided('supervised'), { lenses: [lens('simplification', 'fail')] }, 'passed');
-  assert.equal(supervised.kind === 'advance' && supervised.next, 'verification');
+  assert.equal(supervised.kind === 'advance' && supervised.next, 'delivery');
 });
 
 test('an implementation or edit pass refused for its prompt budget is named before any other failure', () => {

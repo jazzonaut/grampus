@@ -56,12 +56,13 @@ async function main(): Promise<void> {
     );
     const editing = { cwd: session.cwd, policy: run.policy, snapshot };
     prepareEditing(editing);
-    const commands = new ImplementationCommands(store, run.id);
+    const workspace = run.policy.workspace === true;
+    const commands = workspace ? null : new ImplementationCommands(store, run.id);
     const plan = new Workflow(store).get(execution.taskId).guided?.plan;
     let turn: ImplementationTurn;
     try {
       turn = implementationTurn(
-        `${request.prompt}\n${commands.available ? commands.instructions() : ''}`,
+        `${request.prompt}\n${commands?.available ? commands.instructions() : ''}`,
         session,
         editing,
         plan?.context,
@@ -99,8 +100,8 @@ async function main(): Promise<void> {
         // Never aborted in this process: a stop ends the worker through its supervisor.
         signal: new AbortController().signal,
         editing,
-        ...(commands.available ? { commands } : {}),
-        ...(turn.exploration
+        ...(commands?.available ? { commands } : {}),
+        ...(!workspace && turn.exploration
           ? {
               repository: {
                 repo: session.cwd,
@@ -138,10 +139,10 @@ async function main(): Promise<void> {
         /* Display-only text. */
       }
     });
-    await commands.settlePending();
+    await commands?.settlePending();
     await measurePhase(store, execution.id, 'provider_shutdown', () => connected.close());
     agent = null;
-    if (result.status === 'completed' && result.reply?.kind !== 'question') await commands.finish();
+    if (result.status === 'completed' && result.reply?.kind !== 'question') await commands?.finish();
     writeResult(run, result);
   } finally {
     try {

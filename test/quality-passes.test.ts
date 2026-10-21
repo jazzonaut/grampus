@@ -126,7 +126,7 @@ test('prompts carry the approved lens and edit pass instructions verbatim', () =
     reviewPrompt({ arbitrating: false, verdicts: '[]', priorFindings: [], lenses: [], checks }),
     /No quality lenses are selected/,
   );
-  // The reviewer judges the approved checks it is shown, not whether acceptance has already run.
+  // The reviewer sees actual acceptance evidence as well as the approved commands.
   const acceptance = {
     name: 'Smoke acceptance',
     file: 'node',
@@ -146,8 +146,8 @@ test('prompts carry the approved lens and edit pass instructions verbatim', () =
     },
   });
   assert.ok(withChecks.includes(JSON.stringify(acceptance)));
-  assert.match(withChecks, /acceptance runs after a passing review/i);
-  assert.match(withChecks, /absence is not a finding/);
+  assert.match(withChecks, /acceptance check on this candidate before review/i);
+  assert.match(withChecks, /actual observations establish the approved criteria/);
   assert.match(planningQualityInstructions, /cannot record the results of validation or acceptance/);
   const refactor = builtInQualityPasses[2]!;
   const edit = qualityPassPrompt({ pass: refactor, slicePreparation: undefined });

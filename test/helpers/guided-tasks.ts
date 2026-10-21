@@ -16,7 +16,12 @@ export const windows = { skip: process.platform !== 'win32' };
 
 export const cli = fileURLToPath(new URL('../../src/cli.js', import.meta.url));
 
-export const message: Reply = { kind: 'message', text: 'Offline fixture implementation', questions: [], findings: [] };
+export const message: Reply = {
+  kind: 'candidate',
+  text: 'Offline fixture implementation',
+  questions: [],
+  findings: [],
+};
 
 export const review: Reply = { kind: 'review', text: 'Offline fixture review', questions: [], findings: [] };
 

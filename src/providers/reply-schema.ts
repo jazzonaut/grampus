@@ -25,7 +25,7 @@ export const replyOutputSchema = {
       },
     },
     lenses: lensAssessmentsJsonSchema,
-    kind: { type: 'string', enum: ['message', 'question', 'review'] },
+    kind: { type: 'string', enum: ['message', 'candidate', 'question', 'review'] },
     text: { type: 'string' },
     questions: {
       type: 'array',
@@ -93,7 +93,7 @@ export const agentReplySchema = z
       .exactOptional(),
     /** Review assessments on a verdict or provisional assessments accompanying a question. */
     lenses: lensAssessmentsSchema.nullable().exactOptional(),
-    kind: z.enum(['message', 'question', 'review']),
+    kind: z.enum(['message', 'candidate', 'question', 'review']),
     text: z.string(),
     questions: z.array(replyQuestionSchema),
     findings: z.array(replyFindingSchema),
@@ -105,9 +105,9 @@ export const agentReplySchema = z
       context.addIssue({ code: 'custom', path: ['kind'], message: 'Questions require kind=question and vice versa' });
     // Implementers can report observations without impersonating the independent reviewer.
     // Evidence attribution follows the execution role, never the presence of a findings list.
-    if (reply.lenses != null && reply.kind === 'message')
+    if (reply.lenses != null && reply.kind !== 'review' && reply.kind !== 'question')
       context.addIssue({ code: 'custom', path: ['lenses'], message: 'Only a review may assess lenses' });
-    if (reply.priorFindings?.length && reply.kind === 'message')
+    if (reply.priorFindings?.length && reply.kind !== 'review' && reply.kind !== 'question')
       context.addIssue({ code: 'custom', path: ['priorFindings'], message: 'Only a review may resolve findings' });
   });
 

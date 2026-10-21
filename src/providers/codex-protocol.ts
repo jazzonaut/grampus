@@ -32,6 +32,9 @@ export const configReadSchema = z.object({
 /** The sandbox shape Codex reports for a read-only thread; anything else means it was not confirmed. */
 export const readOnlySandboxSchema = z.object({ type: z.literal('readOnly'), networkAccess: z.boolean().optional() });
 
+/** Native adaptive execution must confirm this capability before any turn can run. */
+export const fullAccessSandboxSchema = z.object({ type: z.literal('dangerFullAccess') });
+
 /** `thread/start` and `thread/resume`. Approval and sandbox fields are checked by the adapter for editing. */
 export const threadStartSchema = z.object({
   thread: z.object({ id }),

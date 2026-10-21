@@ -71,10 +71,10 @@ export const assessmentStage: StageHandler = {
           current.assessments = remaining;
         },
       };
-    // Automatic mode assesses after review, so verification follows; supervised mode reviews next.
+    // Automatic mode assesses after review and delivers; supervised input precedes acceptance.
     return {
       kind: 'advance',
-      next: automatic(state) && state.reviewId ? 'verification' : 'review_execution',
+      next: automatic(state) && state.reviewId ? 'delivery' : 'verification',
       update: current => {
         current.assessments = [];
       },

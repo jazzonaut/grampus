@@ -19,7 +19,7 @@ export type Provider = z.infer<typeof providerSchema>;
  * dynamic repository tools on `thread/start`, so a Codex session recorded with another version is
  * continued in a fresh conversation instead. Bump it whenever the tool definitions change.
  */
-export const agentToolsetVersion = 9;
+export const agentToolsetVersion = 10;
 
 /** System instructions for read-only conversation turns. Prompt text is a provider contract. */
 export const instructions = `You are participating in a Grampus conversation. Do not edit files, run commands or delegate work. Use configured MCP integrations and the supplied read-only tools to gather task context.

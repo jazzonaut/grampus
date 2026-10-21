@@ -25,6 +25,8 @@
   "guided-tasks-automatic-continuation",
   "guided-tasks-automatic-repair",
   "guided-tasks-check-reuse",
+  "guided-tasks-candidates",
+  "guided-tasks-candidate-review",
   "guided-tasks-command-group-recovery",
   "guided-tasks-command-recovery",
   "guided-tasks-command-settlement",
@@ -97,5 +99,7 @@
   "ui-monitoring",
   "view-model-delivery",
   "view-model-tasks",
+  "workspace-context",
+  "workspace-policy",
   "workspaces"
 ]

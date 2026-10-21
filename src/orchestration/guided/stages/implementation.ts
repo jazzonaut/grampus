@@ -13,6 +13,7 @@ import { keepSnapshot } from '../snapshots.js';
 import { withGuidance } from '../guidance.js';
 import { pendingDiagnosticAllowance } from '../../../execution/diagnostic-allowance.js';
 import { focusedRepairOutcome } from '../focused-repair.js';
+import { prepareWorkspaceContinuation } from '../../../execution/workspace-context.js';
 
 /**
  * Why an implementation turn stopped. A turn refused for its prompt budget never reached a provider, so
@@ -46,11 +47,19 @@ export function failureCode(
 export const implementationStage: StageHandler = {
   known: ({ store }, state) => store.implementations(required(state, 'executionId')).map(item => item.id),
   async perform({ state, store, workspaces, services, signal }) {
+    if (state.policy?.workspace) prepareWorkspaceContinuation(store, required(state, 'executionId'));
     await new Implementations(store, workspaces).run(
       required(state, 'executionId'),
       required(state, 'policy'),
       withGuidance(
-        implementationPrompt({ slicePreparation: currentSlice(state).preparation, feedback: state.feedback }),
+        implementationPrompt({
+          slicePreparation: currentSlice(state).preparation,
+          slice: currentSlice(state),
+          quality: state.plan.quality.passes.filter(
+            pass => pass.kind === 'edit' && !state.plan.modelProfile?.qualityPasses?.[pass.id],
+          ),
+          feedback: state.feedback,
+        }),
         state,
       ),
       { signal, timeoutMs: 0, ...(state.answers ? { answers: state.answers } : {}) },
@@ -79,14 +88,15 @@ export const implementationStage: StageHandler = {
         },
       };
     const after = result.after;
-    withReason('SCOPE_REJECTED', () =>
-      boundedRepositoryFiles(
-        workspacePath(workspaces, state),
-        after,
-        state.plan.context.files,
-        state.plan.context.exploration,
-      ),
-    );
+    if (!result.policy.workspace)
+      withReason('SCOPE_REJECTED', () =>
+        boundedRepositoryFiles(
+          workspacePath(workspaces, state),
+          after,
+          state.plan.context.files,
+          state.plan.context.exploration,
+        ),
+      );
     // The turn consumed any answers; later steps bind to the artifact it left.
     const update = (current: typeof state) => {
       current.answers = null;
@@ -111,6 +121,17 @@ export const implementationStage: StageHandler = {
         status: 'awaiting_answer',
         reason: { code: 'AGENT_QUESTION', note: 'Answer the implementation questions with task-answer.' },
         update,
+      };
+    if (result.policy.workspace && result.result?.reply?.kind !== 'candidate')
+      return {
+        kind: 'advance',
+        next: 'implementation',
+        update: current => {
+          update(current);
+          current.policy = editPolicy(current, after);
+          current.feedback =
+            'The previous turn was a progress update, not a candidate submission. Continue the unfinished work, investigate ordinary failures and submit kind=candidate only when ready for verification.';
+        },
       };
     const focused = focusedRepairOutcome(context, result, update);
     if (focused) return focused;

@@ -1,6 +1,6 @@
-// Owns the `scope` stage: snapshotting the workspace, enforcing size limits and building the exact
-// edit policy for the current slice. Supervised mode stops here for explicit file authorization. It
-// edits nothing and sends no agent turn; it only decides what the next turn may touch.
+// Owns the workspace checkpoint: capture the current artifact and bind native execution to it.
+// Supervised mode requests workspace confirmation here. This stage edits nothing and sends no
+// provider turn; project file choices belong to the adaptive implementer.
 import { prepareEditing } from '../../../execution/edit-policy.js';
 import { boundedRepositoryFiles } from '../../../repository/repository-evidence.js';
 import { GuidedStopError, withReason } from '../stop-reasons.js';
@@ -32,8 +32,9 @@ export const scopeStage: StageHandler = {
     // Refuse an unusable context or file scope now (size limits, missing or ignored paths), before a
     // turn is spent on it.
     withReason('SCOPE_REJECTED', () => {
-      boundedRepositoryFiles(cwd, snapshot, state.plan.context.files, state.plan.context.exploration);
       const policy = currentSlice(state).mode === 'no_change' ? null : editPolicy(state, snapshot);
+      if (!policy?.workspace)
+        boundedRepositoryFiles(cwd, snapshot, state.plan.context.files, state.plan.context.exploration);
       if (policy) prepareEditing({ cwd, snapshot, policy });
     });
     return snapshot;
@@ -53,7 +54,7 @@ export const scopeStage: StageHandler = {
         status: 'awaiting_scope',
         reason: {
           code: 'SCOPE_AUTHORIZATION_REQUIRED',
-          note: 'Inspect the workspace, repository instructions and exact file scope, then use task-authorize.',
+          note: 'Inspect the workspace and repository instructions, then confirm native execution with task-authorize.',
         },
         update,
       };
@@ -63,7 +64,7 @@ export const scopeStage: StageHandler = {
       next: policy === null ? afterImplementation(state) : 'implementation',
       update: current => {
         update(current);
-        current.note = 'Continuing within the approved file scope.';
+        current.note = 'Continuing with native workspace tools and an adaptive implementation approach.';
       },
     };
   },

@@ -252,7 +252,7 @@ export class Sessions {
    */
   private taskPrompt(session: Session, execution: Execution, editing: boolean, prompt: string): string {
     const task = this.store.get(execution.taskId);
-    return `Approved task context (${editing ? 'native file editing; do not claim validation or completion' : 'conversation only; do not claim repository execution or completion'}):\n${JSON.stringify(
+    return `Approved task context (${editing ? 'native implementation; report your checks as observations and submit a candidate, not controller completion' : 'conversation only; do not claim repository execution or completion'}):\n${JSON.stringify(
       {
         ...(session.providerSessionId
           ? { title: task.brief.title, criteria: activeCriteria(task), continuedConversation: true }

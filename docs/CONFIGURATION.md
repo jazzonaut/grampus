@@ -190,7 +190,7 @@ a running task or recorded evidence. A planning proposal that is already shown k
 values it was created with; only proposals produced after a restart use the new defaults.
 
 Fixed limits are in `src/config/limits.ts`, each documented with what it bounds. They
-include edit and patch sizes, file-size limits checked before approval, the 64 KiB journal
+include explicit low-level edit and patch sizes, the 64 KiB journal
 preview per check stream, review history limits, repository read budgets and process
 timeouts. They are not configurable because changing one would change what an approval or a
 piece of evidence means. Repository read budgets are described in
@@ -199,3 +199,14 @@ piece of evidence means. Repository read budgets are described in
 The dashboard's own polling interval (1.5 seconds) is set in the browser client and is not
 configurable. The dashboard server looks for stalls every 15 seconds and bounds health checks
 (`stallLimits` and `healthLimits` in `src/config/limits.ts`).
+
+## Adaptive execution
+
+Guided plans use native workspace tools. The task-wide spending and context limits apply to progress
+turns as well as submitted candidates. Readiness and behavioural repair allowances apply after
+candidate submission; per-diagnostic execution budgets do not constrain native commands.
+
+Selected edit quality passes are implementation instructions before candidate submission. Lenses
+remain independent review assessments. Native execution is not sandboxed. Plans do not approve each
+file or shell invocation separately; approval binds the intended outcome, acceptance requirements,
+final controller checks and delivery. Journal schema 14 refuses earlier versions without migration.

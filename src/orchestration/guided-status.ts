@@ -255,10 +255,8 @@ function draftLines(task: Task, state: GuidedState): string[] {
     lines.push(
       '',
       `Slice ${index + 1}: ${task.brief.slices?.[index]?.title ?? task.brief.title}`,
-      ...(slice.preparation
-        ? [`Preparation after implementation (within authorized scope): ${JSON.stringify(slice.preparation)}`]
-        : []),
-      `Scope: ${JSON.stringify(slice.scope)}`,
+      ...(slice.preparation ? [`Suggested agent setup: ${JSON.stringify(slice.preparation)}`] : []),
+      `Execution: native tools and adaptive project file access. Suggested files: ${JSON.stringify(slice.scope)}`,
       `Readiness: ${JSON.stringify(slice.readiness)}`,
       `Validation: ${JSON.stringify(slice.validation)}`,
       `Acceptance: ${JSON.stringify(slice.acceptance)}`,

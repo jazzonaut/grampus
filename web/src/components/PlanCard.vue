@@ -49,7 +49,10 @@ const headingId = useId();
       </div>
       <div class="flex min-w-0 flex-col gap-5">
         <section class="grampus-surface">
-          <SectionHeading title="Implementation approach" icon="i-lucide-box" />
+          <SectionHeading title="Provisional implementation approach" icon="i-lucide-box" />
+          <p class="mb-3 text-xs text-muted">
+            The agent can adapt its approach while preserving the agreed outcome and acceptance requirements.
+          </p>
           <MarkdownView :source="plan.approach" class="text-toned" />
         </section>
         <PlanPolicy :plan="plan" />
@@ -67,22 +70,23 @@ const headingId = useId();
         <CommandDetails :command="plan.preparation" />
       </details>
       <details class="p-4">
-        <summary class="cursor-pointer font-medium text-highlighted">File permissions and repository access</summary>
+        <summary class="cursor-pointer font-medium text-highlighted">Workspace execution and suggested files</summary>
         <p class="my-3 text-toned">
           {{
             plan.context.exploration
               ? 'Agents can search and read repository files as needed.'
               : 'This plan uses selected context only.'
           }}
-          {{ plan.context.files.length }} initial files out of {{ formatCount(plan.context.totalFiles) }}. Reading
-          grants no permission to edit. Review includes all changed files and repository instructions.
+          {{ plan.context.files.length }} initial files out of {{ formatCount(plan.context.totalFiles) }}. Reading is
+          available alongside native tools. The agent may choose project files and run local commands without individual
+          approvals. Review includes all changed files and repository instructions.
         </p>
         <p class="mb-2 break-all font-mono text-xs">{{ plan.repository.path }}</p>
         <pre v-if="plan.context.files.length" class="grampus-code">{{ plan.context.files.join('\n') }}</pre>
         <div v-for="(slice, index) in plan.slices" :key="index" class="mt-4">
           <p class="mb-2 font-medium">Slice {{ index + 1 }} · {{ slice.title }}</p>
           <template v-if="slice.directories.length">
-            <p class="mb-1 text-xs text-muted">Directory permissions</p>
+            <p class="mb-1 text-xs text-muted">Suggested folders</p>
             <pre class="grampus-code mb-2">{{ JSON.stringify(slice.directories, null, 2) }}</pre>
           </template>
           <dl class="grid gap-2 sm:grid-cols-3">
@@ -101,23 +105,15 @@ const headingId = useId();
         <summary class="cursor-pointer font-medium text-highlighted">Exact commands and acceptance evidence</summary>
         <div v-for="(slice, index) in plan.slices" :key="index" class="mt-4 flex flex-col gap-2">
           <h3 class="font-semibold">Slice {{ index + 1 }} · {{ slice.title }}</h3>
-          <div v-for="diagnostic in slice.diagnostics" :key="diagnostic.name">
-            <CommandDetails :command="diagnostic" :summary="`Focused diagnostics: ${diagnostic.name}`" />
-            <p class="text-xs text-muted">
-              {{ diagnostic.maxRuns }} diagnostic attempts per slice across all selections and repairs. Approved
-              selectable parameters and repository file suffixes:
-            </p>
-            <pre class="grampus-code">{{ diagnostic.selection }}</pre>
-          </div>
           <CommandDetails
             v-if="slice.formatting"
             :command="slice.formatting"
-            :summary="`Automatic formatting: ${slice.formatting.name}`"
+            :summary="`Suggested formatting: ${slice.formatting.name}`"
           />
           <CommandDetails
             v-if="slice.preparation"
             :command="slice.preparation"
-            :summary="`Preparation: ${slice.preparation.name}`"
+            :summary="`Suggested setup: ${slice.preparation.name}`"
           />
           <CommandDetails
             v-for="check in slice.readiness"

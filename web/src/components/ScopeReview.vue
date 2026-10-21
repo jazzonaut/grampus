@@ -19,13 +19,14 @@ const actions = { edit: 'Edit', create: 'Create', delete: 'Delete' } as const;
 <template>
   <div class="flex flex-col gap-2" data-panel="scope">
     <p v-if="scope.error" role="alert" class="text-sm text-error">
-      File authorization could not be prepared: {{ scope.error }}
+      Workspace confirmation could not be prepared: {{ scope.error }}
     </p>
-    <p v-if="!scope.files.length && !scope.directories.length" class="text-sm text-muted">
-      This slice changes no files.
+    <p class="text-sm text-muted">
+      The agent chooses project files and local commands using native tools. File and folder suggestions do not limit
+      execution.
     </p>
     <div v-if="scope.directories.length">
-      <p class="text-sm text-muted">The agent may choose files within these approved directory grants.</p>
+      <p class="text-sm text-muted">Suggested folders</p>
       <pre class="grampus-code">{{ JSON.stringify(scope.directories, null, 2) }}</pre>
     </div>
     <details

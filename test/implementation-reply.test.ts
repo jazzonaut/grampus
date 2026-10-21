@@ -24,3 +24,16 @@ test('an implementation message may report concrete findings without becoming a 
     /Only a review/,
   );
 });
+
+test('candidate submission is explicit and cannot supply independent quality evidence', () => {
+  const reply = parseReply({ kind: 'candidate', text: 'Ready for verification', questions: [], findings: [] });
+  assert.equal(reply.kind, 'candidate');
+  assert.throws(
+    () => parseReply({ ...reply, lenses: [{ lens: 'simplification', verdict: 'pass', summary: 'OK', findings: [] }] }),
+    /Only a review/,
+  );
+  assert.throws(
+    () => parseReply({ ...reply, questions: [{ id: 'decision', prompt: 'Choose the outcome', choices: [] }] }),
+    /Questions require/,
+  );
+});

@@ -1,182 +1,82 @@
-# Automatic local work and conversation efficiency
+# Adaptive local work
 
-New plans default to automatic execution within their exact approved file scope:
+Grampus approves the intended outcome and acceptance requirements, then lets the implementing
+agent choose how to deliver them. The approach is provisional. File lists are optional suggestions,
+not permissions, and planning does not have to predict helper filenames, setup commands or debugging
+steps. A material change to the agreed outcome, exclusions or acceptance requirements still needs a
+decision and a revised approval.
 
-1. Prepare the worktree and prerequisites.
-2. Implement the current slice, then apply the selected edit quality passes.
-3. Run the approved mechanical readiness checks, then behavioural validation. Return ordinary failures to the implementer with their evidence, using the appropriate bounded allowance.
-4. Independently review correctness and maintainability, assessing each selected quality
-   lens. Repair concrete blocking findings and failed lenses within the allowance and obtain
-   a new verdict. Behavioural validation, review and acceptance draw from one shared repair allowance. Declared formatting, lint and type checks have a separate readiness allowance.
-   The reviewer is shown the slice's approved readiness, validation and acceptance commands and judges
-   whether they will establish each criterion; acceptance has not run yet, so its absence is
-   never a finding. A criterion that needs the results of a later check is raised as a
-   question rather than a blocker, because no repair can resolve it.
-5. Verify acceptance: run the slice's acceptance checks in their approved order on the same
-   artifact. The first failure stops the rest and is handled like any failed check. Repairs
-   invalidate earlier validation, review and acceptance, so every acceptance check runs again.
-6. Deliver the verified local commit and continue to the next slice.
+## Candidate workflow
 
-The dashboard keeps current decisions and activity above separate results, plan, usage and evidence
-views. Before approval, the plan view exposes the exact file permissions, command arguments, expected
-output and complete plan JSON. **Request changes** opens the existing full-plan revision form; any
-revision still needs approval of its new version and digest. During planning, **Create task for review**
-creates an unapproved task. It does not start implementation. Planning token usage is visible before
-conversion, with live, partial and unknown measurements labelled explicitly. Planning and task
-pages share the live communication graph and **Open full observability** for event inspection
-and historical replay. Planning activity remains visible in the linked task without duplicate
-sessions or events ([observability](OBSERVABILITY.md)).
+1. Approve the brief, criteria, provisional approach, controller verification commands, model
+   assignments, resource allowances and local delivery.
+2. Create the worktree and capture its baseline. An optional approved bootstrap command runs here.
+3. Let the agent investigate, edit, install dependencies, generate files, format, test and debug with
+   native tools. It can create directories, rename files and add binary assets without individual
+   file grants. It completes selected edit quality passes as part of this work.
+4. Continue unfinished `kind=message` turns on the same execution. They do not submit the attempt or
+   spend repair rounds. A consequential `kind=question` waits for an answer. Only `kind=candidate`
+   submits the current slice for controller verification.
+5. Capture the candidate. Run declared mechanical readiness, behavioural validation and every
+   acceptance check in order against those exact contents. The first acceptance failure returns
+   ordinary failures to implementation within the shared repair allowance.
+6. Independently review the candidate together with actual check and acceptance evidence. The reviewer
+   checks correctness, task relevance, test quality and selected quality lenses. Concrete blockers
+   return to implementation within the same shared allowance; repairs invalidate previous evidence.
+7. Record the quality assessments and deliver the verified local commit. Continue the next slice or
+   mark the task complete only after verified delivery.
 
-For local Orca worktrees, the open dashboard also projects the task title, stage, slice
-and attention onto the workspace card. Only verified final delivery is shown as completed.
-**Open workspace in Orca** opens the task in that workspace without starting another agent.
-These are display operations; they do not approve, pause, resume or complete work, and their
-failure never changes the controller's outcome ([Orca desktop integration](DASHBOARD.md)).
+The default automatic mode needs no per-file or per-command approval. The explicit supervised mode
+still pauses for workspace confirmation and a human quality assessment. That confirmation grants
+native execution rather than an exact file allowlist. Controller-owned Git delivery remains the
+same in both modes.
 
-Questions, scope changes, uncertain process exits, check timeouts and other infrastructure
-failures, mutating checks, prerequisite failures, exhausted allowances and repairs that leave
-the failing artifact unchanged stop for attention. Each stop records a typed reason code beside its note, for example
-`CHECK_REPAIR_EXHAUSTED` or `CHECK_NO_PROGRESS`
-([guided state machine](ARCHITECTURE.md#guided-state-machine)).
-An ordinary failed test does not require a manual retry or another approval
-of the same file list. Valid tests and acceptance criteria must not be weakened to pass.
-The agent may repair a defective test when it can establish the defect with evidence.
+## Native execution and ordinary failures
 
-If the review turn fails, `REVIEW_TURN_FAILED` includes the recorded provider error in its stop
-note when available. A failed connection supplies no verdict and does not trigger an automatic replay.
+Codex implementation threads use native tools, `approvalPolicy: never` and
+`sandbox: danger-full-access`. Claude uses the native `claude_code` tool preset with
+`permissionMode: bypassPermissions`. No filesystem or command sandbox is provided. Planning and
+independent review retain their read-only tool contracts. Subscription authentication, process
+ownership, stop handling and confirmed shutdown are unchanged.
 
-Up to `maxConcurrentTasks` guided tasks (2 by default) run this flow at once, each in its own
-worktree, and they may share a source repository. Starting another task while every slot is
-taken is refused rather than queued, and approving an automatic plan then approves it without
-starting it; continue it once a slot is free
-([parallel tasks](ARCHITECTURE.md#parallel-tasks-and-concurrency)).
+The implementer runs its own setup, formatting and diagnostics. It receives the controller's final
+verification commands for context, but these are not its command allowlist. Optional slice
+`preparation` and `formatting` entries are suggestions for the agent; they are not automatically run
+after a turn. Diagnostic families and their supplemental approvals do not govern native execution.
+The worker never converts an unfinished native turn into failure by automatically running a formatter.
+A missing proposed test file, failing command or different helper layout is work for the agent to
+resolve. Agent check reports remain observations, never controller gate evidence.
 
-Staging or unstaging files during an implementation stops that attempt because its
-Git checkpoint changed. Finish staging, then choose **Retry repair**. Explicit retry
-preserves those staged files and authorized edits, checks that HEAD, instructions
-and file scope still match, and takes a new checkpoint. Automatic repair never
-silently adopts an externally changed checkpoint.
+Grampus owns HEAD, the branch, the index and repository instruction files. Agents are instructed to
+leave those unchanged; settlement detects changes rather than approving a candidate against a moved
+Git checkpoint. Pushing, publishing, deploying and external writes still need explicit authorisation.
+Native commands run inside the supervised provider process tree; an uncertain process exit requires
+recovery and is never automatically replayed.
 
-The independent reviewer supplies an explicit assessment of each selected quality lens on
-the current artifact. Grampus verifies each assessment's reviewer, attempt, version and
-artifact before recording it as **agent evidence**, rather than inferring it from a passing
-check. Runtime validation and acceptance remain controller evidence.
+## Verification and repair
 
-## Implementation readiness
+Readiness checks are optional read-only format, lint and types commands. Their failures use the
+approved per-slice readiness allowance. Behavioural validation, acceptance and blocking review share
+the approved behavioural repair allowance. Spending survives retries and restarts. Task-wide turn
+and token thresholds apply to progress turns too, so an agent that never submits a candidate cannot
+continue indefinitely.
 
-An exhausted diagnostic family stops at **Diagnostic allowance needed**, before review or
-acceptance. Approve the displayed bounded supplement to retain spending and resume the same
-attempt, or revise the plan at the fixed ceiling. Any questions from that turn are included in
-the same approval form. Sending ordinary answers never changes diagnostic permissions.
-Browser repairs can run controller-selected failed cases before readiness, using only the
-approved diagnostic grammar. Pure browser teardown failures stop for explicit investigation
-and rerun without spending an implementation repair. See
-[Execution efficiency](EXECUTION-EFFICIENCY.md) for exact boundaries and unknown-output handling.
+A submitted candidate is not success. Each check binds to the version, attempt, artifact and
+repository instructions; every named acceptance check must pass. Acceptance observations must verify
+behaviour, not just an exit status or invented success marker. The independent reviewer sees those
+actual results before issuing a verdict. Later edits require fresh checks and review.
 
-Each slice can declare an ordered `readiness` list, with at most one command of each kind:
-`format`, `lint` and `types`. Each command includes `kind`, `name`, `file`, `args` and
-`timeoutMs`. For example, a TypeScript project may approve:
-
-```json
-"readiness": [
-  {
-    "kind": "types",
-    "name": "Typecheck",
-    "file": "node",
-    "args": ["node_modules/typescript/bin/tsc", "--noEmit"],
-    "timeoutMs": 60000
-  }
-]
-```
-
-Readiness runs after the edit quality passes and prerequisite refresh, before behavioural
-validation, on every attempt. Its commands must be read-only. A slice can additionally approve
-`formatting: {name,file,args,timeoutMs}`, a formatter in write mode limited to its authorised
-existing files. It runs automatically after each completed editing turn, before the controller
-adopts the resulting artifact, without spending an agent repair round. Tests, mixed check scripts, installation
-and mutating formatters do not belong in readiness. The controller uses the declared category,
-never an error-message heuristic. Omitted readiness normalises to an empty list for approval;
-existing validation commands always use the behavioural allowance.
-
-During implementation, `grampus_run_check` lets either provider request the approved formatter
-(`format`), mechanical checks (`readiness:format`, `readiness:lint`, `readiness:types`) and
-behavioural tests (`validation`). The agent selects an identifier, never an executable or arguments.
-Commands run serially under the implementation lease, with retained output and fresh snapshots;
-native writes are refused while a command runs. Their results are diagnostics, not acceptance or
-final readiness evidence. All final checks still apply to the artifact after the last edit.
-An uncertain command keeps the parent implementation locked for recovery, without replay.
-
-Ordinary readiness failures are collected across all declared mechanical checks before one repair
-is requested, so the implementer receives formatting, lint and type diagnostics together.
-Infrastructure failures still stop immediately. The latest result on the exact artifact always wins.
-
-A slice may approve up to sixteen separately named acceptance checks, leaving room for small browser
-shards alongside repository checks, builds and integration smoke tests. Historical timings from the
-same pinned base inform planning; a timed-out run is a lower bound. Coverage, commands and deadlines
-remain explicit approval inputs and are never changed automatically while a task runs.
-
-`workflowPolicy.readinessRounds` allows five automatic readiness repairs per slice by default,
-separate from the five shared behavioural repairs. Both accept 0 to 10 and are visible and
-editable before approval. Both survive restarts, explicit retries and every repair of the same
-slice. A new slice or freshly approved plan revision starts fresh slice allowances; task-wide
-turn and token totals still include earlier work. Repeated failure of the same readiness command
-on unchanged content stops with `READINESS_NO_PROGRESS`; exhaustion uses
-`READINESS_REPAIR_EXHAUSTED`. Infrastructure stops spend neither allowance and retain the same
-explicit recovery or **Rerun checks** rules. Readiness passes never substitute for validation,
-review or acceptance, and submission requires them on the exact current artifact.
-
-Choose capacities for the task's scope and checks at approval. Running work never silently
-increases an approved allowance. The task screen shows both budgets and each repair's subsequent
-check results and review verdict, with artifact identities. Changed bytes and an implementer's
-completion message never establish that a defect was fixed.
+Infrastructure failures, unknown exits, mutating checks and unavailable evidence remain explicit
+stops. No-progress and exhausted repair allowances stop for attention. Ordinary confirmed check
+failures return to the agent in automatic mode; the agent may investigate and repair a defective test
+with concrete evidence, but must not weaken a valid requirement to obtain a pass.
 
 ## Quality passes
 
-Quality passes are declarative definitions, not code: an `id` (kebab-case), a `title`, a
-`kind` and the `instructions` sent to the agent. There are two kinds:
-
-- A **lens** is assessed by the independent reviewer inside its review turn. The verdict
-  carries one `{ lens, verdict: "pass" | "fail", summary, findings }` entry per selected lens.
-  A failed lens counts as a blocking finding and uses the shared repair allowance. A passing
-  review that leaves a selected lens unassessed stops with `REVIEW_MISSING_LENS`. Each lens
-  verdict is recorded as quality evidence for that lens, bound to the reviewer, attempt,
-  version and artifact, and delivery requires a passing assessment of every selected lens.
-- An **edit** pass is a scoped turn by the implementer, resuming the implementation
-  conversation, after the slice's first successful implementation turn and before
-  validation. It uses the slice's authorized paths rebuilt on what the implementation left,
-  and its result is recorded as a `quality_pass.completed` execution event and in the task's
-  `qualityEdits`. Edit passes run in the listed order and **once per slice**: repair attempts
-  and explicit retries skip a pass that already completed, so repairs stay focused on the
-  failure. A failed pass turn stops with `QUALITY_PASS_FAILED`; a retry starts a new attempt
-  that runs the failed pass again after implementing. Validation always runs after the
-  passes, so no evidence is taken before them.
-
-| Built-in | Kind | Purpose |
-| --- | --- | --- |
-| `simplification` | lens | Simplification, naming, duplication and test quality (the default) |
-| `naming` | lens | Misleading or lazy names and consistency with the codebase's vocabulary |
-| `refactor` | edit | Improve the structure of the changed code without changing behaviour |
-| `documentation` | edit | Add or repair TSDoc and comments for the changed code; why, not what |
-
-A plan selects passes in `quality.passes`, as ids or full definitions:
-
-```json
-"quality": { "passes": ["simplification", "naming", "refactor"] }
-```
-
-Normalisation resolves ids to full definitions, so the approval digest covers the exact
-instructions and a later settings change never alters an approved plan. A plan without
-`quality` gets `defaultQualityPasses` (`["simplification"]` unless configured). An empty list
-selects no passes: the reviewer is asked for no lens and no quality assessment is required.
-At most six passes, unique ids, and instructions up to 4 KiB each. The planner never chooses
-passes; change them at approval with **Revise this task's plan**. Custom definitions are
-added in `config.json` ([configuration](CONFIGURATION.md)).
-
-In supervised mode the person's assessment is the quality evidence: the task stops at
-`awaiting_assessment` after submission and one outcome and summary cover every selected lens,
-recorded as evidence for each. With no lenses selected it does not stop there. The reviewer
-still returns lens verdicts in supervised mode, shown beside its findings, but they do not
-replace the person's assessment.
+Ordinary selected edit passes, such as refactor or documentation, are instructions for the implementer
+before candidate submission, including after repairs. An explicit model assignment for an edit pass runs a separate native turn once per slice; otherwise passes do not
+create separate turns. Edit-pass reports never claim independent evidence. Review lenses, such as simplification and naming, are assessed by the independent
+reviewer against the verified candidate. A failed or missing required lens prevents delivery.
 
 ## Rerun checks
 
@@ -350,7 +250,7 @@ These are the defaults for a new plan that omits the policy or some of its field
 `defaultWorkflowPolicy` in `config.json` changes them for new plans only
 ([configuration](CONFIGURATION.md)).
 
-`mode` defaults to `automatic`. `mode: "supervised"` adds file-authorization and
+`mode` defaults to `automatic`. `mode: "supervised"` adds workspace-confirmation and
 manual quality assessment checkpoints and leaves failed checks for a manual retry (see
 [the guided CLI](GUIDED-WORKFLOW.md#supervised-mode)).
 Behavioural repair rounds accept 0–10, defaulting to five. Behavioural validation, independent review and acceptance
@@ -374,8 +274,9 @@ verdicts remain available to the reviewer.
 evidence or exhausted shared allowance can go to that approved arbitrator once. Arbitration
 receives the artifact and full review history; an unresolved verdict stops.
 
-Changing the mode, scope, commands or policy values uses a plan revision and fresh
-approval; the approval digest always covers the complete current plan.
+Changing the agreed outcome, acceptance requirements, final controller commands or policy values uses
+a plan revision and fresh approval. Changing local debugging commands, project files or the provisional
+approach does not. The approval digest always covers the complete recorded plan.
 
 Each failed check or blocking review records `guided.repair_decided` in the same transaction
 as its state transition. It names the source, triggering result, execution, artifact, progress,
@@ -445,8 +346,9 @@ Continuing does not allocate that same round again; actual turns and usage are r
 Queue guidance from the task screen or CLI without interrupting the current turn or starting a new
 one. Choose the next agent, the implementer (including edit passes), or independent review and
 arbitration. Each message belongs to the exact approved plan version and slice. It can refine the
-approach within approval, but cannot change scope, commands, requirements or acceptance, waive a
-gate, or answer a pending structured question. Those changes still need revision or a structured answer.
+approach, file choices and local commands within approval. It cannot change the agreed outcome or
+acceptance requirements, waive a gate, or answer a pending structured question. Those changes still
+need revision or a structured answer.
 
 At dispatch, the controller atomically removes matching messages from the queue and freezes them
 in the step intent. Later messages wait for a later matching turn. You can cancel queued messages;
@@ -491,9 +393,9 @@ never halfway through tools or uncertain recovery. Changed Codex dynamic toolset
 also require a fresh conversation so evidence tools are actually available.
 
 Resumed prompts avoid repeating the complete brief and inline repository contents.
-They contain the current slice, criteria, artifact, exact file policy and compact
+They contain the current slice, criteria, artifact and compact
 failure/review feedback. Agents can read current source, changes, installed dependency
-source and full check evidence on demand. Fresh contexts receive a bounded deterministic
+source and full check evidence on demand. Native implementers use their normal tools. Fresh contexts receive a bounded deterministic
 handoff from recorded state; Grampus does not spend another model call generating a
 summary. Every new verdict still applies to the current artifact.
 
@@ -554,64 +456,20 @@ explicit retry over staged files. Boundary tests exercise context thresholds, to
 large Unicode logs beyond the journal preview, compact polling and paginated UI output.
 Provider process and recovery tests retain the existing no-replay contracts.
 
-## Efficient implementation checks
+## Execution efficiency
 
-Implementers can use `grampus_run_check` with `name: "finish"` to format, run approved independent
-readiness checks together and validate while their turn remains active. Failures return for repair.
-Successful responses are concise; full logs remain available. Explicit directory grants and
-prerequisite restore contracts are approval-bound. See
-[EXECUTION-EFFICIENCY.md](EXECUTION-EFFICIENCY.md) for their permissions, invalidation and recovery
-rules, the optional initial-context experiment and the direct-agent comparison probe.
+Native tools keep investigation and ordinary repair inside the agent's work loop. Grampus does not
+parse test-runner grammars, reserve individual diagnostic attempts or force formatter invocations
+against filenames guessed during planning. Final readiness, validation and acceptance remain
+controller-run checks. Declared independent readiness checks can run together under
+`maxReadinessConcurrency`; acceptance remains ordered.
 
-Each diagnostic family has a slice-wide `maxRuns` allowance, defaulting to three and capped at
-eight. All selections and repair attempts share its durable spending. A failed whole-file diagnostic
-must use approved case selection or a smaller set of files before another attempt when case selection
-is available. Exhaustion cannot waive final validation or acceptance. Increasing the limit needs a
-revised plan and approval. Outstanding commands settle before provider shutdown and automatic formatting.
+Progress turns preserve the execution and provider conversation. Approved turn/context thresholds
+rotate the provider conversation only between settled turns, keeping the current artifact, brief,
+criteria and recorded feedback. Repairs create a new attempt and may resume the slice conversation.
+Implementation and review never share a conversation.
 
-Reviewer questions may retain provisional findings, lens assessments and prior-finding observations;
-they wait for an answer and supply no passing review or quality evidence. A dashboard observation of
-a missing original controller offers recovery first, even if the saved status still says running.
-Process observations never release ownership or restart work.
-
-A slice can approve focused diagnostic families, independent readiness workers and local check
-reuse. All are displayed before approval and included in the plan digest. For example:
-
-```json
-{
-  "diagnostics": [{
-    "name": "unit", "file": "node", "args": ["--test"], "timeoutMs": 30000,
-    "selection": {
-      "parameters": [{"name": "filter", "flag": "--test-name-pattern"}],
-      "fileSuffixes": [".test.js"]
-    }
-  }],
-  "readinessConcurrency": 2
-}
-```
-
-The implementer can select `diagnostic:unit`, a filter and current test paths without another plan
-revision. It cannot replace the executable, prefix, deadline or parameter grammar. These capabilities
-are diagnostics, not permission to deliver Git changes or change files outside the approved scope.
-
-A readiness or validation command may additionally declare `reuse: {"inputs": ["node_modules"]}`
-when its result is entirely determined by the local declared inputs. This declaration must include
-all ignored dependencies and generated inputs; external services, clocks and uncontrolled external
-configuration make it ineligible. The controller adopts a diagnostic only after checking its exact
-artifact, command, instructions, runtime, environment and before/after input fingerprints. Otherwise
-it runs the gate again. Acceptance always runs separately.
-
-Readiness concurrency is opt-in and bounded by `maxReadinessConcurrency`. Do not enable it for
-checks that depend on each other or share unsafe caches, fixtures or generated outputs. A group
-retains ownership if any process exit is uncertain. Use ordinary recovery; never retry uncertain work.
-
-Prefer coherent delivery slices. Extra slices introduce fresh implementation/review context and
-repeat acceptance. Planning now reserves those boundaries for independently useful deliveries or
-file/context limits. Mandatory independent review and the approved quality passes remain intact.
-
-The Usage panel shows total task elapsed time from linked planning through delivery, active
-execution, waiting and recovery, then each
-workflow stage and every individual step across slices and retries. Checks, setup and delivery count
-alongside provider work. Provider and command totals overlap during implementation; do not add them.
-Live values include the current open interval and stop advancing on completion. Journal schema 13
-requires a fresh journal; earlier builds and their journals remain separate.
+Workflow timing still covers planning, execution, checks, waiting, recovery and delivery. Native
+command output is retained through provider activity; commands are not individual controller check
+receipts. Journal schema 14 requires a fresh journal. Other schema versions are refused without
+migration; installed applications and their journals are separate from development work.

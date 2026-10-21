@@ -15,7 +15,7 @@ function directory(t: { after(fn: () => void): void }): string {
   return root;
 }
 
-test('a new journal gets the current schema at version 13 and reopens with its records', t => {
+test('a new journal gets the current schema at version 14 and reopens with its records', t => {
   const path = join(directory(t), 'nested', 'grampus.sqlite');
   const store = new Store(path);
   const kept = taskRecord('task');
@@ -26,7 +26,7 @@ test('a new journal gets the current schema at version 13 and reopens with its r
   store.close();
   const db = new DatabaseSync(path);
   try {
-    assert.equal(db.prepare('PRAGMA user_version').get()!['user_version'], 13);
+    assert.equal(db.prepare('PRAGMA user_version').get()!['user_version'], 14);
   } finally {
     db.close();
   }

@@ -2,6 +2,7 @@
 // controller-approved native patches and the dynamic repository tools. Protocol shapes are pinned in
 // codex-protocol.ts; this module only acts on messages that module has validated.
 import { modelAssignmentSchema } from '../domain/model-profiles.js';
+import { workspaceInstructions } from '../execution/workspace-instructions.js';
 import { RepositoryReadLoopError } from '../repository/read-loop.js';
 import { implementationToolDefinition, runImplementationTool } from './implementation-tools.js';
 import { codexSubscription } from './subscription-limits.js';
@@ -26,6 +27,7 @@ import {
   classifyCodexNotification,
   configReadSchema,
   fileChangeItem,
+  fullAccessSandboxSchema,
   isKnownCodexNotification,
   itemId,
   mcpStatusPageSchema,
@@ -118,7 +120,7 @@ const mcpServerSchema = z.looseObject({ enabled: z.unknown().optional() });
  * server counts as enabled unless its configuration says `enabled = false`.
  */
 async function mcpOverrides(rpc: RpcProcess, options: ConnectOptions): Promise<Record<string, unknown>> {
-  const overrides: Record<string, unknown> = { web_search: 'disabled' };
+  const overrides: Record<string, unknown> = { web_search: options.editing?.policy.workspace ? 'live' : 'disabled' };
   const effective = parseCodexResponse(
     'config/read',
     configReadSchema,
@@ -135,6 +137,7 @@ async function mcpOverrides(rpc: RpcProcess, options: ConnectOptions): Promise<R
 }
 
 function developerInstructions(options: ConnectOptions): string {
+  if (options.editing?.policy.workspace) return `${workspaceInstructions}\n${mcpInstructions}`;
   let text = `${
     options.editing
       ? implementationInstructions(
@@ -147,7 +150,7 @@ function developerInstructions(options: ConnectOptions): string {
   return text;
 }
 
-/** Features disabled on every Grampus app-server: no shell, hooks, delegation or other side channels. */
+/** Features disabled for read-only conversations and explicitly scoped low-level editing. */
 const disabledFeatures = [
   'shell_tool',
   'unified_exec',
@@ -161,20 +164,25 @@ const disabledFeatures = [
 ];
 
 /** The exact `codex app-server` arguments of every Grampus connection; `doctor` uses them unchanged. */
-export function codexAppServerArguments(): string[] {
+export function codexAppServerArguments(workspace = false): string[] {
   return [
     'app-server',
     '--listen',
     'stdio://',
     '-c',
     'forced_login_method="chatgpt"',
-    ...disabledFeatures.flatMap(feature => ['--disable', feature]),
+    ...(workspace
+      ? ['--enable', 'shell_tool', '--enable', 'unified_exec']
+      : disabledFeatures.flatMap(feature => ['--disable', feature])),
   ];
 }
 
 /** Start the resolved Codex executable as an app-server in `cwd`, with API keys removed from its environment. */
-export function startCodexAppServer(cwd: string): RpcProcess {
-  return new RpcProcess(codexExecutable().command, codexAppServerArguments(), { cwd, env: subscriptionEnvironment() });
+export function startCodexAppServer(cwd: string, workspace = false): RpcProcess {
+  return new RpcProcess(codexExecutable().command, codexAppServerArguments(workspace), {
+    cwd,
+    env: subscriptionEnvironment(),
+  });
 }
 
 /** What the app-server reported during the handshake, before any thread exists. */
@@ -218,8 +226,8 @@ function dynamicCapabilities(options: ConnectOptions) {
 
 /**
  * Connect a Codex session. `start` creates the app-server process; replay tests substitute a recorded server.
- * Every thread asks for `approvalPolicy: untrusted` and a read-only sandbox; editing threads also name the
- * user (Grampus) as approvals reviewer, so each native patch must come back here for a decision.
+ * Native workspace execution asks for full access without individual approvals. Read-only
+ * conversations and scoped low-level editing retain their controller tool policies.
  *
  * Rejects without starting a turn when the login is not a ChatGPT subscription, a response is malformed,
  * a resume lands in another thread, an editing thread does not confirm those approval and sandbox
@@ -228,7 +236,7 @@ function dynamicCapabilities(options: ConnectOptions) {
  */
 export async function connectCodex(
   options: ConnectOptions,
-  start: (cwd: string) => RpcProcess = startCodexAppServer,
+  start: (cwd: string) => RpcProcess = cwd => startCodexAppServer(cwd, options.editing?.policy.workspace === true),
 ): Promise<AgentSession> {
   options.signal.throwIfAborted();
   modelAssignmentSchema.parse({
@@ -245,19 +253,7 @@ export async function connectCodex(
     options.emit({ type: 'process.started', data: { pid: rpc.pid } });
     const auth = await codexHandshake(rpc);
     if (!hasCodexSubscription(auth)) throw new Error('Codex requires an existing ChatGPT subscription login');
-    const params = {
-      cwd: options.cwd,
-      modelProvider: 'openai',
-      approvalPolicy: 'untrusted',
-      sandbox: 'read-only',
-      developerInstructions: developerInstructions(options),
-      config: await mcpOverrides(rpc, options),
-      ...(options.editing ? { approvalsReviewer: 'user' } : {}),
-      // Dynamic tools are declared on thread/start only; a resumed thread keeps those it began with, which
-      // is why a changed `agentToolsetVersion` starts a fresh conversation.
-      ...dynamicCapabilities(options),
-      ...(options.model ? { model: options.model } : {}),
-    };
+    const params = await threadParameters(rpc, options);
     const method = options.providerSessionId ? 'thread/resume' : 'thread/start';
     const thread = parseCodexResponse(
       method,
@@ -270,16 +266,7 @@ export async function connectCodex(
     );
     if (options.providerSessionId && thread.thread.id !== options.providerSessionId)
       throw new Error('Codex resumed a different session');
-    // Editing relies on Codex asking before every patch; a thread that did not confirm that is refused.
-    const sandbox = readOnlySandboxSchema.safeParse(thread.sandbox);
-    if (
-      options.editing &&
-      (thread.approvalPolicy !== 'untrusted' ||
-        thread.approvalsReviewer !== 'user' ||
-        !sandbox.success ||
-        sandbox.data.networkAccess === true)
-    )
-      throw new Error('Codex did not confirm controller approvals and read-only sandbox');
+    confirmEditingSandbox(options.editing, thread);
     options.emit({
       type: 'session.connected',
       data: { providerSessionId: thread.thread.id, model: thread.model, auth: 'subscription' },
@@ -294,6 +281,43 @@ export async function connectCodex(
   } finally {
     options.signal.removeEventListener('abort', abort);
   }
+}
+
+/** Builds native execution permissions separately from the connection lifecycle. */
+async function threadParameters(rpc: RpcProcess, options: ConnectOptions) {
+  return {
+    cwd: options.cwd,
+    modelProvider: 'openai',
+    approvalPolicy: options.editing?.policy.workspace ? 'never' : 'untrusted',
+    sandbox: options.editing?.policy.workspace ? 'danger-full-access' : 'read-only',
+    developerInstructions: developerInstructions(options),
+    config: await mcpOverrides(rpc, options),
+    ...(options.editing && !options.editing.policy.workspace ? { approvalsReviewer: 'user' } : {}),
+    // Dynamic tools are declared on thread/start only; a resumed thread keeps those it began with, which
+    // is why a changed `agentToolsetVersion` starts a fresh conversation.
+    ...dynamicCapabilities(options),
+    ...(options.model ? { model: options.model } : {}),
+  };
+}
+
+/** Confirms the execution capability before any implementation turn is dispatched. */
+function confirmEditingSandbox(editing: EditingContext | undefined, thread: z.infer<typeof threadStartSchema>): void {
+  // Editing relies on Codex asking before every patch; a thread that did not confirm that is refused.
+  const sandbox = readOnlySandboxSchema.safeParse(thread.sandbox);
+  if (
+    editing &&
+    !editing.policy.workspace &&
+    (thread.approvalPolicy !== 'untrusted' ||
+      thread.approvalsReviewer !== 'user' ||
+      !sandbox.success ||
+      sandbox.data.networkAccess === true)
+  )
+    throw new Error('Codex did not confirm controller approvals and read-only sandbox');
+  if (
+    editing?.policy.workspace &&
+    (thread.approvalPolicy !== 'never' || !fullAccessSandboxSchema.safeParse(thread.sandbox).success)
+  )
+    throw new Error('Codex did not confirm unrestricted workspace execution');
 }
 
 interface ActiveTurn {

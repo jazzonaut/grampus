@@ -60,17 +60,17 @@ integration require evidence appropriate to those claims; mocked tests or metada
 establish them. The independent reviewer challenges gaps against the approved criteria. These are
 provider instructions, not a deterministic proof of plan quality or a new controller gate.
 
-Converting a proposal creates an unapproved guided task. `domain/guided-plan.ts` normalizes the plan once
-and hashes it into an approval digest covering the brief, slices, file scopes, preparation,
-validation and acceptance commands, expected output, providers, models, workflow and review
-policies, the selected quality passes as full definitions, selected context, references and delivery
-messages. Approval must name both the exact
-requirement version and that digest. The controller, not the planner, decides repository, base,
-workspace adapter and providers.
+Converting a proposal creates an unapproved guided task. `domain/guided-plan.ts` normalises it once
+and hashes the complete plan into an approval digest. Approval covers the outcome, exclusions,
+criteria, provisional approach, final verification commands, model assignments, quality passes,
+spending policy and local delivery. The controller chooses the repository, pinned base, workspace
+adapter and provider roles. Every normalised plan records `execution: adaptive`.
 
-Plan validation simulates file existence through the ordered slices: edits and deletions must target
-existing paths, creations must be absent (including Windows case collisions), and deleted paths
-cannot be recreated later. Review must use the other provider from implementation.
+File scope entries are optional planning suggestions. The controller does not simulate file existence
+across slices or require the planner to predict new filenames. Native execution can adapt project
+files, helper structure, local commands and debugging steps without revising approval. Changes to
+the intended result or acceptance requirements still need an explicit decision. Review uses the
+other provider from implementation.
 
 ## Workflow model
 
@@ -106,17 +106,17 @@ request.
 | `workspace` | `workspace.ts` | Create the task worktree (Git or Orca) |
 | `execution` | `execution.ts` | Create the implementation execution and session, resuming the slice conversation when allowed |
 | `preparation` | `preparation.ts` | Optional approved restore command, before scope |
-| `scope` | `scope.ts` | Snapshot, verify size limits and build the exact edit policy |
-| `implementation` | `implementation.ts` | Supervised native editing by the implementer |
-| `quality_pass` | `quality-pass.ts` | Each selected edit quality pass, once per slice, as a scoped implementer turn |
-| `refresh` | `preparation.ts` | Optional scoped generation after editing, followed by declared prerequisite restoration against the final inputs |
+| `scope` | `scope.ts` | Capture the artifact and native workspace execution policy |
+| `implementation` | `implementation.ts` | Native work until candidate submission or a consequential question |
+| `quality_pass` | `quality-pass.ts` | Explicit low-level edit-pass handler; adaptive tasks include passes in implementation |
+| `refresh` | `preparation.ts` | Explicit preparation handler; adaptive agents perform generation before submission |
 | `readiness` | `readiness.ts` | Run each approved mechanical check on the current artifact, using a separate bounded slice allowance |
 | `validation` | `checks.ts` | Run the approved behavioural validation command |
 | `submission` | `submission.ts` | Submit the implementation with the latest passing check |
 | `review_execution` | `execution.ts` | Create the review (or arbitration) execution |
 | `review` | `review.ts` | Independent artifact review by the other provider |
 | `assessment` | `assessment.ts` | Record one quality lens assessment per step until every selected lens is recorded |
-| `verification` | `checks.ts` | Run acceptance against the active criteria |
+| `verification` | `checks.ts` | Run acceptance against the active criteria before independent review |
 | `delivery` | `delivery.ts` | Verified local commit, then the next slice or `complete` |
 
 Each handler has three parts: the result ids that already exist before dispatch, `perform` (dispatch
@@ -131,26 +131,25 @@ leaf requests that a step dispatches and later requires its result to match are 
 Statuses are `draft`, `ready`, `running`, `awaiting_scope`, `awaiting_assessment`,
 `awaiting_answer`, `blocked`, `recovery_required` and `complete`.
 
-In **automatic** mode (the default for new plans) scope is authorized by plan approval, review
-follows submission, and the reviewer's verdict on each selected quality lens becomes agent evidence
-at `assessment` before verification; a failed lens counts as a blocking finding. Edit quality passes
-run between `implementation` and validation on the slice's first successful implementation only
-([quality passes](WORKFLOW.md#quality-passes)). Declared read-only formatting, lint and type checks run at `readiness` after the refresh.
-Their failures use `workflowPolicy.readinessRounds` (five by default, up to ten), persisted in
-`readinessCycle`. All attempts rerun readiness, but behavioural repairs and manual retries never
-replenish it. Submission independently checks that every readiness command passed on the exact
-artifact and instructions; readiness cannot substitute for validation. Ordinary behavioural
-validation and acceptance failures return to
-implementation with their evidence within `workflowPolicy.repairRounds`, shared with blocking
-review repairs (five by default, up to ten). Review can continue beyond two repairs when the
-artifact changes and the reviewer evidences resolution of at least one preceding blocker using
-controller-assigned identities, with dispositions for all prior blockers. Unchanged artifacts,
-no resolved blockers and missing progress
-evidence stop early or go to an optional approved arbitrator. Every repair decision is journaled
-with its reason, evidence identity and shared budget in the settlement transaction. In **supervised** mode the controller stops at
-`awaiting_scope` for file authorization and at `awaiting_assessment` after submission for one human
-quality assessment covering every selected lens (skipped when none is selected), then reviews; failed checks stop for a manual retry. The mode is part of
-the approved plan and changes only through a revision. Details are in [WORKFLOW.md](WORKFLOW.md).
+In **automatic** mode, plan approval grants native workspace execution. The implementer performs
+setup, generation, formatting, diagnostics and selected edit quality passes with its normal tools.
+Optional file lists and slice setup/formatting commands are suggestions, not runtime permissions.
+The `scope` checkpoint captures the current artifact and builds a workspace policy, rather than
+an exact file grant. The worker preserves controller-owned Git and repository instruction state.
+
+A completed provider turn with `kind=message` is unfinished progress: the next `implementation`
+step continues the same execution on the resulting artifact, without spending repair allowance.
+Only `kind=candidate` advances to readiness and validation. Questions wait for an answer.
+Task-wide spending and context rotation apply at each settled turn. There is no automatic
+post-turn formatter or diagnostic-family budget in native execution.
+
+After validation submission, `verification` runs every acceptance check before `review_execution`.
+The reviewer sees the actual acceptance results on the exact candidate. A passing review records
+selected lens assessments, then `delivery` makes the verified local commit. Ordinary readiness
+failures use the readiness allowance; validation, acceptance and blocking review share the
+behavioural repair allowance. Repair invalidates previous evidence and repeats verification and
+review. Supervised mode additionally waits for workspace confirmation and a human quality
+assessment. Details are in [WORKFLOW.md](WORKFLOW.md).
 
 Every stop records a typed reason next to the human-readable note: `stopReason: { code, message, at }`
 on the guided state, and `reasonCode` on the journal event that made the change. It is set exactly
@@ -256,7 +255,7 @@ form changes cumulative totals only through fresh approval.
 `persistence/store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a
 15-second busy timeout ([parallel tasks](#parallel-tasks-and-concurrency)). There is one schema,
 version 12, with no migrations. A new or empty
-file gets the schema; any other version, or a version 13 file missing a table, is refused with a
+file gets the schema; any other version, or a version 14 file missing a table, is refused with a
 clear error after a read-only inspection, so the file is never modified. The default journal is
 `grampus.sqlite` in the data directory.
 
@@ -385,63 +384,37 @@ review never share a conversation, and arbitration always starts fresh.
 
 ## Agent adapters
 
-Both adapters return the same validated reply: `kind` is `message`, `question` or `review`, with
-question ids, findings (`blocking` or `suggestion`, with evidence) and, for reviews, one
-assessment per requested quality lens (`lenses`). Malformed replies fail the turn. The reply contract
-is pinned in `providers/reply-schema.ts`; see [External boundaries](#external-boundaries) for how
-provider protocol messages are validated.
+Both adapters validate `message`, `candidate`, `question` and `review` replies.
+`message` is progress, `candidate` submits implementation for verification, and neither is controller
+proof of success. Review findings require concrete evidence and selected quality lens assessments.
+Malformed replies fail the turn. `providers/reply-schema.ts` owns the shared contract.
 
-- **Codex** (`providers/codex.ts`) runs `codex app-server` over stdio JSON-RPC
-  (`process/process.ts`), forcing ChatGPT login and refusing other authentication. Codex is pinned:
-  the executable is the native `codex.exe` vendored by the exact `@openai/codex` dependency (source
-  `bundled`), or `GRAMPUS_CODEX_COMMAND`, resolved by `providers/executables.ts`. A `codex` on PATH is
-  never used, so a standalone or desktop Codex updating itself does not change what Grampus runs. The
-  binary is found by fixed paths under the package's `node_modules/@openai`: the platform package
-  nested in `@openai/codex` or flattened beside it, binary in `vendor/<target>/bin` or
-  `vendor/<target>/codex`; npm's `.codex-XXXX` staging folders are ignored and the package's script
-  launcher is never run. Sessions recorded before pinning keep their `path` or `npm-vendored` source.
-  Threads start or resume
-  with `approvalPolicy: untrusted` and a read-only sandbox, and the controller verifies both before
-  inference. Resume requests set `excludeTurns: true`: Codex retains the conversation history but
-  returns metadata without saved turns, keeping unused history out of the bounded RPC response.
-  Repository tools are app-server dynamic tools. File edits arrive as
-  `item/fileChange/requestApproval`; the controller checks each patch against the active turn and
-  the exact edit policy, journals the decision and grants single-use approval. Command execution
-  requests are declined. Server requests are answered only through the request handler and validated
-  by their own schemas; they are never treated as notifications, so they are not reported as protocol
-  drift, while a request method Grampus does not know is refused and journaled once as
-  `protocol.unrecognized`.
-- **Claude** (`providers/claude.ts`) uses the pinned `@anthropic-ai/claude-agent-sdk` and its bundled
-  executable, unless `GRAMPUS_CLAUDE_COMMAND` overrides it. `providers/executables.ts` resolves the
-  bundled executable from the SDK's platform package the way the SDK does, and the adapter passes that
-  exact path to the SDK, so `doctor` reports the program a turn starts. It requires a first-party subscription
-  and no API key source. Editing turns get native `Read`, `Edit` and `Write`, which a `PreToolUse`
-  hook and permission callback restrict to authorized paths, plus the repository MCP server
-  (`providers/claude-repository.ts`) and, when deletions are approved, an in-process delete tool
-  (`providers/claude-files.ts`). `ToolSearch` and external MCP tools are allowed only during an active turn.
-  Tool decisions are journaled before permission is granted.
+Codex runs the native binary from the pinned `@openai/codex` package through app-server JSON-RPC.
+Adaptive implementation enables native shell tools, uses `approvalPolicy: never` and
+`sandbox: danger-full-access`, and verifies those settings before dispatch. The configured MCP
+servers carry into the worktree and native web search is available. Planning, independent review
+and explicitly scoped low-level editing retain read-only sandbox/controller tool policies.
+Resume excludes saved turns from the response while retaining provider history. Each operation is
+sent once; unknown dispatch or shutdown is never replayed.
 
-Neither provider gets a shell. Configured MCP integrations stay available (`providers/integrations.ts` carries
-source-project connections into worktrees); external actions need explicit task authorization.
+Claude uses the pinned Agent SDK and bundled executable. Adaptive implementation receives the native
+`claude_code` tool preset and system prompt, with Grampus instructions appended,
+`permissionMode: bypassPermissions` and `allowDangerouslySkipPermissions: true`. No per-file
+`PreToolUse` hook restricts adaptive tools. Planning and review keep their read-only Grampus tools;
+explicit low-level scoped editing retains its file hooks. Background provider tasks remain disabled
+and the supervisor owns the process tree.
 
-Implementation also receives `grampus_run_check` (`execution/implementation-commands.ts` and
-`providers/implementation-tools.ts`), selecting an approved formatter, readiness command, validation command or focused diagnostic family by identifier.
-A family binds its executable, argument prefix, timeout, selectable named flags and file suffixes. Agents
-may choose parameter values and current inventory paths within that grammar, without a shell. It runs through the supervisor under the existing implementation
-lease. Child check records name `implementationId`; settlement never releases the parent lease.
-Before parent settlement, outstanding child receipts must prove confirmed exit or the implementation
-stays in recovery. Diagnostics never supply acceptance. Explicitly reusable diagnostics can satisfy readiness or validation
-only through a new controller adoption record after the implementer has settled. An optional
-slice `formatting` command runs automatically after editing, within the approved file scope.
-Native writes are suspended while a command runs; final evidence binds to the formatted artifact.
+Both adapters require subscription authentication and remove API-key/backend environment overrides.
+`GRAMPUS_CODEX_COMMAND` and `GRAMPUS_CLAUDE_COMMAND` remain explicit executable overrides.
+Configured integrations remain available; external writes require explicit task authorisation.
+No filesystem or command sandbox is provided for adaptive implementation. Instructions reserve Git
+delivery and repository instruction changes to the controller, and final snapshots detect violations.
 
-`repository/read-loop.ts` replaces a third identical read of unchanged content with a compact cursor
-reminder and terminates the turn on the eighth. Changed content remains readable. Both providers
-settle a detected loop without automatically replaying their turn.
-
-Kickoff planning receives bounded historical command durations for the same repository and pinned
-base. Timed-out durations are lower bounds; planning must split oversized suites with headroom,
-preserving full coverage. This advice never rewrites an approved command or deadline at runtime.
+`execution/implementation-worker.ts` prepares the native prompt, runs one provider turn and waits
+for confirmed shutdown. Adaptive execution does not offer `grampus_run_check` or invoke the scoped
+`ImplementationCommands` finishing cycle. Native command reports are provider observations; final
+controller checks have their own artifact-bound receipts. `execution/workspace-context.ts` rotates
+provider context between settled turns without replacing the execution or resetting spending.
 
 ## Repository access
 
@@ -495,10 +468,10 @@ file observations against retained output and the after-snapshot. Preparation re
 with its own purpose and cannot supply validation or acceptance evidence.
 
 Native editing (`execution/implementations.ts`, `execution/implementation-worker.ts`, `execution/edit-policy.ts`) runs the
-provider in the same supervised process tree. After confirmed exit, only the authorized file
-contents and named creations and deletions may have changed; HEAD, index, other files, modes and
-instructions must be unchanged. Scope covers regular UTF-8 files up to 1 MiB each and 4 MiB per
-slice, at most 64 paths.
+provider and its native commands in the same supervised process tree. Adaptive turns may change
+project files, membership, modes and binary assets without exact file grants. After confirmed exit,
+HEAD, index and repository instructions must still match the baseline. Explicit low-level scoped
+editing retains its regular UTF-8 and size/path limits; those limits do not restrict native execution.
 
 Every provider turn prompt fits one budget (`promptLimits.turnBytes`, 256 KiB of UTF-8, enforced by
 `providers/prompt-budget.ts`). It is sized for the smallest provider limits: Codex refuses turn input
@@ -830,7 +803,7 @@ conversations, evidence and both repair counts keep the ordinary task contracts.
 Task claims recheck comparison membership inside the claim transaction; advancing a comparison
 rechecks the member's current ownership and settlement under the same SQLite write lock.
 
-The `comparisons` and `comparison_events` tables are part of journal schema 13. State changes and
+The `comparisons` and `comparison_events` tables are part of journal schema 14. State changes and
 events share a transaction. Schema versions other than 8 are refused without migration.
 Member tasks keep the existing execution, workspace, evidence, spending and verified-delivery
 contracts. Shared planning is retained once at comparison level rather than charged to every member.
@@ -946,7 +919,8 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | `execution/` | `sessions.ts`, `session-context.ts` | Conversation turns, recovery and resume-or-fresh decisions |
 | | `output-buffer.ts` | Coalescing streamed provider output per run |
 | | `executions.ts`, `execution-state.ts` | Execution bindings, leases and settlement |
-| | `edit-policy.ts`, `implementations.ts`, `implementation-worker.ts` | Edit scope, patch authorization and supervised editing |
+| | `edit-policy.ts`, `implementations.ts`, `implementation-worker.ts` | Workspace or explicit low-level edit policy and supervised native execution |
+| | `workspace-instructions.ts`, `workspace-context.ts` | Adaptive implementation contract and rotation between settled progress turns |
 | | `directory-scope.ts`, `native-creations.ts`, `phase-timing.ts` | Portable directory grants, journal-derived creation coverage and monotonic phase observations |
 | | `implementation-prompt.ts` | The exact implementation turn prompt, built within the turn budget |
 | | `implementation-commands.ts`, `diagnostic-budget.ts`, `diagnostic-allowance.ts`, `repair-probes.ts` | In-turn finishing, pending-command settlement, exact-input reuse and durable slice-wide diagnostic allowances |
@@ -1035,49 +1009,12 @@ The dashboard client is its own npm project in `web/` (paths under `web/src/`), 
 
 ## Efficient verification and workflow timing
 
-The complete in-turn finishing cycle, explicit directory grants, restore contracts, multi-query
-exploration, ranged batch reads, execution-phase measurements and comparison probe are described in
-[EXECUTION-EFFICIENCY.md](EXECUTION-EFFICIENCY.md). Directory grants extend exact file actions only
-when explicitly approved; neither provider gains general command execution. The optional
-`deferEditableContext` defaults on for exploring Codex turns; it can be disabled for comparison. Warm workers and isolated general execution remain
-**Planned**, conditional on measured benefit.
+The implementation agent uses native tools for setup, editing and debugging. The controller retains
+final checks, artifact capture, review, spending, recovery and Git delivery. Optional directory and
+file hints do not constrain adaptive execution. Context rotation uses approved session-turn limits
+and observed model context at settled boundaries, including consecutive progress turns.
 
-Readiness and validation commands may approve `reuse: {inputs: [...]}`. This declares a local
-check whose result depends only on the artifact, instructions, executable, inherited environment
-and explicitly listed additional input trees. Include ignored dependencies and generated inputs.
-Network, clock and other uncontrolled external inputs are ineligible. `verification/check-inputs.ts`
-hashes the resolved executable and declared trees before and after execution. Missing files, links,
-changing inputs or inventories over the capture bounds disable reuse. Version-manager executable
-links bind both the requested path and resolved binary. No environment values are journaled.
-
-`verification/check-reuse.ts` permits only the latest exact successful diagnostic of a completed
-implementation in the same execution. The final gate takes its own lease, snapshots and fingerprints.
-Matching evidence creates a new `reusedFrom` record with no process dispatch; mutations, changed
-parameters, instructions, dependencies, environment, newer failures or uncertain results invalidate it.
-Acceptance and scoped preparation always execute independently.
-
-Slices approve `readinessConcurrency`, default one. Values two or three declare independent read-only
-mechanical checks. The operational `maxReadinessConcurrency` ceiling defaults to two workers per
-task. Every child request exists before dispatch, each has its own receipt, and a shared group lease
-is retained until all children settle. An uncertain child stops further scheduling. Recovery requires
-all dispatched outstanding receipts and never accepts recovered work as success. Acceptance stays
-ordered. Resource use is bounded by both the task pool and per-task worker ceiling.
-
-`reporting/workflow-timing.ts` projects every persisted workflow transition. Total elapsed time,
-controller-owned active intervals, settled waiting and recovery are disjoint. It records every step
-request separately by slice and journal sequence, and aggregates stages across repairs and retries.
-Live steps remain live, completion freezes the clock, and clock regressions are flagged lower bounds.
-A reclaim after controller death classifies the unobserved gap as recovery rather than active work.
-Provider wall time includes in-turn diagnostics and must not be added to check time as disjoint work.
-Timing is shown in the dashboard Usage panel, CLI, Markdown report and JSON/CSV scorecards. Linked planning
-request/result intervals extend the task clock before task creation. Provider-stage accounting stays
-separate, so planning tokens and elapsed time are not counted twice.
-
-Repository tools return complete `nextCall` requests, preserving cursor mode and reference roots.
-Related-file batches have bounded total output; each file retains its own continuation. Searches
-include bounded neighbouring lines. The repeated-read guard remains a final bound.
-
-Implementation messages may include evidence-bearing observations in `findings`. They remain
-messages; only a review execution can provide independent review evidence, and lens assessments
-and prior-blocker resolutions still require `kind=review`. Implementation observations are forwarded
-to the reviewer as untrusted claims for independent investigation.
+Readiness concurrency remains bounded and opt-in for independent checks. Final acceptance remains
+ordered. Controller timing includes checks, waiting, recovery and delivery; provider activity retains
+native tool observations without promoting them to controller evidence. Measured comparison against
+a direct native agent remains **Planned**; no performance improvement is claimed without it.

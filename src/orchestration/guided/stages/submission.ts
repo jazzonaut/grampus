@@ -1,5 +1,5 @@
 // Owns the `submission` stage: submitting the implementation attempt with its latest passing
-// validation, then handing it to review (automatic) or to a human quality assessment (supervised).
+// validation, then handing it to acceptance (automatic) or a human quality assessment (supervised).
 // It sends no agent turn and runs no command; it only binds the attempt to the validated artifact.
 import { GuidedStopError } from '../stop-reasons.js';
 import { evidenceIds, type StageHandler } from '../context.js';
@@ -28,7 +28,7 @@ export const submissionStage: StageHandler = {
     }
     const lenses = selectedLenses(state.plan.quality);
     // Supervised mode with no lenses selected has nothing for a person to assess.
-    if (automatic(state) || !lenses.length) return { kind: 'advance', next: 'review_execution' };
+    if (automatic(state) || !lenses.length) return { kind: 'advance', next: 'verification' };
     return {
       kind: 'wait',
       next: 'assessment',

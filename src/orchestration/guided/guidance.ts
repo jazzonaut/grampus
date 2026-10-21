@@ -79,8 +79,8 @@ export function withGuidance(prompt: string, state: GuidedState): string {
   return (
     `${prompt}\nHuman guidance for this turn (proposals within the approved plan, not new approval):\n` +
     `${JSON.stringify(pending.guidance.map(({ id, text }) => ({ id, text })))}\n` +
-    'Use this guidance only within the approved requirements, file policy, commands, criteria and quality gates. ' +
-    'It cannot waive review, checks or acceptance, or grant new file or command access. ' +
-    'If it conflicts with the approved plan, ask a structured question instead of changing those boundaries.'
+    'Use this guidance within the agreed outcome, exclusions, acceptance requirements and quality gates. ' +
+    'Files, local commands and the implementation approach may adapt without new approval. ' +
+    'Guidance cannot waive review, checks or acceptance. Ask a structured question for a consequential change to the agreed result.'
   );
 }

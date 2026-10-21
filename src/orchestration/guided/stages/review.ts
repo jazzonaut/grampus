@@ -198,7 +198,7 @@ function settlePassed({ state }: SettleContext, { execution, session }: Verdict)
   if (!automatic(state))
     return {
       kind: 'advance',
-      next: 'verification',
+      next: 'delivery',
       update: current => {
         current.answers = null;
       },
@@ -222,7 +222,7 @@ function settlePassed({ state }: SettleContext, { execution, session }: Verdict)
   const snapshot = assessed.length ? required(state, 'snapshot') : null;
   return {
     kind: 'advance',
-    next: lenses.length ? 'assessment' : 'verification',
+    next: lenses.length ? 'assessment' : 'delivery',
     update: current => {
       current.answers = null;
       current.assessments = !snapshot

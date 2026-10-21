@@ -6,25 +6,27 @@ import { render } from '../testing';
 import PlanCard from './PlanCard.vue';
 import { mockPlan } from '../mock';
 
-it('includes directory grants in the initial plan file-permissions section', async () => {
+it('shows suggested folders alongside unrestricted workspace execution', async () => {
   const plan = structuredClone(mockPlan);
   plan.slices[0]!.directories = [{ path: 'src/new-feature', actions: ['edit', 'create'], suffixes: ['.ts'] }];
   const wrapper = await render(PlanCard, { plan });
   const permissions = wrapper
     .findAll('details')
-    .find(details => details.find('summary').text() === 'File permissions and repository access');
+    .find(details => details.find('summary').text() === 'Workspace execution and suggested files');
   expect(permissions?.text()).toContain('src/new-feature');
   expect(permissions?.text()).toContain('create');
+  expect(permissions?.text()).toContain('without individual approvals');
   wrapper.unmount();
 });
 
-it('shows the slice-wide diagnostic attempt budget before plan approval', async () => {
+it('does not present diagnostic grammars as execution permissions', async () => {
   const plan = structuredClone(mockPlan);
   plan.slices[0]!.diagnostics = [
     { name: 'Browser', file: 'node', args: ['browser.js'], timeoutMs: 30000, maxRuns: 3, selection: '{}' },
   ];
   const wrapper = await render(PlanCard, { plan });
-  expect(wrapper.text()).toContain('3 diagnostic attempts per slice across all selections and repairs');
+  expect(wrapper.text()).not.toContain('3 diagnostic attempts per slice across all selections and repairs');
+  expect(wrapper.text()).toContain('Provisional implementation approach');
   wrapper.unmount();
 });
 

@@ -104,7 +104,7 @@ test(
         ...options,
         args: [
           '-e',
-          `const fs=require('node:fs');fs.unlinkSync('greeting.js');
+          `const fs=require('node:fs');if(fs.existsSync('greeting.js'))fs.unlinkSync('greeting.js');
       fs.writeFileSync(${JSON.stringify(join(options.receipt!.directory, 'result.json'))},JSON.stringify({id:${JSON.stringify(options.receipt!.checkId)},result:{status:'completed',reply:${JSON.stringify(message)},usage:null,error:null}}));`,
         ],
       });
@@ -150,10 +150,10 @@ test(
     const retried = await tasks.retry(task.id);
     assert.equal(retried.status, 'awaiting_scope', retried.note);
     assert.notEqual(retried.executionId, failed.executionId);
-    assert.equal(retried.policy, null);
+    assert.equal(retried.policy?.workspace, true);
     const assessed = await tasks.authorize(task.id);
     assert.equal(assessed.status, 'awaiting_assessment', assessed.note);
-    assert.equal(implementations, 1);
+    assert.equal(implementations, 2);
     const done = await tasks.assess(
       task.id,
       'passed',

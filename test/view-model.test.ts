@@ -448,7 +448,8 @@ test('a planning conversation shows its questions, then a readable proposal read
   for (const prompt of prompts) {
     assert.match(prompt, /observable behaviour/);
     assert.match(prompt, /source-text searches/);
-    assert.match(prompt, /unresolved dependency/);
+    assert.match(prompt, /keep the approach provisional/);
+    assert.match(prompt, /If missing information changes the intended outcome/);
     assert.match(prompt, /conformance/);
     assert.match(prompt, /integration smoke test/);
   }

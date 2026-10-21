@@ -26,17 +26,14 @@ defineProps<{ slice: PlanSliceView; index: number }>();
       <span class="min-w-0 flex-1"
         >{{ slice.title
         }}<span class="mt-1 block text-xs font-normal text-muted"
-          >{{ slice.files.edit.length }} edit · {{ slice.files.create.length }} create ·
-          {{ slice.files.delete.length }} delete<span v-if="slice.directories.length">
-            · {{ slice.directories.length }} directory grants</span
-          ></span
+          >Provisional approach · agent chooses files and commands</span
         ></span
       >
       <span class="text-muted group-open:rotate-90" aria-hidden="true">›</span>
     </summary>
     <div class="mt-4 flex flex-col gap-3 border-l-2 border-primary/20 pl-4">
       <div v-if="slice.directories.length">
-        <p class="text-xs text-muted">Approved directory grants, including nested directories</p>
+        <p class="text-xs text-muted">Suggested folders, not execution permissions</p>
         <pre class="grampus-code">{{ JSON.stringify(slice.directories, null, 2) }}</pre>
       </div>
       <MarkdownView v-if="slice.approach" :source="slice.approach" class="text-sm" />
@@ -45,26 +42,25 @@ defineProps<{ slice: PlanSliceView; index: number }>();
       </ul>
       <div class="grid gap-2 text-sm sm:grid-cols-3">
         <div>
-          <p class="text-xs text-muted">Files to edit</p>
+          <p class="text-xs text-muted">Suggested files to edit</p>
           <pre class="grampus-code">{{ slice.files.edit.join('\n') || '(none)' }}</pre>
         </div>
         <div v-if="slice.files.create.length">
-          <p class="text-xs text-muted">Files to create</p>
+          <p class="text-xs text-muted">Suggested files to create</p>
           <pre class="grampus-code">{{ slice.files.create.join('\n') }}</pre>
         </div>
         <div v-if="slice.files.delete.length">
-          <p class="text-xs text-muted">Files to delete</p>
+          <p class="text-xs text-muted">Suggested files to delete</p>
           <pre class="grampus-code">{{ slice.files.delete.join('\n') }}</pre>
         </div>
       </div>
       <p v-if="slice.formatting" class="text-xs text-muted">
-        Automatic formatting · {{ slice.formatting.name }} · {{ formatTimeout(slice.formatting.timeoutMs) }}
+        Suggested formatting · {{ slice.formatting.name }} · {{ formatTimeout(slice.formatting.timeoutMs) }}
       </p>
       <div v-if="slice.preparation" class="flex flex-col gap-1">
         <p class="text-xs text-muted">
-          Preparation after implementation · {{ slice.preparation.name }} ·
-          {{ formatTimeout(slice.preparation.timeoutMs) }}. May update only this slice's authorized files before
-          validation.
+          Suggested setup · {{ slice.preparation.name }} · {{ formatTimeout(slice.preparation.timeoutMs) }}. The agent
+          adapts and runs setup before submission.
         </p>
       </div>
       <div class="flex flex-col gap-1">

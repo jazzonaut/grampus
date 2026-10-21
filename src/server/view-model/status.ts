@@ -304,7 +304,7 @@ const statusLabels: Readonly<Record<Status, string>> = {
   draft: 'Plan ready for approval',
   ready: 'Ready to continue',
   running: 'Working',
-  awaiting_scope: 'File approval needed',
+  awaiting_scope: 'Workspace confirmation needed',
   awaiting_assessment: 'Quality assessment needed',
   awaiting_answer: 'Your answer is needed',
   blocked: 'Needs attention',
@@ -328,10 +328,7 @@ export function stageActivity(
     case 'refresh':
       return activity('Preparing checks', 'Refreshing prerequisites within the approved plan before validation.');
     case 'scope':
-      return activity(
-        'Inspecting file scope',
-        'Checking repository instructions and the files that need authorization.',
-      );
+      return activity('Inspecting the workspace', 'Capturing the candidate baseline and repository instructions.');
     case 'implementation':
       return activity(
         context.repairing
@@ -339,7 +336,7 @@ export function stageActivity(
           : context.reviewRepairs
             ? 'Addressing review findings'
             : 'Implementing the change',
-        'The implementer is working within the approved file scope.',
+        'The implementer is adapting the approach with native workspace tools.',
       );
     case 'quality_pass':
       return activity(

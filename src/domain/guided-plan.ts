@@ -1,5 +1,5 @@
 // Owns the guided plan: normalising a proposed plan once into the exact form approval binds (pinned
-// base commit, resolved executables, simulated file actions, full quality pass definitions) and its
+// base commit, resolved verification executables, advisory file hints, full quality pass definitions) and its
 // digest. The normalised plan is the contract; nothing downstream reinterprets the original input.
 import { modelAssignmentSchema, modelProfileSchema, resolveModelProfile } from './model-profiles.js';
 import { createHash } from 'node:crypto';
@@ -7,12 +7,12 @@ import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { briefSchema, validateBrief, type Brief } from './workflow.js';
-import { checkEditableSize, editPolicySchema, validateEditPolicy } from '../execution/edit-policy.js';
-import { commandLimits, editLimits, formatBytes, planLimits } from '../config/limits.js';
+import { editPolicySchema, validateEditPolicy } from '../execution/edit-policy.js';
+import { commandLimits, formatBytes, planLimits } from '../config/limits.js';
 import { currentSettings } from '../config/settings.js';
 import { gitText } from '../repository/delivery-git.js';
 import type { Provider } from '../providers/types.js';
-import { pinnedContext, pinnedRepository } from '../repository/repository-context.js';
+import { pinnedContext } from '../repository/repository-context.js';
 import { normalizeReferences, referenceFolderSchema, type ReferenceFolder } from '../repository/reference-folders.js';
 import { acceptanceExpectationsSchema, validateExpectations } from './acceptance.js';
 import { normalizeWorkflowPolicy, workflowPolicySchema } from './workflow-policy.js';
@@ -40,7 +40,7 @@ const acceptanceCommandSchema = guidedCommandSchema.extend({
 });
 export type AcceptanceCommand = z.infer<typeof acceptanceCommandSchema>;
 
-/** The exact file actions one slice may perform. */
+/** Optional planning hints; adaptive execution is not restricted to these files. */
 const sliceScopeSchema = editPolicySchema.pick({ files: true, create: true, delete: true, directories: true });
 
 /** The execution configuration of one brief slice, in the same order as the brief's slices. */
@@ -83,6 +83,8 @@ export type GuidedAgent = z.infer<typeof guidedAgentSchema>;
  * read; the approval digest is {@link guidedPlanDigest} of exactly this value.
  */
 export const guidedPlanSchema = z.object({
+  /** Approval authorises adaptive native execution, independently of suggested file paths. */
+  execution: z.literal('adaptive'),
   modelProfile: modelProfileSchema.exactOptional(),
   workflowPolicy: workflowPolicySchema,
   /** Selected quality passes as full definitions, so approval binds their exact instructions. */
@@ -357,68 +359,12 @@ function normalizeReviewPolicy(value: unknown, implementer: Provider): GuidedPla
   };
 }
 
-const pathKey = (path: string) => (process.platform === 'win32' ? path.toLowerCase() : path);
-
-/**
- * Simulates file existence through the ordered slices: edits and deletions must name paths that exist
- * before their slice (exactly, including case), creations must be absent (including Windows case
- * collisions) and a deleted path cannot be recreated later. This is what lets approval refuse a plan
- * whose later slices could never apply.
- */
-class FileSimulation {
-  private readonly earlierCreations = new Set<string>();
-  private readonly present: Map<string, string>;
-  private readonly deleted = new Set<string>();
-  private readonly tree: ReturnType<typeof pinnedRepository>;
-
-  constructor(
-    repo: string,
-    base: string,
-    private readonly exploration: boolean,
-    private readonly contextFiles: readonly string[],
-  ) {
-    this.tree = pinnedRepository(repo, base);
-    this.present = new Map(this.tree.entries.map(entry => [pathKey(entry.path), entry.path]));
-  }
-
-  /** Checks one slice's scope against the simulated tree, then applies its creations and deletions. */
-  apply(scope: GuidedSlice['scope']): void {
-    if (scope.directories?.length && !this.exploration)
-      throw new Error('Directory grants require repository exploration');
-    let scopeBytes = 0;
-    for (const path of [...scope.files, ...(scope.delete ?? [])]) {
-      if (this.present.get(pathKey(path)) !== path)
-        throw new Error(`File action is absent before this slice (use its exact path): ${path}`);
-      const bytes = this.tree.byPath.get(path)?.bytes ?? 0;
-      checkEditableSize(path, bytes);
-      scopeBytes += bytes;
-      if (!this.exploration && !this.contextFiles.includes(path) && !this.earlierCreations.has(path))
-        throw new Error(`Select ${path} as repository context before approving its file action`);
-    }
-    if (scopeBytes > editLimits.scopeBytes)
-      throw new Error(
-        `Editable text exceeds the ${formatBytes(editLimits.scopeBytes)} scope limit. Revise the task into smaller slices before approval.`,
-      );
-    for (const path of scope.create ?? []) {
-      if (this.present.has(pathKey(path))) throw new Error(`Creation path already exists before this slice: ${path}`);
-      if (this.deleted.has(pathKey(path)))
-        throw new Error(`Cannot recreate a path deleted by an earlier slice: ${path}`);
-      this.present.set(pathKey(path), path);
-      this.earlierCreations.add(path);
-    }
-    for (const path of scope.delete ?? []) {
-      this.present.delete(pathKey(path));
-      this.deleted.add(pathKey(path));
-      this.earlierCreations.delete(path);
-    }
-  }
-}
-
 /** Placeholder digests: a slice scope is validated as a policy before any artifact exists. */
 const unboundPolicy = { artifact: `sha256:${'0'.repeat(64)}`, instructionsDigest: '0'.repeat(64) };
 
 /** A slice's file scope; a no-change slice must authorise no file action at all. */
 function sliceScope(value: unknown, mode: GuidedSlice['mode']): GuidedSlice['scope'] {
+  if (value === undefined) return { files: [] };
   const scope = structuredClone(object(value, ['files', 'create', 'delete', 'directories'], 'file scope'));
   if (mode === 'no_change') {
     if (
@@ -431,10 +377,10 @@ function sliceScope(value: unknown, mode: GuidedSlice['mode']): GuidedSlice['sco
       throw new Error('No-change delivery requires scope: { files: [] }');
     return { files: [] };
   }
-  const policy = { ...scope, ...unboundPolicy };
+  const policy = { ...scope, ...unboundPolicy, workspace: true as const };
   validateEditPolicy(policy);
   // Rebuilt from the validated policy in the input's key order, which the approval digest covers.
-  const { artifact: _artifact, instructionsDigest: _digest, ...validated } = policy;
+  const { artifact: _artifact, instructionsDigest: _digest, workspace: _workspace, ...validated } = policy;
   return validated;
 }
 
@@ -522,7 +468,7 @@ function diagnosticCommands(value: unknown): GuidedSlice['diagnostics'] {
   return result;
 }
 
-function normalizeSlice(raw: unknown, simulation: FileSimulation, number: number): GuidedSlice {
+function normalizeSlice(raw: unknown, number: number): GuidedSlice {
   const item = object(
     raw,
     [
@@ -544,7 +490,6 @@ function normalizeSlice(raw: unknown, simulation: FileSimulation, number: number
   if (mode === 'no_change' && item.formatting !== undefined)
     throw new Error('No-change delivery cannot apply formatting');
   const scope = sliceScope(item.scope, mode);
-  simulation.apply(scope);
   const message = text(item.message, 'Commit message', planLimits.commitMessageBytes);
   if (/Grampus-Delivery:/i.test(message))
     throw new Error('Commit message cannot contain the reserved Grampus-Delivery marker');
@@ -584,8 +529,8 @@ function normalizeSlice(raw: unknown, simulation: FileSimulation, number: number
 
 /**
  * Normalises a proposed plan once; approval covers this exact result, including checks, paths and
- * the pinned base. Resolves the repository and base through Git, inspects references and checks every
- * file action against the pinned tree. `directory` resolves relative paths; `existingWorkspace` is
+ * the pinned base. Resolves the repository and base through Git and inspects references. File hints
+ * are advisory and are not simulated against the pinned tree. `directory` resolves relative paths; `existingWorkspace` is
  * the workspace a revision keeps. Throws a message naming the first problem.
  */
 export function normalizeGuidedPlan(
@@ -610,6 +555,7 @@ export function normalizeGuidedPlan(
       'references',
       'preparation',
       'quality',
+      'execution',
     ],
     'guided plan',
   );
@@ -632,10 +578,12 @@ export function normalizeGuidedPlan(
   const { implementation, review, reviewPolicy, modelProfile } = normalizeAgents(value);
   if (!Array.isArray(value.slices) || value.slices.length !== (brief.slices?.length ?? 1))
     throw new Error('Supply one execution configuration for each approved slice (one for an unsliced brief)');
-  const simulation = new FileSimulation(repo, base, context.exploration, context.files);
+  if (value.execution !== undefined && value.execution !== 'adaptive')
+    throw new Error('Guided execution must be adaptive');
   const rawSlices: unknown[] = value.slices;
-  const slices = rawSlices.map((raw, index) => normalizeSlice(raw, simulation, index + 1));
+  const slices = rawSlices.map((raw, index) => normalizeSlice(raw, index + 1));
   return {
+    execution: 'adaptive',
     ...(modelProfile ? { modelProfile } : {}),
     brief,
     workspace: { repo, base, adapter, ...(path ? { path } : {}) },

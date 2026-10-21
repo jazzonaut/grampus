@@ -1,6 +1,6 @@
-// Owns the exact edit policy of a native editing turn: validating it, preparing and presenting the scoped
-// files, deciding each provider file tool call or patch, and verifying the finished turn against it.
-// Decisions fail closed and are journaled before any file I/O; it never grants a shell or Git access.
+// Owns execution authorisation and artifact checkpoints: native workspace access or an explicit
+// low-level file policy. Scoped tools journal decisions before file I/O. Both modes preserve
+// controller-owned Git and repository instruction state at settlement.
 import { lstatSync, readFileSync, realpathSync, unlinkSync, type Stats } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
@@ -19,6 +19,8 @@ import { directoryScopeSchema, directoryAllows, isEditablePath as editablePath }
  * (path syntax, protected paths, limits, digests) are enforced by `validateEditPolicy`.
  */
 export const editPolicySchema = z.strictObject({
+  /** Adaptive guided execution grants native tools; file lists are planning hints only. */
+  workspace: z.literal(true).exactOptional(),
   artifact: z.string(),
   instructionsDigest: z.string(),
   files: z.array(z.string()),
@@ -88,6 +90,7 @@ function creationAllowed(context: EditingContext, path: string): boolean {
  * path is reported with the path rule below rather than as a malformed policy.
  */
 const editPolicyShape = z.strictObject({
+  workspace: z.literal(true).optional(),
   artifact: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   instructionsDigest: z.string().regex(/^[a-f0-9]{64}$/),
   files: z.array(z.unknown()),
@@ -108,7 +111,7 @@ export function validateEditPolicy(policy: unknown): asserts policy is EditPolic
   const paths = [...shape.data.files, ...(shape.data.create ?? []), ...(shape.data.delete ?? [])];
   const editable = paths.filter(editablePath);
   if (
-    (!paths.length && !shape.data.directories?.length) ||
+    (!shape.data.workspace && !paths.length && !shape.data.directories?.length) ||
     paths.length > editLimits.paths ||
     editable.length !== paths.length ||
     new Set(editable.map(key)).size !== editable.length
@@ -262,6 +265,7 @@ export function prepareEditing(context: EditingContext): void {
     context.snapshot.instructionsDigest !== context.policy.instructionsDigest
   )
     throw new Error('Edit policy no longer matches repository content or instructions');
+  if (context.policy.workspace) return;
   let bytes = 0;
   for (const path of [...context.policy.files, ...(context.policy.delete ?? [])]) {
     const file = checkedFile(context, path);
@@ -525,9 +529,8 @@ function requirePolicyFilesSettled(context: EditingContext, after: RepositorySna
 }
 
 /**
- * Verifies a finished editing turn against its policy from the before and after snapshots: no Git or
- * instruction change, content changes only in authorised files, membership changes only by authorised
- * creations and deletions, and no executable bit changes. Throws a message naming the violation.
+ * Verifies the Git and instruction checkpoint after native execution. Explicit low-level scopes also
+ * constrain file contents, membership, modes and sizes; workspace execution deliberately does not.
  */
 export function verifyEditingScope(
   context: EditingContext,
@@ -535,6 +538,7 @@ export function verifyEditingScope(
   nativeCreations: readonly string[] = [],
 ): void {
   requireUnchangedGitState(context, after);
+  if (context.policy.workspace) return;
   const beforeFiles = new Map(context.snapshot.files.map(file => [file.path, file]));
   const afterFiles = new Map(after.files.map(file => [file.path, file]));
   for (const before of context.snapshot.files) {
