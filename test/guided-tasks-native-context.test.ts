@@ -1,4 +1,4 @@
-// Fresh native conversations retain consequential answers, progress and approved reference identities.
+// Fresh native conversations retain consequential answers and progress, and nothing else.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Sessions } from '../src/execution/sessions.js';
@@ -61,7 +61,9 @@ test('rotation after an answered question retains the decision and latest progre
   );
 });
 
-test('native implementation receives the approved pinned reference folders', windows, async t => {
+// Reference roots and tools reach the agent through provider instructions only when the worker
+// registers the repository tools (see codex-native-access.test.ts); the user turn never repeats them.
+test('a first native turn carries no empty handoff or reference tool instructions', windows, async t => {
   const f = fixture(t);
   const reference = inspectReference(f.repo);
   const task = f.tasks.create({ ...f.plan, references: [reference] });
@@ -70,8 +72,8 @@ test('native implementation receives the approved pinned reference folders', win
   const execution = f.store.execution(state.executionId!);
   const sessions = new Sessions(f.store);
   const claim = sessions.claim(execution.sessionId, 'Implement', undefined, true);
-  assert.ok(claim.prompt.includes(JSON.stringify(reference.path).slice(1, -1)), 'selected references are supplied');
-  assert.ok(claim.prompt.includes(reference.base!), 'reference content retains its approved identity');
+  assert.doesNotMatch(claim.prompt, /grampus_suggest_reference_folder|Read-only reference folders/);
+  assert.doesNotMatch(claim.prompt, /Retained implementation context/);
   sessions.settle(
     execution.sessionId,
     claim.runId,

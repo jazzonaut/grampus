@@ -201,8 +201,9 @@ watch(
           </button>
         </div>
         <aside class="flex min-w-0 flex-col gap-4" aria-label="Task context">
+          <!-- The Changes tab mounts the full view; one poller per page is enough. -->
           <LiveChanges
-            v-if="view.liveChangesPath"
+            v-if="view.liveChangesPath && selected !== 'changes'"
             :key="view.id"
             :path="view.liveChangesPath"
             :interval-ms="view.liveChangesIntervalMs"

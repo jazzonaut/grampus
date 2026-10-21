@@ -554,11 +554,12 @@ export class Store {
     return row ? record(executionSchema, 'executions', row) : null;
   }
 
-  /** Every execution, validated (`BoundaryError` on a malformed row), in creation order. */
-  executions(): Execution[] {
+  /** Every execution, or only `taskId`'s, validated (`BoundaryError` on a malformed row), in creation order. */
+  executions(taskId?: string): Execution[] {
+    const filter = taskId === undefined ? '' : ' WHERE task_id = ?';
     return this.db
-      .prepare('SELECT state FROM executions ORDER BY rowid')
-      .all()
+      .prepare(`SELECT state FROM executions${filter} ORDER BY rowid`)
+      .all(...(taskId === undefined ? [] : [taskId]))
       .map(row => record(executionSchema, 'executions', row));
   }
 

@@ -91,3 +91,54 @@ test('the compact work feed keeps the latest turn, correlates unnamed results an
   assert.doesNotMatch(JSON.stringify(work), /hidden|PRIVATE|File read/);
   assert.equal(taskWorkView(store, null).update, null);
 });
+
+test('Grampus repository tools keep their own labels and are not repeated as native tools', t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  const sessions = new Sessions(store);
+  const session = sessions.create('codex', process.cwd());
+  const claim = sessions.claim(session.id, 'Plan');
+  const emit = (type: string, data: unknown) => sessions.event(session.id, claim.runId, { type, data });
+  emit('activity.started', { id: 'read', kind: 'tool', name: 'grampus_read_file' });
+  emit('repository.tool_requested', { tool: 'grampus_read_file', arguments: { path: 'src/export.ts' } });
+  const progress = () => agentProgress(store.sessionEvents(session.id), sessions.get(session.id))!;
+  assert.equal(progress().activity, 'Reading src/export.ts');
+  emit('repository.tool_result', { tool: 'grampus_read_file', result: { path: 'src/export.ts' } });
+  // Claude reports a result by id alone; the skipped request is remembered.
+  emit('activity.requested', { id: 'claude', kind: 'tool', name: 'mcp__grampus_repository__grampus_search' });
+  emit('activity.completed', { id: 'read', kind: 'tool', name: 'grampus_read_file', status: 'completed' });
+  emit('activity.completed', { id: 'claude', kind: 'tool', status: 'completed' });
+  assert.deepEqual(
+    progress().recent.map(item => item.label),
+    ['Read src/export.ts'],
+  );
+  assert.deepEqual(taskWorkView(store, sessions.get(session.id)).recent, []);
+});
+
+test('a later completed candidate supersedes the latest agent update', t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  const sessions = new Sessions(store);
+  const session = sessions.create('claude', process.cwd());
+  const settle = (kind: 'message' | 'candidate', text: string) => {
+    const claim = sessions.claim(session.id, 'Work');
+    sessions.settle(
+      session.id,
+      claim.runId,
+      { status: 'completed', reply: { kind, text, questions: [], findings: [] }, usage: null, error: null },
+      true,
+    );
+  };
+  settle('message', 'Halfway through the renderer.');
+  assert.equal(taskWorkView(store, sessions.get(session.id)).update?.text, 'Halfway through the renderer.');
+  const interrupted = sessions.claim(session.id, 'Continue');
+  sessions.settle(
+    session.id,
+    interrupted.runId,
+    { status: 'interrupted', reply: null, usage: null, error: null },
+    true,
+  );
+  assert.equal(taskWorkView(store, sessions.get(session.id)).update?.text, 'Halfway through the renderer.');
+  settle('candidate', 'Renderer finished.');
+  assert.equal(taskWorkView(store, sessions.get(session.id)).update, null);
+});

@@ -1013,7 +1013,10 @@ Concurrent tools remain visible until their own results arrive, and output delta
 unfinished tool's activity label. Tool requests remain requests rather than proof of execution.
 The server's `task-work.ts` projection supplies up to six recent tool observations from the displayed
 session's latest turn, coalescing each item, and the latest confirmed, settled message reply as an
-attributed agent update. It never exposes partial structured replies or tool payloads. Silent work
+attributed agent update; a later completed candidate or question clears it. Grampus' own repository
+tools are labelled by their `repository.tool_*` events instead. The feed reads only turn and activity
+events, and only when a task detail is drawn, never for the overview. It never exposes partial
+structured replies or tool payloads. Silent work
 has a prominent warning and an unknown-current-operation explanation; neither a quiet feed nor a
 provider tool completion establishes controller verification.
 

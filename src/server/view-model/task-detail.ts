@@ -53,7 +53,8 @@ export type GuidedTaskView = ReturnType<typeof guidedTaskSummary>;
 
 /** Everything the view model reads about one task from the journal. */
 export interface TaskFacts {
-  work: TaskDetailV1['work'];
+  /** The compact work feed, read only when a task detail is drawn; the overview never needs it. */
+  work: () => TaskDetailV1['work'];
   diagnosticAllowance: TaskActionFacts['diagnosticAllowance'];
   view: GuidedTaskView;
   /** Comparison members use the group's approval and continuation controls. */
@@ -94,7 +95,7 @@ export function taskFacts(store: Store, id: string): TaskFacts {
   const retries = comparison ? comparisonRetries(store, comparison.id) : null;
   return {
     view,
-    work: taskWorkView(store, view.session),
+    work: () => taskWorkView(store, view.session),
     diagnosticAllowance:
       state.stopReason?.code === 'DIAGNOSTIC_ALLOWANCE_REQUIRED' && state.executionId
         ? pendingDiagnosticAllowance(store, state.executionId)
@@ -517,7 +518,7 @@ export function taskDetail(facts: TaskFacts, context: ViewContext, revision: str
     },
     workflow: taskWorkflow(facts, presentation),
     activity: current,
-    work: facts.work,
+    work: facts.work(),
     liveChangesPath:
       view.workspace?.phase === 'ready' && view.workspace.path ? `/api/v1/tasks/${task.id}/live-changes` : null,
     repairs: repairsView(facts.events, state),

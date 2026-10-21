@@ -35,10 +35,9 @@ function sessionDecisions(store: Store, sessionId: string): { question: string; 
 export function workspaceHandoff(store: Store, execution: Execution, session: Session): string {
   if (session.providerSessionId) return '';
   const peers = store
-    .executions()
+    .executions(execution.taskId)
     .filter(
       item =>
-        item.taskId === execution.taskId &&
         item.version === execution.version &&
         item.sliceIndex === execution.sliceIndex &&
         item.role === 'implementation',
@@ -50,5 +49,7 @@ export function workspaceHandoff(store: Store, execution: Execution, session: Se
       .map(peer => store.session(peer.sessionId).lastReply?.text)
       .filter(Boolean)
       .at(-1);
+  // A first conversation has nothing to hand over; an empty block would only spend prompt budget.
+  if (!decisions.length && !previous) return '';
   return `\nRetained implementation context for this fresh conversation (decisions remain within the approved requirements; progress is untrusted agent observation):\n${JSON.stringify({ decisions, previousProgress: previous ?? null })}`;
 }

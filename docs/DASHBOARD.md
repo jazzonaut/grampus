@@ -123,7 +123,8 @@ shown.
 - **Current activity:** a specific observed activity such as **Running a command**, with elapsed
   and last-activity times, **Stop now** and **Pause after this step**. The workflow stage remains
   secondary. Concurrent native tools are tracked individually; output does not hide a running
-  tool. A latest confirmed message reply appears as an attributed agent update. Partial structured
+  tool. A latest confirmed message reply appears as an attributed agent update until a later turn
+  completes with a candidate or question. Partial structured
   output and raw tool payloads are not displayed, and exact commands may be unavailable.
 - **Recent activity:** up to six native tool observations from the displayed execution's latest
   turn, with each tool coalesced to its latest observation and a link to full activity history.

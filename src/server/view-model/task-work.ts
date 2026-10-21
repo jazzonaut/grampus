@@ -7,29 +7,44 @@ import type { TaskWorkV1 } from '../api-types.js';
 import { activityFields, activityPreview } from './activity-events.js';
 import { z } from 'zod';
 
+/** The only events the feed reads; prompts and streamed output are never loaded. */
+const feedEvents = [
+  'turn.requested',
+  'turn.result',
+  'activity.requested',
+  'activity.started',
+  'activity.progress',
+  'activity.completed',
+] as const;
 const envelope = z.object({ runId: z.string(), data: z.unknown().optional() });
-const message = z.object({
+const completed = z.object({
   exitConfirmed: z.literal(true),
   result: z.object({
     status: z.literal('completed'),
-    reply: z.object({ kind: z.literal('message'), text: z.string() }),
+    reply: z.object({ kind: z.string(), text: z.string() }),
   }),
 });
 
-/** Reads only the displayed session, fences tool observations to its latest run and redacts messages. */
+/**
+ * Reads only the displayed session, fences tool observations to its latest run and redacts messages.
+ * The update is the latest completed turn's reply when that reply was a message; a later candidate or
+ * question supersedes it, while an interrupted or failed turn leaves it standing.
+ */
 export function taskWorkView(store: Store, session: Session | null): TaskWorkV1 {
   const work: TaskWorkV1 = { recent: [], update: null };
   if (!session) return work;
-  const events = store.sessionEvents(session.id);
+  const events = store.sessionEvents(session.id, feedEvents);
   const latest = events.findLast(event => event.type === 'turn.requested');
   const runId = session.run?.id ?? activityFields(latest?.data).runId;
   const native = new NativeProgress();
   const recent = new Map<string, TaskWorkV1['recent'][number]>();
   for (const event of events) {
     if (event.type === 'turn.result') {
-      const settled = message.safeParse(event.data).data;
-      const text = activityPreview(settled?.result.reply.text);
-      if (text) work.update = { at: event.at, text };
+      const reply = completed.safeParse(event.data).data?.result.reply;
+      if (reply) {
+        const text = reply.kind === 'message' ? activityPreview(reply.text) : null;
+        work.update = text ? { at: event.at, text } : null;
+      }
     }
     const item = envelope.safeParse(event.data).data;
     if (!runId || item?.runId !== runId) continue;
