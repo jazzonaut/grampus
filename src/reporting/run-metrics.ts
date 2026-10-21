@@ -7,6 +7,7 @@ import { subscriptionMetrics } from './subscription-metrics.js';
 import { usageView } from '../server/view-model/usage.js';
 import type { WorkflowTiming } from './workflow-timing.js';
 import type { RepositoryCheck } from '../persistence/records.js';
+import { executionPhases } from './execution-phases.js';
 
 function workflowSummary(timing: WorkflowTiming | null) {
   return {
@@ -112,6 +113,7 @@ export function runMetrics(store: Store, taskId: string) {
     agentTimePartial: turns.some(turn => turn.wallMs === null),
     ...workflowSummary(timing),
     ...checkSummary(store, checks),
+    executionPhases: executionPhases(store, taskId),
     firstAttemptDelivery: task.guided?.status === 'complete' ? usage.repairAttempts === 0 : null,
     repairAttempts: usage.repairAttempts,
     interventions: usage.interventions,

@@ -374,7 +374,7 @@ action and the relevant readiness or shared behavioural budget before the decisi
 structured reply. This makes the choice to repair, arbitrate or stop inspectable alongside the
 existing request/result, check and usage journals.
 
-The current controller uses journal schema 10, with implementation-owned diagnostics and approved automatic formatting, including explicit readiness checks and their durable allowance alongside model assignments, comparisons, pause, guidance, task spending and ordered acceptance checks. Journals from
+The current controller uses journal schema 12, including directory grants and restore fingerprints alongside implementation-owned diagnostics, formatting, readiness spending, model assignments, comparisons, pause, guidance and ordered acceptance checks. Journals from
 other schema versions are refused without modification; there is
 no migration. Keep the previous installed build with its journal to finish an existing task.
 
@@ -547,6 +547,24 @@ Provider process and recovery tests retain the existing no-replay contracts.
 
 ## Efficient implementation checks
 
+Implementers can use `grampus_run_check` with `name: "finish"` to format, run approved independent
+readiness checks together and validate while their turn remains active. Failures return for repair.
+Successful responses are concise; full logs remain available. Explicit directory grants and
+prerequisite restore contracts are approval-bound. See
+[EXECUTION-EFFICIENCY.md](EXECUTION-EFFICIENCY.md) for their permissions, invalidation and recovery
+rules, the optional initial-context experiment and the direct-agent comparison probe.
+
+Each diagnostic family has a slice-wide `maxRuns` allowance, defaulting to three and capped at
+eight. All selections and repair attempts share its durable spending. A failed whole-file diagnostic
+must use approved case selection or a smaller set of files before another attempt when case selection
+is available. Exhaustion cannot waive final validation or acceptance. Increasing the limit needs a
+revised plan and approval. Outstanding commands settle before provider shutdown and automatic formatting.
+
+Reviewer questions may retain provisional findings, lens assessments and prior-finding observations;
+they wait for an answer and supply no passing review or quality evidence. A dashboard observation of
+a missing original controller offers recovery first, even if the saved status still says running.
+Process observations never release ownership or restart work.
+
 A slice can approve focused diagnostic families, independent readiness workers and local check
 reuse. All are displayed before approval and included in the plan digest. For example:
 
@@ -586,5 +604,5 @@ The Usage panel shows total task elapsed time from linked planning through deliv
 execution, waiting and recovery, then each
 workflow stage and every individual step across slices and retries. Checks, setup and delivery count
 alongside provider work. Provider and command totals overlap during implementation; do not add them.
-Live values include the current open interval and stop advancing on completion. Journal schema 10
+Live values include the current open interval and stop advancing on completion. Journal schema 12
 requires a fresh journal; earlier builds and their journals remain separate.

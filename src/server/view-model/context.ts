@@ -7,6 +7,8 @@ import type { RunnerPool } from '../../orchestration/guided/runner-pool.js';
 import type { StallV1 } from '../api-types.js';
 import type { OrcaPresentationStatus } from '../../repository/orca-presentation.js';
 import { providerLabel } from './status.js';
+import type { Owner } from '../../orchestration/guided/state.js';
+import type { ControllerState } from '../../health/controller-observations.js';
 
 /** An action worker this dashboard started (the server's in-memory job). */
 export interface JobView {
@@ -19,6 +21,8 @@ export interface JobView {
 
 /** The dashboard state the view model reads besides the journal. */
 export interface ViewContext {
+  /** Exact owner-process observation, independent of journal revision and local worker bookkeeping. */
+  controller?: (owner: Owner) => ControllerState;
   /** The worker for a task or planning conversation, if this dashboard started one recently. */
   job(id: string): JobView | null;
   /** The current stall of a guided task, if any. */

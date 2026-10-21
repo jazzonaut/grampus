@@ -29,6 +29,7 @@
     "probe:task": "node dist/src/probes/task-probe.js",
     "probe:multifile": "node dist/src/probes/multifile-probe.js",
     "probe:context": "node dist/src/probes/context-probe.js",
+    "probe:efficiency": "node dist/src/probes/efficiency-probe.js",
     "probe:exploration": "node dist/src/probes/exploration-probe.js",
     "probe:mcp": "node dist/src/probes/mcp-probe.js",
     "probe:references": "node dist/src/probes/reference-probe.js"

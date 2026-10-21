@@ -218,6 +218,8 @@ export interface RepositoryContextOptions {
   budget?: PromptBudget;
   /** Paths whose current contents the prompt already carries, such as Codex's editable files. */
   elsewhere?: ReadonlySet<string>;
+  /** Explicit on-demand contents, counted as omitted rather than already supplied. Exploration only. */
+  deferred?: ReadonlySet<string>;
   /** Whether changes are supplied inline: always for reviews, otherwise only with exploration. */
   diff?: boolean;
 }
@@ -238,8 +240,14 @@ export function repositoryContext(
   snapshot: RepositorySnapshot,
   selection?: string[],
   exploration = false,
-  { budget = new PromptBudget(), elsewhere = new Set(), diff: withDiff = exploration }: RepositoryContextOptions = {},
+  {
+    budget = new PromptBudget(),
+    elsewhere = new Set(),
+    deferred = new Set(),
+    diff: withDiff = exploration,
+  }: RepositoryContextOptions = {},
 ) {
+  if (!exploration && deferred.size) throw new Error('Deferred repository context requires exploration');
   const selected = selection === undefined ? null : new Set(contextPaths(selection));
   const required = new Set([
     ...snapshot.diff.map(file => file.path),
@@ -282,7 +290,8 @@ export function repositoryContext(
     'The repository coverage summary',
     'revise the task into smaller slices',
   );
-  const files = inlineContextFiles(cwd, snapshot, { selected, required, elsewhere }, exploration, budget);
+  const excluded = new Set([...elsewhere, ...deferred]);
+  const files = inlineContextFiles(cwd, snapshot, { selected, required, elsewhere: excluded }, exploration, budget);
   const diff = withDiff ? inlineDiff(snapshot, new Set(files.map(file => file.path)), exploration, budget) : [];
   return result(files, diff);
 }

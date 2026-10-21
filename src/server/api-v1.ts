@@ -42,6 +42,7 @@ import { settingsView } from './view-model/settings.js';
 import { taskDetail, taskFacts, type TaskFacts } from './view-model/task-detail.js';
 import { timelinePage } from './view-model/timeline.js';
 import { observabilityView } from './view-model/observability.js';
+import { ControllerObservations } from '../health/controller-observations.js';
 
 /** What the v1 routes read from the running dashboard. */
 export interface ApiV1Dashboard {
@@ -142,8 +143,21 @@ async function worktreesRoute(dashboard: ApiV1Dashboard): Promise<OrcaWorktreesV
   }
 }
 
+/** Refreshes observations outside journal transactions; unreadable task records remain the overview's concern. */
+function refreshControllers(store: Store, controllers: ControllerObservations): void {
+  const owners = store.runnerOwners().flatMap(id => {
+    try {
+      const owner = store.get(id).guided?.owner;
+      return owner ? [owner] : [];
+    } catch {
+      return [];
+    }
+  });
+  void controllers.refresh(owners).catch(() => {});
+}
+
 /** The v1 read routes of one dashboard, with their revision caches. */
-export function createApiV1(dashboard: ApiV1Dashboard) {
+export function createApiV1(dashboard: ApiV1Dashboard, controllers = new ControllerObservations()) {
   const { store, kickoffs } = dashboard;
   const overviews = new RevisionCache<{
       tasks: TaskFacts[];
@@ -157,6 +171,7 @@ export function createApiV1(dashboard: ApiV1Dashboard) {
   const requestContext = (): ViewContext => ({
     job: id => dashboard.jobs.get(id) ?? null,
     stall: id => dashboard.stalls.stall(id),
+    controller: owner => controllers.state(owner),
     qualityPasses,
     pool: runnerPool(store),
     orca: dashboard.orca ? id => dashboard.orca?.status(id) ?? null : undefined,
@@ -244,6 +259,9 @@ export function createApiV1(dashboard: ApiV1Dashboard) {
         }) satisfies SettingsV1;
       }
       if (matched.worktrees) return worktreesRoute(dashboard);
+      // OS observations must refresh even when the journal revision is unchanged. Identity helpers
+      // run asynchronously and are coalesced, so polling does not block HTTP or repeatedly spawn them.
+      refreshControllers(store, controllers);
       const revision = store.revision();
       const context = requestContext();
       if (matched.overview) return overviewRoute(context, revision);

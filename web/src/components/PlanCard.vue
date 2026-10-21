@@ -81,6 +81,10 @@ const headingId = useId();
         <pre v-if="plan.context.files.length" class="grampus-code">{{ plan.context.files.join('\n') }}</pre>
         <div v-for="(slice, index) in plan.slices" :key="index" class="mt-4">
           <p class="mb-2 font-medium">Slice {{ index + 1 }} · {{ slice.title }}</p>
+          <template v-if="slice.directories.length">
+            <p class="mb-1 text-xs text-muted">Directory permissions</p>
+            <pre class="grampus-code mb-2">{{ JSON.stringify(slice.directories, null, 2) }}</pre>
+          </template>
           <dl class="grid gap-2 sm:grid-cols-3">
             <template v-for="(paths, kind) in slice.files" :key="kind"
               ><div>
@@ -99,7 +103,10 @@ const headingId = useId();
           <h3 class="font-semibold">Slice {{ index + 1 }} · {{ slice.title }}</h3>
           <div v-for="diagnostic in slice.diagnostics" :key="diagnostic.name">
             <CommandDetails :command="diagnostic" :summary="`Focused diagnostics: ${diagnostic.name}`" />
-            <p class="text-xs text-muted">Approved selectable parameters and repository file suffixes</p>
+            <p class="text-xs text-muted">
+              {{ diagnostic.maxRuns }} diagnostic attempts per slice across all selections and repairs. Approved
+              selectable parameters and repository file suffixes:
+            </p>
             <pre class="grampus-code">{{ diagnostic.selection }}</pre>
           </div>
           <CommandDetails

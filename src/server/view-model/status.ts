@@ -376,6 +376,8 @@ export interface TaskStatusFacts {
   stale: boolean;
   /** A guided controller owns the runner. */
   owner: boolean;
+  /** A fresh identity observation proves the recorded controller is gone or its PID was reused. */
+  ownerMissing?: boolean;
   /** A journaled step intent has not settled. */
   pending: boolean;
   stopRequested: boolean;
@@ -393,12 +395,13 @@ export interface TaskPresentation {
 }
 
 /** Whether a controller is (or may still be) working: a worker of this dashboard or a runner owner. */
-export function isLive(facts: Pick<TaskStatusFacts, 'jobRunning' | 'owner'>): boolean {
-  return facts.jobRunning || facts.owner;
+export function isLive(facts: Pick<TaskStatusFacts, 'jobRunning' | 'owner' | 'ownerMissing'>): boolean {
+  return !facts.ownerMissing && (facts.jobRunning || facts.owner);
 }
 
 /** Whether the task needs explicit recovery before anything else: an unsettled step or ownership. */
 export function needsRecovery(facts: TaskStatusFacts): boolean {
+  if (facts.ownerMissing) return true;
   if (facts.jobRunning) return false;
   if (facts.owner) return facts.status !== 'running';
   return facts.pending || facts.status === 'recovery_required';
@@ -417,6 +420,14 @@ export function taskPresentation(facts: TaskStatusFacts): TaskPresentation {
       explanation:
         'The approved plan no longer matches the task record. Inspect the journal and create a new task with the updated requirements.',
       attention: 'blocked',
+    };
+  if (facts.ownerMissing)
+    return {
+      status: 'blocked',
+      label: 'Controller recovery needed',
+      explanation:
+        'The recorded controller process is no longer running. Recover saved work to reconcile its pending operation; nothing is replayed automatically.',
+      attention: 'recovery',
     };
   if (isLive(facts) && facts.stopRequested)
     return {

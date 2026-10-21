@@ -657,17 +657,25 @@ export interface PlanAcceptanceView {
 
 /** One slice of the plan. */
 export interface PlanSliceView {
+  /** Explicit directory grants shown before approval, with file actions and suffix restrictions. */
+  directories: { path: string; actions: ('edit' | 'create' | 'delete')[]; suffixes: string[] }[];
   /** Approved argument families and independent mechanical-check concurrency. */
-  diagnostics: { name: string; file: string; args: string[]; timeoutMs: number; selection: string }[];
+  diagnostics: { name: string; file: string; args: string[]; timeoutMs: number; selection: string; maxRuns: number }[];
   readinessConcurrency: number;
   reusableChecks: { name: string; inputs: string[] }[];
   /** Approved formatter applied automatically and available during implementation. */
-  formatting: { name: string; file: string; args: string[]; timeoutMs: number } | null;
+  formatting: { name: string; file: string; args: string[]; timeoutMs: number; reuse?: { inputs: string[] } } | null;
   title: string;
   approach: string | null;
   criteria: string[];
   files: { edit: string[]; create: string[]; delete: string[] };
-  preparation: { name: string; file: string; args: string[]; timeoutMs: number } | null;
+  preparation: {
+    name: string;
+    file: string;
+    args: string[];
+    timeoutMs: number;
+    restore?: { inputs: string[]; outputs: string[] };
+  } | null;
   /** Explicit read-only mechanical checks, run before behavioural validation in this order. */
   readiness: { kind: 'format' | 'lint' | 'types'; name: string; file: string; args: string[]; timeoutMs: number }[];
   validation: { name: string; file: string; args: string[]; timeoutMs: number };
@@ -700,7 +708,13 @@ export interface PlanView {
   qualityPasses: { id: string; title: string; kind: 'lens' | 'edit'; instructions: string }[];
   qualitySummary: string;
   context: { files: string[]; totalFiles: number; exploration: boolean };
-  preparation: { name: string; file: string; args: string[]; timeoutMs: number } | null;
+  preparation: {
+    name: string;
+    file: string;
+    args: string[];
+    timeoutMs: number;
+    restore?: { inputs: string[]; outputs: string[] };
+  } | null;
   /** A revised plan keeps the workspace files of an earlier version; its checks and reviews run again. */
   revision: { previousVersion: number; artifact: string } | null;
   slices: PlanSliceView[];
@@ -708,6 +722,7 @@ export interface PlanView {
 
 /** File contents to inspect before authorizing, present only while authorization is pending. */
 export interface ScopeView {
+  directories: PlanSliceView['directories'];
   files: { path: string; content: string | null; action: 'edit' | 'create' | 'delete' }[];
   instructions: { path: string; content: string }[];
   /** Why authorization cannot be prepared; authorization is disabled while set. */

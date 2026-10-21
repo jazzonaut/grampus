@@ -70,6 +70,54 @@ test('repeating an unchanged page gives a cursor hint and terminates a read loop
   assert.ok(!read().repeated, 'new information permits a later legitimate reread');
 });
 
+test('one search discovers several symbols with glob filtering and batches their relevant ranges', t => {
+  const f = fixture(t);
+  const invoke = repositoryTools(
+    { repo: f.repo, base: f.base },
+    () => {},
+    () => true,
+  );
+  const found = invoke('grampus_search', {
+    queries: ['console.log', 'hidden-contract'],
+    glob: 'src/*.js',
+    mode: 'files',
+  }) as any;
+  assert.deepEqual(
+    found.matches.map((match: any) => match.path),
+    ['src/caller.js', 'src/dependency.js'],
+  );
+  assert.equal(found.nextOffset, null);
+  assert.ok(found.matches.every((match: any) => match.text === undefined));
+  const batch = invoke('grampus_read_files', {
+    ranges: [
+      { path: 'src/caller.js', offset: 1, limit: 1 },
+      { path: 'src/dependency.js', limit: 1 },
+    ],
+  }) as any;
+  assert.deepEqual(batch.files[0].lines, ['console.log(value);']);
+  assert.equal(batch.files[0].offset, 1);
+  assert.match(batch.files[1].lines[0], /hidden-contract/);
+  assert.throws(() => invoke('grampus_search', { queries: [], glob: '**' }));
+  assert.throws(() => invoke('grampus_read_files', { ranges: [], paths: ['src/caller.js'] }));
+});
+
+test('directory grants read visible new files but never expose ignored files outside the captured inventory', async t => {
+  const f = fixture(t);
+  writeFileSync(join(f.repo, '.gitignore'), 'src/private.ts\n');
+  f.git('add', '.gitignore');
+  f.git('commit', '-m', 'Ignore private source');
+  const snapshot = await snapshotRepository(f.repo, f.git('rev-parse', 'HEAD'));
+  writeFileSync(join(f.repo, 'src', 'private.ts'), 'private bytes');
+  writeFileSync(join(f.repo, 'src', 'added.ts'), 'export const added = true;');
+  const invoke = repositoryTools(
+    { repo: f.repo, snapshot, directories: [{ path: 'src', actions: ['edit', 'create'], suffixes: ['.ts'] }] },
+    () => {},
+    () => true,
+  );
+  assert.throws(() => invoke('grampus_read_file', { path: 'src/private.ts' }), /ignored|inventory|snapshots/);
+  assert.match((invoke('grampus_read_file', { path: 'src/added.ts' }) as any).lines[0], /added = true/);
+});
+
 test('repository tools discover dependencies outside initial context and read pinned content, with pagination', t => {
   const f = fixture(t),
     events: AgentEvent[] = [];

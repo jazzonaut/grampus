@@ -56,7 +56,14 @@ export function editPolicy(state: GuidedState, snapshot: RepositorySnapshot): Ed
   const present = (path: string) => snapshot.files.some(file => file.path === path && file.sha256 !== null);
   const creations = scope.create ?? [],
     deletions = scope.delete ?? [];
-  if (!scope.files.length && !creations.length && deletions.length && !deletions.some(present)) return null;
+  if (
+    !scope.directories?.length &&
+    !scope.files.length &&
+    !creations.length &&
+    deletions.length &&
+    !deletions.some(present)
+  )
+    return null;
   const created = creations.filter(present),
     toCreate = creations.filter(path => !present(path)),
     toDelete = deletions.filter(present);
@@ -64,6 +71,7 @@ export function editPolicy(state: GuidedState, snapshot: RepositorySnapshot): Ed
     artifact: snapshot.artifact,
     instructionsDigest: snapshot.instructionsDigest,
     files: [...scope.files, ...created],
+    ...(scope.directories ? { directories: scope.directories } : {}),
     ...(toCreate.length ? { create: toCreate } : {}),
     ...(toDelete.length ? { delete: toDelete } : {}),
   };
@@ -75,29 +83,66 @@ export function editPolicy(state: GuidedState, snapshot: RepositorySnapshot): Ed
  * files, which is why its edit policy becomes the preparation scope. `snapshot` is the full current
  * snapshot the state refers to (`guidedSnapshot`). Throws when no command is approved for the stage
  * or `snapshot` is not the one the state refers to, so a request can never bind to other bytes.
+ * `checks` contains only records known before this step, so its own result cannot change its request.
  */
-export function preparationSpec(state: GuidedState, snapshot: RepositorySnapshot | null): CheckSpec {
+export function preparationSpec(
+  state: GuidedState,
+  snapshot: RepositorySnapshot | null,
+  checks: readonly RepositoryCheck[],
+): CheckSpec {
   const slice = currentSlice(state);
-  const command =
-    state.stage === 'preparation' ? state.plan.preparation : (slice.preparation ?? state.plan.preparation);
-  if (!command || !state.snapshot || snapshot?.artifact !== state.snapshot.artifact)
+  if (!state.snapshot || snapshot?.artifact !== state.snapshot.artifact)
     throw new Error('Preparation requires an approved command and current snapshot');
+  const command = preparationCommand(state, snapshot, checks);
+  if (!command) throw new Error('Preparation requires an approved command and current snapshot');
   const policy =
-    state.stage === 'refresh' && slice.preparation && slice.mode !== 'no_change' ? editPolicy(state, snapshot) : null;
-  const scope =
-    policy && (policy.files.length || policy.create?.length || policy.delete?.length)
-      ? {
-          files: policy.files,
-          ...(policy.create ? { create: policy.create } : {}),
-          ...(policy.delete ? { delete: policy.delete } : {}),
-        }
-      : undefined;
+    state.stage === 'refresh' && command === slice.preparation && slice.mode !== 'no_change'
+      ? editPolicy(state, snapshot)
+      : null;
+  const scope = preparationScope(policy);
   return {
     ...command,
     artifact: state.snapshot.artifact,
     instructionsDigest: state.snapshot.instructionsDigest,
     preparation: scope ? { scope } : {},
   };
+}
+
+/** Generation may update restore inputs; recognise only a settled controller generation of this artifact. */
+function preparationCommand(state: GuidedState, snapshot: RepositorySnapshot, checks: readonly RepositoryCheck[]) {
+  if (state.stage === 'preparation') return state.plan.preparation;
+  const generation = currentSlice(state).preparation;
+  if (!generation || !state.plan.preparation?.restore) return generation ?? state.plan.preparation;
+  const previous = checks.findLast(
+    check =>
+      !check.implementationId &&
+      check.purpose === 'preparation' &&
+      !check.spec.restore &&
+      deepEqual(
+        [check.spec.name, check.spec.file, check.spec.args, check.spec.timeoutMs],
+        [generation.name, generation.file, generation.args, generation.timeoutMs],
+      ),
+  );
+  const generated =
+    previous?.phase === 'passed' &&
+    !previous.error &&
+    previous.result?.reason === 'exited' &&
+    previous.result.exitConfirmed &&
+    previous.result.exitCode === 0 &&
+    previous.after?.artifact === snapshot.artifact &&
+    previous.after.instructionsDigest === snapshot.instructionsDigest;
+  return generated ? state.plan.preparation : generation;
+}
+
+function preparationScope(policy: EditPolicy | null) {
+  return policy && (policy.files.length || policy.create?.length || policy.delete?.length || policy.directories?.length)
+    ? {
+        files: policy.files,
+        ...(policy.directories ? { directories: policy.directories } : {}),
+        ...(policy.create ? { create: policy.create } : {}),
+        ...(policy.delete ? { delete: policy.delete } : {}),
+      }
+    : undefined;
 }
 
 /** The validation request, bound to the current artifact; throws without a current snapshot. */

@@ -10,6 +10,7 @@ import { reasoningEffortSchema } from '../domain/model-profiles.js';
 import { readinessKindSchema } from '../domain/readiness.js';
 import { z } from 'zod';
 import { checkReuseSchema } from '../domain/check-input-policy.js';
+import { restorePolicySchema } from '../domain/restore-policy.js';
 import { providerSchema } from '../providers/types.js';
 import { providerRuntimeSchema } from '../providers/executables.js';
 import { agentReplySchema, turnResultSchema } from '../providers/reply-schema.js';
@@ -171,6 +172,7 @@ export type Workspace = z.infer<typeof workspaceSchema>;
 
 export const checkSpecSchema = z.object({
   reuse: checkReuseSchema.exactOptional(),
+  restore: restorePolicySchema.exactOptional(),
   name: z.string(),
   file: z.string(),
   args: z.array(z.string()),
@@ -182,13 +184,19 @@ export const checkSpecSchema = z.object({
   expectedStdout: z.string().exactOptional(),
   expectations: acceptanceExpectationsSchema.exactOptional(),
   preparation: z
-    .object({ scope: editPolicySchema.pick({ files: true, create: true, delete: true }).exactOptional() })
+    .object({
+      scope: editPolicySchema.pick({ files: true, create: true, delete: true, directories: true }).exactOptional(),
+    })
     .exactOptional(),
 });
 /** An approved command with literal arguments, bound to the artifact and instructions it checks. */
 export type CheckSpec = z.infer<typeof checkSpecSchema>;
 
 export const repositoryCheckSchema = z.object({
+  /** Explicit restore contracts bind inputs and managed outputs independently of source edits. */
+  restoreFingerprint: z
+    .object({ before: z.string().nullable(), after: z.string().nullable(), outputs: z.string().nullable() })
+    .exactOptional(),
   /** Read-only batch lease, held until every child settles or explicit group recovery proves all exits. */
   groupId: z.string().exactOptional(),
   /** Fingerprints are hashes only; environment secrets are never persisted here. */

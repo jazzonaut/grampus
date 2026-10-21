@@ -152,12 +152,14 @@ function editingHook(options: ConnectOptions, editing: EditingContext): HookCall
   };
 }
 
-/**
- * One Agent SDK query driven as a Grampus session. The query owns the Claude process; tool permission is
- * decided by `canUseTool` and, for editing turns, the PreToolUse hook, so file and external MCP tool
- * decisions are journaled before the tool can run. `doctor` constructs it directly to ask control
- * requests without a turn.
- */
+function canDeleteFiles(editing: EditingContext | undefined): editing is EditingContext {
+  return (
+    !!editing &&
+    (!!editing.policy.delete?.length || !!editing.policy.directories?.some(scope => scope.actions.includes('delete')))
+  );
+}
+
+/** One SDK query with controller-fenced tools, ownership and confirmed process shutdown. */
 export class ClaudeSession implements AgentSession {
   private readonly input = new InputQueue();
   private readonly sessionId: string;
@@ -190,7 +192,7 @@ export class ClaudeSession implements AgentSession {
     // Tools may act only for an active turn that is not stopping or closing.
     const owned = () => !!this.active && !this.stopRequested && !this.stopped && !this.closing;
     const editing = options.editing;
-    const fileServer = editing?.policy.delete?.length
+    const fileServer = canDeleteFiles(editing)
       ? createSdkMcpServer({
           name: 'grampus_files',
           version: '1.0.0',

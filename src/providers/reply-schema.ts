@@ -75,8 +75,8 @@ export const replyFindingSchema = z.object({
 
 /**
  * The structured reply. Beyond field types it enforces the cross-field rules the controller relies on:
- * question ids are unique, `question` replies and only those carry questions, only reviews carry
- * findings or quality lens assessments.
+ * question ids are unique and only `question` replies carry questions. Provisional review assessments
+ * may accompany a question, but only a settled review can supply a verdict.
  */
 export const agentReplySchema = z
   .object({
@@ -91,7 +91,7 @@ export const agentReplySchema = z
       )
       .nullable()
       .exactOptional(),
-    /** Review replies only: one assessment per quality lens the review prompt selected. */
+    /** Review assessments on a verdict or provisional assessments accompanying a question. */
     lenses: lensAssessmentsSchema.nullable().exactOptional(),
     kind: z.enum(['message', 'question', 'review']),
     text: z.string(),
@@ -105,9 +105,9 @@ export const agentReplySchema = z
       context.addIssue({ code: 'custom', path: ['kind'], message: 'Questions require kind=question and vice versa' });
     // Implementers can report observations without impersonating the independent reviewer.
     // Evidence attribution follows the execution role, never the presence of a findings list.
-    if (reply.lenses != null && reply.kind !== 'review')
+    if (reply.lenses != null && reply.kind === 'message')
       context.addIssue({ code: 'custom', path: ['lenses'], message: 'Only a review may assess lenses' });
-    if (reply.priorFindings?.length && reply.kind !== 'review')
+    if (reply.priorFindings?.length && reply.kind === 'message')
       context.addIssue({ code: 'custom', path: ['priorFindings'], message: 'Only a review may resolve findings' });
   });
 

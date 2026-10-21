@@ -8,9 +8,20 @@
  * - `command`: `{ file, args }`.
  * - `summary`: the toggle text, default "Exact command".
  */
-withDefaults(defineProps<{ command: { file: string; args: readonly string[] }; summary?: string }>(), {
-  summary: 'Exact command',
-});
+withDefaults(
+  defineProps<{
+    command: {
+      file: string;
+      args: readonly string[];
+      restore?: { inputs: string[]; outputs: string[] };
+      reuse?: { inputs: string[] };
+    };
+    summary?: string;
+  }>(),
+  {
+    summary: 'Exact command',
+  },
+);
 
 defineOptions({ name: 'CommandDetails' });
 </script>
@@ -23,6 +34,14 @@ defineOptions({ name: 'CommandDetails' });
       <pre class="grampus-code">{{ command.file }}</pre>
       <p class="text-xs text-muted">Arguments (JSON array, preserving exact boundaries)</p>
       <pre class="grampus-code">{{ JSON.stringify(command.args, null, 2) }}</pre>
+      <template v-if="command.restore">
+        <p class="text-xs text-muted">Restore reuse: all declared inputs and managed outputs must match</p>
+        <pre class="grampus-code">{{ JSON.stringify(command.restore, null, 2) }}</pre>
+      </template>
+      <template v-if="command.reuse">
+        <p class="text-xs text-muted">May reuse only with matching artifact and declared local inputs</p>
+        <pre class="grampus-code">{{ JSON.stringify(command.reuse, null, 2) }}</pre>
+      </template>
     </div>
   </details>
 </template>

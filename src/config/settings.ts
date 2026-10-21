@@ -29,6 +29,8 @@ import { defaultDashboardPort } from './runtime.js';
  * when it is normalised.
  */
 export interface Settings {
+  /** Experiment: read editable content on demand on fresh exploring turns, instead of eagerly inlining it. */
+  deferEditableContext: boolean;
   /** Native Claude agent steps within one controller turn, separate from conversation reset limits. */
   claudeMaxTurns: number;
   /** Per-task worker ceiling for explicitly independent mechanical readiness checks. */
@@ -92,6 +94,7 @@ export const settingsFileName = 'config.json';
 /** Built-in defaults: exactly the behaviour without a settings file. */
 export function defaultSettings(): Settings {
   return {
+    deferEditableContext: false,
     claudeMaxTurns: 128,
     maxReadinessConcurrency: 2,
     modelProfiles: [],
@@ -153,6 +156,7 @@ export type IntegerSetting = keyof typeof settingRanges;
 const bounded = (range: { min: number; max: number }) => z.number().int().min(range.min).max(range.max);
 const overridesSchema = z
   .strictObject({
+    deferEditableContext: z.boolean().optional(),
     claudeMaxTurns: bounded(settingRanges.claudeMaxTurns).optional(),
     maxReadinessConcurrency: bounded(settingRanges.maxReadinessConcurrency).optional(),
     modelProfiles: modelProfilesSchema.optional(),

@@ -386,6 +386,7 @@ export const mockPlan: PlanView = {
       formatting: null,
       diagnostics: [],
       readinessConcurrency: 1,
+      directories: [],
       reusableChecks: [],
       validation: command,
       readiness: [],

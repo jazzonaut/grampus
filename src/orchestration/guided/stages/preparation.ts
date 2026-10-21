@@ -1,9 +1,10 @@
-// Owns the `preparation` and `refresh` stages: running the approved restore command before scope,
-// and again after implementation, without letting it stand in for validation or acceptance.
+// Owns initial prerequisites and post-edit generation/restoration as separate durable steps.
+// A restore observes final generated inputs and never stands in for validation or acceptance.
 import { deepEqual } from '../../../domain/deep-equal.js';
 import { adoptOne, mismatch, requireOrigin, requireSettled, type StageHandler } from '../context.js';
-import { afterPreparation, preparationSpec } from '../specs.js';
-import { required } from '../state.js';
+import { afterPreparation, preparationSpec, currentSlice } from '../specs.js';
+import { required, type GuidedState, type Stage } from '../state.js';
+import type { CheckSpec } from '../../../verification/checks.js';
 import { checkIds } from './checks.js';
 import { guidedSnapshot, keepSnapshot } from '../snapshots.js';
 
@@ -27,7 +28,7 @@ export const preparationStage: StageHandler = {
     }
     await checks.run(
       executionId,
-      preparationSpec(state, guidedSnapshot(store, state)),
+      preparationSpec(state, guidedSnapshot(store, state), store.checks(executionId)),
       signal,
       services.preparationRunner,
     );
@@ -36,11 +37,19 @@ export const preparationStage: StageHandler = {
   settle(context) {
     const { state, pending, store } = context;
     const executionId = required(state, 'executionId');
-    const result = adoptOne(store.checks(executionId), pending);
+    const checks = store.checks(executionId);
+    const result = adoptOne(checks, pending);
     if (!result) return { kind: 'missing' };
     requireOrigin(context, executionId, result.id, pending);
     if (
-      !deepEqual(result.spec, preparationSpec(state, guidedSnapshot(store, state))) ||
+      !deepEqual(
+        result.spec,
+        preparationSpec(
+          state,
+          guidedSnapshot(store, state),
+          checks.filter(check => pending.known.includes(check.id)),
+        ),
+      ) ||
       result.purpose !== 'preparation'
     )
       throw mismatch('Preparation result differs from the approved command or file scope');
@@ -57,10 +66,17 @@ export const preparationStage: StageHandler = {
     const after = result.after;
     return {
       kind: 'advance',
-      next: pending.stage === 'preparation' ? 'scope' : afterPreparation(state),
+      next: nextPreparationStage(state, pending.stage === 'preparation', result.spec),
       update: current => {
         current.snapshot = keepSnapshot(store, after);
       },
     };
   },
 };
+
+/** A declared restore follows generation so it observes final dependency inputs, including after recovery. */
+function nextPreparationStage(state: GuidedState, initial: boolean, spec: CheckSpec): Stage {
+  if (initial) return 'scope';
+  if (state.plan.preparation?.restore && currentSlice(state).preparation && !spec.restore) return 'refresh';
+  return afterPreparation(state);
+}

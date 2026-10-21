@@ -25,6 +25,7 @@ test('an uncertain diagnostic prevents parent success and any command replay', w
       };
     });
     await assert.rejects(commands.run('validation'), /recovery/);
+    assert.equal(commands.running, true, 'native writes remain suspended while the command exit is uncertain');
     await assert.rejects(commands.run('validation'), /unsettled/);
     return inlineImplementation(options, "console.log('hello world');\n");
   };

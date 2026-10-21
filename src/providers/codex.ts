@@ -305,6 +305,8 @@ interface ActiveTurn {
   patches: Map<string, unknown>;
   seenItems: Set<string>;
   toolCalls: Set<string>;
+  pendingTools: Set<Promise<unknown>>;
+  completing: boolean;
   stopping: boolean;
 }
 
@@ -356,6 +358,7 @@ export class CodexSession implements AgentSession {
       if (
         !active ||
         active.stopping ||
+        active.completing ||
         active.turnId === null ||
         !call.success ||
         call.data.threadId !== this.threadId ||
@@ -403,6 +406,7 @@ export class CodexSession implements AgentSession {
     const matches =
       active &&
       !active.stopping &&
+      !active.completing &&
       active.turnId !== null &&
       owned.success &&
       owned.data.threadId === this.threadId &&
@@ -426,7 +430,16 @@ export class CodexSession implements AgentSession {
    * a turn, reported once as protocol drift.
    */
   private approve(message: RpcMessage): unknown {
-    if (message.method === 'item/tool/call') return this.callTool(message.params);
+    if (message.method === 'item/tool/call') {
+      const active = this.active;
+      const pending = this.callTool(message.params);
+      if (active) {
+        active.pendingTools.add(pending);
+        const settled = () => active.pendingTools.delete(pending);
+        void pending.then(settled, settled);
+      }
+      return pending;
+    }
     if (message.method && !knownServerRequests.has(message.method))
       this.unrecognizedMessage(message.method, message.params);
     if (!this.editing) return undefined;
@@ -451,7 +464,7 @@ export class CodexSession implements AgentSession {
 
   private message(message: RpcMessage): void {
     // Server requests carry an id; approve() answers and validates them, so they are not notifications.
-    if (!message.method || message.id !== undefined || !this.active) return;
+    if (!message.method || message.id !== undefined || !this.active || this.active.completing) return;
     if (message.method === 'account/rateLimits/updated') {
       const observation = codexSubscription(message.params);
       if (observation) this.emit(observation);
@@ -579,7 +592,22 @@ export class CodexSession implements AgentSession {
     active: ActiveTurn,
     turn: Extract<CodexNotification, { method: 'turn/completed' }>['params']['turn'],
   ): void {
-    if (active.turnId && turn.id !== active.turnId) return;
+    if ((active.turnId && turn.id !== active.turnId) || active.completing) return;
+    active.completing = true;
+    active.patches.clear();
+    // Provider completion closes authorisation immediately, but a dispatched child still owns its
+    // lease. Keep the transport and turn alive until its actual result can be returned and retained.
+    void Promise.all([...active.pendingTools]).then(
+      () => this.settleCompletedTurn(active, turn),
+      error => active.reject(error instanceof Error ? error : new Error(String(error))),
+    );
+  }
+
+  private settleCompletedTurn(
+    active: ActiveTurn,
+    turn: Extract<CodexNotification, { method: 'turn/completed' }>['params']['turn'],
+  ): void {
+    if (this.active !== active) return;
     this.active = null;
     const status = turn.status === 'completed' ? 'completed' : turn.status === 'interrupted' ? 'interrupted' : 'failed';
     try {
@@ -617,6 +645,8 @@ export class CodexSession implements AgentSession {
       patches: new Map(),
       seenItems: new Set(),
       toolCalls: new Set(),
+      pendingTools: new Set(),
+      completing: false,
       stopping: false,
     };
     try {

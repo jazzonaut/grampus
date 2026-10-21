@@ -3,15 +3,16 @@
 // Decisions fail closed and are journaled before any file I/O; it never grants a shell or Git access.
 import { lstatSync, readFileSync, realpathSync, unlinkSync, type Stats } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import type { RepositorySnapshot } from '../repository/artifacts.js';
 import { parseReply, type AgentEvent } from '../providers/types.js';
-import { editLimits, formatBytes, processLimits } from '../config/limits.js';
+import { editLimits, formatBytes } from '../config/limits.js';
 import { codexFileChangeSchema } from '../providers/codex-protocol.js';
 import { z } from 'zod';
 import { systemErrorCode } from '../process/boundary.js';
+import { requireSnapshotVisible } from '../repository/visible-path.js';
 import { PromptBudget, promptBytes } from '../providers/prompt-budget.js';
+import { directoryScopeSchema, directoryAllows, isEditablePath as editablePath } from './directory-scope.js';
 
 /**
  * The shape of an edit policy, as read from a CLI policy file or a journal record. Semantic rules
@@ -23,6 +24,7 @@ export const editPolicySchema = z.strictObject({
   files: z.array(z.string()),
   create: z.array(z.string()).exactOptional(),
   delete: z.array(z.string()).exactOptional(),
+  directories: z.array(directoryScopeSchema).min(1).max(editLimits.directories).exactOptional(),
 });
 export type EditPolicy = z.infer<typeof editPolicySchema>;
 
@@ -68,6 +70,19 @@ const key = (path: string) => (process.platform === 'win32' ? path.toLowerCase()
 const protectedPath = (path: string) =>
   path.split(/[\\/]/).some(part => /^(\.git|\.claude|\.codex|\.grampus|AGENTS\.md|CLAUDE\.md)$/i.test(part));
 
+/** One permission predicate is shared by native tools, patches and final artifact verification. */
+function policyAllows(context: EditingContext, action: 'edit' | 'create' | 'delete', path: string): boolean {
+  const paths = action === 'edit' ? context.policy.files : context.policy[action];
+  return !!paths?.some(value => key(value) === key(path)) || directoryAllows(context.policy.directories, action, path);
+}
+
+function creationAllowed(context: EditingContext, path: string): boolean {
+  return (
+    policyAllows(context, 'create', path) &&
+    !context.snapshot.files.some(file => key(file.path) === key(path) && file.sha256 !== null)
+  );
+}
+
 /**
  * The digests and path lists of a candidate policy. Paths are left unknown here so that a non-string
  * path is reported with the path rule below rather than as a malformed policy.
@@ -78,35 +93,8 @@ const editPolicyShape = z.strictObject({
   files: z.array(z.unknown()),
   create: z.array(z.unknown()).optional(),
   delete: z.array(z.unknown()).optional(),
+  directories: z.array(directoryScopeSchema).min(1).max(editLimits.directories).optional(),
 });
-
-/**
- * A relative path an agent may be authorised to edit: forward slashes only, no control characters,
- * no segment that Windows would silently alter (trailing dot or space) or treat as a device name, and
- * nothing under a repository control path. The Windows rules apply on every platform so a policy means
- * the same thing wherever it is checked.
- */
-function editablePath(path: unknown): path is string {
-  return (
-    typeof path === 'string' &&
-    !!path &&
-    path.length <= editLimits.pathCharacters &&
-    !isAbsolute(path) &&
-    !/[\\:<>"|?*]/.test(path) &&
-    ![...path].some(character => character.charCodeAt(0) < 0x20) &&
-    !path
-      .split('/')
-      .some(
-        part =>
-          !part ||
-          part === '.' ||
-          part === '..' ||
-          /[. ]$/.test(part) ||
-          /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part),
-      ) &&
-    !protectedPath(path)
-  );
-}
 
 /**
  * Validates an edit policy from any source (plan, CLI file or journal) before it authorises edits:
@@ -120,7 +108,7 @@ export function validateEditPolicy(policy: unknown): asserts policy is EditPolic
   const paths = [...shape.data.files, ...(shape.data.create ?? []), ...(shape.data.delete ?? [])];
   const editable = paths.filter(editablePath);
   if (
-    paths.length < 1 ||
+    (!paths.length && !shape.data.directories?.length) ||
     paths.length > editLimits.paths ||
     editable.length !== paths.length ||
     new Set(editable.map(key)).size !== editable.length
@@ -215,15 +203,19 @@ function checkedFile(
   const file = context.snapshot.files.find(
     file => file.sha256 !== null && key(resolve(root, file.path)) === key(absolute),
   );
-  const creation = context.policy.create?.find(path => key(resolve(root, path)) === key(absolute));
-  const deletion = file && context.policy.delete?.some(path => key(path) === key(file.path));
+  const relativePath = relative(root, absolute).split(sep).join('/');
+  const creation = creationAllowed(context, relativePath) ? relativePath : undefined;
+  const deletion = file && policyAllows(context, 'delete', file.path);
   const target = file?.path ?? creation;
   if (target === undefined) throw new Error('Tool path is not an existing snapshot file or explicit creation path');
   let present = true;
   // Walk from the target up to the root so no link or alias anywhere on the way can redirect the write.
   for (let current = absolute; key(current) !== key(root); current = dirname(current)) {
     const component = { root, inputPath, current, target: current === absolute };
-    const stat = componentStat(component, component.target && !!(creation || deletion) && allowMissing);
+    const mayBeMissing = component.target
+      ? !!(creation || deletion)
+      : !!creation && directoryAllows(context.policy.directories, 'create', relativePath);
+    const stat = componentStat(component, mayBeMissing && allowMissing);
     if (!stat) {
       present = false;
       continue;
@@ -248,30 +240,12 @@ function checkedFile(
 function requireDeletion(context: EditingContext, file: { path: string; bytes: Buffer | null }): void {
   const original = context.snapshot.files.find(before => key(before.path) === key(file.path));
   if (
-    !context.policy.delete?.some(path => key(path) === key(file.path)) ||
+    !policyAllows(context, 'delete', file.path) ||
     !file.bytes ||
     !original?.sha256 ||
     createHash('sha256').update(file.bytes).digest('hex') !== original.sha256
   )
     throw new Error('Deletion requires an explicit existing path with unchanged snapshot bytes');
-}
-
-/**
- * Throws unless Git would not ignore `path`. An ignored creation would be outside the snapshot digest, so
- * the change could never be verified or delivered. Exit status 1 is Git's "not ignored"; anything else,
- * including a failure to run Git, refuses.
- */
-function requireVisibleCreation(context: EditingContext, path: string): void {
-  // Inherited `GIT_*` variables could point Git at another repository or index.
-  const env = { ...process.env };
-  for (const name of Object.keys(env)) if (name.startsWith('GIT_')) delete env[name];
-  const result = spawnSync(
-    'git',
-    ['--no-optional-locks', '-C', context.cwd, 'check-ignore', '--no-index', '-q', '--', path],
-    { env, windowsHide: true, timeout: processLimits.gitTimeoutMs, stdio: 'pipe' },
-  );
-  if (result.error || result.status !== 1)
-    throw new Error('Creation paths must be visible to repository snapshots, not ignored');
 }
 
 /**
@@ -305,7 +279,7 @@ export function prepareEditing(context: EditingContext): void {
       checkedFile(context, path, true).bytes !== null
     )
       throw new Error('Creation path must be absent from the snapshot and filesystem');
-    requireVisibleCreation(context, path);
+    requireSnapshotVisible(context.cwd, path);
   }
 }
 
@@ -399,17 +373,15 @@ export function authorizeFileChanges(
       throw new Error('Only bounded text updates, explicit additions and explicit deletions without moves are allowed');
     for (const change of parsed.data) {
       const file = checkedFile(context, change.path, change.kind.type === 'add');
-      const creation = context.policy.create?.some(path => key(path) === key(file.path));
+      const creation = creationAllowed(context, file.path);
       if (change.kind.type === 'delete') requireDeletion(context, file);
       if (
         (change.kind.type === 'add' && (!creation || file.bytes !== null)) ||
-        (change.kind.type === 'update' &&
-          !creation &&
-          !context.policy.files.some(path => key(path) === key(file.path))) ||
+        (change.kind.type === 'update' && !creation && !policyAllows(context, 'edit', file.path)) ||
         paths.some(path => key(path) === key(file.path))
       )
         throw new Error('Patch file is unapproved, already exists or repeated');
-      if (creation) requireVisibleCreation(context, file.path);
+      if (creation) requireSnapshotVisible(context.cwd, file.path);
       paths.push(file.path);
     }
     emit({ type: 'tool.authorized', data: { tool: 'apply_patch', paths } });
@@ -451,11 +423,11 @@ function authorizeFileTool(context: EditingContext, name: string, input: unknown
   const file = checkedFile(context, target.data.file_path, name === 'Write');
   const filePath = file.path;
   decided(filePath);
-  const creation = context.policy.create?.some(value => key(value) === key(filePath));
+  const creation = creationAllowed(context, filePath);
   if (name === deleteFileTool) requireDeletion(context, file);
-  else if (name !== 'Read' && !creation && !context.policy.files.some(value => key(value) === key(filePath)))
+  else if (name !== 'Read' && !creation && !policyAllows(context, 'edit', filePath))
     throw new Error('File is not authorized for editing');
-  if (creation) requireVisibleCreation(context, filePath);
+  if (creation) requireSnapshotVisible(context.cwd, filePath);
   requireToolOptions(name, input);
   return filePath;
 }
@@ -548,7 +520,7 @@ function requirePolicyFilesSettled(context: EditingContext, after: RepositorySna
     const file = checkedFile(context, path, true);
     if (file.bytes !== null && !after.files.some(current => key(current.path) === key(path) && current.sha256 !== null))
       throw new Error('Created file is missing from repository snapshot');
-    requireVisibleCreation(context, path);
+    requireSnapshotVisible(context.cwd, path);
   }
 }
 
@@ -557,33 +529,66 @@ function requirePolicyFilesSettled(context: EditingContext, after: RepositorySna
  * instruction change, content changes only in authorised files, membership changes only by authorised
  * creations and deletions, and no executable bit changes. Throws a message naming the violation.
  */
-export function verifyEditingScope(context: EditingContext, after: RepositorySnapshot): void {
+export function verifyEditingScope(
+  context: EditingContext,
+  after: RepositorySnapshot,
+  nativeCreations: readonly string[] = [],
+): void {
   requireUnchangedGitState(context, after);
   const beforeFiles = new Map(context.snapshot.files.map(file => [file.path, file]));
   const afterFiles = new Map(after.files.map(file => [file.path, file]));
   for (const before of context.snapshot.files) {
     const current = afterFiles.get(before.path);
     // An approved deletion that is gone is the one membership change allowed for an existing file.
-    if (
-      before.sha256 !== null &&
-      (!current || current.sha256 === null) &&
-      context.policy.delete?.some(path => key(path) === key(before.path))
-    )
+    if (before.sha256 !== null && (!current || current.sha256 === null) && policyAllows(context, 'delete', before.path))
       continue;
     if (
       !current ||
       (current.sha256 === null && before.sha256 !== null) ||
       current.executable !== before.executable ||
-      (current.sha256 !== before.sha256 && !context.policy.files.some(path => key(path) === key(before.path)))
+      (current.sha256 !== before.sha256 && !policyAllows(context, 'edit', before.path))
     )
       throw new Error('Editing changed content outside the explicit file policy');
   }
   for (const file of after.files) {
     if (beforeFiles.has(file.path)) continue;
-    if (file.sha256 === null || file.executable || !context.policy.create?.some(path => key(path) === key(file.path)))
+    if (file.sha256 === null || file.executable || !policyAllows(context, 'create', file.path))
       throw new Error('Editing changed file membership outside the explicit creation policy');
   }
   requirePolicyFilesSettled(context, after);
+  requireNativeCreationsSettled(context, after, nativeCreations);
+  requireChangedBounds(context, after);
+}
+
+function requireNativeCreationsSettled(
+  context: EditingContext,
+  after: RepositorySnapshot,
+  nativeCreations: readonly string[],
+): void {
+  for (const path of nativeCreations) {
+    const file = checkedFile(context, path, true);
+    if (file.bytes === null) continue;
+    requireSnapshotVisible(context.cwd, file.path);
+    if (!after.files.some(current => key(current.path) === key(file.path) && current.sha256 !== null))
+      throw new Error('Native creation is missing from the final snapshot');
+  }
+}
+
+function requireChangedBounds(context: EditingContext, after: RepositorySnapshot): void {
+  const beforeFiles = new Map(context.snapshot.files.map(file => [file.path, file]));
+  const afterFiles = new Map(after.files.map(file => [file.path, file]));
+  const changed = after.files.filter(
+    file => file.sha256 !== null && file.sha256 !== beforeFiles.get(file.path)?.sha256,
+  );
+  const deleted = context.snapshot.files.filter(file => file.sha256 !== null && !afterFiles.get(file.path)?.sha256);
+  if (changed.length + deleted.length > editLimits.paths)
+    throw new Error('Directory scope exceeds the changed path limit');
+  let bytes = 0;
+  for (const file of changed) {
+    const current = checkedFile(context, file.path);
+    bytes += current.bytes?.length ?? 0;
+  }
+  if (bytes > editLimits.scopeBytes) throw new Error('Directory scope exceeds the changed text limit');
 }
 
 /**

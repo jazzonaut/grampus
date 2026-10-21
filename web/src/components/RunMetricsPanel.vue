@@ -52,6 +52,26 @@ defineProps<{ metrics: RunMetricsV1 }>();
         <dd>{{ metrics.verifiedDelivery ? 'Verified locally' : metrics.status }}</dd>
       </div>
     </dl>
+    <details v-if="metrics.executionPhases.length" class="mt-4 text-sm">
+      <summary class="cursor-pointer font-medium">Execution phases</summary>
+      <p class="mt-2 text-xs text-muted">Observed totals overlap. Do not add them to workflow elapsed time.</p>
+      <table class="mt-2 w-full text-left text-xs">
+        <thead>
+          <tr>
+            <th class="p-2">Phase</th>
+            <th class="p-2">Time</th>
+            <th class="p-2">Observations</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in metrics.executionPhases" :key="row.phase" class="border-t border-default">
+            <td class="p-2">{{ row.label }}</td>
+            <td class="p-2">{{ formatDuration(row.elapsedMs) }}</td>
+            <td class="p-2">{{ row.observations }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </details>
     <div v-if="metrics.models.length" class="mt-4 overflow-auto">
       <table class="w-full text-left text-xs">
         <thead>

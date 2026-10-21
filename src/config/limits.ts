@@ -68,6 +68,10 @@ export const workflowPolicyBounds = {
  * so an approved plan can always be executed; payload bounds apply to every authorised tool call.
  */
 export const editLimits = {
+  /** Opt-in directory grants remain bounded and cannot include repository controls. */
+  directories: 8,
+  directoryActions: 3,
+  directorySuffixes: 16,
   /** Largest regular UTF-8 file in an edit or delete scope. */
   fileBytes: 1 * MiB,
   /** Total existing bytes across one slice's edit and delete scope. */
@@ -94,6 +98,9 @@ export const commandLimits = {
   diagnosticFiles: 64,
   /** Approved diagnostic families per slice. */
   diagnosticFamilies: 8,
+  /** Approved attempts per diagnostic family and slice, including selections and repair attempts. */
+  diagnosticRuns: 8,
+  defaultDiagnosticRuns: 3,
   /** Reuse is optional and falls back to execution when input capture exceeds these bounds. */
   reuseInputRoots: 16,
   reuseInputFiles: 100_000,
@@ -270,6 +277,10 @@ export const repositoryToolLimits = {
   batchFiles: 8,
   batchPageLines: 40,
   searchContextLines: 1,
+  /** Distinct literal queries evaluated in one bounded repository scan. */
+  searchQueries: 8,
+  /** Reserve source identities, counters and continuation framing in bounded search responses. */
+  searchMetadataBytes: 1 * KiB,
   /** Identical reads of unchanged content before returning a compact cursor reminder. */
   repeatedReadHint: 3,
   /** Identical reads of unchanged content before terminating the provider turn. */
@@ -340,8 +351,12 @@ export const serverLimits = {
 
 /** Process control. These bound startup, shutdown and IPC so that no wait is unbounded. */
 export const processLimits = {
+  /** Bounded local comparison probes retain every workspace and never repeat uncertain commands. */
+  benchmarkRepetitions: 10,
+  benchmarkCommands: 16,
+  benchmarkManifestBytes: 1 * MiB,
   /** MCP command response window includes the longest supervised check and its settlement. */
-  implementationCommandToolMs: 660_000,
+  implementationCommandToolMs: 3_060_000,
   /** Default deadline for short helper commands such as version probes. */
   commandTimeoutMs: 15_000,
   /** Output buffer for short helper commands. */

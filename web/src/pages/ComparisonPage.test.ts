@@ -17,6 +17,7 @@ it('selects a preferred run with the exact server request and leaves integration
     review: { provider: 'claude', model: 'reviewer' },
   };
   const metrics: RunMetricsV1 = {
+    executionPhases: [],
     taskId: 'task-one',
     title: 'Change',
     status: 'complete',

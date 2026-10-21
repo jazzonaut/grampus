@@ -597,6 +597,7 @@ type TaskActionId = keyof typeof builders;
  */
 export function resolvingActionIds(f: TaskActionFacts): TaskActionId[] {
   if (f.stale) return [];
+  if (f.ownerMissing) return ['recover'];
   if (f.jobRunning || (f.owner && f.status === 'running')) return f.jobRunning ? ['stop'] : ['stop', 'recover'];
   if (needsRecovery(f))
     return ['recover', ...(f.releasable ? ['release-workspace' as const] : []), ...(f.owner ? ['stop' as const] : [])];

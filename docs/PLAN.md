@@ -27,6 +27,23 @@ high-value problems, adds measurement, and then lets real use decide what follow
 
 ## Steps
 
+- **Reliable settlement and bounded diagnostic attempts.** Implemented: pending implementation
+  commands settle before provider shutdown and automatic formatting; reviewer questions retain
+  provisional findings and assessments; controller identity observations surface orphaned runners
+  without changing ownership. Diagnostic families have slice-wide, approval-bound attempt budgets
+  (three by default), focused reruns after failure and explicit exact-input success reuse. Final
+  validation and acceptance coverage is unchanged. Journal schema 12. See
+  [EXECUTION-EFFICIENCY.md](EXECUTION-EFFICIENCY.md).
+
+- **Complete implementation finishing and bounded execution freedom.** Implemented: an in-turn
+  format/readiness/validation cycle, concise successful diagnostics, directory grants with approved
+  file actions and suffixes, shared multi-query/glob exploration and ranged batch reads, declared
+  prerequisite restore reuse, optional on-demand initial context, measured execution phases and an
+  explicit three-arm comparison probe. Journal schema 12. See
+  [EXECUTION-EFFICIENCY.md](EXECUTION-EFFICIENCY.md). Live model comparisons remain **Planned**;
+  no speed-up is claimed. Warm workers and isolated general execution remain **Planned**, conditional
+  on measured startup cost and remaining capability friction respectively.
+
 - **Efficient execution and complete timing.** Implementation, 20 October 2026: focused diagnostic
   argument families; optional exact-input adoption of completed diagnostics; approved concurrent
   readiness groups with receipt-based recovery and a configurable worker ceiling; complete pagination
@@ -99,7 +116,7 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   progress stops or uses approved arbitration. Decisions are journaled with their reasons and
   budget. The journal schema refuses other versions without migration ([WORKFLOW.md](WORKFLOW.md)).
 - **No backwards compatibility.** Done 18 October 2026. Legacy plan formats, digests, fields,
-  migrations and `task-automate` are removed from code and docs. That step used schema version 8 (the current schema is version 10); an older
+  migrations and `task-automate` are removed from code and docs. That step used schema version 8 (the current schema is version 12); an older
   journal is refused with a clear message and never modified. The new version uses a fresh
   journal file, so older installed snapshots can still finish their own tasks.
 
@@ -246,7 +263,7 @@ compressed JSON exports use gzip. Missing or oversized attachments are explicit,
 limit per file. Dashboard preview limits do not truncate these journal exports. Provider internals
 that Grampus did not observe cannot be exported. See [WORKFLOW.md](WORKFLOW.md#model-profiles-and-comparisons).
 
-Journal schema 10 includes diagnostic families, exact-input check adoption and grouped readiness recovery alongside implementation-owned diagnostics, approved formatting, readiness spending and durable comparisons. Other schema versions
+Journal schema 12 adds directory grants and restore fingerprints to diagnostic families, exact-input check adoption and grouped readiness recovery alongside implementation-owned diagnostics, approved formatting, readiness spending and durable comparisons. Other schema versions
 are refused without migration; use a fresh development journal. The installed application and its
 journal remain separate from this checkout.
 

@@ -27,12 +27,18 @@ defineProps<{ slice: PlanSliceView; index: number }>();
         >{{ slice.title
         }}<span class="mt-1 block text-xs font-normal text-muted"
           >{{ slice.files.edit.length }} edit · {{ slice.files.create.length }} create ·
-          {{ slice.files.delete.length }} delete</span
+          {{ slice.files.delete.length }} delete<span v-if="slice.directories.length">
+            · {{ slice.directories.length }} directory grants</span
+          ></span
         ></span
       >
       <span class="text-muted group-open:rotate-90" aria-hidden="true">›</span>
     </summary>
     <div class="mt-4 flex flex-col gap-3 border-l-2 border-primary/20 pl-4">
+      <div v-if="slice.directories.length">
+        <p class="text-xs text-muted">Approved directory grants, including nested directories</p>
+        <pre class="grampus-code">{{ JSON.stringify(slice.directories, null, 2) }}</pre>
+      </div>
       <MarkdownView v-if="slice.approach" :source="slice.approach" class="text-sm" />
       <ul v-if="slice.criteria.length" class="list-disc pl-5 text-sm">
         <li v-for="criterion in slice.criteria" :key="criterion"><MarkdownView :source="criterion" inline /></li>

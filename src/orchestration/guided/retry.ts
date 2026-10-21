@@ -132,7 +132,7 @@ export async function preparationRetrySnapshot(
   const snapshot = await checks.snapshot(required(state, 'executionId'));
   const current = guidedSnapshot(store, state);
   if (!state.snapshot || !current) return snapshot;
-  const spec = preparationSpec(state, current);
+  const spec = preparationSpec(state, current, store.checks(required(state, 'executionId')));
   if (spec.preparation?.scope)
     verifyEditingScope(
       {

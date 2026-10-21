@@ -109,7 +109,7 @@ request.
 | `scope` | `scope.ts` | Snapshot, verify size limits and build the exact edit policy |
 | `implementation` | `implementation.ts` | Supervised native editing by the implementer |
 | `quality_pass` | `quality-pass.ts` | Each selected edit quality pass, once per slice, as a scoped implementer turn |
-| `refresh` | `preparation.ts` | Optional preparation again after editing, limited to the slice's file scope |
+| `refresh` | `preparation.ts` | Optional scoped generation after editing, followed by declared prerequisite restoration against the final inputs |
 | `readiness` | `readiness.ts` | Run each approved mechanical check on the current artifact, using a separate bounded slice allowance |
 | `validation` | `checks.ts` | Run the approved behavioural validation command |
 | `submission` | `submission.ts` | Submit the implementation with the latest passing check |
@@ -255,8 +255,8 @@ form changes cumulative totals only through fresh approval.
 
 `persistence/store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a
 15-second busy timeout ([parallel tasks](#parallel-tasks-and-concurrency)). There is one schema,
-version 8, with no migrations. A new or empty
-file gets the schema; any other version, or a version 8 file missing a table, is refused with a
+version 12, with no migrations. A new or empty
+file gets the schema; any other version, or a version 12 file missing a table, is refused with a
 clear error after a read-only inspection, so the file is never modified. The default journal is
 `grampus.sqlite` in the data directory.
 
@@ -824,7 +824,7 @@ conversations, evidence and both repair counts keep the ordinary task contracts.
 Task claims recheck comparison membership inside the claim transaction; advancing a comparison
 rechecks the member's current ownership and settlement under the same SQLite write lock.
 
-The `comparisons` and `comparison_events` tables are part of journal schema 10. State changes and
+The `comparisons` and `comparison_events` tables are part of journal schema 12. State changes and
 events share a transaction. Schema versions other than 8 are refused without migration.
 Member tasks keep the existing execution, workspace, evidence, spending and verified-delivery
 contracts. Shared planning is retained once at comparison level rather than charged to every member.
@@ -907,6 +907,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `errors.ts` | `RecordNotFoundError` and `StaleStateError` |
 | `domain/` | `workflow.ts`, `workflow-policy.ts` | Briefs, versions, attempts, evidence, gates, slices and completion; workflow policy validation |
 | | `guided-plan.ts` | Plan normalization, slice file simulation and approval digest |
+| | `restore-policy.ts` | Explicit prerequisite input/output declarations bound into approval |
 | | `readiness.ts` | Approved mechanical check categories and exact-artifact readiness evidence |
 | | `model-profiles.ts`, `comparison.ts` | Fixed role assignments, comparison contracts and exact dispatch order |
 | | `comparison-retries.ts` | Durable explicit retry requests, active dispatch and settlement derived from the comparison journal |
@@ -934,7 +935,9 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `output-buffer.ts` | Coalescing streamed provider output per run |
 | | `executions.ts`, `execution-state.ts` | Execution bindings, leases and settlement |
 | | `edit-policy.ts`, `implementations.ts`, `implementation-worker.ts` | Edit scope, patch authorization and supervised editing |
+| | `directory-scope.ts`, `native-creations.ts`, `phase-timing.ts` | Portable directory grants, journal-derived creation coverage and monotonic phase observations |
 | | `implementation-prompt.ts` | The exact implementation turn prompt, built within the turn budget |
+| | `implementation-commands.ts`, `diagnostic-budget.ts` | In-turn finishing, pending-command settlement, exact-input reuse and durable slice-wide diagnostic allowances |
 | | `deliveries.ts`, `delivery-worker.ts`, `delivery-operation.ts` | Local commit delivery and verification |
 | | `worker-files.ts` | Validated worker request files and implementation results |
 | | `agent-timeout.ts` | Opt-in provider deadlines for low-level session and implementation commands; guided turns have none |
@@ -959,12 +962,15 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `check-process.ts`, `check-host.ts`, `supervisor-protocol.ts` | Supervisor control, its detached host and the pinned supervisor and receipt formats |
 | | `native/check.cs`, `native/check.ps1`, `native/process.ps1` | Job Object helper and process identity queries |
 | `verification/` | `checks.ts`, `check-evidence.ts`, `check-output.ts`, `check-recovery.ts` | Checks and submission, check feedback, log paging, receipts |
+| | `check-spec.ts`, `diagnostic-observations.ts`, `restore-reuse.ts` | Request validation, coordinated stable diagnostic captures and exact prerequisite reuse |
 | `reporting/` | `report.ts`, `task-usage.ts` | Markdown report; per-task usage, per-stage counters and interventions |
+| | `execution-phases.ts` | Phase aggregation without double-counting it as workflow elapsed time |
 | | `run-metrics.ts`, `subscription-metrics.ts` | Model scorecards, observed timing and subscription observations |
 | | `run-export.ts`, `run-patch.ts` | Retained run details, bounded attachments, verified patches and JSON, gzip or CSV exports |
 | `health/` | `doctor.ts` | Inference-free checks of every integration, as a typed report |
 | | `health.ts`, `health-record.ts` | Stored health, staleness and version change warnings; the pinned health record |
 | | `stalls.ts` | Stall detection for running guided sessions and checks |
+| | `controller-observations.ts` | Asynchronous display-only owner identity observations, independently refreshed without changing leases |
 | `server/` | `ui-server.ts`, `ui-worker.ts`, `browser-ports.ts`, `request-origin.ts` | Dashboard server with configurable LAN binding, action workers, origin guards and the port browsers accept |
 | | `static-client.ts` | Serving the built client from `web/dist` with a path guard and content types |
 | | `api-schemas.ts`, `errors.ts` | Request body and worker request schemas, error-to-status mapping with the typed envelope |
@@ -1016,6 +1022,13 @@ The dashboard client is its own npm project in `web/` (paths under `web/src/`), 
 
 
 ## Efficient verification and workflow timing
+
+The complete in-turn finishing cycle, explicit directory grants, restore contracts, multi-query
+exploration, ranged batch reads, execution-phase measurements and comparison probe are described in
+[EXECUTION-EFFICIENCY.md](EXECUTION-EFFICIENCY.md). Directory grants extend exact file actions only
+when explicitly approved; neither provider gains general command execution. The optional
+`deferEditableContext` experiment defaults off. Warm workers and isolated general execution remain
+**Planned**, conditional on measured benefit.
 
 Readiness and validation commands may approve `reuse: {inputs: [...]}`. This declares a local
 check whose result depends only on the artifact, instructions, executable, inherited environment

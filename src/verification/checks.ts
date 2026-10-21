@@ -3,8 +3,7 @@
 // Each operation holds the workspace lease under its own run id. A dispatched command is never rerun:
 // without a confirmed exit it stays `recovery_required` until a terminal receipt settles it.
 import { randomUUID } from 'node:crypto';
-import { isAbsolute } from 'node:path';
-import { statSync } from 'node:fs';
+import { validateCheck } from './check-spec.js';
 import type { Store } from '../persistence/store.js';
 import type { CheckSpec, RepositoryCheck } from '../persistence/records.js';
 import { commandLimits, formatBytes, planLimits } from '../config/limits.js';
@@ -21,15 +20,21 @@ import {
 } from '../process/check-process.js';
 import { allocateReceipt, readReceipt, requireDeadController } from './check-recovery.js';
 import { captureRepository } from '../repository/repository-evidence.js';
-import { assertAcceptance, validateExpectations } from '../domain/acceptance.js';
-import { prepareEditing, validateEditPolicy, verifyEditingScope } from '../execution/edit-policy.js';
+import { assertAcceptance } from '../domain/acceptance.js';
+import { prepareEditing, verifyEditingScope } from '../execution/edit-policy.js';
 import { lensOutcome, parseQualityAssessment, type QualityAssessment } from '../domain/quality-passes.js';
 import { pendingReadiness } from '../domain/readiness.js';
 import { checkInputFingerprint } from './check-inputs.js';
 import { reusableDiagnostic } from './check-reuse.js';
 import { recoverCheckGroup } from './check-group-recovery.js';
 import { currentSettings } from '../config/settings.js';
-import { checkReuseSchema } from '../domain/check-input-policy.js';
+import { restoreFingerprint, reusableRestore } from './restore-reuse.js';
+import { measurePhase, measureSyncPhase } from '../execution/phase-timing.js';
+import {
+  diagnosticObservationGroup,
+  checkObservationCaptures,
+  type CheckObservationGroup,
+} from './diagnostic-observations.js';
 
 export type { CheckSpec, RepositoryCheck } from '../persistence/records.js';
 export type { QualityAssessment } from '../domain/quality-passes.js';
@@ -37,111 +42,6 @@ export type { QualityAssessment } from '../domain/quality-passes.js';
 /** Child checks retain their parent's lease instead of owning an independently releasable lease. */
 function checkLease(check: RepositoryCheck): string {
   return check.groupId ?? check.implementationId ?? check.id;
-}
-
-const checkOptions = [
-  'name',
-  'file',
-  'args',
-  'timeoutMs',
-  'artifact',
-  'instructionsDigest',
-  'criteria',
-  'expectedStdout',
-  'expectations',
-  'preparation',
-  'readiness',
-  'reuse',
-];
-
-/**
- * A preparation check takes only a file scope (validated as an edit policy on the checked artifact)
- * and never maps criteria, so it can never stand in for acceptance.
- */
-function validatePreparation(spec: CheckSpec): void {
-  if (spec.preparation === undefined) return;
-  if (
-    !spec.preparation ||
-    typeof spec.preparation !== 'object' ||
-    Array.isArray(spec.preparation) ||
-    Object.keys(spec.preparation).some(key => key !== 'scope') ||
-    spec.criteria !== undefined
-  )
-    throw new Error('Invalid preparation options');
-  if (spec.preparation.scope !== undefined)
-    validateEditPolicy({
-      ...spec.preparation.scope,
-      artifact: spec.artifact,
-      instructionsDigest: spec.instructionsDigest,
-    });
-}
-
-/** Criteria make a check an acceptance check, which alone may carry output assertions. */
-function validateCriteria(spec: CheckSpec): void {
-  if (spec.reuse) checkReuseSchema.parse(spec.reuse);
-  if (spec.reuse && (spec.preparation || spec.criteria))
-    throw new Error('Only local readiness and validation checks support reuse');
-  if (
-    spec.readiness !== undefined &&
-    (!['format', 'lint', 'types'].includes(spec.readiness) ||
-      spec.criteria !== undefined ||
-      spec.preparation !== undefined)
-  )
-    throw new Error('Readiness requires a mechanical kind and cannot be preparation or acceptance');
-  if (
-    spec.criteria !== undefined &&
-    (!Array.isArray(spec.criteria) ||
-      spec.criteria.length === 0 ||
-      spec.criteria.some(value => typeof value !== 'string' || !value.trim()) ||
-      new Set(spec.criteria).size !== spec.criteria.length)
-  )
-    throw new Error('Verification requires distinct acceptance criteria');
-  if (spec.criteria !== undefined) validateExpectations(spec.expectedStdout, spec.expectations);
-  else if (spec.expectedStdout !== undefined || spec.expectations !== undefined)
-    throw new Error('Ordinary checks do not accept output assertions');
-}
-
-/** An existing absolute executable (an `.exe` on Windows) with literal, bounded string arguments. */
-function validateCommand(spec: CheckSpec): void {
-  if (
-    typeof spec.file !== 'string' ||
-    !isAbsolute(spec.file) ||
-    !statSync(spec.file).isFile() ||
-    (process.platform === 'win32' && !spec.file.toLowerCase().endsWith('.exe'))
-  )
-    throw new Error('Check file must be an absolute executable path; invoke scripts through their interpreter');
-  if (
-    !Array.isArray(spec.args) ||
-    spec.args.some(value => typeof value !== 'string' || value.includes('\0')) ||
-    spec.file.includes('\0')
-  )
-    throw new Error('Check arguments must be strings without NUL');
-  if (JSON.stringify(spec.args).length > commandLimits.argsCharacters)
-    throw new Error('Check arguments exceed the current limit');
-}
-
-/**
- * Validates a check request before it claims anything: a known option set, an absolute executable
- * (scripts run through their interpreter, never a shell), literal bounded arguments, a bounded
- * timeout and the current-format artifact and instructions digests it is bound to.
- */
-function validate(spec: CheckSpec): void {
-  if (!spec || typeof spec.name !== 'string' || !spec.name.trim() || spec.name.length > commandLimits.nameCharacters)
-    throw new Error(`Check name is required (at most ${commandLimits.nameCharacters} characters)`);
-  if (Object.keys(spec).some(key => !checkOptions.includes(key))) throw new Error('Unknown check option');
-  validatePreparation(spec);
-  validateCriteria(spec);
-  validateCommand(spec);
-  const { minTimeoutMs, maxTimeoutMs } = commandLimits;
-  if (!Number.isSafeInteger(spec.timeoutMs) || spec.timeoutMs < minTimeoutMs || spec.timeoutMs > maxTimeoutMs)
-    throw new Error(`Check timeout must be between ${minTimeoutMs} and ${maxTimeoutMs} ms`);
-  if (
-    typeof spec.artifact !== 'string' ||
-    typeof spec.instructionsDigest !== 'string' ||
-    !/^sha256:[a-f0-9]{64}$/.test(spec.artifact) ||
-    !/^[a-f0-9]{64}$/.test(spec.instructionsDigest)
-  )
-    throw new Error('Copy artifact and instructionsDigest from a current execution snapshot');
 }
 
 /**
@@ -183,7 +83,7 @@ export class Checks {
   }
 
   private async capture(execution: Execution): Promise<RepositorySnapshot> {
-    return captureRepository(this.workspaces, execution);
+    return measurePhase(this.store, execution.id, 'snapshot', () => captureRepository(this.workspaces, execution));
   }
 
   /**
@@ -314,7 +214,7 @@ export class Checks {
     runner: (options: CheckProcessOptions) => Promise<CheckProcessResult> = runCheckProcess,
   ): Promise<RepositoryCheck> {
     spec = structuredClone(spec);
-    validate(spec);
+    validateCheck(spec);
     // Reject unsupported hosts before acquiring ownership, even for an otherwise valid check.
     if (runner === runCheckProcess && process.platform !== 'win32')
       throw new Error('Repository checks currently require Windows 10 or later');
@@ -348,7 +248,7 @@ export class Checks {
       specs.some(spec => !spec.readiness || spec.preparation || spec.criteria)
     )
       throw new Error('A readiness group requires independent mechanical checks');
-    specs.forEach(validate);
+    specs.forEach(validateCheck);
     const first = specs[0];
     if (!first) throw new Error('Readiness group is empty');
     const groupId = randomUUID();
@@ -404,15 +304,37 @@ export class Checks {
   /**
    * Runs an implementation diagnostic under its existing lease. It never supplies acceptance or
    * readiness evidence, and it cannot release the implementation's lease while its provider runs.
+   * A captured input may come only from scope validation in this same suspended-write operation;
+   * the after-image is always freshly observed. Recovery never supplies this optimisation.
    */
   async duringImplementation(
     implementationId: string,
     spec: CheckSpec,
     runner: (options: CheckProcessOptions) => Promise<CheckProcessResult> = runCheckProcess,
+    captured?: RepositorySnapshot,
   ): Promise<RepositoryCheck> {
-    validate(spec);
-    if (spec.criteria || spec.readiness) throw new Error('Implementation diagnostics cannot supply gate evidence');
-    const id = randomUUID();
+    const checks = await this.duringImplementationGroup(implementationId, [spec], 1, runner, captured);
+    const check = checks[0];
+    if (!check) throw new Error('Implementation diagnostic result is missing');
+    return check;
+  }
+
+  /** Reserves every child before dispatch; uncertain children remain owned by the parent implementation. */
+  async duringImplementationGroup(
+    implementationId: string,
+    specs: CheckSpec[],
+    concurrency: number,
+    runner: (options: CheckProcessOptions) => Promise<CheckProcessResult> = runCheckProcess,
+    captured?: RepositorySnapshot,
+  ): Promise<RepositoryCheck[]> {
+    if (!specs.length || specs.length > planLimits.readinessChecks || !Number.isInteger(concurrency) || concurrency < 1)
+      throw new Error('Invalid implementation diagnostic group');
+    for (const spec of specs) {
+      validateCheck(spec);
+      if (spec.criteria || spec.readiness || (specs.length > 1 && spec.preparation))
+        throw new Error('Implementation diagnostics cannot supply gate evidence or concurrent preparation');
+    }
+    const children = specs.map(spec => ({ id: randomUUID(), spec: structuredClone(spec) }));
     const execution = this.store.transaction(() => {
       const run = this.store.implementation(implementationId);
       const execution = this.store.execution(run.executionId);
@@ -429,34 +351,58 @@ export class Checks {
           )
       )
         throw new Error('An implementation command is still unsettled');
-      const check: RepositoryCheck = {
-        id,
-        executionId: execution.id,
-        implementationId,
-        spec: structuredClone(spec),
-        phase: 'running',
-        before: null,
-        after: null,
-        supervisorPid: null,
-        toolPid: null,
-        result: null,
-        error: null,
-        purpose: spec.preparation ? 'preparation' : 'validation',
-        dispatch: 'not_requested',
-      };
-      this.store.saveCheck(id, execution.id, check);
-      this.store.appendExecution(execution.id, 'check.requested', { checkId: id, implementationId, spec });
-      this.store.append(execution.taskId, execution.version, 'check.requested', {
-        executionId: execution.id,
-        checkId: id,
-        implementationId,
-        spec,
-      });
+      for (const { id, spec } of children) {
+        const check: RepositoryCheck = {
+          id,
+          executionId: execution.id,
+          implementationId,
+          spec: structuredClone(spec),
+          phase: 'running',
+          before: null,
+          after: null,
+          supervisorPid: null,
+          toolPid: null,
+          result: null,
+          error: null,
+          purpose: spec.preparation ? 'preparation' : 'validation',
+          dispatch: 'not_requested',
+        };
+        this.store.saveCheck(id, execution.id, check);
+        this.store.appendExecution(execution.id, 'check.requested', { checkId: id, implementationId, spec });
+        this.store.append(execution.taskId, execution.version, 'check.requested', {
+          executionId: execution.id,
+          checkId: id,
+          implementationId,
+          spec,
+        });
+      }
       return execution;
     });
-    const check = this.get(id);
-    const dispatched = await this.observe(execution, check, undefined, runner);
-    return this.settle(execution, check, dispatched, undefined);
+    const ceiling = Math.min(concurrency, children.length, currentSettings().maxReadinessConcurrency);
+    for (let offset = 0; offset < children.length; offset += ceiling) {
+      const batch = children.slice(offset, offset + ceiling).map(child => this.get(child.id));
+      await this.observeImplementationBatch(execution, batch, runner, offset === 0 ? captured : undefined);
+      if (batch.some(check => this.get(check.id).phase === 'recovery_required')) break;
+    }
+    return children.map(child => this.get(child.id));
+  }
+
+  private async observeImplementationBatch(
+    execution: Execution,
+    batch: RepositoryCheck[],
+    runner: (options: CheckProcessOptions) => Promise<CheckProcessResult>,
+    captured?: RepositorySnapshot,
+  ): Promise<void> {
+    let group: CheckObservationGroup | undefined;
+    if (batch.length > 1) group = await diagnosticObservationGroup(() => this.capture(execution), batch, captured);
+    else if (captured) group = { before: captured, after: () => this.capture(execution), settled: () => {} };
+    const outcomes = await Promise.allSettled(
+      batch.map(async check => {
+        const dispatched = await this.observe(execution, check, undefined, runner, group);
+        this.settle(execution, check, dispatched, undefined);
+      }),
+    );
+    for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason;
   }
 
   /** Reconciles child commands before releasing their parent, without replay or accepting lost success. */
@@ -568,12 +514,14 @@ export class Checks {
     check: RepositoryCheck,
     signal: AbortSignal | undefined,
     runner: (options: CheckProcessOptions) => Promise<CheckProcessResult>,
+    group?: CheckObservationGroup,
   ): Promise<boolean> {
     const { id, executionId, spec } = check;
     const purpose = check.purpose;
+    const captures = checkObservationCaptures(() => this.capture(execution), group);
     let dispatched = false;
     try {
-      check.before = await this.capture(execution);
+      check.before = await captures.before();
       if (check.before.artifact !== spec.artifact || check.before.instructionsDigest !== spec.instructionsDigest)
         throw new Error('Repository or instructions changed; inspect a fresh snapshot before dispatch');
       this.captureInputs(execution, check, 'before');
@@ -594,12 +542,12 @@ export class Checks {
           stderr: '',
           outputTruncated: false,
         };
-      } else if (this.adoptDiagnostic(execution, check)) {
+      } else if (this.adoptRestore(execution, check) || this.adoptDiagnostic(execution, check)) {
         // This gate has its own durable request and settlement, but no process is dispatched twice.
       } else {
         // Dispatch boundary: the receipt identity and `dispatch: 'requested'` are durable before the
         // runner starts, so recovery knows a command may have run and demands a matching receipt.
-        check.receipt = allocateReceipt(this.store, id);
+        const receipt = (check.receipt = allocateReceipt(this.store, id));
         this.store.transaction(() => {
           this.fenced(execution, checkLease(check));
           check.dispatch = 'requested';
@@ -610,28 +558,31 @@ export class Checks {
           });
         });
         dispatched = true;
-        check.result = await runner({
-          file: spec.file,
-          args: spec.args,
-          cwd: this.workspaces.path(execution.workspaceId),
-          timeoutMs: spec.timeoutMs,
-          receipt: check.receipt,
-          ...(signal ? { signal } : {}),
-          // Recorded PIDs let recovery match the receipt to these exact processes.
-          started: (kind, pid) => {
-            this.store.transaction(() => {
-              this.fenced(execution, checkLease(check));
-              if (kind === 'supervisor') check.supervisorPid = pid;
-              else check.toolPid = pid;
-              this.store.saveCheck(id, executionId, check);
-              this.store.appendExecution(executionId, 'check.process_started', { checkId: id, kind, pid });
-            });
-          },
-        });
+        check.result = await measurePhase(this.store, executionId, 'command', () =>
+          runner({
+            file: spec.file,
+            args: spec.args,
+            cwd: this.workspaces.path(execution.workspaceId),
+            timeoutMs: spec.timeoutMs,
+            receipt,
+            ...(signal ? { signal } : {}),
+            // Recorded PIDs let recovery match the receipt to these exact processes.
+            started: (kind, pid) => {
+              this.store.transaction(() => {
+                this.fenced(execution, checkLease(check));
+                if (kind === 'supervisor') check.supervisorPid = pid;
+                else check.toolPid = pid;
+                this.store.saveCheck(id, executionId, check);
+                this.store.appendExecution(executionId, 'check.process_started', { checkId: id, kind, pid });
+              });
+            },
+          }),
+        );
       }
       // The after-snapshot is only meaningful once nothing in the job can still write.
+      captures.settled(check);
       if (check.result?.exitConfirmed) {
-        check.after = await this.capture(execution);
+        check.after = await captures.after();
         this.captureInputs(execution, check, 'after');
         if (spec.preparation?.scope)
           verifyEditingScope(
@@ -652,6 +603,8 @@ export class Checks {
       }
     } catch (error) {
       check.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      captures.settled(check);
     }
     return dispatched;
   }
@@ -668,13 +621,20 @@ export class Checks {
 
   /** Adopts only a completed parent run from this execution, under the new gate's workspace lease. */
   private adoptDiagnostic(execution: Execution, check: RepositoryCheck): boolean {
+    if (!check.spec.reuse || check.implementationId || check.spec.preparation) return false;
     const source = reusableDiagnostic(this.store.checks(execution.id), check, check.inputFingerprint?.before ?? null);
     if (
       !source?.implementationId ||
       !source.result ||
       this.store.implementation(source.implementationId).phase !== 'completed'
-    )
+    ) {
+      this.store.appendExecution(execution.id, 'check.reuse_missed', {
+        checkId: check.id,
+        kind: 'diagnostic',
+        reason: check.inputFingerprint?.before ? 'no_matching_trusted_diagnostic' : 'inputs_unknown',
+      });
       return false;
+    }
     check.reusedFrom = source.id;
     check.result = { ...source.result, elapsedMs: 0 };
     return true;
@@ -682,16 +642,43 @@ export class Checks {
 
   /** Captures optional inputs; a missing fingerprint disables reuse rather than turning unknown into success. */
   private captureInputs(execution: Execution, check: RepositoryCheck, side: 'before' | 'after'): void {
-    if (!check.spec.reuse) return;
-    const fingerprint = checkInputFingerprint(
-      this.workspaces.path(execution.workspaceId),
-      check.spec.file,
-      check.spec.reuse.inputs,
+    if (check.spec.restore)
+      measureSyncPhase(this.store, execution.id, 'input_fingerprint', () =>
+        restoreFingerprint(this.workspaces.path(execution.workspaceId), check, side),
+      );
+    if (side === 'after' && check.spec.restore && check.reusedFrom) {
+      const source = this.store.check(check.reusedFrom);
+      if (
+        check.restoreFingerprint?.before !== check.restoreFingerprint?.after ||
+        check.restoreFingerprint?.outputs !== source.restoreFingerprint?.outputs
+      )
+        check.error = 'Restore inputs or outputs changed during adoption; run a fresh restore';
+    }
+    const reuse = check.spec.reuse;
+    if (!reuse) return;
+    const fingerprint = measureSyncPhase(this.store, execution.id, 'input_fingerprint', () =>
+      checkInputFingerprint(this.workspaces.path(execution.workspaceId), check.spec.file, reuse.inputs),
     );
     check.inputFingerprint ??= { before: null, after: null };
     check.inputFingerprint[side] = fingerprint;
     if (side === 'after' && check.reusedFrom && fingerprint !== check.inputFingerprint.before)
       check.error = 'Reusable check inputs changed during adoption; run a fresh check';
+  }
+
+  private adoptRestore(execution: Execution, check: RepositoryCheck): boolean {
+    if (!check.spec.restore) return false;
+    const source = reusableRestore(this.store, execution, check, this.workspaces.path(execution.workspaceId));
+    if (!source?.result) {
+      this.store.appendExecution(execution.id, 'check.reuse_missed', {
+        checkId: check.id,
+        kind: 'restore',
+        reason: check.restoreFingerprint?.before ? 'no_matching_trusted_restore' : 'inputs_unknown',
+      });
+      return false;
+    }
+    check.reusedFrom = source.id;
+    check.result = { ...source.result, elapsedMs: 0 };
+    return true;
   }
 
   /**

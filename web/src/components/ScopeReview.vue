@@ -21,7 +21,13 @@ const actions = { edit: 'Edit', create: 'Create', delete: 'Delete' } as const;
     <p v-if="scope.error" role="alert" class="text-sm text-error">
       File authorization could not be prepared: {{ scope.error }}
     </p>
-    <p v-if="!scope.files.length" class="text-sm text-muted">This slice changes no files.</p>
+    <p v-if="!scope.files.length && !scope.directories.length" class="text-sm text-muted">
+      This slice changes no files.
+    </p>
+    <div v-if="scope.directories.length">
+      <p class="text-sm text-muted">The agent may choose files within these approved directory grants.</p>
+      <pre class="grampus-code">{{ JSON.stringify(scope.directories, null, 2) }}</pre>
+    </div>
     <details
       v-for="file in scope.files"
       :key="file.path"

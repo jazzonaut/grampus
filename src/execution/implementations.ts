@@ -31,6 +31,7 @@ import { currentProcessStartedAt } from '../process/process-identity.js';
 import { currentSettings, type Settings } from '../config/settings.js';
 import { Checks } from '../verification/checks.js';
 import { readImplementationResult, workerNodeOptions } from './worker-files.js';
+import { nativeCreationPaths } from './native-creations.js';
 
 export type { ImplementationRun } from '../persistence/records.js';
 /** The request file the controller writes for the supervised implementation worker. */
@@ -120,6 +121,7 @@ export class Implementations {
       verifyEditingScope(
         { cwd: this.workspaces.path(execution.workspaceId), policy: run.policy, snapshot: run.before },
         run.after,
+        nativeCreationPaths(this.store.sessionEvents(execution.sessionId, ['tool.authorized']), run.id, run.before),
       );
     } catch (error) {
       run.error = error instanceof Error ? error.message : String(error);

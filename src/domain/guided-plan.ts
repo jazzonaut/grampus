@@ -19,6 +19,7 @@ import { normalizeWorkflowPolicy, workflowPolicySchema } from './workflow-policy
 import { readinessKindSchema } from './readiness.js';
 import { diagnosticGrammarSchema } from './diagnostics.js';
 import { checkReuseSchema } from './check-input-policy.js';
+import { restorePolicySchema } from './restore-policy.js';
 import { availableQualityPasses, normalizeQuality, planQualitySchema } from './quality-passes.js';
 
 /** An approved command: an absolute executable with literal arguments, never a shell string. */
@@ -28,6 +29,7 @@ const guidedCommandSchema = z.object({
   args: z.array(z.string()),
   timeoutMs: z.number(),
   reuse: checkReuseSchema.exactOptional(),
+  restore: restorePolicySchema.exactOptional(),
 });
 export type GuidedCommand = z.infer<typeof guidedCommandSchema>;
 
@@ -39,7 +41,7 @@ const acceptanceCommandSchema = guidedCommandSchema.extend({
 export type AcceptanceCommand = z.infer<typeof acceptanceCommandSchema>;
 
 /** The exact file actions one slice may perform. */
-const sliceScopeSchema = editPolicySchema.pick({ files: true, create: true, delete: true });
+const sliceScopeSchema = editPolicySchema.pick({ files: true, create: true, delete: true, directories: true });
 
 /** The execution configuration of one brief slice, in the same order as the brief's slices. */
 const guidedSliceSchema = z.object({
@@ -51,7 +53,12 @@ const guidedSliceSchema = z.object({
   formatting: guidedCommandSchema.exactOptional(),
   /** Focused diagnostics with an approval-bound executable and parameter grammar. */
   diagnostics: z
-    .array(guidedCommandSchema.extend({ selection: diagnosticGrammarSchema }))
+    .array(
+      guidedCommandSchema.extend({
+        selection: diagnosticGrammarSchema,
+        maxRuns: z.number().int().min(1).max(commandLimits.diagnosticRuns),
+      }),
+    )
     .max(commandLimits.diagnosticFamilies),
   /** Explicit declaration that mechanical checks can share a read-only workspace concurrently. */
   readinessConcurrency: z.number().int().min(1).max(planLimits.readinessChecks),
@@ -197,11 +204,18 @@ function command(
   const fields = ['name', 'file', 'args', 'timeoutMs', 'expectedStdout', 'expectations'] as const;
   const item = object(
     value,
-    acceptance ? fields : ['name', 'file', 'args', 'timeoutMs', 'reuse'],
+    acceptance ? fields : ['name', 'file', 'args', 'timeoutMs', 'reuse', 'restore'],
     `${defaultName.toLowerCase()} command`,
   );
-  if (item.reuse !== undefined && defaultName !== 'Validation' && !defaultName.endsWith('readiness'))
+  if (
+    item.reuse !== undefined &&
+    defaultName !== 'Validation' &&
+    defaultName !== 'Formatting' &&
+    !defaultName.endsWith('readiness')
+  )
     throw new Error('Only readiness and validation checks may declare reusable inputs');
+  if (item.restore !== undefined && defaultName !== 'Preparation')
+    throw new Error('Only unscoped prerequisite preparation may declare restore inputs and outputs');
   const file = commandFile(item.file);
   const args = commandArgs(item.args);
   const observed = acceptance ? observations(item.expectedStdout, item.expectations) : {};
@@ -211,6 +225,7 @@ function command(
     args,
     timeoutMs: timeout(item.timeoutMs, defaultTimeoutMs),
     ...(item.reuse === undefined ? {} : { reuse: checkReuseSchema.parse(item.reuse) }),
+    ...(item.restore === undefined ? {} : { restore: restorePolicySchema.parse(item.restore) }),
     ...observed,
   };
 }
@@ -368,6 +383,8 @@ class FileSimulation {
 
   /** Checks one slice's scope against the simulated tree, then applies its creations and deletions. */
   apply(scope: GuidedSlice['scope']): void {
+    if (scope.directories?.length && !this.exploration)
+      throw new Error('Directory grants require repository exploration');
     let scopeBytes = 0;
     for (const path of [...scope.files, ...(scope.delete ?? [])]) {
       if (this.present.get(pathKey(path)) !== path)
@@ -402,9 +419,15 @@ const unboundPolicy = { artifact: `sha256:${'0'.repeat(64)}`, instructionsDigest
 
 /** A slice's file scope; a no-change slice must authorise no file action at all. */
 function sliceScope(value: unknown, mode: GuidedSlice['mode']): GuidedSlice['scope'] {
-  const scope = structuredClone(object(value, ['files', 'create', 'delete'], 'file scope'));
+  const scope = structuredClone(object(value, ['files', 'create', 'delete', 'directories'], 'file scope'));
   if (mode === 'no_change') {
-    if (!Array.isArray(scope.files) || scope.files.length || scope.create !== undefined || scope.delete !== undefined)
+    if (
+      !Array.isArray(scope.files) ||
+      scope.files.length ||
+      scope.create !== undefined ||
+      scope.delete !== undefined ||
+      scope.directories !== undefined
+    )
       throw new Error('No-change delivery requires scope: { files: [] }');
     return { files: [] };
   }
@@ -475,9 +498,9 @@ function diagnosticCommands(value: unknown): GuidedSlice['diagnostics'] {
   if (!Array.isArray(value) || value.length > commandLimits.diagnosticFamilies)
     throw new Error('Too many diagnostic families');
   const result = (value as unknown[]).map(raw => {
-    const { selection, ...input } = object(
+    const { selection, maxRuns, ...input } = object(
       raw,
-      ['name', 'file', 'args', 'timeoutMs', 'selection'],
+      ['name', 'file', 'args', 'timeoutMs', 'selection', 'maxRuns', 'reuse'],
       'diagnostic family',
     );
     const grammar = diagnosticGrammarSchema.parse(selection);
@@ -486,7 +509,13 @@ function diagnosticCommands(value: unknown): GuidedSlice['diagnostics'] {
       new Set(grammar.parameters.map(item => item.flag)).size !== grammar.parameters.length
     )
       throw new Error('Diagnostic parameters require distinct names and flags');
-    return { ...command(input, false), selection: grammar };
+    const attempts = z
+      .number()
+      .int()
+      .min(1)
+      .max(commandLimits.diagnosticRuns)
+      .parse(maxRuns ?? commandLimits.defaultDiagnosticRuns);
+    return { ...command(input, false), selection: grammar, maxRuns: attempts };
   });
   if (new Set(result.map(item => item.name)).size !== result.length)
     throw new Error('Diagnostic family names must be distinct');

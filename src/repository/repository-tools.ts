@@ -3,7 +3,7 @@
 // tree or bound snapshot. Tools never write, and a read never grants permission to edit.
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, resolve, isAbsolute } from 'node:path';
+import { dirname, resolve, isAbsolute, matchesGlob } from 'node:path';
 import { deliveryGitInput } from './delivery-git.js';
 import { pinnedRepository } from './repository-context.js';
 import type { RepositorySnapshot } from './artifacts.js';
@@ -25,6 +25,8 @@ import {
 import { systemErrorCode } from '../process/boundary.js';
 import { ReadLoop, RepositoryReadLoopError } from './read-loop.js';
 import { toolContinuation } from './tool-continuation.js';
+import { directoryAllows, type DirectoryScope } from '../execution/directory-scope.js';
+import { requireSnapshotVisible } from './visible-path.js';
 
 const {
   listPage,
@@ -47,6 +49,7 @@ export type RepositoryAccess = (
       repo: string;
       snapshot: RepositorySnapshot;
       editable?: string[];
+      directories?: DirectoryScope[];
     }
 ) & { references?: ReferenceFolder[]; checks?: RepositoryCheck[]; currentChecks?: () => RepositoryCheck[] };
 /** The prompt text that introduces the exploration tools. Its wording is a provider contract. */
@@ -132,28 +135,49 @@ export const repositoryToolDefinitions: {
   },
   {
     name: 'grampus_search',
-    description: `Search literal text, case-insensitively, across repository files. Optional path filters by path substring. Each page scans at most ${searchFiles} files / ${formatBytes(searchBytes)}. Continue with nextOffset, even on pages with no matches. Match lines are bounded; use read_file for full context.`,
+    description: `Search one literal query or up to ${repositoryToolLimits.searchQueries} queries in one repository scan, case-insensitively. Optional path is a substring; glob filters paths (for example src/**/*.ts). mode=files returns matching paths only; default lines includes bounded snippets. Each page scans at most ${searchFiles} files / ${formatBytes(searchBytes)}. Continue nextOffset even on empty pages.`,
     inputSchema: {
       type: 'object',
       properties: {
         query: { type: 'string', minLength: 1 },
+        queries: {
+          type: 'array',
+          minItems: 1,
+          maxItems: repositoryToolLimits.searchQueries,
+          items: { type: 'string', minLength: 1 },
+        },
         path: { type: 'string' },
+        glob: { type: 'string' },
+        mode: { type: 'string', enum: ['lines', 'files'] },
         offset: { type: 'integer', minimum: 0 },
       },
-      required: ['query'],
       additionalProperties: false,
     },
   },
 ];
 repositoryToolDefinitions.push({
   name: 'grampus_read_files',
-  description: `Read short initial pages of up to ${repositoryToolLimits.batchFiles} related files in one call. Each file supplies its own nextCall. Use read_file for longer ranges.`,
+  description: `Read up to ${repositoryToolLimits.batchFiles} related files. Supply paths for short initial pages, or ranges=[{path,offset?,limit?}] for relevant line ranges. Offsets are zero-based. Each result has its own nextCall. The combined output budget still applies.`,
   inputSchema: {
     type: 'object',
     properties: {
       paths: { type: 'array', minItems: 1, maxItems: repositoryToolLimits.batchFiles, items: { type: 'string' } },
+      ranges: {
+        type: 'array',
+        minItems: 1,
+        maxItems: repositoryToolLimits.batchFiles,
+        items: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+            offset: { type: 'integer', minimum: 0 },
+            limit: { type: 'integer', minimum: 1, maximum: maxPageLines },
+          },
+          required: ['path'],
+          additionalProperties: false,
+        },
+      },
     },
-    required: ['paths'],
     additionalProperties: false,
   },
 });
@@ -338,7 +362,8 @@ class RepositoryTools {
 
   /** The bytes of an inventory path: a pinned blob, or a bounded regular file still matching the snapshot. */
   private read(path: string): Buffer {
-    const entry = this.byPath.get(path);
+    const mutable = this.mutablePath(path);
+    const entry = this.byPath.get(path) ?? this.createdEntry(path);
     if (!entry)
       throw new Error('Path is absent from the repository inventory; use an exact relative path from list_files');
     if (this.tree) {
@@ -362,9 +387,23 @@ class RepositoryTools {
       if (dirname(current) === current) throw new Error('Path is outside repository');
     }
     const bytes = readFileSync(absolute);
-    if (!this.mutable.has(path) && createHash('sha256').update(bytes).digest('hex') !== entry.sha256)
+    if (!mutable && createHash('sha256').update(bytes).digest('hex') !== entry.sha256)
       throw new Error('Repository changed since the bound snapshot');
     return bytes;
+  }
+
+  private mutablePath(path: string): boolean {
+    if (this.mutable.has(path)) return true;
+    if (!('directories' in this.access)) return false;
+    return (
+      directoryAllows(this.access.directories, 'edit', path) || directoryAllows(this.access.directories, 'create', path)
+    );
+  }
+
+  private createdEntry(path: string): InventoryEntry | undefined {
+    if (!('directories' in this.access) || !directoryAllows(this.access.directories, 'create', path)) return undefined;
+    requireSnapshotVisible(this.root, path);
+    return { path, bytes: 0, oid: '', sha256: null };
   }
 
   /**
@@ -434,16 +473,20 @@ class RepositoryTools {
   private explore(call: ExplorationCall, offset: number): unknown {
     switch (call.tool) {
       case 'grampus_read_files': {
-        const files = call.args.paths.map(path =>
+        if (!!call.args.paths === !!call.args.ranges) throw new Error('Supply exactly one of paths or ranges');
+        const ranges: { path: string; offset?: number; limit?: number }[] =
+          call.args.ranges ?? call.args.paths?.map(path => ({ path })) ?? [];
+        const files = ranges.map(({ path, offset = 0, limit = repositoryToolLimits.batchPageLines }) =>
           toolContinuation(
             'grampus_read_file',
             {
               path,
               mode: 'lines',
-              limit: repositoryToolLimits.batchPageLines,
+              limit,
+              offset,
               ...(this.toolRoot ? { root: this.toolRoot } : {}),
             },
-            this.readFile({ path, limit: repositoryToolLimits.batchPageLines }, 0),
+            this.readFile({ path, limit }, offset),
           ),
         );
         if (Buffer.byteLength(JSON.stringify(files)) > resultBytes)
@@ -642,10 +685,12 @@ class RepositoryTools {
 
   /** Case-insensitive literal search over a bounded page of files whose path contains `path`. */
   private search(args: ToolArguments<'grampus_search'>, offset: number): unknown {
-    const query = (args.query ?? '').toLowerCase(),
-      path = (args.path ?? '').toLowerCase();
-    if (!query) throw new Error('Search requires nonempty literal text');
-    const candidates = this.entries.filter(entry => entry.path.toLowerCase().includes(path));
+    if (!!args.query === !!args.queries) throw new Error('Search requires exactly one query or queries array');
+    const queries = (args.queries ?? [args.query ?? '']).map(query => query.toLowerCase());
+    const path = (args.path ?? '').toLowerCase();
+    const candidates = this.entries.filter(
+      entry => entry.path.toLowerCase().includes(path) && (!args.glob || matchesGlob(entry.path, args.glob)),
+    );
     if (this.tree) {
       let size = 0;
       const batch = candidates.slice(offset, offset + searchFiles).filter(entry => {
@@ -655,7 +700,7 @@ class RepositoryTools {
       });
       this.loadBlobs(batch);
     }
-    const matches: SearchMatch[] = [];
+    const matches: (SearchMatch | { path: string; queries: string[] })[] = [];
     const skipped: { path: string; reason: string }[] = [];
     let end = offset,
       scannedBytes = 0;
@@ -682,13 +727,24 @@ class RepositoryTools {
         skipped.push({ path: entry.path, reason: 'Binary or non-UTF-8' });
         continue;
       }
-      if (searchFile(entry.path, content, query, matches))
-        skipped.push({ path: entry.path, reason: 'Additional matches; read directly' });
+      if (args.mode === 'files') {
+        const found = queries.filter(query => content.toLowerCase().includes(query));
+        if (found.length) matches.push({ path: entry.path, queries: found });
+      } else {
+        const lines: SearchMatch[] = [];
+        if (searchFile(entry.path, content, queries, lines))
+          skipped.push({ path: entry.path, reason: 'Additional matches; read directly' });
+        const available = searchMatches - matches.length;
+        matches.push(...lines.slice(0, available));
+        if (lines.length > available) skipped.push({ path: entry.path, reason: 'Additional matches; read directly' });
+      }
     }
+    const omittedSkipped = trimSearchResult(matches, skipped, args);
     return {
       source: this.source,
       matches,
       skipped,
+      omittedSkipped,
       scannedFiles: end - offset,
       nextOffset: end < candidates.length ? end : null,
     };
@@ -703,21 +759,24 @@ interface SearchMatch {
   path: string;
   line: number;
   text: string;
+  queries: string[];
   context: { startLine: number; lines: string[] };
 }
 
-function searchFile(path: string, content: string, query: string, matches: SearchMatch[]): boolean {
+function searchFile(path: string, content: string, queries: string[], matches: SearchMatch[]): boolean {
   let hits = 0,
     delivered = 0;
   const lines = content.split('\n');
-  for (const [index, line] of lines.entries())
-    if (line.toLowerCase().includes(query)) {
+  for (const [index, line] of lines.entries()) {
+    const found = queries.filter(query => line.toLowerCase().includes(query));
+    if (found.length) {
       if (hits++ < searchFileMatches && matches.length < searchMatches) {
         const start = Math.max(0, index - repositoryToolLimits.searchContextLines);
         matches.push({
           path,
           line: index + 1,
           text: line.slice(0, matchCharacters),
+          queries: found,
           context: {
             startLine: start + 1,
             lines: lines
@@ -728,7 +787,32 @@ function searchFile(path: string, content: string, query: string, matches: Searc
         delivered++;
       }
     }
+  }
   return hits > delivered;
+}
+
+/** A result must fit its encoded budget; dropped matches stay explicit and readable by exact path. */
+function trimSearchResult(
+  matches: { path: string }[],
+  skipped: { path: string; reason: string }[],
+  args: object,
+): number {
+  const exceeds = () =>
+    Buffer.byteLength(JSON.stringify({ matches, skipped, arguments: args })) +
+      repositoryToolLimits.searchMetadataBytes >
+    resultBytes;
+  while (matches.length && exceeds()) {
+    const removed = matches.pop();
+    if (removed && !skipped.some(item => item.path === removed.path))
+      skipped.push({ path: removed.path, reason: 'Result budget; read directly' });
+  }
+  let omitted = 0;
+  while (skipped.length && exceeds()) {
+    skipped.pop();
+    omitted++;
+  }
+  if (exceeds()) throw new Error('Search arguments exceed the bounded continuation budget; use fewer terms');
+  return omitted;
 }
 
 /** The own enumerable fields of an event payload, so a reference folder's events can be labelled. */

@@ -49,6 +49,8 @@ export interface ModelMetricsV1 extends UsageCounters {
   wallMs: number | null;
 }
 export interface RunMetricsV1 {
+  /** Measured phases overlap with each other and with provider/check wall time. */
+  executionPhases: { phase: string; label: string; observations: number; failed: number; elapsedMs: number }[];
   taskId: string;
   title: string;
   status: string;

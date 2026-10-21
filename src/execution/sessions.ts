@@ -13,6 +13,8 @@ import type { Execution, Session, TurnStage } from '../persistence/records.js';
 import { processLimits } from '../config/limits.js';
 import { agentTimeout } from './agent-timeout.js';
 import { connectAgent } from '../providers/index.js';
+import { performance } from 'node:perf_hooks';
+import type { ExecutionPhase } from './phase-timing.js';
 import { providerRuntime, type ProviderRuntime } from '../providers/executables.js';
 import { Workspaces } from '../repository/workspaces.js';
 import { claimExecution, requireExecutionLease, settleExecution, stopExecution } from './execution-state.js';
@@ -486,6 +488,21 @@ class TurnRun {
   });
   private readonly output: OutputBuffer;
 
+  private async measure<T>(phase: ExecutionPhase, operation: () => Promise<T>): Promise<T> {
+    const started = performance.now();
+    let outcome = 'failed';
+    try {
+      const value = await operation();
+      outcome = 'completed';
+      return value;
+    } finally {
+      this.sessions.event(this.id, this.claim.runId, {
+        type: 'execution.phase_measured',
+        data: { phase, elapsedMs: performance.now() - started, outcome },
+      });
+    }
+  }
+
   constructor(
     private readonly sessions: Sessions,
     private readonly id: string,
@@ -565,16 +582,18 @@ class TurnRun {
     const connection = Promise.resolve()
       .then(() => {
         sessions.requestConnection(id, claim.runId);
-        return connect(claim.session.provider, {
-          cwd: claim.session.cwd,
-          providerSessionId: claim.session.providerSessionId,
-          model: claim.session.model,
-          ...(claim.session.effort ? { effort: claim.session.effort } : {}),
-          configurationCwd,
-          signal: this.connectionAbort.signal,
-          emit: this.emit,
-          ...(repository ? { repository } : {}),
-        });
+        return this.measure('provider_startup', () =>
+          connect(claim.session.provider, {
+            cwd: claim.session.cwd,
+            providerSessionId: claim.session.providerSessionId,
+            model: claim.session.model,
+            ...(claim.session.effort ? { effort: claim.session.effort } : {}),
+            configurationCwd,
+            signal: this.connectionAbort.signal,
+            emit: this.emit,
+            ...(repository ? { repository } : {}),
+          }),
+        );
       })
       .then(
         value => {
@@ -604,7 +623,9 @@ class TurnRun {
       };
       return interrupted;
     }
-    const result = await Promise.race([connected.turn(claim.prompt), this.stopSignal.then(interruptedBeforeResult)]);
+    const result = await this.measure('provider_turn', () =>
+      Promise.race([connected.turn(claim.prompt), this.stopSignal.then(interruptedBeforeResult)]),
+    );
     if (result.status === 'completed') result.reply = parseReply(result.reply);
     return result;
   }
@@ -620,7 +641,8 @@ class TurnRun {
     this.options.signal?.removeEventListener('abort', this.aborted);
     try {
       if (this.agent) {
-        await this.agent.close();
+        const agent = this.agent;
+        await this.measure('provider_shutdown', () => agent.close());
         return { result, exitConfirmed: true };
       }
       return { result, exitConfirmed: this.connectorClosed || (!this.processStarted && !this.connectionPending) };

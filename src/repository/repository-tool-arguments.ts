@@ -42,13 +42,21 @@ export const readFileArguments = z.strictObject({
 /** Bounded related-file reads; each item retains its own continuation cursor. */
 export const readFilesArguments = z.strictObject({
   root: optional(text),
-  paths: z.array(text).min(1).max(repositoryToolLimits.batchFiles),
+  paths: z.array(text).min(1).max(repositoryToolLimits.batchFiles).optional(),
+  ranges: z
+    .array(z.strictObject({ path: text, offset: optional(count), limit: optional(count) }))
+    .min(1)
+    .max(repositoryToolLimits.batchFiles)
+    .optional(),
 });
 /** `grampus_search`. */
 export const searchArguments = z.strictObject({
   root: optional(text),
   query: optional(text),
+  queries: z.array(text.min(1)).min(1).max(repositoryToolLimits.searchQueries).optional(),
   path: optional(text),
+  glob: optional(text),
+  mode: z.enum(['lines', 'files']).optional(),
   offset: optional(count),
 });
 /**

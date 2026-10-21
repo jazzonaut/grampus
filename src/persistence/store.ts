@@ -64,7 +64,7 @@ export interface RecordEvent {
 }
 
 /** The single journal format this build accepts; other versions are never migrated. */
-export const journalSchemaVersion = 10;
+export const journalSchemaVersion = 12;
 const schema = `
   CREATE TABLE tasks (
     id TEXT PRIMARY KEY,
@@ -579,12 +579,14 @@ export class Store {
       .run(id, new Date().toISOString(), type, JSON.stringify(data));
   }
 
-  /** The execution's events in sequence order; throws as {@link execution} does. */
-  executionEvents(id: string): RecordEvent[] {
+  /** The execution's events in sequence order, optionally filtered; throws as {@link execution} does. */
+  executionEvents(id: string, types?: readonly string[]): RecordEvent[] {
     this.execution(id);
+    if (types?.length === 0) return [];
+    const filter = types ? ` AND type IN (${types.map(() => '?').join(',')})` : '';
     return this.db
-      .prepare('SELECT * FROM execution_events WHERE execution_id = ? ORDER BY sequence')
-      .all(id)
+      .prepare(`SELECT * FROM execution_events WHERE execution_id = ?${filter} ORDER BY sequence`)
+      .all(id, ...(types ?? []))
       .map(row => recordEvent('execution_events', row));
   }
 

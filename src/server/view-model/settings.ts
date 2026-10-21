@@ -195,6 +195,15 @@ function settingsFields(stored: unknown): FormField[] {
   const policy = storedValue(stored, 'defaultWorkflowPolicy');
   return [
     field({
+      name: 'deferEditableContext',
+      label: 'Read initial editable context on demand',
+      input: 'select',
+      target: '/overrides/deferEditableContext',
+      value: storedValue(stored, 'deferEditableContext'),
+      options: [option(null, 'Default (off)'), option(false, 'Off'), option(true, 'On')],
+      help: 'Experiment for fresh exploring turns: omit eager editable file contents and let the agent read current files. Compare total tokens and tool calls before enabling broadly.',
+    }),
+    field({
       name: 'dashboardListenOnLan',
       label: 'Allow dashboard access over LAN',
       input: 'select',

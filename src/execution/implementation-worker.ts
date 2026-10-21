@@ -19,6 +19,7 @@ import { taskCheckEvidence } from '../verification/check-evidence.js';
 import { parseSettings, useSettings } from '../config/settings.js';
 import { OutputBuffer, deltaText } from './output-buffer.js';
 import { ImplementationCommands } from './implementation-commands.js';
+import { measurePhase } from './phase-timing.js';
 
 /** Throws unless this run still holds the workspace lease and its session's running turn. */
 function requireOwnership(store: Store, run: ImplementationRun, execution: Execution, session: Session): void {
@@ -50,7 +51,9 @@ async function main(): Promise<void> {
     requireOwnership(store, run, execution, session);
     const workspaces = new Workspaces(store);
     // Captured again in the worker and rechecked against the policy's artifact before any provider starts.
-    const snapshot = await captureRepository(workspaces, execution);
+    const snapshot = await measurePhase(store, execution.id, 'snapshot', () =>
+      captureRepository(workspaces, execution),
+    );
     const editing = { cwd: session.cwd, policy: run.policy, snapshot };
     prepareEditing(editing);
     const commands = new ImplementationCommands(store, run.id);
@@ -86,40 +89,46 @@ async function main(): Promise<void> {
     const output = new OutputBuffer(text => {
       if (!sessions.delta(session.id, run.id, text)) throw lost();
     });
-    agent = await connectAgent(session.provider, {
-      cwd: session.cwd,
-      configurationCwd: workspaces.get(execution.workspaceId).repository,
-      providerSessionId: session.providerSessionId,
-      model: session.model,
-      ...(session.effort ? { effort: session.effort } : {}),
-      // Never aborted in this process: a stop ends the worker through its supervisor.
-      signal: new AbortController().signal,
-      editing,
-      ...(commands.available ? { commands } : {}),
-      ...(turn.exploration
-        ? {
-            repository: {
-              repo: session.cwd,
-              snapshot,
-              references: plan?.references ?? [],
-              checks: taskCheckEvidence(store, execution),
-              currentChecks: () => taskCheckEvidence(store, execution),
-              editable: [...run.policy.files, ...(run.policy.create ?? []), ...(run.policy.delete ?? [])],
-            },
+    agent = await measurePhase(store, execution.id, 'provider_startup', () =>
+      connectAgent(session.provider, {
+        cwd: session.cwd,
+        configurationCwd: workspaces.get(execution.workspaceId).repository,
+        providerSessionId: session.providerSessionId,
+        model: session.model,
+        ...(session.effort ? { effort: session.effort } : {}),
+        // Never aborted in this process: a stop ends the worker through its supervisor.
+        signal: new AbortController().signal,
+        editing,
+        ...(commands.available ? { commands } : {}),
+        ...(turn.exploration
+          ? {
+              repository: {
+                repo: session.cwd,
+                snapshot,
+                references: plan?.references ?? [],
+                checks: taskCheckEvidence(store, execution),
+                currentChecks: () => taskCheckEvidence(store, execution),
+                editable: [...run.policy.files, ...(run.policy.create ?? []), ...(run.policy.delete ?? [])],
+                ...(run.policy.directories ? { directories: run.policy.directories } : {}),
+              },
+            }
+          : {}),
+        emit: event => {
+          const text = deltaText(event);
+          if (text !== null) {
+            output.add(text);
+            return;
           }
-        : {}),
-      emit: event => {
-        const text = deltaText(event);
-        if (text !== null) {
-          output.add(text);
-          return;
-        }
-        output.flush();
-        const current = sessions.get(session.id);
-        if (current.phase !== 'running' || !sessions.event(session.id, run.id, event)) throw lost();
-      },
-    });
-    const turning: Promise<TurnResult> = agent.turn(turn.prompt);
+          output.flush();
+          const current = sessions.get(session.id);
+          if (current.phase !== 'running' || !sessions.event(session.id, run.id, event)) throw lost();
+        },
+      }),
+    );
+    const connected = agent;
+    const turning: Promise<TurnResult> = measurePhase(store, execution.id, 'provider_turn', () =>
+      connected.turn(turn.prompt),
+    );
     // The last streamed text is journaled before the result exists, so it precedes settlement. A lost
     // run's flush fails like its other events would; the controller's settlement decides what counts.
     const result = await turning.finally(() => {
@@ -129,7 +138,8 @@ async function main(): Promise<void> {
         /* Display-only text. */
       }
     });
-    await agent.close();
+    await commands.settlePending();
+    await measurePhase(store, execution.id, 'provider_shutdown', () => connected.close());
     agent = null;
     if (result.status === 'completed' && result.reply?.kind !== 'question') await commands.finish();
     writeResult(run, result);

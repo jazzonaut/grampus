@@ -61,13 +61,27 @@ export function claudeRepositoryTools(
     },
     grampus_search: {
       // Search remains a separate tool so batch reads never silently scan the repository.
-      query: z.string().min(1),
+      query: z.string().min(1).optional(),
+      queries: z.array(z.string().min(1)).min(1).max(repositoryToolLimits.searchQueries).optional(),
       path: z.string().optional(),
+      glob: z.string().optional(),
+      mode: z.enum(['lines', 'files']).optional(),
       offset: z.number().int().nonnegative().optional(),
       root: z.string().optional(),
     },
     grampus_read_files: {
-      paths: z.array(z.string()).min(1).max(repositoryToolLimits.batchFiles),
+      paths: z.array(z.string()).min(1).max(repositoryToolLimits.batchFiles).optional(),
+      ranges: z
+        .array(
+          z.strictObject({
+            path: z.string(),
+            offset: z.number().int().nonnegative().optional(),
+            limit: z.number().int().min(1).max(repositoryToolLimits.maxPageLines).optional(),
+          }),
+        )
+        .min(1)
+        .max(repositoryToolLimits.batchFiles)
+        .optional(),
       root: z.string().optional(),
     },
     grampus_suggest_reference_folder: { path: z.string(), reason: z.string() },

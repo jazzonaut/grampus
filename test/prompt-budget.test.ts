@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { snapshotRepository } from '../src/repository/artifacts.js';
 import { repositoryContext } from '../src/repository/repository-evidence.js';
 import { implementationTurn } from '../src/execution/implementation-prompt.js';
+import { defaultSettings, useSettings } from '../src/config/settings.js';
 import { prepareEditing, type EditingContext } from '../src/execution/edit-policy.js';
 import { PromptBudget, PromptBudgetError, requirePromptBudget } from '../src/providers/prompt-budget.js';
 import { promptLimits } from '../src/config/limits.js';
@@ -71,6 +72,21 @@ function repairTurn(repo: string, editing: EditingContext, provider: Provider, e
 }
 
 const occurrences = (text: string, marker: string) => text.split(marker).length - 1;
+
+test('optional on-demand initial context preserves authorisation and instructions without eagerly copying editable text', async t => {
+  const { repo, editing } = await editedRepository(t);
+  const original = repairTurn(repo, editing, 'codex').prompt;
+  useSettings({ ...defaultSettings(), deferEditableContext: true });
+  try {
+    const prompt = repairTurn(repo, editing, 'codex').prompt;
+    assert.ok(Buffer.byteLength(prompt) < Buffer.byteLength(original));
+    assert.match(prompt, /Authorized existing editable files/);
+    assert.match(prompt, /Repository instructions/);
+    assert.ok(!prompt.includes('Current editable file contents'));
+  } finally {
+    useSettings(defaultSettings());
+  }
+});
 
 test('a fresh Codex repair conversation stays within the provider input limit after large edits', async t => {
   const { repo, editing } = await editedRepository(t);

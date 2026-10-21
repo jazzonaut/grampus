@@ -4,11 +4,20 @@ import type { GuidedPlan } from '../../domain/guided-plan.js';
 import type { PlanSliceView, PlanView } from '../api-types.js';
 import { folderName, providerLabel } from './status.js';
 
-const command = (spec: { name: string; file: string; args: string[]; timeoutMs: number }) => ({
+const command = (spec: {
+  name: string;
+  file: string;
+  args: string[];
+  timeoutMs: number;
+  restore?: { inputs: string[]; outputs: string[] };
+  reuse?: { inputs: string[] };
+}) => ({
   name: spec.name,
   file: spec.file,
   args: [...spec.args],
   timeoutMs: spec.timeoutMs,
+  ...(spec.restore ? { restore: structuredClone(spec.restore) } : {}),
+  ...(spec.reuse ? { reuse: structuredClone(spec.reuse) } : {}),
 });
 
 /** One paragraph on the workflow policy, as approval shows it. */
@@ -19,7 +28,10 @@ export function workflowSummary(plan: GuidedPlan): string {
     policy.mode === 'automatic'
       ? `Automatic workflow: implement, check readiness, validate, repair, independently review and deliver within the approved scope. Per slice: ${policy.readinessRounds} readiness repairs for declared formatting, lint and type checks; ${policy.repairRounds} shared behavioural repairs across validation, review and acceptance. Both allowances survive retries and restarts; every attempt requires current readiness evidence. Size both allowances for the approved work and check coverage.`
       : 'Supervised workflow: pause for file authorization and quality assessment.';
-  return `${mode} ${spending} Conversations resume within a slice and start fresh after ${policy.maxSessionTurns} turns or ${policy.maxContextTokens.toLocaleString('en-GB')} observed context tokens. Each slice and arbitration starts fresh.`;
+  const restore = plan.preparation?.restore
+    ? ' Declared prerequisite restoration runs after slice generation before final checks, using the final dependency inputs.'
+    : '';
+  return `${mode} ${spending}${restore} Conversations resume within a slice and start fresh after ${policy.maxSessionTurns} turns or ${policy.maxContextTokens.toLocaleString('en-GB')} observed context tokens. Each slice and arbitration starts fresh.`;
 }
 
 /**
@@ -50,8 +62,10 @@ function sliceView(plan: GuidedPlan, index: number): PlanSliceView {
   if (!slice) throw new Error(`Slice ${index + 1} is missing from the plan`);
   const brief = plan.brief.slices?.[index];
   return {
+    directories: structuredClone(slice.scope.directories ?? []),
     diagnostics: slice.diagnostics.map(item => ({
       ...command(item),
+      maxRuns: item.maxRuns,
       selection: JSON.stringify(item.selection, null, 2),
     })),
     readinessConcurrency: slice.readinessConcurrency,

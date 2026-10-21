@@ -7,10 +7,27 @@ import { explorationSummary } from '../repository/repository-tools.js';
 import { taskUsage, usageLines, usageTable } from './task-usage.js';
 import { workflowTimingLines } from './workflow-timing.js';
 import { spendingLines, spendingStatus } from '../orchestration/guided/spending.js';
+import { executionPhases } from './execution-phases.js';
 
 // Encode all user/provider prose, including newlines, so it cannot inject report structure.
 function prose(value: string): string {
   return value.replace(/[&<>"'`*_[\]#|\\]/g, char => `&#${char.charCodeAt(0)};`).replace(/\r?\n/g, ' ');
+}
+
+function phaseLines(store: Store, taskId: string): string[] {
+  const rows = executionPhases(store, taskId);
+  if (!rows.length) return [];
+  return [
+    '## Execution phases',
+    '',
+    'Observed phase totals overlap and must not be added to workflow elapsed time.',
+    '',
+    ...rows.map(
+      row =>
+        `- ${prose(row.phase)}: ${row.elapsedMs.toFixed(1)} ms across ${row.observations} observations; ${row.failed} failed operations.`,
+    ),
+    '',
+  ];
 }
 
 /**
@@ -49,6 +66,7 @@ export function renderReport(store: Store, id: string): string {
     prose(task.brief.outcome),
     '',
     ...(usage.workflow ? ['## Workflow timing', '', ...workflowTimingLines(usage.workflow), ''] : []),
+    ...phaseLines(store, id),
     '## Acceptance criteria',
     '',
     ...task.brief.criteria.map(criterion => `- ${prose(criterion)}`),
