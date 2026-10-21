@@ -4,7 +4,13 @@ import assert from 'node:assert/strict';
 import { checkIssue } from '../src/verification/check-output.js';
 import { reviewCheckEvidence } from '../src/verification/check-evidence.js';
 import type { RepositoryCheck } from '../src/verification/checks.js';
-import { progressContinuationNote, progressFeedback, qualityPassPrompt } from '../src/orchestration/guided/prompts.js';
+import { workspaceInstructions } from '../src/execution/workspace-instructions.js';
+import {
+  implementationPrompt,
+  progressContinuationNote,
+  progressFeedback,
+  qualityPassPrompt,
+} from '../src/orchestration/guided/prompts.js';
 
 test('a progress update keeps the repair evidence and never stacks its note', () => {
   const evidence = JSON.stringify({ reason: 'expected hello world, received hello' });
@@ -63,4 +69,15 @@ test('a clean exit that leaves processes behind says so before its success outpu
     },
   } as unknown as RepositoryCheck;
   assert.match(checkIssue(check), /^The command exited 0 but left processes running/);
+});
+
+// Regression: a native implementer ran all eight full browser shards itself for 70 minutes before
+// submitting, duplicating acceptance the controller runs anyway and chasing unrelated failures.
+test('native prompts leave broad and sharded verification to the controller', () => {
+  const prompt = implementationPrompt({ slicePreparation: undefined, feedback: '' });
+  assert.match(prompt, /run focused checks for what you changed/);
+  assert.match(prompt, /never broad, whole-suite or sharded runs/);
+  assert.doesNotMatch(prompt, /meaningful checks/);
+  assert.match(workspaceInstructions, /Never run broad, whole-suite or sharded test runs yourself/);
+  assert.doesNotMatch(workspaceInstructions, /meaningful checks/);
 });
