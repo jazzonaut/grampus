@@ -190,7 +190,7 @@ test('a timed-out check offers Rerun checks, which runs a new check through a wo
   assert.ok(ui.store.events(task.id).some(event => event.type === 'guided.checks_rerun_requested'));
 });
 
-test('planning infers generic preparation on initial and resumed turns and retains commands for approval', async t => {
+test('planning gives native setup ownership on initial and resumed turns and retains explicit prerequisites', async t => {
   const f = fixture(t),
     store = new Store(join(f.root, 'preparation.sqlite'));
   t.after(() => {
@@ -234,10 +234,9 @@ test('planning infers generic preparation on initial and resumed turns and retai
   const proposed = await kickoffs.send(id, undefined, { confirm: 'yes' });
   assert.equal(proposed.error, null);
   for (const prompt of prompts) {
-    assert.match(prompt, /Infer preparation from the repository/);
-    assert.match(prompt, /fresh worktree without ignored dependencies/);
-    assert.match(prompt, /slices\[i\]\.preparation/);
-    assert.match(prompt, /implementer cannot run commands/);
+    assert.match(prompt, /use native shell, file, browser and debugging tools/);
+    assert.match(prompt, /install dependencies and generate lockfiles itself/);
+    assert.doesNotMatch(prompt, /implementer cannot run commands/);
   }
   assert.deepEqual(proposed.candidate!.preparation!.args, before.args);
   assert.deepEqual(proposed.candidate!.slices[0]!.preparation!.args, after.args);
@@ -481,7 +480,7 @@ test('dashboard revisions run in an isolated worker and stale approval cannot ap
   assert.equal((await api.act(offered(revised, 'approve'))).status, 200);
 });
 
-test('file authorization shows exact edit contents even when the task has no initial file hints', async t => {
+test('workspace confirmation requires no exact file grant when the task has no initial file hints', async t => {
   const f = fixture(t),
     ui = await startUi({ db: join(f.root, 'grampus.sqlite'), port: 0 });
   t.after(async () => {
@@ -501,13 +500,12 @@ test('file authorization shows exact edit contents even when the task has no ini
   const view = await connect(ui).task(id);
   assert.equal(view.details.scope?.error, null);
   assert.deepEqual(view.details.plan.context.files, []);
-  assert.deepEqual(view.details.scope?.files, [
-    { path: 'greeting.js', content: "console.log('hello');\n", action: 'edit' },
-  ]);
+  assert.deepEqual(view.details.scope?.files, []);
+  assert.match(offered(view, 'authorize').description, /native/i);
   assert.equal(offered(view, 'authorize').enabled, true);
 });
 
-test('large tracked text reaches file authorization and the dashboard exposes its exact contents', async t => {
+test('large tracked text reaches native workspace confirmation without an exact file grant', async t => {
   const f = fixture(t),
     text = 'entry: value\n'.repeat(32000);
   writeFileSync(join(f.repo, 'dependency-data.yaml'), text);
@@ -530,7 +528,7 @@ test('large tracked text reaches file authorization and the dashboard exposes it
   assert.equal(state.status, 'awaiting_scope', state.note);
   const view = await connect(ui).task(id);
   assert.equal(view.details.scope?.error, null);
-  assert.deepEqual(view.details.scope?.files, [{ path: 'dependency-data.yaml', content: text, action: 'edit' }]);
+  assert.deepEqual(view.details.scope?.files, []);
   assert.equal(ui.store.implementations(state.executionId!).length, 0);
 });
 

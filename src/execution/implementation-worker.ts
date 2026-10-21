@@ -101,7 +101,7 @@ async function main(): Promise<void> {
         signal: new AbortController().signal,
         editing,
         ...(commands?.available ? { commands } : {}),
-        ...(!workspace && turn.exploration
+        ...((!workspace && turn.exploration) || plan?.references?.length
           ? {
               repository: {
                 repo: session.cwd,

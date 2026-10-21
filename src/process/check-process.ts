@@ -91,6 +91,7 @@ function hostRequest(options: CheckProcessOptions, directory: string) {
     args: options.args,
     cwd: options.cwd,
     timeoutMs: options.timeoutMs,
+    jobDrainMs: processLimits.supervisorJobDrainMs,
     stdout: join(directory, 'stdout'),
     stderr: join(directory, 'stderr'),
     ...(options.receipt

@@ -2,16 +2,16 @@
 
 Grampus is a local controller for coding agents. You describe a change in plain
 language; Grampus works with an agent to turn it into a concrete plan with acceptance
-criteria, exact file scope and check commands. Once you approve that plan, it runs
-the rest automatically: Codex or Claude implementation, validation, independent review
-by the other provider, bounded repair of ordinary failures, acceptance checks and a
+criteria, a provisional approach and final check commands. Once you approve that plan, it runs
+the rest automatically: Codex or Claude implementation, readiness, validation, acceptance,
+independent review by the other provider, bounded repair of ordinary failures and a
 verified local Git commit for each slice.
 
 The controller and its SQLite journal own the truth. Agents propose; the controller
 decides. Every piece of evidence is bound to the exact repository content it describes,
 an unknown outcome is never treated as success, and uncertain provider or Git
 operations are never replayed. Grampus stops and asks for attention on questions,
-scope changes, exhausted repair allowances and anything it cannot prove.
+changes to agreed requirements, exhausted repair allowances and anything it cannot prove.
 
 - [How the automatic workflow behaves](docs/WORKFLOW.md)
 - [How the system is built](docs/ARCHITECTURE.md)
@@ -64,7 +64,7 @@ The dashboard is the main interface. Choose **New task**, enter an existing
 repository and describe the change. The planner explores the repository itself
 (read-only), asks about anything consequential and proposes a plan of one or more
 ordered slices. **Review for approval** shows the complete plan: outcome, criteria,
-file actions, commands, expected output, agents and delivery messages. Approve it and
+optional file suggestions, verification commands, expected output, agents and delivery messages. Approve it and
 Grampus runs to a verified local commit unless something needs your attention.
 
 The dashboard also shows progress, findings, check output, retained changes, a task
@@ -86,7 +86,7 @@ checkout. Every task command accepts `--db <path>`. `grampus --help` prints the 
 | `demo` | Run a synthetic task in a temporary journal. Starts no agents |
 | `task-new <plan.json>`, `task-show <id> [--details\|--json]` | Store a guided plan as a draft; show progress and the next action |
 | `task-approve <id> <version> <digest>`, `task-run <id>` | Approve the exact plan; advance until input is needed |
-| `task-authorize <id>`, `task-assess <id> --outcome <o> --summary <s>` | Supervised mode only: authorize file scope; record a quality assessment of the selected lenses |
+| `task-authorize <id>`, `task-assess <id> --outcome <o> --summary <s>` | Supervised mode only: confirm native workspace execution; record a quality assessment of the selected lenses |
 | `task-answer <id> <answers.json>` | Answer pending agent questions |
 | `task-retry <id>` | Retry after a stop |
 | `task-rerun-checks <id> <decision-key>` | Rerun a check stopped by a timeout or other infrastructure problem on the unchanged artifact, without a new attempt |
@@ -141,6 +141,10 @@ providers, and never call a live model. Opt-in live probes use your subscription
 retain their fixtures under the ignored `.grampus/` directory: `npm run probe`,
 `probe:task`, `probe:multifile`, `probe:exploration`, `probe:mcp` and `probe:references`.
 `probe:context` is an offline scale probe.
+
+The Windows test runner uses at most four test files at once. Each integration file starts
+real Git and native supervisor processes, so using every CPU for files can overload process
+startup and cause unrelated fixture deadlines to expire.
 
 Contributor rules and pitfalls are in [AGENTS.md](AGENTS.md).
 

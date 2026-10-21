@@ -49,9 +49,9 @@ const guidedSliceSchema = z.object({
   /** Explicit mechanical checks; empty when the repository has none. Approval binds their category. */
   readiness: z.array(guidedCommandSchema.extend({ kind: readinessKindSchema })).max(planLimits.readinessChecks),
   preparation: guidedCommandSchema.exactOptional(),
-  /** Approved scoped formatter, also available to the implementer during its turn. */
+  /** Suggested formatting command; native implementation owns when and how it runs. */
   formatting: guidedCommandSchema.exactOptional(),
-  /** Focused diagnostics with an approval-bound executable and parameter grammar. */
+  /** Explicit scoped diagnostic capabilities; native implementation does not use their allowlist. */
   diagnostics: z
     .array(
       guidedCommandSchema.extend({

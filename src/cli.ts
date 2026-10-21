@@ -83,7 +83,7 @@ const help = `Grampus - local agent controller
   task-show <task-id>             Show progress and next action (--details or --json)
   task-approve <id> <version> <digest> Approve the entire guided plan shown above
   task-run <id>                   Advance until input is needed or work stops
-  task-authorize <id>             Authorize the inspected file scope and continue
+  task-authorize <id>             Confirm native workspace execution and continue
   task-assess <id> --outcome passed|failed|skipped --summary <text>
                                   Record a quality assessment of the selected lenses and continue
   task-answer <id> <answers.json> Answer pending questions and continue

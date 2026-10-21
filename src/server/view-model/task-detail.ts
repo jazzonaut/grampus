@@ -46,12 +46,14 @@ import { spendingView } from './spending.js';
 import { usageView } from './usage.js';
 import { pendingDiagnosticAllowance } from '../../execution/diagnostic-allowance.js';
 import { evidenceSource, workflowStages } from './workflow.js';
+import { taskWorkView } from './task-work.js';
 
 /** The controller's display-only task view (`guidedTaskSummary`). */
 export type GuidedTaskView = ReturnType<typeof guidedTaskSummary>;
 
 /** Everything the view model reads about one task from the journal. */
 export interface TaskFacts {
+  work: TaskDetailV1['work'];
   diagnosticAllowance: TaskActionFacts['diagnosticAllowance'];
   view: GuidedTaskView;
   /** Comparison members use the group's approval and continuation controls. */
@@ -92,6 +94,7 @@ export function taskFacts(store: Store, id: string): TaskFacts {
   const retries = comparison ? comparisonRetries(store, comparison.id) : null;
   return {
     view,
+    work: taskWorkView(store, view.session),
     diagnosticAllowance:
       state.stopReason?.code === 'DIAGNOSTIC_ALLOWANCE_REQUIRED' && state.executionId
         ? pendingDiagnosticAllowance(store, state.executionId)
@@ -278,7 +281,7 @@ function nextStep(facts: TaskActionFacts, presentation: TaskPresentation, title:
   if (facts.stale) return { kind: 'human', label: 'Create a new task with the updated requirements.', actionIds: [] };
   const labels: Partial<Record<NonNullable<TaskPresentation['attention']>, string>> = {
     approval: 'Review the plan and approve it.',
-    scope_authorization: 'Inspect the files and authorize them.',
+    scope_authorization: 'Inspect the workspace and confirm native execution.',
     assessment: 'Assess the change against each quality lens.',
     question: 'Answer the questions.',
     recovery: 'Recover saved work.',
@@ -514,6 +517,7 @@ export function taskDetail(facts: TaskFacts, context: ViewContext, revision: str
     },
     workflow: taskWorkflow(facts, presentation),
     activity: current,
+    work: facts.work,
     liveChangesPath:
       view.workspace?.phase === 'ready' && view.workspace.path ? `/api/v1/tasks/${task.id}/live-changes` : null,
     repairs: repairsView(facts.events, state),

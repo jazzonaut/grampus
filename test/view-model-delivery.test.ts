@@ -15,6 +15,7 @@ import { taskDetail, taskFacts } from '../src/server/view-model/task-detail.js';
 import { overview } from '../src/server/view-model/overview.js';
 import type { TaskDetailV1 } from '../src/server/api-types.js';
 import { windows, services, fixture, review, lens, resolvedFindings } from './helpers/guided-tasks.js';
+import { profile } from './helpers/model-profiles.js';
 
 const idlePool = { active: 0, limit: 2, owners: [] };
 
@@ -76,6 +77,7 @@ test('a review repair through delivery shows every stage passed with its evidenc
     ...f.plan,
     workflowPolicy: { mode: 'automatic' },
     quality: { passes: ['simplification', 'refactor'] },
+    modelProfile: { ...profile, qualityPasses: { refactor: profile.implementation } },
   });
   tasks.approve(task.id, 1, task.guided!.digest);
   const done = await tasks.run(task.id);
@@ -92,8 +94,8 @@ test('a review repair through delivery shows every stage passed with its evidenc
       ['implement', 'passed', 'agent-reported'],
       ['quality:refactor', 'passed', 'agent-reported'],
       ['validate', 'passed', 'controller-verified'],
-      ['review', 'passed', 'agent-reported'],
       ['accept', 'passed', 'controller-verified'],
+      ['review', 'passed', 'agent-reported'],
       ['deliver', 'passed', 'controller-verified'],
     ],
   );

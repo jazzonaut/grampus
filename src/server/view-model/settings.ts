@@ -240,7 +240,7 @@ function settingsFields(stored: unknown): FormField[] {
       options: [
         option(null, `Default (${defaults.defaultWorkflowPolicy.mode})`),
         option('automatic', 'Automatic', 'runs to a verified commit'),
-        option('supervised', 'Supervised', 'stops at file authorization and quality assessment'),
+        option('supervised', 'Supervised', 'stops at workspace confirmation and quality assessment'),
       ],
     }),
     ...policySettings.map(spec =>

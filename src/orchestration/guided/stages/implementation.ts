@@ -133,7 +133,8 @@ export const implementationStage: StageHandler = {
             'The previous turn was a progress update, not a candidate submission. Continue the unfinished work, investigate ordinary failures and submit kind=candidate only when ready for verification.';
         },
       };
-    const focused = focusedRepairOutcome(context, result, update);
+    // Native agents own diagnostics and do not receive the scoped repair tool or its receipts.
+    const focused = result.policy.workspace ? null : focusedRepairOutcome(context, result, update);
     if (focused) return focused;
     const next = afterEditing(state, after);
     return {

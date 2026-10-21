@@ -806,6 +806,8 @@ export interface TaskDetailV1 {
   };
   workflow: StageView[];
   activity: ActivityV1 | null;
+  /** Read-only tool observations and a settled agent progress message, separate from verification. */
+  work: TaskWorkV1;
   /** Every action available now, primary first. Attention actions are a subset. */
   decisions: ActionView[];
   /** Read-only live workspace observations, independent of journal revision. Null before setup. */
@@ -822,6 +824,13 @@ export interface TaskDetailV1 {
   usage: UsageV1;
   details: DetailsV1;
   integrations: McpServerV1[];
+}
+
+/** Compact activity from the displayed execution's latest turn, never workflow evidence. */
+export interface TaskWorkV1 {
+  recent: { id: string; at: string; label: string }[];
+  /** Only a completed message reply is shown; partial structured output is never exposed. */
+  update: { at: string; text: string } | null;
 }
 
 /** `GET /api/v1/tasks/:id/changes?path=`: one retained change. */

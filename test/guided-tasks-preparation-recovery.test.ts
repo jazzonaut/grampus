@@ -12,7 +12,7 @@ import { Checks } from '../src/verification/checks.js';
 import { windows, preparation, git, services, fixture } from './helpers/guided-tasks.js';
 
 for (const stage of ['initial', 'slice'] as const)
-  test(`${stage} preparation cannot change unauthorized inputs or be used as validation`, windows, async t => {
+  test(`${stage} preparation respects native candidate ownership and instruction protection`, windows, async t => {
     const f = fixture(t),
       command = preparation("require('node:fs').writeFileSync('AGENTS.md','unauthorized');");
     const task = f.tasks.create({
@@ -23,6 +23,15 @@ for (const stage of ['initial', 'slice'] as const)
     f.tasks.approve(task.id, 1, task.guided!.digest);
     let result = await f.tasks.run(task.id);
     if (stage === 'slice') result = await f.tasks.authorize(task.id);
+    if (stage === 'slice') {
+      assert.equal(result.status, 'awaiting_assessment', result.note);
+      assert.equal(
+        readFileSync(join(f.store.workspace(result.workspaceId!).path!, 'AGENTS.md'), 'utf8'),
+        'Use one direct output statement.\n',
+      );
+      assert.ok(f.store.checks(result.executionId!).every(check => check.purpose !== 'preparation'));
+      return;
+    }
     assert.equal(result.status, 'blocked', result.note);
     assert.equal(result.stopReason?.code, 'PREPARATION_FAILED');
     assert.match(result.note, /changed repository inputs|Git state or repository instructions/);

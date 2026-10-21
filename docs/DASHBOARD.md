@@ -56,7 +56,7 @@ sidebar show it.
 | **Overview** | **Needs your attention** first: every task or planning conversation waiting for you, most urgent first, with one sentence on why, the stop reason code and the actions that resolve it (actions that need a form link to their screen). Then integration health, tasks (status, stage, slice i of n, last activity, stall badge, usage headline with turns and interventions), planning conversations, recent verified deliveries and how many guided tasks run against the limit |
 | **New task** | Repository folder (typed, or chosen from **Or choose an Orca worktree**, which lists local Orca worktrees grouped by repository with full paths when Orca answers), what should change, reference folders with **Suggest from task description**, planner and implementer (Codex or Claude; the other reviews), workspace (standalone Git worktree or local Orca worktree) and **Optional file hints**: **Suggest starting files** pins the commit and suggests paths, the repository map, the inventory digest and a search of the pinned inventory, 100 paths a page. **Start planning** shows "Preparing repository context" while the repository is inspected, then sends the first planning turn and opens the conversation. **Already have a guided plan?** imports plan JSON as an unapproved task |
 | **Planning conversation** | Shared live communication graph with **Open full observability** for event inspection and replay, status and explanation, the discussion (Markdown), live planner progress with **Stop planning**, **Recover planning session** when an earlier planner still owns the session, pending questions with suggested answers, a message to refine the plan, the proposed plan with its digest and **Review for approval**, repository access with editable file hints and inventory search, reference folders with suggestions, exploration, MCP connections, reset and delete |
-| **Task** | Summary header (slice, title, status, intended outcome, one-sentence explanation, next step: automatic, your decision or none, the controller's note with the stop reason code, stale-plan, stall and failed-action notices), the workflow strip, current activity with **Stop now**, the decision queue, results, measured usage, details on demand, plan revision and task management |
+| **Task** | Live communication graph first, summary header and workflow, then a working view with current activity, decisions, recent native tool observations and guidance beside compact changes, verification and run context. Results, changes, plan, usage and activity/evidence have their own tabs. Stop, pause and required recovery remain accessible; detailed metrics, allowances and exports are under Usage |
 | **Integration health** | Overall health with its reason, when it was checked and whether a new check is due, version-change warnings, and per integration its version (and SDK version), whether it is required and a status per capability with detail. **Check again** reruns the checks |
 
 ## Plan a task
@@ -85,7 +85,7 @@ sidebar shows a short title from the first sentence of the description until the
 proposes a plan, then the plan's title.
 
 The planner covers the whole request and may split it into 1 to 64 ordered slices, each with
-its own file scope, checks and commit message. The final slice verifies every criterion. Review
+its own provisional approach, checks and commit message. The final slice verifies every criterion. Review
 the full sequence rather than narrowing scope because a ticket is large.
 
 ## Approve
@@ -107,9 +107,9 @@ automatic mode (the default) starts the run straight away, unless the
 
 ## Run
 
-The task runs [automatically within the approved scope](WORKFLOW.md): preparation,
-implementation and any edit quality passes, mechanical readiness, behavioural validation, independent review with an assessment of
-each selected quality lens, acceptance and a verified local commit per slice. Questions, scope
+The task runs [automatically within the approved requirements](WORKFLOW.md): optional bootstrap,
+native implementation and any assigned edit quality passes, mechanical readiness, behavioural validation,
+acceptance, independent review with an assessment of each selected quality lens and a verified local commit per slice. Questions, workspace
 errors, exhausted repair allowances and operational failures stop for attention with the reason
 shown.
 
@@ -120,10 +120,15 @@ shown.
   words and who established it: *verified by Grampus* (checks, acceptance, the commit), *agent
   reported* (implementation, edit passes, the review and its lens verdicts) or *your
   assessment*. A stage that stopped before a result is Unknown, never passed.
-- **Current activity:** what is running, elapsed and last-activity times, repository actions,
-  MCP requests and file change requests, and the latest agent requests. Agent activity
-  describes what the agent asked for; checks and retained evidence establish results. There
-  are no percentages.
+- **Current activity:** a specific observed activity such as **Running a command**, with elapsed
+  and last-activity times, **Stop now** and **Pause after this step**. The workflow stage remains
+  secondary. Concurrent native tools are tracked individually; output does not hide a running
+  tool. A latest confirmed message reply appears as an attributed agent update. Partial structured
+  output and raw tool payloads are not displayed, and exact commands may be unavailable.
+- **Recent activity:** up to six native tool observations from the displayed execution's latest
+  turn, with each tool coalesced to its latest observation and a link to full activity history.
+  Requests describe intent, while starts and completions describe provider observations. They
+  never establish controller checks or acceptance. No percentages or zero request counters are shown.
 - **No activity for N min:** when a running agent turn or check has journaled nothing (no
   output, usage, tool or other event, and for a check no growing output log) for
   `stallWarningMs` (10 minutes by default, see [CONFIGURATION.md](CONFIGURATION.md)), the task
@@ -132,12 +137,14 @@ shown.
 - **Results:** unresolved problems, criteria coverage, checks with a compact failure summary,
   the exact command and **Read stderr** / **Read stdout** (loaded in pages on request), review
   findings, quality lens verdicts and recorded assessments, edit passes and local commits.
-- **Live changes:** a visible changed-file list and selected unified diff against the task's pinned
+- **Changes so far:** a compact changed-file list beside the current work. **Browse changes** opens
+  the Changes tab with a selected unified diff against the task's pinned
   base, including delivered slices plus current staged, unstaged and untracked work. Observations
   refresh every `liveChangesIntervalMs` (five seconds by default), independently of journal updates,
   while the task page is visible. These reads spend no model tokens and establish no gate evidence.
   Reverted selections clear. Large previews explicitly show truncation; unavailable reads warn that
   any retained preview is stale. Binary changes show Git's binary notice.
+
 - **Guidance:** queue a message for the next agent, implementer/edit pass, or independent review
   and arbitration, within the approved plan. The draft survives stage changes. Messages show queued,
   assigned, cancelled or expired status and can be cancelled until assignment. Assignment confirms
@@ -166,8 +173,15 @@ shown.
   before and after), the report (**Load report** renders it, **Download Markdown** saves it),
   workspace and delivery, read-only references and repository exploration.
 
-In supervised mode the task also stops for file authorization (the card lists each file with
-its action and exact current content, and the repository instructions) and a quality
+The right-hand context summarises verification, agent assignments, slice and repair counts, and
+turn allowance. **Usage and limits** opens the full spending allowance, repair decisions, measured
+usage, run metrics and exports. Model comparisons are loaded only when their expandable section is
+opened. Repeated running explanations and routine notes are omitted from the active header; stop
+reasons, failed actions, stale-plan warnings and silence notices stay visible. A required recovery
+action remains in the decision area; an optional recovery action is under task management.
+
+In supervised mode the task also stops for native workspace confirmation (the card shows
+repository instructions and optional file suggestions, which do not restrict execution) and a quality
 assessment, with forms for both. The assessment form lists each selected lens; your outcome and
 summary are recorded for every lens. Without selected lenses there is no assessment stop.
 
@@ -177,7 +191,7 @@ Up to `maxConcurrentTasks` guided tasks (2 by default, at most 4, see
 [CONFIGURATION.md](CONFIGURATION.md)) run at once, each in its own worktree; they may share a
 source repository. The home screen shows how many slots are taken, for example **1 of 2 guided
 tasks running**. A task stopped for recovery keeps its slot until **Recover saved work** settles
-it. While every slot is taken, **Continue task**, **Authorize these files and start**, **Refresh
+it. While every slot is taken, **Continue task**, **Confirm workspace and start**, **Refresh
 file checkpoint**, the assessment and answer forms, **Retry**, **Retry preparation** and **Rerun
 checks** are disabled with the reason, for example **2 of 2 tasks are already running**. An action
 sent anyway (from a page shown before the pool filled) is refused before any worker starts and the

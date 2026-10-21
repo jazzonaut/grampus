@@ -49,6 +49,11 @@ Codex implementation threads use native tools, `approvalPolicy: never` and
 independent review retain their read-only tool contracts. Subscription authentication, process
 ownership, stop handling and confirmed shutdown are unchanged.
 
+Explicit low-level `execution-implement` operations still support scoped file policies for
+diagnosis and tests. Internal scoped diagnostic helpers are retained for probes and isolated
+tests; native guided workers do not offer or require their receipts. Guided tasks always use
+native candidate execution and never fall back to a scoped implementation when native execution fails.
+
 The implementer runs its own setup, formatting and diagnostics. It receives the controller's final
 verification commands for context, but these are not its command allowlist. Optional slice
 `preparation` and `formatting` entries are suggestions for the agent; they are not automatically run
@@ -236,7 +241,7 @@ comparison-export <comparison-id> <output-file> [json|csv|gzip]
 `profiles.json` is an ordered array of saved profile ids or full profile definitions.
 For integration, save the displayed preview's `target` object as `target.json`. `export` prints
 JSON to stdout, so ordinary shell redirection can save an individual run. All commands accept
-the usual `--db` journal selection. Schema 8 requires a fresh journal; other versions are refused
+the usual `--db` journal selection. Schema 14 requires a fresh journal; other versions are refused
 without migration. Development work does not update the installed application or its journal.
 
 ## Configuration
@@ -294,7 +299,8 @@ action and the relevant readiness or shared behavioural budget before the decisi
 structured reply. This makes the choice to repair, arbitrate or stop inspectable alongside the
 existing request/result, check and usage journals.
 
-The current controller uses journal schema 13, including directory grants and restore fingerprints alongside implementation-owned diagnostics, formatting, readiness spending, model assignments, comparisons, pause, guidance and ordered acceptance checks. Journals from
+The current controller uses journal schema 14, including adaptive native execution, candidate submission,
+readiness spending, model assignments, comparisons, pause, guidance and ordered acceptance checks. Journals from
 other schema versions are refused without modification; there is
 no migration. Keep the previous installed build with its journal to finish an existing task.
 
@@ -476,8 +482,16 @@ controller-run checks. Declared independent readiness checks can run together un
 
 Progress turns preserve the execution and provider conversation. Approved turn/context thresholds
 rotate the provider conversation only between settled turns, keeping the current artifact, brief,
-criteria and recorded feedback. Repairs create a new attempt and may resume the slice conversation.
+criteria, answered implementation questions and the latest implementation summary. The original
+question text accompanies each answer; summaries remain untrusted observations. An oversized
+handoff is refused before provider dispatch rather than silently dropping decisions.
+Repairs create a new attempt and may resume the slice conversation.
 Implementation and review never share a conversation.
+
+Selected reference folders remain available through read-only Grampus tools during native
+implementation, including their approved Git commit or folder digest. Native project commands
+remain unrestricted. A native repair candidate does not require scoped diagnostic receipts;
+the controller runs its full approved checks before accepting the repaired artifact.
 
 Workflow timing still covers planning, execution, checks, waiting, recovery and delivery. Native
 command output is retained through provider activity; commands are not individual controller check

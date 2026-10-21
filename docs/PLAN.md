@@ -36,6 +36,22 @@ high-value problems, adds measurement, and then lets real use decide what follow
   Native execution has no filesystem or command sandbox. A live Codex implementation and Claude review greeting pilot reached verified local delivery.
   Direct-agent comparisons and a representative real-project pilot remain **Planned**. See [WORKFLOW.md](WORKFLOW.md).
 
+  Workflow audit follow-up: native browser repair candidates no longer depend on scoped diagnostic
+  probe receipts. Fresh conversations retain answered implementation questions and progress;
+  approved references stay available through pinned reads. Model switches reset conversation
+  measurements without resetting task spending. Codex planning and review refuse unconfirmed
+  read-only permissions. Dashboard confirmation language and current workflow guides describe
+  native workspace execution and acceptance before independent review. Scenario fixtures now follow
+  native setup ownership, advisory file hints and explicit edit-pass model assignments. Windows
+  supervision allows a bounded one-second job drain after root exit to avoid treating delayed job
+  accounting as a surviving child, while retaining the command deadline and observed-zero requirement.
+  The Windows test runner caps concurrent files at four to bound native supervisor contention.
+
+
+## Earlier milestones
+
+The entries below record earlier versions. Their scoped execution descriptions and schema
+numbers are historical; [WORKFLOW.md](WORKFLOW.md) describes the current adaptive workflow.
 
 - **Measured task-friction follow-up.** Implemented: explicit bounded diagnostic supplement
   approvals, including answers in the same decision; focused browser failure probes before broader
@@ -135,7 +151,7 @@ work lands in the new structure. Order: 1, split tests, structure and strictness
   progress stops or uses approved arbitration. Decisions are journaled with their reasons and
   budget. The journal schema refuses other versions without migration ([WORKFLOW.md](WORKFLOW.md)).
 - **No backwards compatibility.** Done 18 October 2026. Legacy plan formats, digests, fields,
-  migrations and `task-automate` are removed from code and docs. That step used schema version 8 (the current schema is version 12); an older
+  migrations and `task-automate` are removed from code and docs. That step used schema version 8 (the current schema is version 14); an older
   journal is refused with a clear message and never modified. The new version uses a fresh
   journal file, so older installed snapshots can still finish their own tasks.
 
@@ -213,7 +229,7 @@ result/artifact identities and subsequent observed results. Full history stays
 in the timeline. New plans default to five readiness and five behavioural repairs; explicit approved allowances remain
 bound to their plan. **Pause after this step** lets the current operation settle before stopping;
 **Continue task** resumes the same attempt. Failures and uncertain operations retain their failure or
-recovery reason. Persisted pause, guidance and task spending policy are part of the journal schema (now 8); other versions are refused without migration.
+recovery reason. Persisted pause, guidance and task spending policy are part of the current journal schema 14; other versions are refused without migration.
 The installed application and its journal are separate from this checkout.
 
 Queued human guidance is implemented. Messages are bound to the approved version and slice,
@@ -282,7 +298,8 @@ compressed JSON exports use gzip. Missing or oversized attachments are explicit,
 limit per file. Dashboard preview limits do not truncate these journal exports. Provider internals
 that Grampus did not observe cannot be exported. See [WORKFLOW.md](WORKFLOW.md#model-profiles-and-comparisons).
 
-Journal schema 13 includes explicit diagnostic supplements, model-aware context policies, directory grants and restore fingerprints to diagnostic families, exact-input check adoption and grouped readiness recovery alongside implementation-owned diagnostics, approved formatting, readiness spending and durable comparisons. Other schema versions
+Journal schema 14 includes adaptive native execution, candidate submission, model-aware context policies,
+artifact-bound verification, readiness spending and durable comparisons. Other schema versions
 are refused without migration; use a fresh development journal. The installed application and its
 journal remain separate from this checkout.
 

@@ -71,7 +71,7 @@ export interface TaskActionFacts extends TaskStatusFacts {
   rerunProblem: string | null;
   /** An unused, failed standalone worktree reservation can be released. */
   releasable: boolean;
-  /** Why file authorization cannot be prepared, while it is pending. */
+  /** Why workspace confirmation cannot be prepared, while it is pending. */
   scopeError: string | null;
   /** Why the runner pool cannot take this task now (`poolFullReason`), or null when work may start. */
   poolFull: string | null;
@@ -190,7 +190,7 @@ function assessmentForm(lenses: readonly QualityPassDefinition[]): ActionForm {
         value: '',
         required: true,
         placeholder: 'Explain what you inspected and why this outcome applies.',
-        help: 'A pass continues through independent review, acceptance checks and a verified local commit. Failed or skipped assessments stop progression.',
+        help: 'A pass continues through acceptance checks, independent review and a verified local commit. Failed or skipped assessments stop progression.',
         target: '/summary',
       }),
     ],
@@ -446,12 +446,13 @@ const builders = {
   authorize: f =>
     action({
       id: 'authorize',
-      label: 'Authorize these files and start',
+      label: 'Confirm workspace and start',
       kind: 'primary',
-      description: 'Authorizes exactly the files shown and starts implementation and validation.',
+      description:
+        'Confirms native workspace execution. The agent chooses project files and local commands within the approved requirements.',
       path: route(f, 'authorize'),
       expected: f.expected,
-      disabledReason: f.scopeError ? `File authorization could not be prepared: ${f.scopeError}` : f.poolFull,
+      disabledReason: f.scopeError ? `Workspace confirmation could not be prepared: ${f.scopeError}` : f.poolFull,
     }),
   'refresh-checkpoint': f =>
     action({

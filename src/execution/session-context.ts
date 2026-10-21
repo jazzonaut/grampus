@@ -51,8 +51,11 @@ export function sessionContinuation(
         'turn.result',
         'context.updated',
         'session.context_reset',
+        'session.assignment_changed',
       ]);
-      const reset = history.findLastIndex(event => event.type === 'session.context_reset');
+      const reset = history.findLastIndex(
+        event => event.type === 'session.context_reset' || event.type === 'session.assignment_changed',
+      );
       return history.slice(reset + 1);
     })
     .sort((a, b) => a.sequence - b.sequence);

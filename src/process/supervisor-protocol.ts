@@ -12,6 +12,7 @@
 // - `processObservationSchema`: process.ps1 output. Anything else is an unknown observation, which never
 //   proves a process absent.
 import { z } from 'zod';
+import { processLimits } from '../config/limits.js';
 
 /** A Windows FILETIME creation time as decimal text; it is never rounded through a JS number. */
 export function validProcessStartTime(value: unknown): value is string {
@@ -40,7 +41,10 @@ export const supervisorMessageSchema = z.discriminatedUnion('type', [
 export type SupervisorMessage = z.infer<typeof supervisorMessageSchema>;
 
 /** The host reads only the deadline; the rest of the request is forwarded to the supervisor unchanged. */
-export const checkHostRequestSchema = z.looseObject({ timeoutMs: z.number() });
+export const checkHostRequestSchema = z.looseObject({
+  timeoutMs: z.number(),
+  jobDrainMs: z.literal(processLimits.supervisorJobDrainMs),
+});
 
 /** Where a supervised run writes its receipt, and the token and id the receipt must repeat. */
 export const checkReceiptSchema = z.object({ directory: z.string(), token: z.string(), checkId: z.string() });

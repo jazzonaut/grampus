@@ -137,7 +137,8 @@ async function mcpOverrides(rpc: RpcProcess, options: ConnectOptions): Promise<R
 }
 
 function developerInstructions(options: ConnectOptions): string {
-  if (options.editing?.policy.workspace) return `${workspaceInstructions}\n${mcpInstructions}`;
+  if (options.editing?.policy.workspace)
+    return `${workspaceInstructions}\n${mcpInstructions}${options.repository ? `\n${referenceInstructions(options.repository.references ?? [])}` : ''}`;
   let text = `${
     options.editing
       ? implementationInstructions(
@@ -300,10 +301,12 @@ async function threadParameters(rpc: RpcProcess, options: ConnectOptions) {
   };
 }
 
-/** Confirms the execution capability before any implementation turn is dispatched. */
+/** Confirms role permissions before any planning, review or implementation turn is dispatched. */
 function confirmEditingSandbox(editing: EditingContext | undefined, thread: z.infer<typeof threadStartSchema>): void {
   // Editing relies on Codex asking before every patch; a thread that did not confirm that is refused.
   const sandbox = readOnlySandboxSchema.safeParse(thread.sandbox);
+  if (!editing && (thread.approvalPolicy !== 'untrusted' || !sandbox.success || sandbox.data.networkAccess === true))
+    throw new Error('Codex did not confirm conversation approvals and read-only sandbox');
   if (
     editing &&
     !editing.policy.workspace &&

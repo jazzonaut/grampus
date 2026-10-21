@@ -15,6 +15,14 @@ that preference suppresses the node outline pulse while retaining the same statu
 
 ## What the network means
 
+The task page keeps this network above its working view. The activity card and recent-activity list
+also read native tool observations, with separate verification context beside them. The compact feed
+shows the latest turn of the displayed execution, coalesces each tool item to its latest observation
+and retains at most six items. A confirmed, settled message reply can appear as the latest attributed
+agent update; partial structured output is not shown. Exact command arguments and file payloads are
+not captured by this feed, so a command may be described simply as **Running a command**. A stale
+activity warning reports silence without claiming that a process is stopped or making progress.
+
 Participants and connections come from recorded activity, not the approved workflow's stage
 list. An agent has separate connections to its backend model, its tools and the Grampus
 controller. Independent review returns to the controller. A repair decision is a controller

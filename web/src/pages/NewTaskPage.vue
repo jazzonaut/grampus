@@ -187,8 +187,8 @@ async function start(): Promise<void> {
         <section class="grampus-surface text-sm">
           <h2 class="font-semibold text-highlighted">Before work begins</h2>
           <p class="mt-1 text-toned">
-            Planning uses your existing subscription sign-in. You review the complete plan and authorize the exact files
-            before implementation starts.
+            Planning uses your existing subscription sign-in. You approve the outcome and verification plan before the
+            agent implements it using native workspace tools.
           </p>
           <p class="mt-2 text-xs text-muted">
             The other provider reviews the result. Routine check failures are repaired within the approved allowance.

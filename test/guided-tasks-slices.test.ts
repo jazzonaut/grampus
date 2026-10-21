@@ -86,7 +86,7 @@ test(
       ...services(),
       implementationRunner: options => {
         const run = f.store.implementation(options.receipt!.checkId);
-        const file = run.policy.files[0]!,
+        const file = ['greeting.js', 'cli.js', 'notes.js'][f.store.execution(run.executionId).sliceIndex]!,
           source =
             file === 'greeting.js'
               ? "module.exports = 'hello world';\n"
@@ -132,7 +132,7 @@ test(
     const kickoffs = new Kickoffs(f.store, async () => ({
       turn: async () => ({
         status: 'completed',
-        reply: { ...message, text: JSON.stringify(plan) },
+        reply: { ...message, kind: 'message', text: JSON.stringify(plan) },
         usage: null,
         error: null,
       }),

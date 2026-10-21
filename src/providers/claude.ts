@@ -171,7 +171,11 @@ function toolConfiguration(
       tools: { type: 'preset', preset: 'claude_code' },
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: `${workspaceInstructions}\n${mcpInstructions}` },
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+        append: `${workspaceInstructions}\n${mcpInstructions}${options.repository ? `\n${referenceInstructions(options.repository.references ?? [])}` : ''}`,
+      },
     };
   return {
     tools: editing ? ['Read', 'Edit', 'Write', 'ToolSearch'] : ['ToolSearch'],

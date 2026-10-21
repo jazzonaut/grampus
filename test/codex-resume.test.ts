@@ -27,7 +27,7 @@ function savedConversation(): RpcProcess {
           thread: { id: r.params.threadId, turns: r.params.excludeTurns ? [] : [
             { items: [{ text: 'x'.repeat(${processLimits.rpcLineBytes + 1}) }] }
           ] },
-          model: 'fixture'
+          model: 'fixture', approvalPolicy: 'untrusted', sandbox: {type:'readOnly',networkAccess:false}
         } });
       }
       if (r.method === 'mcpServerStatus/list') send({ id: r.id, result: { data: [], nextCursor: null } });

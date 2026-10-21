@@ -10,7 +10,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { Store } from '../src/persistence/store.js';
 import { RecordNotFoundError } from '../src/persistence/errors.js';
 import { BoundaryError, boundedExcerpt, describeIssues } from '../src/process/boundary.js';
-import { completionReceiptSchema, supervisorMessageSchema } from '../src/process/supervisor-protocol.js';
+import {
+  checkHostRequestSchema,
+  completionReceiptSchema,
+  supervisorMessageSchema,
+} from '../src/process/supervisor-protocol.js';
+import { processLimits } from '../src/config/limits.js';
 import { readReceipt } from '../src/verification/check-recovery.js';
 import { readDeliveryRequest, readImplementationResult } from '../src/execution/worker-files.js';
 import { OrcaCli } from '../src/repository/orca.js';
@@ -101,6 +106,12 @@ test('journal records are validated on read, returned in their stored key order,
 });
 
 test('supervisor messages and completion receipts are pinned; extra fields pass, other shapes do not', t => {
+  assert.equal(checkHostRequestSchema.safeParse({ timeoutMs: 1000 }).success, false);
+  assert.equal(checkHostRequestSchema.safeParse({ timeoutMs: 1000, jobDrainMs: 100 }).success, false);
+  assert.equal(
+    checkHostRequestSchema.safeParse({ timeoutMs: 1000, jobDrainMs: processLimits.supervisorJobDrainMs }).success,
+    true,
+  );
   assert.deepEqual(supervisorMessageSchema.parse({ type: 'started', pid: 4321, at: 'extra' }), {
     type: 'started',
     pid: 4321,

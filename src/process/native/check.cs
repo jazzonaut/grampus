@@ -49,11 +49,11 @@ public static class GrampusCheck {
         Accounting info; Check(QueryInformationJobObject(job, 1, out info, Marshal.SizeOf(typeof(Accounting)), IntPtr.Zero));
         return info.Active;
     }
-    static string ExitReason(IntPtr job, Stopwatch clock, int timeoutMs) {
+    static string ExitReason(IntPtr job, Stopwatch clock, int timeoutMs, int jobDrainMs) {
         // A signalled root handle can precede the job's final accounting update.
         // Observe bounded settlement; never infer zero activity from root exit.
         var drain = Stopwatch.StartNew();
-        while (!stop && (timeoutMs == 0 || clock.ElapsedMilliseconds < timeoutMs) && Active(job) != 0 && drain.ElapsedMilliseconds < 100) Thread.Sleep(1);
+        while (!stop && (timeoutMs == 0 || clock.ElapsedMilliseconds < timeoutMs) && Active(job) != 0 && drain.ElapsedMilliseconds < jobDrainMs) Thread.Sleep(1);
         if (stop) return "interrupted";
         if (timeoutMs > 0 && clock.ElapsedMilliseconds >= timeoutMs) return "timed_out";
         return Active(job) == 0 ? "exited" : "descendants_remaining";
@@ -74,7 +74,7 @@ public static class GrampusCheck {
     }
     static void Emit(string value) { Console.WriteLine(value); Console.Out.Flush(); }
 
-    public static void Run(string file, string[] args, string cwd, int timeoutMs, string stdout, string stderr, string receiptPath, string checkId, string token, int supervisorPid) {
+    public static void Run(string file, string[] args, string cwd, int timeoutMs, string stdout, string stderr, string receiptPath, string checkId, string token, int supervisorPid, int jobDrainMs) {
         IntPtr job = IntPtr.Zero, list = IntPtr.Zero, jobs = IntPtr.Zero, handles = IntPtr.Zero;
         IntPtr input = IntPtr.Zero, output = IntPtr.Zero, error = IntPtr.Zero;
         var process = new ProcessInfo(); bool initialized = false, confirmed = false;
@@ -118,7 +118,7 @@ public static class GrampusCheck {
                 if (new FileInfo(stdout).Length + new FileInfo(stderr).Length > 2 * 1024 * 1024) { reason = "output_limit"; break; }
                 if (WaitForSingleObject(process.Process, 0) == 0) {
                     Check(GetExitCodeProcess(process.Process, out exitCode));
-                    reason = ExitReason(job, clock, timeoutMs); break;
+                    reason = ExitReason(job, clock, timeoutMs, jobDrainMs); break;
                 }
                 Thread.Sleep(20);
             }

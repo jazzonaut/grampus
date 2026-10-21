@@ -4,7 +4,7 @@
 // Operational values that may be tuned per installation live in settings.ts.
 // Rule: no new magic numbers. Add a bound here or an operational value to settings.ts.
 // The native supervisor (process/native/check.cs) keeps its own C# constants: a 2 MiB combined output
-// cap, a 100 ms job drain and a 5 s termination grace. Change them there and in docs together.
+// cap and a 5 s termination grace. The job drain bound is passed from processLimits below.
 
 /** One kibibyte. */
 export const KiB = 1024;
@@ -350,6 +350,8 @@ export const serverLimits = {
   stateNoteSummaryThreshold: 4000,
   /** Characters of a tool argument shown in live planner progress. */
   progressTextCharacters: 180,
+  /** Tool observations retained in the task's compact recent-activity feed. */
+  taskActivityEntries: 6,
   /** Node HTTP request timeout. */
   requestTimeoutMs: 15_000,
   /** Node HTTP header timeout. */
@@ -390,6 +392,8 @@ export const processLimits = {
   stopPollMs: 250,
   /** Check host: deadline for the supervisor to receive its request. */
   supervisorStartupMs: 20_000,
+  /** Allow Windows job accounting to settle after root exit without inferring success from root exit alone. */
+  supervisorJobDrainMs: 1000,
   /** Check host: allowance after a check's own deadline, a result or a stop before the supervisor is killed. */
   supervisorSettleMs: 15_000,
   /** Controller-side allowance for the supervisor to report after startup, a result or a stop. */

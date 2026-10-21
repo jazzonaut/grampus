@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * ScopeReview: what file authorization grants, to inspect before deciding: each file with its action
- * (edit, create, delete) and exact current content, the repository instructions the agent will follow,
- * and why authorization cannot be prepared, when it cannot. Contents are shown literally.
+ * ScopeReview: native workspace execution confirmation, with optional file suggestions,
+ * repository instructions and any reason confirmation cannot be prepared. File suggestions
+ * do not restrict execution. Contents are shown literally.
  *
  * Props:
  * - `scope`: `DetailsV1.scope`.

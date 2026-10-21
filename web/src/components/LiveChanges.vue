@@ -6,7 +6,8 @@ import { get, needsAccessLink } from '../api/client';
 import { usePolled } from '../api/usePolled';
 import { localTime, short } from './format';
 
-const props = defineProps<{ path: string; intervalMs: number }>();
+const props = defineProps<{ path: string; intervalMs: number; compact?: boolean }>();
+defineEmits<{ inspect: [] }>();
 const selected = ref<string | null>(null);
 const live = usePolled(
   () => get<LiveChangesV1>(props.path + (selected.value === null ? '' : `?path=${encodeURIComponent(selected.value)}`)),
@@ -33,8 +34,14 @@ function choose(path: string): void {
 <template>
   <section class="flex flex-col gap-3 rounded-xl border border-default bg-default p-4" data-panel="live-changes">
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <h2 class="text-base font-semibold text-highlighted">Live changes</h2>
-      <button type="button" class="grampus-link-button" :disabled="live.loading.value" @click="live.refresh()">
+      <h2 class="text-base font-semibold text-highlighted">{{ compact ? 'Changes so far' : 'Live changes' }}</h2>
+      <button
+        v-if="!compact"
+        type="button"
+        class="grampus-link-button"
+        :disabled="live.loading.value"
+        @click="live.refresh()"
+      >
         Refresh changes
       </button>
     </div>
@@ -54,6 +61,9 @@ function choose(path: string): void {
         Showing {{ observation.paths.length }} of {{ observation.total }} changed files.
       </p>
       <p v-if="!observation.paths.length" class="text-sm text-muted">No changed files observed.</p>
+      <ul v-else-if="compact" class="max-h-40 overflow-auto font-mono text-xs" aria-label="Observed changed files">
+        <li v-for="file in observation.paths" :key="file" class="py-1 break-all">{{ file }}</li>
+      </ul>
       <div v-else class="grid gap-3 lg:grid-cols-[minmax(12rem,1fr)_minmax(0,3fr)]">
         <ul class="flex max-h-96 flex-col gap-1 overflow-auto" aria-label="Files changed since the task base">
           <li v-for="file in observation.paths" :key="file">
@@ -83,5 +93,13 @@ function choose(path: string): void {
         </div>
       </div>
     </template>
+    <button
+      v-if="compact"
+      type="button"
+      class="self-start text-sm text-primary hover:underline"
+      @click="$emit('inspect')"
+    >
+      Browse changes →
+    </button>
   </section>
 </template>

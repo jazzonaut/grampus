@@ -224,7 +224,7 @@ export class GuidedTasks {
       return this.change(id, null, 'guided.approved', state => {
         state.approvedDigest = digest;
         state.status = 'ready';
-        state.note = 'Run the task to prepare its workspace and inspect the exact file authorization.';
+        state.note = 'Run the task to prepare its workspace and inspect the native execution checkpoint.';
       });
     });
   }
@@ -644,9 +644,9 @@ export class GuidedTasks {
       { signal, expected: state.status },
     );
   }
-  /** Supervised mode: authorizes the displayed file scope and continues. */
+  /** Supervised mode: confirms native execution from the inspected workspace checkpoint and continues. */
   async authorize(id: string, signal?: AbortSignal): Promise<GuidedState> {
-    if (this.current(id).status !== 'awaiting_scope') throw new Error('No file authorization is pending');
+    if (this.current(id).status !== 'awaiting_scope') throw new Error('No workspace confirmation is pending');
     return this.owned(
       id,
       async (token, signal) => {

@@ -18,7 +18,7 @@ import { localTime, minutesSince } from './format';
 
 defineOptions({ name: 'TaskHeader' });
 
-const props = defineProps<{ header: TaskDetailV1['header'] }>();
+const props = defineProps<{ header: TaskDetailV1['header']; active?: boolean }>();
 
 const now = useNow();
 
@@ -53,8 +53,8 @@ const next = computed(() => {
       <summary class="cursor-pointer font-medium text-muted">Intended outcome</summary>
       <MarkdownView :source="header.outcome" class="mt-3 max-w-prose" />
     </details>
-    <p class="text-base text-default" data-explanation>{{ header.explanation }}</p>
-    <p class="text-sm" data-next-step :data-kind="header.nextStep.kind">
+    <p v-if="!active" class="text-base text-default" data-explanation>{{ header.explanation }}</p>
+    <p v-if="!active" class="text-sm" data-next-step :data-kind="header.nextStep.kind">
       <strong class="text-highlighted">{{ next.prefix }}</strong> {{ next.text }}
     </p>
     <NoticeBox v-if="header.stale" tone="warning" title="The approved plan is stale">
@@ -74,7 +74,11 @@ const next = computed(() => {
         {{ header.actionError.action }} · {{ localTime(header.actionError.at) }}
       </p>
     </NoticeBox>
-    <div v-if="header.note" class="rounded-lg border border-default bg-muted px-4 py-3 text-sm" data-note>
+    <div
+      v-if="header.note && (!active || header.stopReason)"
+      class="rounded-lg border border-default bg-muted px-4 py-3 text-sm"
+      data-note
+    >
       <p class="mb-1 text-xs font-medium text-muted">
         Note from Grampus<template v-if="header.stopReason">
           · <span class="font-mono">{{ header.stopReason.code }}</span> ·

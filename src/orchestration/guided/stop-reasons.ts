@@ -22,7 +22,7 @@ export const StopReasonCode = {
   TASK_TOKEN_LIMIT: 'TASK_TOKEN_LIMIT',
   /** A configured token threshold cannot be enforced because usage is incomplete or missing. */
   TASK_USAGE_UNKNOWN: 'TASK_USAGE_UNKNOWN',
-  /** Supervised mode: the exact file scope waits for explicit authorization. */
+  /** Supervised mode: native workspace execution waits for explicit confirmation. */
   SCOPE_AUTHORIZATION_REQUIRED: 'SCOPE_AUTHORIZATION_REQUIRED',
   /** Supervised mode: a human quality assessment of the selected lenses is required after submission. */
   ASSESSMENT_REQUIRED: 'ASSESSMENT_REQUIRED',

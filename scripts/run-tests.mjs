@@ -10,6 +10,11 @@ import { join } from 'node:path';
 
 const root = join(import.meta.dirname, '..'),
   directory = join(root, 'dist', 'test');
+// Windows integration files each launch native supervisors and Git processes. CPU count alone
+// oversubscribes those shared services and makes unrelated fixture deadlines fail under load.
+const windowsWorkerLimit = 4;
+const workers = Math.max(2, availableParallelism() - 1);
+const concurrency = process.platform === 'win32' ? Math.min(windowsWorkerLimit, workers) : workers;
 const files = readdirSync(directory)
   .filter(name => name.endsWith('.test.js'))
   .sort();
@@ -30,11 +35,7 @@ const names =
         });
 const result = spawnSync(
   process.execPath,
-  [
-    '--test',
-    `--test-concurrency=${Math.max(2, availableParallelism() - 1)}`,
-    ...names.map(name => join(directory, name)),
-  ],
+  ['--test', `--test-concurrency=${concurrency}`, ...names.map(name => join(directory, name))],
   { stdio: 'inherit' },
 );
 process.exit(result.status ?? 1);

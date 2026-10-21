@@ -45,7 +45,7 @@ test(
     const done = await tasks.run(task.id);
     assert.equal(done.status, 'complete', done.note);
     assert.equal(implementations, 2);
-    assert.equal(reviews, 2);
+    assert.equal(reviews, 1, 'failed acceptance is repaired before the independent reviewer is dispatched');
     assert.ok(f.store.events(task.id).some(event => event.type === 'guided.acceptance_repair_requested'));
     assert.ok(f.store.get(task.id).evidence.every((e: any) => e.attemptId === f.store.get(task.id).attempt!.id));
   },

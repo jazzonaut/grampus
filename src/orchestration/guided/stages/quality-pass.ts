@@ -1,6 +1,6 @@
-// Owns the `quality_pass` stage: each selected edit pass as a scoped turn by the implementer, after
-// the slice's first successful implementation turn and before validation, within the same file paths.
-// A pass never widens the slice's authorized paths, and a settled pass never runs again in the slice.
+// Owns the `quality_pass` stage: explicitly assigned edit passes use native workspace access after
+// candidate submission and before validation. A settled pass never runs again in the slice;
+// unassigned passes are work for the ordinary implementer before it submits a candidate.
 import { Implementations } from '../../../execution/implementations.js';
 import { prepareEditing } from '../../../execution/edit-policy.js';
 import { boundedRepositoryFiles } from '../../../repository/repository-evidence.js';
@@ -25,8 +25,8 @@ function requirePass(state: GuidedState) {
 
 /**
  * The pass resumes the implementation conversation (the same execution and session), so the
- * implementer knows what it just changed. Its policy is the slice's authorized paths rebuilt on the
- * implementation's result; the result is adopted only under exactly that policy.
+ * implementer knows what it just changed when the model and context policy allow resumption.
+ * Its workspace checkpoint is rebuilt on the implementation's result; settlement binds to that policy.
  */
 export const qualityPassStage: StageHandler = {
   known: ({ store }, state) => store.implementations(required(state, 'executionId')).map(item => item.id),

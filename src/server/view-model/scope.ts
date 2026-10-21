@@ -1,5 +1,5 @@
-// Owns the file contents shown for inspection while a supervised file authorization is pending: the
-// exact files in scope, bounded like the agent's own context, read from the retained snapshot.
+// Owns optional file previews at supervised workspace confirmation. Native execution grants no
+// exact file list; explicit scopes retain their bounded snapshot previews for low-level callers.
 import { editingScopeFiles } from '../../execution/edit-policy.js';
 import { boundedRepositoryFiles } from '../../repository/repository-evidence.js';
 import type { RepositorySnapshot } from '../../repository/artifacts.js';

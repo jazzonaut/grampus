@@ -1,7 +1,6 @@
-// Owns the exact prompt of one native implementation turn: the claimed request, the file authorisation,
-// the starting repository context and, for Codex, the editable file contents. Every part shares the turn's
-// prompt budget, and the worker sends the result unchanged, so what is built here is what the provider
-// receives.
+// Owns implementation prompts for native workspaces and explicitly scoped low-level editing.
+// Every part shares the turn's prompt budget, and the worker sends the result unchanged, so
+// what is built here is what the provider receives.
 import type { Session } from '../persistence/records.js';
 import { repositoryContext } from '../repository/repository-evidence.js';
 import type { GuidedPlan } from '../domain/guided-plan.js';

@@ -19,6 +19,26 @@ async function open(routes: Parameters<typeof fakeServer>[0]) {
 }
 
 describe('TaskPage', () => {
+  it('keeps the graph first and opens resource diagnostics only on demand', async () => {
+    const { wrapper, sent } = await open({});
+    const panels = wrapper.findAll(
+      '[aria-label="Live observability"], [data-panel="header"], [data-panel="working-view"]',
+    );
+    expect(panels.map(panel => panel.attributes('data-panel') ?? panel.attributes('aria-label'))).toEqual([
+      'Live observability',
+      'header',
+      'working-view',
+    ]);
+    expect(wrapper.find('[data-panel="current-work"] [data-panel="recent-work"]').exists()).toBe(true);
+    expect(wrapper.find('aside [data-panel="verification-summary"]').exists()).toBe(true);
+    expect(sent.some(request => request.path.endsWith('/metrics'))).toBe(false);
+    expect(sent.some(request => request.path === '/api/v1/model-profiles')).toBe(false);
+    await wrapper.get('[data-panel="run-summary"] button').trigger('click');
+    await flushPromises();
+    expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe('Usage');
+    expect(sent.some(request => request.path.endsWith('/metrics'))).toBe(true);
+    expect(posts(sent)).toEqual([]);
+  });
   it('opens the server-provided Orca action without waiting for a workflow change', async () => {
     const view: TaskDetailV1 = {
       ...mockTask,
@@ -59,19 +79,19 @@ describe('TaskPage', () => {
     expect(wrapper.find('[data-panel="decisions"] [data-decision="revise"]').exists()).toBe(false);
     expect(wrapper.find('[data-panel="decisions"] [data-decision="report"]').exists()).toBe(false);
     expect(wrapper.find('[data-panel="report"]').exists()).toBe(false); // Created when Details > Report opens.
-    expect(wrapper.get('[data-panel="spending"]').text()).toContain(mockTask.spending.turnsLabel);
-    expect(wrapper.get('[data-panel="spending"]').text()).toContain(mockTask.spending.tokensLabel);
+    expect(wrapper.find('[data-panel="spending"]').exists()).toBe(false);
+    expect(wrapper.get('[data-panel="run-summary"]').text()).toContain(mockTask.spending.turnsLabel);
     expect(wrapper.text()).toContain('Manage task');
     // Results.
     expect(wrapper.get('[data-unresolved]').text()).toContain('1 blocking review finding');
     expect(wrapper.get('[data-check="check-1"] [data-issue]').text()).toBe('AssertionError: expected 3 retries');
     expect(wrapper.get('[data-lens="simplification"]').text()).toContain('reviewer failed it');
-    expect(wrapper.get('[data-usage-headline]').text()).toContain('195,244 tokens');
     expect(wrapper.find('[data-panel="usage"]').exists()).toBe(false);
     await wrapper
       .findAll('[role="tab"]')
       .find(button => button.text() === 'Usage')!
       .trigger('click');
+    expect(wrapper.get('[data-panel="spending"]').text()).toContain(mockTask.spending.tokensLabel);
     // Usage: unknown is never 0.
     const claude = wrapper.findAll('td[data-metric="inputTokens"]').map(cell => cell.text());
     expect(claude).toContain('Unknown');
@@ -255,11 +275,12 @@ describe('TaskPage', () => {
     });
     const activity = wrapper.get('[data-panel="activity"]');
     expect(activity.text()).toContain('Implementing the change');
-    expect(activity.text()).toContain('3 repository actions · 0 MCP requests · 1 file change request');
+    expect(activity.get('h2').text()).toBe('No recent activity recorded');
+    expect(activity.text()).toContain('Last reported: Requested file changes: src/export.ts');
+    expect(activity.text()).not.toContain('0 MCP requests');
     expect(activity.find('[data-action="stop"]').exists()).toBe(true);
     expect(activity.find('[data-action="pause"]').exists()).toBe(true);
-    expect(wrapper.get('[data-panel="repairs"]').text()).toContain('1 of 3 allocated in this slice');
-    expect(wrapper.get('[data-panel="repairs"]').text()).toContain('retry path drops the original error');
+    expect(wrapper.find('[data-panel="repairs"]').exists()).toBe(false);
     expect(wrapper.text()).toContain('Nothing has been stopped.');
     expect(wrapper.text()).not.toMatch(/\d+%/);
     await activity.get('[data-action="pause"] button').trigger('click');
@@ -267,6 +288,12 @@ describe('TaskPage', () => {
     expect(posts(sent)).toEqual([
       { method: 'POST', path: '/api/tasks/task-1/pause', body: { expected: 'decision-7' } },
     ]);
+    await wrapper
+      .findAll('[role="tab"]')
+      .find(button => button.text() === 'Usage')!
+      .trigger('click');
+    expect(wrapper.get('[data-panel="repairs"]').text()).toContain('1 of 3 allocated in this slice');
+    expect(wrapper.get('[data-panel="repairs"]').text()).toContain('retry path drops the original error');
   });
 
   it('explains a deleted task', async () => {
@@ -316,6 +343,10 @@ describe('TaskPage', () => {
         spending: { ...mockTask.spending, status: 'turn_limit', statusLabel: 'Turn allowance exhausted' },
       },
     });
+    await wrapper
+      .findAll('[role="tab"]')
+      .find(button => button.text() === 'Usage')!
+      .trigger('click');
     await wrapper.get('[data-panel="spending"] button').trigger('click');
     const panel = wrapper.get('[data-decision="revise"]').element.parentElement as HTMLDetailsElement;
     expect(panel.open).toBe(true);

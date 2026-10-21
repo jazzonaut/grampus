@@ -41,14 +41,17 @@ test('explicit retry adopts staged files after an interrupted implementation', w
   assert.equal(stopped.stopReason?.code, 'CHECKPOINT_CHANGED');
   assert.equal(implementations, 1);
   assert.equal(f.store.checks(stopped.executionId!).length, 0);
+  const cwd = guidedTaskView(f.store, task.id).workspace!.path!;
+  writeFileSync(join(cwd, 'additional.txt'), 'Explicitly adopted project change\n');
   const done = await tasks.retry(task.id);
   assert.equal(done.status, 'complete', done.note);
   assert.equal(implementations, 2);
   assert.notEqual(done.executionId, stopped.executionId);
   assert.equal(done.digest, stopped.digest);
+  assert.equal(git(cwd, 'show', 'HEAD:additional.txt'), 'Explicitly adopted project change');
 });
 
-for (const mutation of ['head', 'instructions', 'outside-scope'] as const)
+for (const mutation of ['head', 'instructions'] as const)
   test(`explicit staging retry still rejects changed ${mutation}`, windows, async t => {
     const f = fixture(t),
       config = services();
@@ -67,7 +70,7 @@ for (const mutation of ['head', 'instructions', 'outside-scope'] as const)
     assert.equal(stopped.status, 'blocked', stopped.note);
     const cwd = guidedTaskView(f.store, task.id).workspace!.path!;
     if (mutation === 'head') git(cwd, 'commit', '-m', 'External commit');
-    else writeFileSync(join(cwd, mutation === 'instructions' ? 'AGENTS.md' : 'outside.txt'), 'External change\n');
+    else writeFileSync(join(cwd, 'AGENTS.md'), 'External change\n');
     await assert.rejects(tasks.retry(task.id), /Git state or repository instructions|outside the explicit/);
     assert.equal(implementations, 1);
     assert.equal(tasks.get(task.id).executionId, stopped.executionId);

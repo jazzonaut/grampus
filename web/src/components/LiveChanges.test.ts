@@ -56,3 +56,15 @@ it('labels retained observations as stale when a later read fails', async () => 
   expect(mounted.text()).toContain('src/export.ts');
   expect(mounted.text()).not.toContain('No changed files observed');
 });
+
+it('offers a compact file summary and opens the full view without fetching a diff', async () => {
+  const sent = fakeServer({ [path]: initial });
+  mounted = await render(LiveChanges, { path, intervalMs: 5000, compact: true });
+  expect(mounted.get('h2').text()).toBe('Changes so far');
+  expect(mounted.get('[aria-label="Observed changed files"]').text()).toContain('src/export.ts');
+  expect(mounted.find('pre').exists()).toBe(false);
+  await mounted.get('button').trigger('click');
+  expect(mounted.emitted('inspect')).toEqual([[]]);
+  expect(sent.every(request => request.path === path)).toBe(true);
+  expect(posts(sent)).toEqual([]);
+});

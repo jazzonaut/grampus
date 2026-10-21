@@ -4,6 +4,7 @@
 // replies or tool results.
 import type { Session } from '../execution/sessions.js';
 import { serverLimits } from '../config/limits.js';
+import { NativeProgress } from './native-progress.js';
 
 /** The fields of a session event this module reads. */
 interface Event {
@@ -82,6 +83,7 @@ function repositoryAction(tool: unknown, args: Record<string, unknown>, complete
 
 /** Folds the events of one run into its progress. */
 class Progress {
+  private readonly native = new NativeProgress();
   stage: Stage = 'connecting';
   activity = 'Starting the agent and connecting integrations';
   repositoryCalls = 0;
@@ -97,6 +99,16 @@ class Progress {
    * undefined when the event type is not progress at all.
    */
   apply(type: string, data: Record<string, unknown>): string | null | undefined {
+    const observed = this.native.apply(type, data);
+    if (observed !== undefined) {
+      this.stage = 'working';
+      this.activity = this.native.activity ?? 'Agent turn in progress; no tool is currently observed running';
+      return observed;
+    }
+    if (type === 'output.delta' && this.native.activity) {
+      this.activity = this.native.activity;
+      return null;
+    }
     switch (type) {
       case 'session.connected':
         this.activity = 'Connected to the agent';
@@ -108,7 +120,7 @@ class Progress {
       case 'repository.tool_requested':
         this.stage = 'working';
         this.repositoryRequest = { ...fields(data['arguments']), ...(data['root'] ? { root: data['root'] } : {}) };
-        this.activity = repositoryAction(data['tool'], this.repositoryRequest, false);
+        this.activity = this.native.activity ?? repositoryAction(data['tool'], this.repositoryRequest, false);
         return null;
       case 'repository.tool_result':
         return this.repositoryResult(data);
@@ -134,7 +146,7 @@ class Progress {
   /** A tool action that is itself the current activity. */
   private working(label: string): string {
     this.stage = 'working';
-    this.activity = label;
+    this.activity = this.native.activity ?? label;
     return label;
   }
 
@@ -150,7 +162,7 @@ class Progress {
       { ...this.repositoryRequest, ...fields(data['result']), ...(data['root'] ? { root: data['root'] } : {}) },
       true,
     );
-    this.activity = 'Agent is working with the retrieved context';
+    this.activity = this.native.activity ?? 'Agent is working with the retrieved context';
     return label;
   }
 

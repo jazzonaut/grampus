@@ -17,22 +17,21 @@ import { href, navigate } from '../router';
 import { pollIntervalMs } from '../settings';
 import ActionButton from '../components/ActionButton.vue';
 import ActionNoticeBar from '../components/ActionNoticeBar.vue';
-import ActivityCard from '../components/ActivityCard.vue';
+import TaskActivity from '../components/TaskActivity.vue';
+import RecentWork from '../components/RecentWork.vue';
+import TaskContext from '../components/TaskContext.vue';
 import DecisionCard from '../components/DecisionCard.vue';
 import DecisionQueue from '../components/DecisionQueue.vue';
 import EmptyState from '../components/EmptyState.vue';
 import ErrorBanner from '../components/ErrorBanner.vue';
-import TaskRunMetrics from '../components/TaskRunMetrics.vue';
 import ComparisonSetup from '../components/ComparisonSetup.vue';
 import TaskWorkspace from '../components/TaskWorkspace.vue';
-import TaskFacts from '../components/TaskFacts.vue';
 import TaskHeader from '../components/TaskHeader.vue';
 import LiveObservability from '../components/LiveObservability.vue';
 import WorkflowStrip from '../components/WorkflowStrip.vue';
 import LiveChanges from '../components/LiveChanges.vue';
-import RepairDecisions from '../components/RepairDecisions.vue';
 import GuidancePanel from '../components/GuidancePanel.vue';
-import SpendingPanel from '../components/SpendingPanel.vue';
+import EvidenceSection from '../components/EvidenceSection.vue';
 import { short } from '../components/format';
 
 defineOptions({ name: 'TaskPage' });
@@ -83,12 +82,19 @@ const queue = computed(() =>
     item =>
       !managed.has(item.id) &&
       item.id !== 'approve' &&
+      !(item.id === 'recover' && item.kind === 'secondary') &&
       !((item.id === 'stop' || item.id === 'pause') && view.value?.activity) &&
       !(item.id === 'report' && !reportIsNext.value),
   ),
 );
 const approval = computed(() => decisions.value.find(item => item.id === 'approve'));
 const selected = ref('results');
+const workspace = useTemplateRef<InstanceType<typeof TaskWorkspace>>('workspace');
+function openView(view: string): void {
+  selected.value = view;
+  const element: unknown = workspace.value?.$el;
+  if (element instanceof HTMLElement) element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 watch(
   () => view.value?.details.approval.approved,
   approved => {
@@ -107,7 +113,11 @@ function requestChanges(): void {
   panel.open = true;
   panel.querySelector<HTMLTextAreaElement>('textarea')?.focus();
 }
-const lifecycle = computed(() => decisions.value.filter(item => ['reset', 'delete', 'discard'].includes(item.id)));
+const lifecycle = computed(() =>
+  decisions.value.filter(
+    item => ['reset', 'delete', 'discard'].includes(item.id) || (item.id === 'recover' && item.kind === 'secondary'),
+  ),
+);
 
 function run(action: ActionView, drafts = {}): void {
   void actions.run(action, drafts);
@@ -141,7 +151,7 @@ watch(
     <p v-else-if="!view" class="text-sm text-muted" role="status">Loading the task…</p>
     <template v-if="view && !missing">
       <LiveObservability :id="id" kind="task" />
-      <TaskHeader :header="view.header" />
+      <TaskHeader :header="view.header" :active="!!view.activity" />
       <div v-if="view.orca" class="flex flex-col items-start gap-2">
         <ActionButton
           :action="view.orca.open"
@@ -151,55 +161,68 @@ watch(
         />
         <p v-if="view.orca.problem" class="text-sm text-muted" role="status">{{ view.orca.problem }}</p>
       </div>
-      <TaskFacts :task="view" />
-      <TaskRunMetrics :id="id" />
-      <ComparisonSetup :id="id" :digest="view.details.approval.digest" />
       <ActionNoticeBar :notice="actions.notice.value" @dismiss="actions.dismiss()" />
       <section aria-labelledby="workflow-heading" class="flex flex-col gap-2">
         <h2 id="workflow-heading" class="text-base font-semibold text-highlighted">Workflow</h2>
         <WorkflowStrip :stages="view.workflow" />
       </section>
-      <ActivityCard v-if="view.activity" :activity="view.activity">
-        <template v-if="controls.length" #actions>
-          <ActionButton
-            v-for="control in controls"
-            :key="control.id"
-            :action="control"
+      <div class="grid items-start gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(17rem,1fr)]" data-panel="working-view">
+        <div class="flex min-w-0 flex-col gap-5" data-panel="current-work">
+          <TaskActivity v-if="view.activity" :activity="view.activity" :work="view.work" :header="view.header">
+            <template v-if="controls.length" #actions>
+              <ActionButton
+                v-for="control in controls"
+                :key="control.id"
+                :action="control"
+                :busy="actions.busy.value"
+                :sending="actions.sending.value === control.id"
+                @run="run(control)"
+              />
+            </template>
+          </TaskActivity>
+          <DecisionQueue
+            v-if="queue.length"
+            :decisions="queue"
+            :task="view"
             :busy="actions.busy.value"
-            :sending="actions.sending.value === control.id"
-            show-description
-            @run="run(control)"
+            :sending="actions.sending.value"
+            :issues-for="actions.issuesFor"
+            @run="run"
           />
+          <RecentWork v-if="view.details.approval.approved" :id="id" :work="view.work" />
+          <GuidancePanel :guidance="view.guidance" :refresh="task.refresh" />
+          <button
+            v-if="revise && revisionIsNext"
+            type="button"
+            class="grampus-link-button self-start"
+            @click="requestChanges"
+          >
+            {{ revise.label }}
+          </button>
+        </div>
+        <aside class="flex min-w-0 flex-col gap-4" aria-label="Task context">
+          <LiveChanges
+            v-if="view.liveChangesPath"
+            :key="view.id"
+            :path="view.liveChangesPath"
+            :interval-ms="view.liveChangesIntervalMs"
+            compact
+            @inspect="openView('changes')"
+          />
+          <TaskContext :task="view" @select="openView" />
+        </aside>
+      </div>
+      <TaskWorkspace ref="workspace" v-model="selected" :task="view">
+        <template #spending>
+          <button
+            v-if="revise && revisionIsNext"
+            type="button"
+            class="grampus-link-button self-start"
+            @click="requestChanges"
+          >
+            {{ revise.label }}
+          </button>
         </template>
-      </ActivityCard>
-      <GuidancePanel :guidance="view.guidance" :refresh="task.refresh" />
-      <DecisionQueue
-        v-if="queue.length || !approval"
-        :decisions="queue"
-        :task="view"
-        :busy="actions.busy.value"
-        :sending="actions.sending.value"
-        :issues-for="actions.issuesFor"
-        @run="run"
-      />
-      <LiveChanges
-        v-if="view.liveChangesPath"
-        :key="view.id"
-        :path="view.liveChangesPath"
-        :interval-ms="view.liveChangesIntervalMs"
-      />
-      <RepairDecisions :repairs="view.repairs" />
-      <SpendingPanel :spending="view.spending">
-        <button
-          v-if="revise && revisionIsNext"
-          type="button"
-          class="grampus-link-button self-start"
-          @click="requestChanges"
-        >
-          {{ revise.label }}
-        </button>
-      </SpendingPanel>
-      <TaskWorkspace v-model="selected" :task="view">
         <template #approval>
           <div
             v-if="approval"
@@ -223,6 +246,9 @@ watch(
           </div>
         </template>
       </TaskWorkspace>
+      <EvidenceSection title="Compare model profiles" summary="Run this plan with other profiles">
+        <ComparisonSetup :id="id" :digest="view.details.approval.digest" />
+      </EvidenceSection>
       <details v-if="revise" ref="revisionPanel" class="rounded-xl border border-default bg-default p-4">
         <summary class="cursor-pointer text-sm font-medium text-highlighted">
           {{ revise.label }} · {{ revise.enabled ? 'Needs fresh approval' : 'Unavailable now' }}

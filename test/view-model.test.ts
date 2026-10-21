@@ -51,7 +51,7 @@ test('notes are rewritten into dashboard language once, on the server', () => {
     humanNote('\u001b[31mUse task-retry after staging, or task-rerun-checks; see task-show.\u001b[0m\u0007'),
     'Use a repair attempt after staging, or Rerun checks; see the task details.',
   );
-  assert.equal(humanNote('task-authorize then task-run'), 'the file authorization button then Continue task');
+  assert.equal(humanNote('task-authorize then task-run'), 'the workspace confirmation button then Continue task');
 });
 
 test('usage keeps unknown values null and marks a total over unknown parts as partial', () => {

@@ -1,10 +1,10 @@
-// Exercises in-turn diagnostics on real repositories and journals while the implementation lease stays held.
+// Native diagnostics do not replace the controller's final verification of the submitted candidate.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GuidedTasks } from '../src/orchestration/guided/controller.js';
-import { ImplementationCommands } from '../src/execution/implementation-commands.js';
+import { execFileSync } from 'node:child_process';
 import { fixture, inlineImplementation, services, windows } from './helpers/guided-tasks.js';
 
 test(
@@ -17,19 +17,25 @@ test(
     config.implementationRunner = async options => {
       turns++;
       const id = options.receipt!.checkId;
-      const commands = new ImplementationCommands(f.store, id);
+      const validation = () =>
+        execFileSync(process.execPath, ['greeting.js'], { cwd: options.cwd, encoding: 'utf8', windowsHide: true });
       writeFileSync(join(options.cwd, 'greeting.js'), "// FORMAT\nconsole.log('wrong');\n");
-      await assert.rejects(commands.run('arbitrary command'), /Unknown approved/);
-      const failed = (await commands.run('validation')) as { phase: string };
-      assert.equal(failed.phase, 'failed');
+      assert.notEqual(validation(), 'hello world\n');
       writeFileSync(join(options.cwd, 'greeting.js'), "// FORMAT\nconsole.log('hello world');\n");
-      await commands.finish();
+      writeFileSync(
+        join(options.cwd, 'greeting.js'),
+        readFileSync(join(options.cwd, 'greeting.js'), 'utf8').replace('// FORMAT\n', ''),
+      );
       assert.equal(readFileSync(join(options.cwd, 'greeting.js'), 'utf8'), "console.log('hello world');\n");
-      assert.equal(((await commands.run('validation')) as { phase: string }).phase, 'passed');
+      assert.equal(validation(), 'hello world\n');
       const run = f.store.implementation(id),
         execution = f.store.execution(run.executionId);
       assert.equal(f.store.lease(execution.workspaceId)?.runId, id);
-      assert.ok(f.store.checks(execution.id).every(check => check.implementationId === id));
+      assert.equal(
+        f.store.checks(execution.id).length,
+        0,
+        'native diagnostics do not create controller verification evidence',
+      );
       return inlineImplementation(options, "console.log('regressed after diagnostics');\n");
     };
     const tasks = new GuidedTasks(f.store, config);

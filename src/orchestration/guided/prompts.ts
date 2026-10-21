@@ -75,9 +75,8 @@ export interface ReviewPromptInput {
 }
 
 /**
- * The approved checks as the reviewer must weigh them. Review sits between validation and acceptance,
- * so a reviewer that demanded acceptance results would block every attempt with a finding no repair
- * can resolve; it judges whether the approved commands will establish the criteria instead.
+ * The approved checks as the reviewer must weigh them. Review follows every acceptance check, so
+ * the reviewer judges actual retained results and their coverage of the criteria.
  */
 function checkInstructions({ readiness, validation, acceptance }: ReviewPromptInput['checks']): string {
   return `Approved checks for this slice: ${JSON.stringify({ readiness, validation, acceptance })}. The controller has run readiness, validation and every acceptance check on this candidate before review. Inspect those retained results and the current artifact independently. Judge whether the checks and actual observations establish the approved criteria, and raise concrete blockers for defects, weakened tests or missing evidence. A passing process alone does not establish the intended behaviour. The implementation approach and suggested file list are provisional; assess task relevance and quality rather than requiring the original implementation details.`;

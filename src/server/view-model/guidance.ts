@@ -42,7 +42,7 @@ function compose(id: string, state: GuidedState, expected: string, starting: boo
     form: {
       kind: 'message',
       intro:
-        'Refine the approach within the approved plan. Use plan revision for scope, commands, requirements or acceptance changes. Guidance does not answer pending structured questions.',
+        'Refine files, local commands and the approach within the approved plan. Use plan revision for agreed requirements, final verification commands or acceptance changes. Guidance does not answer pending structured questions.',
       fields: [
         field({
           name: 'text',

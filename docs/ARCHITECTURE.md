@@ -118,15 +118,15 @@ request.
 | `preparation` | `preparation.ts` | Optional approved restore command, before scope |
 | `scope` | `scope.ts` | Capture the artifact and native workspace execution policy |
 | `implementation` | `implementation.ts` | Native work until candidate submission or a consequential question |
-| `quality_pass` | `quality-pass.ts` | Explicit low-level edit-pass handler; adaptive tasks include passes in implementation |
+| `quality_pass` | `quality-pass.ts` | Separate native turn for an explicitly assigned edit-pass model; ordinary edit passes stay inside implementation |
 | `refresh` | `preparation.ts` | Explicit preparation handler; adaptive agents perform generation before submission |
 | `readiness` | `readiness.ts` | Run each approved mechanical check on the current artifact, using a separate bounded slice allowance |
 | `validation` | `checks.ts` | Run the approved behavioural validation command |
 | `submission` | `submission.ts` | Submit the implementation with the latest passing check |
+| `verification` | `checks.ts` | Run acceptance against the active criteria before independent review |
 | `review_execution` | `execution.ts` | Create the review (or arbitration) execution |
 | `review` | `review.ts` | Independent artifact review by the other provider |
 | `assessment` | `assessment.ts` | Record one quality lens assessment per step until every selected lens is recorded |
-| `verification` | `checks.ts` | Run acceptance against the active criteria before independent review |
 | `delivery` | `delivery.ts` | Verified local commit, then the next slice or `complete` |
 
 Each handler has three parts: the result ids that already exist before dispatch, `perform` (dispatch
@@ -401,7 +401,9 @@ Malformed replies fail the turn. `providers/reply-schema.ts` owns the shared con
 
 Codex runs the native binary from the pinned `@openai/codex` package through app-server JSON-RPC.
 Adaptive implementation enables native shell tools, uses `approvalPolicy: never` and
-`sandbox: danger-full-access`, and verifies those settings before dispatch. The configured MCP
+`sandbox: danger-full-access`, and verifies those settings before dispatch. Planning and review
+must confirm their read-only sandbox and disabled native network access before a turn starts;
+missing or contradictory permission metadata refuses the connection. The configured MCP
 servers carry into the worktree and native web search is available. Planning, independent review
 and explicitly scoped low-level editing retain read-only sandbox/controller tool policies.
 Resume excludes saved turns from the response while retaining provider history. Each operation is
@@ -417,6 +419,12 @@ and the supervisor owns the process tree.
 Both adapters require subscription authentication and remove API-key/backend environment overrides.
 `GRAMPUS_CODEX_COMMAND` and `GRAMPUS_CLAUDE_COMMAND` remain explicit executable overrides.
 Configured integrations remain available; external writes require explicit task authorisation.
+Selected reference folders are exposed through pinned read-only repository tools during native
+implementation as well as planning and review. Their root identifiers and approved identities
+are supplied to both providers without imposing a native command allowlist.
+Fresh native conversations receive answered implementation questions from the same version and
+slice, plus the latest implementation summary as untrusted context. A model reassignment resets
+conversation turn and context measurements; task-wide spending still includes every earlier turn.
 No filesystem or command sandbox is provided for adaptive implementation. Instructions reserve Git
 delivery and repository instruction changes to the controller, and final snapshots detect violations.
 
@@ -463,7 +471,8 @@ Node host (`process/check-host.ts`) runs PowerShell from the native helper direc
 compilation cannot pick up incompatible framework assemblies from the dashboard's launch directory
 (for example PowerShell 7's installation directory). PowerShell compiles `process/native/check.cs` and starts the tool
 directly inside a Job Object (kill-on-close, no breakaway). After the root exits the supervisor
-waits up to 100 ms for the job to drain, terminates any remaining descendants and confirms zero
+waits up to `processLimits.supervisorJobDrainMs` (1 second), bounded by the command deadline, for the job to drain,
+terminates any remaining descendants and confirms zero
 active processes before writing a flushed receipt. The tool's stdout and stderr are inherited file
 handles on the durable logs in the receipt directory, so output reaches the logs as the tool writes it
 and a check stopped by its timeout keeps everything it printed until then (a tool that buffers its
@@ -668,7 +677,7 @@ pool read once per request; `ViewContext`) to those DTOs; nothing there writes.
   pointer in the body (answers at `/answers/<id>`, a revision at `/plan/...`), so the client assembles no
   business data. The server still re-checks every key.
 - **UI language once.** Controller notes are rewritten on the server: control characters removed and CLI
-  command names replaced (`task-retry` becomes "a repair attempt", `task-authorize` "the file authorization
+  command names replaced (`task-retry` becomes "a repair attempt", `task-authorize` "the workspace confirmation
   button" and so on).
 - **Bounded and cached.** Journal facts are cached by journal revision (`viewModelLimits.cachedViews`);
   DTOs are rebuilt per request because workers and stalls change without a journal write. Cached task
@@ -993,8 +1002,22 @@ Plan review shows outcome, criteria, approach, agents and quality policy with co
 File permissions, exact commands and expected output remain available for inspection, and raw JSON
 comes from the complete controller-normalised plan. Creating a task for review does not approve or
 start it. The task's approval action binds the displayed version and digest. Execution has separate
-results, plan, usage and activity/evidence views, while current decisions and stop/recovery actions
-remain prominent. A request for changes in planning returns to feedback; on an unapproved task it
+results, changes, plan, usage and activity/evidence views. The live communication graph stays at the
+top. Below it, a two-column working view puts current activity, decisions, recent native tool
+observations and guidance beside compact working-copy changes, verification and run context. The
+columns stack on narrower screens. Detailed spending, repair allowances, metrics and exports live
+under Usage; model comparisons are created on demand from an expandable section.
+
+Current-turn progress folds provider-native tool starts, progress and results by item identity.
+Concurrent tools remain visible until their own results arrive, and output deltas cannot replace an
+unfinished tool's activity label. Tool requests remain requests rather than proof of execution.
+The server's `task-work.ts` projection supplies up to six recent tool observations from the displayed
+session's latest turn, coalescing each item, and the latest confirmed, settled message reply as an
+attributed agent update. It never exposes partial structured replies or tool payloads. Silent work
+has a prominent warning and an unknown-current-operation explanation; neither a quiet feed nor a
+provider tool completion establishes controller verification.
+
+A request for changes in planning returns to feedback; on an unapproved task it
 opens the existing complete-plan revision form, which still requires fresh approval.
 
 The dashboard client is its own npm project in `web/` (paths under `web/src/`), typed against

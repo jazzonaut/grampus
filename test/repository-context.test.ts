@@ -80,20 +80,17 @@ test('large repository metadata is cached; search is bounded and selected blobs 
   assert.throws(() => pinnedContext(f.repo, f.base, ['main.js', 'main.js']), /distinct/);
 });
 
-test('guided planning rejects unsupported file sizes before creating workspaces or attempts', t => {
+test('native file suggestions accept large tracked text without creating workspaces or attempts', t => {
   const f = fixture(t);
   writeFileSync(join(f.repo, 'too-large.txt'), 'a'.repeat(1024 * 1024 + 1));
   f.git('add', '.');
   f.git('commit', '-m', 'Large tracked text');
-  assert.throws(
-    () =>
-      normalizeGuidedPlan({
-        ...f.plan,
-        workspace: { ...f.plan.workspace, base: 'HEAD' },
-        slices: [{ ...f.plan.slices[0], scope: { files: ['too-large.txt'] } }],
-      }),
-    /too-large\.txt.*1048577.*1 MiB/,
-  );
+  const plan = normalizeGuidedPlan({
+    ...f.plan,
+    workspace: { ...f.plan.workspace, base: 'HEAD' },
+    slices: [{ ...f.plan.slices[0], scope: { files: ['too-large.txt'] } }],
+  });
+  assert.deepEqual(plan.slices[0]!.scope.files, ['too-large.txt']);
   assert.equal(f.store.workspaces().length, 0);
   assert.equal(f.store.executions().length, 0);
 });
@@ -211,16 +208,14 @@ test('snapshot batches original blobs while retaining exact text and binary befo
   assert.deepEqual(Buffer.from(binary.content!, 'base64'), Buffer.from([0, 2, 255]));
 });
 
-test('approval binds selected supporting files and cannot authorize an uninspected action file', t => {
+test('approval binds selected supporting files while native file suggestions remain advisory', t => {
   const f = fixture(t),
     plan = normalizeGuidedPlan(f.plan);
   assert.ok(plan.context.totalBytes > 256 * 1024);
   const other = normalizeGuidedPlan({ ...f.plan, context: { files: ['main.js'] } });
   assert.notEqual(guidedPlanDigest(plan), guidedPlanDigest(other));
-  assert.throws(
-    () => normalizeGuidedPlan({ ...f.plan, context: { files: ['helper.js'], exploration: false } }),
-    /Select main.js/,
-  );
+  const hints = normalizeGuidedPlan({ ...f.plan, context: { files: ['helper.js'], exploration: false } });
+  assert.deepEqual(hints.context.files, ['AGENTS.md', 'helper.js']);
   const exploring = normalizeGuidedPlan({ ...f.plan, context: { files: ['helper.js'] } });
   assert.equal(exploring.context.exploration, true);
   assert.equal(exploring.slices[0]!.scope.files[0], 'main.js');
@@ -249,7 +244,7 @@ test('approval binds selected supporting files and cannot authorize an uninspect
   );
 });
 
-test('plan approval validates file existence across slices, including deletion and creation collisions', t => {
+test('native file suggestions do not simulate future file existence across slices', t => {
   const f = fixture(t);
   const sliced = (scopes: { files: string[]; create?: string[]; delete?: string[] }[]) => ({
     ...f.plan,
@@ -279,13 +274,12 @@ test('plan approval validates file existence across slices, including deletion a
       { files: [], create: ['main.js'] },
     ],
   ])
-    assert.throws(() => normalizeGuidedPlan(sliced(scopes)), /absent|exist|recreat/i);
+    assert.equal(normalizeGuidedPlan(sliced(scopes)).slices.length, scopes.length);
   const valid = normalizeGuidedPlan(
     sliced([{ files: [], create: ['new.js'] }, { files: ['new.js'] }, { files: [], delete: ['new.js'] }]),
   );
   assert.equal(valid.slices.length, 3);
-  if (process.platform === 'win32')
-    assert.throws(() => normalizeGuidedPlan(sliced([{ files: [], create: ['MAIN.js'] }])), /exist/i);
+  assert.equal(normalizeGuidedPlan(sliced([{ files: [], create: ['MAIN.js'] }])).slices.length, 1);
 });
 
 test('context expansion invalidates a proposal and explicitly resupplies pinned files on the next turn', async t => {

@@ -97,7 +97,7 @@ every IPv4 interface; network reachability also depends on the host firewall and
 
 | Field | Default | Allowed | Meaning |
 | --- | --- | --- | --- |
-| `mode` | `"automatic"` | `"automatic"`, `"supervised"` | Automatic runs to a verified commit; supervised stops at file authorization and quality assessment |
+| `mode` | `"automatic"` | `"automatic"`, `"supervised"` | Automatic runs to a verified commit; supervised stops at native workspace confirmation and quality assessment |
 | `readinessRounds` | `5` | 0 to 10 | Separate automatic repairs per slice for declared formatting, lint and type checks; retries and behavioural repairs never replenish it |
 | `repairRounds` | `5` | 0 to 10 | Shared automatic repair rounds per slice across behavioural validation, review and acceptance; progress checks can stop earlier |
 | `maxTaskTurns` | `20` | 1 to 1000 | Requested provider turns across linked planning, retries, slices and all plan versions; exhaustion stops before another turn |

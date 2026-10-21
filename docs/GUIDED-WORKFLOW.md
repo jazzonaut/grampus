@@ -4,9 +4,9 @@ Most people should use the [dashboard](DASHBOARD.md), which writes the plan for 
 through a planning conversation. This guide covers authoring a plan as JSON and
 driving it with the `task-*` commands. Both use the same controller and journal.
 
-New plans run in **automatic** mode by default: approval authorizes the listed files
-and commands, and Grampus runs implementation, validation, independent review,
-bounded repairs, acceptance and local delivery without further input unless
+New plans run in **automatic** mode by default: approval authorizes native workspace execution,
+and Grampus runs implementation, readiness, validation, acceptance, independent review,
+bounded repairs and local delivery without further input unless
 something needs attention. **Supervised** mode is opt-in and adds two manual
 checkpoints per attempt. See [WORKFLOW.md](WORKFLOW.md) for the automatic behaviour.
 
@@ -26,8 +26,9 @@ A plan contains:
 - `implementation` and optional `review`: provider and model. The default implementer
   is Codex, and review always uses the other provider.
 - `slices`: one execution configuration per brief slice (one for an unsliced brief),
-  each with a file `scope` (`files`, `create`, `delete`), `validation`, `acceptance`
-  (an ordered list of 1 to 8 commands with distinct names), a delivery `message`, and optional
+  each with `validation`, `acceptance`
+  (an ordered list of 1 to 16 commands with distinct names), a delivery `message`, and optional
+  file `scope` suggestions (`files`, `create`, `delete`),
   `readiness`, `preparation` and `mode`. `readiness` is an ordered list of read-only mechanical
   commands, each with `kind: "format" | "lint" | "types"`, at most one per kind. It normalises to
   an empty list when omitted; tests and mixed scripts remain behavioural validation.
@@ -41,9 +42,10 @@ defaults to 600000 for preparation and 300000 for validation and acceptance, or 
 There is no shell. `file: "node"` resolves to the current Node executable; other
 executables need absolute paths. Commands run at the task worktree root.
 
-Repository exploration is enabled by default, so file hints are optional. Exact file
-scope supports regular UTF-8 files up to 1 MiB each and 4 MiB of existing text per
-slice. Unsupported sizes fail at planning, before approval. See
+Repository exploration is enabled by default, so file hints are optional. Native implementation
+can discover and change project files, create directories, rename files and add binary assets.
+Suggested files do not restrict execution. Exact text-file limits apply only to explicit low-level
+scoped editing, not guided native execution. See
 [repository context](REPOSITORY-CONTEXT.md).
 
 ## Approve and run
@@ -96,9 +98,10 @@ inspected, so a command copied before the task changed is refused.
 
 With `"workflowPolicy": { "mode": "supervised" }`:
 
-1. Before each editing turn the task stops at `awaiting_scope`. Inspect the files with
+1. Before an implementation starts, the task stops at `awaiting_scope`. Inspect the workspace with
    `task-show <task-id> --details`, then run `task-authorize <task-id>`. Authorization
-   binds to that exact snapshot.
+   binds native execution to that snapshot; it is not a file allowlist. Continued progress
+   and explicitly assigned edit quality passes use the same approved native access.
 2. After validation and submission it stops at `awaiting_assessment` when the plan selects
    quality lenses. Inspect the code and record one outcome covering every selected lens:
 
@@ -109,7 +112,7 @@ With `"workflowPolicy": { "mode": "supervised" }`:
    It is recorded as evidence for each selected lens. `failed` or `skipped` is retained and
    stops before review.
 
-Review, acceptance and delivery then follow as in automatic mode. Failed checks stop
+Acceptance, independent review and delivery then follow as in automatic mode. Failed checks stop
 for `task-retry` instead of being repaired automatically. Blocking review findings
 start a repair attempt within the shared allowance, and that attempt again stops for
 authorization and assessment. To change the mode, revise the plan and approve it again.
@@ -117,11 +120,10 @@ authorization and assessment. To change the mode, revise the plan and approve it
 ## Repository preparation
 
 Fresh worktrees have no ignored dependencies. An approved top-level `preparation`
-command runs before scope in every attempt and again after implementation, before
-validation. A slice's own `preparation` replaces the second run and may update only
-that slice's authorized paths, such as a lockfile after a manifest change. Include
-generated paths in the slice scope; the implementer cannot run commands. The planner
-infers these commands from the repository; Grampus does not detect package managers.
+command runs before the workspace checkpoint in every attempt. It must leave repository inputs
+unchanged. The native implementer installs dependencies, generates files and formats changes
+before candidate submission. Optional slice `preparation` and `formatting` commands are
+suggestions for that work; Grampus does not automatically run them after implementation.
 Preparation is not validation or acceptance evidence.
 
 A failed preparation stops before validation. `task-retry` reruns only that step in

@@ -60,10 +60,10 @@ test(
 
     const scope = detail(f, id);
     assert.equal(scope.header.status, 'awaiting_human');
-    assert.equal(scope.header.statusLabel, 'File approval needed');
+    assert.equal(scope.header.statusLabel, 'Workspace confirmation needed');
     assert.deepEqual(scope.header.nextStep, {
       kind: 'human',
-      label: 'Inspect the files and authorize them.',
+      label: 'Inspect the workspace and confirm native execution.',
       actionIds: ['authorize', 'refresh-checkpoint'],
     });
     const authorize = action(scope, 'authorize')!;
@@ -77,7 +77,7 @@ test(
     assert.equal(action(scope, 'refresh-checkpoint')!.request.path, `/api/tasks/${id}/retry`);
     assert.deepEqual(
       scope.details.scope?.files.map(file => [file.path, file.action, file.content]),
-      [['greeting.js', 'edit', "console.log('hello');\n"]],
+      [],
     );
     assert.deepEqual(
       scope.details.scope?.instructions.map(item => item.path),

@@ -78,8 +78,8 @@ export const stopPresentation: Readonly<Record<StopReasonCode, StopPresentation>
   ),
   SCOPE_AUTHORIZATION_REQUIRED: wait(
     'scope_authorization',
-    'File approval needed',
-    'Supervised mode: authorize the exact files the implementer may change.',
+    'Workspace confirmation needed',
+    'Supervised mode: inspect the workspace and confirm native execution within the approved requirements.',
   ),
   ASSESSMENT_REQUIRED: wait(
     'assessment',
@@ -341,7 +341,7 @@ export function stageActivity(
     case 'quality_pass':
       return activity(
         'Running a quality pass',
-        'The implementer is applying an approved quality pass within the approved file scope.',
+        'The implementer is applying an approved quality pass using native workspace tools.',
       );
     case 'validation':
       return activity('Running validation', 'Running the approved validation command and collecting its result.');
@@ -601,7 +601,7 @@ export function providerLabel(provider: ProviderId): string {
 
 /** CLI command names that controller notes mention, and what the dashboard calls the same thing. */
 const commandNames: readonly (readonly [RegExp, string])[] = [
-  [/\btask-authorize\b/g, 'the file authorization button'],
+  [/\btask-authorize\b/g, 'the workspace confirmation button'],
   [/\btask-answer\b/g, 'the answer form'],
   [/\btask-assess\b/g, 'the quality assessment form'],
   [/\btask-rerun-checks\b/g, 'Rerun checks'],

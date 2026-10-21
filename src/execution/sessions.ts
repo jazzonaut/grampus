@@ -35,6 +35,8 @@ import {
 import { taskCheckEvidence, checkEvidenceSummary } from '../verification/check-evidence.js';
 import { OutputBuffer, deltaText } from './output-buffer.js';
 import { parseBoundary } from '../process/boundary.js';
+import { workspaceHandoff } from './workspace-handoff.js';
+import { referenceInstructions } from '../repository/reference-folders.js';
 
 export type { Session } from '../persistence/records.js';
 
@@ -270,7 +272,7 @@ export class Sessions {
             }
           : {}),
       },
-    )}\n\nUser turn:\n${prompt}`;
+    )}${editing && task.guided?.plan.execution === 'adaptive' ? `${workspaceHandoff(this.store, execution, session)}\n${referenceInstructions(task.guided.plan.references ?? [])}` : ''}\n\nUser turn:\n${prompt}`;
   }
 
   /**

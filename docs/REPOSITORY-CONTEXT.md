@@ -1,10 +1,10 @@
 # Repository context and scale
 
 Repository size and agent context size are separate. Agents explore the repository
-on demand through controller-owned read tools, while artifact verification still
-covers every tracked and non-ignored untracked file. Unchanged binary assets can
-stay outside agent context; their bytes remain hashed. Symlinks, submodules,
-filesystem aliases and non-UTF-8 text are refused.
+on demand, while artifact verification still covers every tracked and non-ignored untracked file.
+Native implementation uses the provider's ordinary tools. Planning and independent review use
+controller-owned read tools. Binary assets stay hashed even when they cannot be supplied as text.
+Snapshots refuse symlinks, submodules and filesystem aliases; text read tools refuse binary content.
 
 ## Exploration
 
@@ -17,12 +17,14 @@ Codex and Claude use the same tools (`grampus_list_files`, `grampus_read_file`,
 `grampus_search`, `grampus_read_changes`, `grampus_read_check`,
 `grampus_read_dependency`, `grampus_suggest_reference_folder`). Codex receives them as
 app-server dynamic tools (an experimental app-server API); Claude receives them from
-an in-process SDK MCP server. Neither gets a shell.
+an in-process SDK MCP server. Planning and independent review do not get a shell. Native
+implementation has shell access and receives these read-only tools when selected references
+need pinned reads.
 
 | Role | Reads from |
 | --- | --- |
 | Planning | Git blobs at the pinned commit, even if the checkout is dirty |
-| Implementation | The captured workspace inventory with verified hashes; current bytes only for authorized edit, create and delete paths |
+| Implementation | Current project files through native tools; selected references through pinned read-only Grampus roots |
 | Review | The submitted snapshot, with every retrieved file verified and the whole artifact rechecked before a verdict is accepted |
 
 Inventories include tracked files and non-ignored untracked files. Untracked ignored
@@ -36,7 +38,8 @@ need a whole bundled file. It is available during execution, not planning. `gram
 and approved expectations for the current task and version.
 
 Read access never grants write permission. Approval freezes the pinned base, read
-capability, exact file actions and commands. Tool requests and their bounded results,
+capability, agreed requirements and final verification commands. Project file suggestions do
+not restrict native execution. Grampus tool requests and their bounded results,
 including source identities, hashes, pagination and omissions, are journaled. Hashing
 an unread file proves its bytes, not that anyone reviewed it.
 
@@ -47,15 +50,16 @@ automatically. Optional initial context is explicit:
 "context": { "files": ["src/greeting.js"], "exploration": true }
 ```
 
-`"exploration": false` keeps strict selected-context behaviour: agents see only the
-selected files and repository instructions.
+`"exploration": false` keeps strict selected-context behaviour for planning and review.
+Native implementation can still inspect the workspace itself.
 
 ## Editing limits
 
-Exact file scope allows regular UTF-8 files up to 1 MiB each and 4 MiB of existing
+Explicit low-level scoped editing allows regular UTF-8 files up to 1 MiB each and 4 MiB of existing
 text per slice, with at most 64 paths. Individual edit or patch text is capped at
-256 KiB. Planning checks pinned file sizes before approval; runtime errors name the
-path and reason. These limits apply equally to every filename. Codex receives bounded
+256 KiB. Runtime errors name the path and reason. These limits do not restrict guided native
+implementation, whose final artifact must still fit snapshot and retained-evidence bounds.
+For scoped editing, Codex receives bounded
 initial editable text; files over 64 KiB or beyond the turn budget are deferred with size
 and hash metadata and read through the tools (null content means unread, not absent).
 Editable files are supplied once: the starting context does not repeat them. The
