@@ -12,6 +12,7 @@
 // | refresh-checkpoint  | POST /api/tasks/:id/retry               | { expected }                          |
 // | assess              | POST /api/tasks/:id/assess              | { expected, outcome, summary }        |
 // | answer              | POST /api/tasks/:id/answer              | { expected, answers: { [id]: text } } |
+// | diagnostic-allowance | POST /api/tasks/:id/diagnostic-allowance | { expected, answers? }               |
 // | retry               | POST /api/tasks/:id/retry               | { expected }                          |
 // | retry-preparation   | POST /api/tasks/:id/retry               | { expected }                          |
 // | rerun-checks        | POST /api/tasks/:id/rerun-checks        | { expected }                          |
@@ -51,6 +52,8 @@ export interface PendingQuestion {
 
 /** Everything the task action rules depend on. */
 export interface TaskActionFacts extends TaskStatusFacts {
+  /** Explicit supplemental permission, distinct from an agent's ordinary questions. */
+  diagnosticAllowance?: { family: string; from: number; to: number } | null;
   /** A request to finish the current operation and pause before the next one. */
   pauseRequested: boolean;
   taskId: string;
@@ -334,7 +337,7 @@ export function revisionForm(plan: GuidedPlan, available: readonly QualityPassDe
           policy.maxContextTokens,
           workflowPolicyBounds.maxContextTokens,
         ),
-        help: 'Conversation limits apply to implementers and reviewers at settled retry boundaries. New slices and arbitration always start fresh. Unknown context size falls back to the turn limit.',
+        help: 'Zero uses 75% of the observed model window, or 120,000 tokens when unknown. Positive limits must be at least 8,000. Applies at settled retry boundaries; new slices and arbitration start fresh.',
       },
       field({
         name: 'arbitrator',
@@ -398,6 +401,25 @@ const retryProblem = (f: TaskActionFacts) =>
   f.comparisonRetry?.problem ?? (f.comparisonRetry?.waiting ? null : f.poolFull);
 
 const builders = {
+  'diagnostic-allowance': (f: TaskActionFacts) =>
+    action({
+      id: 'diagnostic-allowance',
+      kind: 'primary',
+      label: `Approve ${f.diagnosticAllowance ? f.diagnosticAllowance.to - f.diagnosticAllowance.from : 0} focused attempts`,
+      description: `${f.diagnosticAllowance?.family ?? 'Diagnostic'}: increase the slice-wide allowance from ${f.diagnosticAllowance?.from ?? 0} to ${f.diagnosticAllowance?.to ?? 0}. Earlier spending remains counted. File scope and final acceptance stay unchanged.`,
+      confirm: 'Approve this additional diagnostic allowance and resume implementation?',
+      form: f.questions.length
+        ? {
+            kind: 'answers',
+            intro: 'This action approves the allowance and sends your answers together.',
+            fields: answerFields(f.questions),
+            submitLabel: 'Approve allowance and send answers',
+          }
+        : null,
+      path: route(f, 'diagnostic-allowance'),
+      expected: f.expected,
+      disabledReason: f.poolFull,
+    }),
   approve: f =>
     action({
       id: 'approve',
@@ -617,6 +639,10 @@ function settledResolving(f: TaskActionFacts): TaskActionId[] {
     case 'awaiting_answer':
       return ['answer'];
     case 'blocked':
+      if (f.stopCode === 'DIAGNOSTIC_ALLOWANCE_REQUIRED')
+        return f.diagnosticAllowance && f.diagnosticAllowance.to > f.diagnosticAllowance.from
+          ? ['diagnostic-allowance', 'revise']
+          : ['revise'];
       if (isSpendingStop(f.stopCode)) return ['revise'];
       if (f.stopCode === 'GUIDANCE_PENDING') return [];
       if (f.stopCode === 'USER_PAUSED') return ['run'];

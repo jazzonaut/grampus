@@ -11,6 +11,8 @@ import { workspacePath, type GuidedContext } from './context.js';
 import { required, type GuidedState } from './state.js';
 import { automatic, preparationSpec } from './specs.js';
 import { guidedSnapshot, requireGuidedSnapshot } from './snapshots.js';
+import { repairDiagnostic } from '../../verification/failure-focus.js';
+import { currentSlice } from './specs.js';
 
 /** What a retry needs: everything in the handler context except retry itself. */
 export type RetryContext = Omit<GuidedContext, 'prepareRetry'>;
@@ -30,6 +32,7 @@ function retryFeedback({ store, checks, executions }: RetryContext, state: Guide
   return JSON.stringify({
     reason: failedCheck ? checkIssue(failedCheck) : outputExcerpt(state.note, checkOutputLimits.feedbackCharacters),
     check: failedCheck ? checkFeedback(failedCheck) : null,
+    focusedRepair: failedCheck ? repairDiagnostic(failedCheck, currentSlice(state).diagnostics) : null,
     readiness: state.executionId
       ? store
           .checks(state.executionId)

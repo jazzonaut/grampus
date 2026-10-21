@@ -8,7 +8,7 @@ import { diagnosticSelectionSchema } from '../domain/diagnostics.js';
 export const implementationToolDefinition = {
   name: 'grampus_run_check',
   description:
-    'Run an approved command against current edits. Use finish to format, run approved independent readiness checks together and validate before ending the turn. Individual identifiers: format, readiness:format, readiness:lint, readiness:types, validation or diagnostic:<name>. Diagnostic families share an approved attempt budget across selections and repairs. Inspect retained failures and focus the failing case before the next attempt. Only diagnostic families accept approved parameters and files. Wait for settlement before editing. Passing results are concise; grampus_read_check retains full evidence. The controller decides final gate reuse.',
+    'Run an approved command against current edits. Use repair for the controller-selected failing browser cases when available. Use finish to run these cases before readiness and validation, and to format, run approved independent readiness checks together and validate before ending the turn. Individual identifiers: format, readiness:format, readiness:lint, readiness:types, validation or diagnostic:<name>. Diagnostic families share an approved attempt budget across selections and repairs. Inspect retained failures and focus the failing case before the next attempt. Only diagnostic families accept approved parameters and files. Wait for settlement before editing. Passing results are concise; grampus_read_check retains full evidence. The controller decides final gate reuse.',
   inputSchema: {
     type: 'object',
     properties: {

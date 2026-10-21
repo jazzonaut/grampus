@@ -19,15 +19,17 @@ export function successfulCheck(
   );
 }
 
-/** An explicitly repeatable diagnostic can return its existing receipt during this same editing run. */
+/** An explicitly repeatable diagnostic can adopt the latest exact receipt across settled turns of this execution. */
 export function reusableImplementationDiagnostic(
   checks: RepositoryCheck[],
-  implementationId: string,
+  executionId: string,
   spec: CheckSpec,
   fingerprint: string | null,
 ): RepositoryCheck | null {
   if (!spec.reuse || spec.preparation || spec.criteria || !fingerprint) return null;
-  const source = checks.findLast(check => check.implementationId === implementationId && deepEqual(check.spec, spec));
+  const source = checks.findLast(
+    check => check.executionId === executionId && check.implementationId && deepEqual(check.spec, spec),
+  );
   return successfulCheck(source) &&
     source.before?.artifact === spec.artifact &&
     source.after?.artifact === spec.artifact &&

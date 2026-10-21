@@ -56,7 +56,7 @@ export const workflowPolicyBounds = {
   /** Turns before a fresh provider conversation. */
   maxSessionTurns: { min: 1, max: 50 },
   /** Observed input tokens before a fresh provider conversation. */
-  maxContextTokens: { min: 8000, max: 1_000_000 },
+  maxContextTokens: { min: 0, max: 1_000_000 },
   /** Total requested provider turns across the task, including linked planning and every version. */
   maxTaskTurns: { min: 1, max: 1000 },
   /** Total observed provider tokens across the task. Zero disables the token gate only. */
@@ -101,6 +101,8 @@ export const commandLimits = {
   /** Approved attempts per diagnostic family and slice, including selections and repair attempts. */
   diagnosticRuns: 8,
   defaultDiagnosticRuns: 3,
+  /** Additional attempts proposed by an explicit supplemental approval, never granted by agent prose. */
+  diagnosticSupplementRuns: 2,
   /** Reuse is optional and falls back to execution when input capture exceeds these bounds. */
   reuseInputRoots: 16,
   reuseInputFiles: 100_000,
@@ -255,6 +257,11 @@ export const promptLimits = {
  * context that passes approval always fits a starting prompt.
  */
 export const contextLimits = {
+  /** Zero policy tokens selects a fraction of the observed model window, with this conservative fallback. */
+  fallbackTokens: 120_000,
+  minimumTokens: 8000,
+  windowNumerator: 3,
+  windowDenominator: 4,
   /** Total JSON-encoded bytes of selected or required context. */
   bytes: 160 * KiB,
   /** Bytes of one context file. */

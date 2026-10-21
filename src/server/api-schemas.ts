@@ -65,6 +65,10 @@ export const workerActionSchema = z.discriminatedUnion('action', [
     payload: z.object({ expected, outcome: z.enum(['passed', 'failed', 'skipped']), summary: text }),
   }),
   z.object({ action: z.literal('answer'), payload: z.object({ expected, answers }) }),
+  z.object({
+    action: z.literal('diagnostic-allowance'),
+    payload: decisionBody.extend({ answers: answers.exactOptional() }),
+  }),
   z.object({ action: z.literal('retry'), payload: decisionBody }),
   /** `expected` is the decision key of the stopped check; it also names the rerun it authorises. */
   z.object({ action: z.literal('rerun-checks'), payload: decisionBody }),
@@ -86,6 +90,7 @@ export const taskWorkerActions = [
   'authorize',
   'assess',
   'answer',
+  'diagnostic-allowance',
   'retry',
   'rerun-checks',
   'revise',

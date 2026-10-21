@@ -13,6 +13,30 @@ import { repositoryTools } from '../src/repository/repository-tools.js';
 import type { RepositorySnapshot } from '../src/repository/artifacts.js';
 import { agentToolsetVersion } from '../src/providers/types.js';
 
+test('automatic context rotation uses the observed model window while explicit limits remain binding', t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  const session = new Sessions(store).create('codex', process.cwd());
+  session.providerSessionId = 'large-window';
+  session.toolsetVersion = agentToolsetVersion;
+  store.saveSession(session.id, session);
+  store.appendSession(session.id, 'context.updated', { data: { inputTokens: 176000, windowTokens: 475000 } });
+  assert.equal(sessionContinuation(store, session).resume, true);
+  store.appendSession(session.id, 'context.updated', { data: { inputTokens: 400000, windowTokens: 475000 } });
+  assert.equal(sessionContinuation(store, session).resume, false);
+  store.appendSession(session.id, 'context.updated', { data: { inputTokens: 176000, windowTokens: 475000 } });
+  assert.equal(
+    sessionContinuation(store, session, normalizeWorkflowPolicy({ maxContextTokens: 120000 })).resume,
+    false,
+  );
+  store.appendSession(session.id, 'context.updated', { data: { inputTokens: 130000, windowTokens: 0 } });
+  assert.equal(
+    sessionContinuation(store, session).resume,
+    false,
+    'unknown model windows retain measured input and use the fallback',
+  );
+});
+
 test('check evidence retains the assertion after noisy output and pages durable Unicode logs beyond the preview', t => {
   const root = mkdtempSync(join(tmpdir(), 'grampus-log-pages-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));

@@ -30,6 +30,10 @@ export const StopReasonCode = {
   ASSESSMENT_UNSETTLED: 'ASSESSMENT_UNSETTLED',
   /** The implementer or reviewer asked structured questions. */
   AGENT_QUESTION: 'AGENT_QUESTION',
+  /** The settled implementer exhausted a diagnostic family and needs a concrete supplemental approval. */
+  DIAGNOSTIC_ALLOWANCE_REQUIRED: 'DIAGNOSTIC_ALLOWANCE_REQUIRED',
+  /** Retained browser output establishes lifecycle failure without an implementation assertion. */
+  CHECK_ENVIRONMENT_FAILED: 'CHECK_ENVIRONMENT_FAILED',
 
   // Settled failures that stop for attention.
   /** An approved preparation command settled without passing. */

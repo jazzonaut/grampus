@@ -2,7 +2,7 @@
 // behavioural repair allowances, task spending limits and provider conversation thresholds. Normalisation fills omitted fields from the
 // configured defaults once, so the approved digest binds the effective values, not the defaults.
 import { z } from 'zod';
-import { workflowPolicyBounds } from '../config/limits.js';
+import { contextLimits, workflowPolicyBounds } from '../config/limits.js';
 import { currentSettings } from '../config/settings.js';
 
 /** A normalised workflow policy as stored in an approved plan. Bounds are enforced by normalisation. */
@@ -52,6 +52,8 @@ export function normalizeWorkflowPolicy(value: unknown): WorkflowPolicy {
   const bounded = (key: Exclude<(typeof policyKeys)[number], 'mode'>): number => {
     const { min, max } = workflowPolicyBounds[key];
     const field = merged[key];
+    if (key === 'maxContextTokens' && typeof field === 'number' && field > 0 && field < contextLimits.minimumTokens)
+      throw new Error(`maxContextTokens must be zero (automatic) or at least ${contextLimits.minimumTokens}`);
     if (typeof field !== 'number' || !Number.isSafeInteger(field) || field < min || field > max)
       throw new Error(`${key} must be ${min}–${max}`);
     return field;

@@ -89,6 +89,7 @@ const pooledWorkerActions: readonly WorkerActionName[] = [
   'authorize',
   'assess',
   'answer',
+  'diagnostic-allowance',
   'retry',
   'rerun-checks',
 ];

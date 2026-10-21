@@ -27,6 +27,15 @@ high-value problems, adds measurement, and then lets real use decide what follow
 
 ## Steps
 
+- **Measured task-friction follow-up.** Implemented: explicit bounded diagnostic supplement
+  approvals, including answers in the same decision; focused browser failure probes before broader
+  finishing checks; conservative browser lifecycle stops without implementation repair spending;
+  capture sharing within exclusive operations; eligible receipt reuse across completed turns;
+  on-demand editable context by default and model-window-aware conversation rotation for new plans.
+  Planner guidance covers repeatability, readiness concurrency, proportionate acceptance ordering
+  and integration complexity when choosing an approved model profile. Journal schema 13. Live
+  before/after performance measurement remains **Planned**. Installed tasks are unchanged.
+
 - **Reliable settlement and bounded diagnostic attempts.** Implemented: pending implementation
   commands settle before provider shutdown and automatic formatting; reviewer questions retain
   provisional findings and assessments; controller identity observations surface orphaned runners
@@ -263,7 +272,7 @@ compressed JSON exports use gzip. Missing or oversized attachments are explicit,
 limit per file. Dashboard preview limits do not truncate these journal exports. Provider internals
 that Grampus did not observe cannot be exported. See [WORKFLOW.md](WORKFLOW.md#model-profiles-and-comparisons).
 
-Journal schema 12 adds directory grants and restore fingerprints to diagnostic families, exact-input check adoption and grouped readiness recovery alongside implementation-owned diagnostics, approved formatting, readiness spending and durable comparisons. Other schema versions
+Journal schema 13 includes explicit diagnostic supplements, model-aware context policies, directory grants and restore fingerprints to diagnostic families, exact-input check adoption and grouped readiness recovery alongside implementation-owned diagnostics, approved formatting, readiness spending and durable comparisons. Other schema versions
 are refused without migration; use a fresh development journal. The installed application and its
 journal remain separate from this checkout.
 

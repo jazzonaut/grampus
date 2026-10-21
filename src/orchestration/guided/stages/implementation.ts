@@ -11,6 +11,8 @@ import { implementationPrompt } from '../prompts.js';
 import { afterEditing, currentSlice, editPolicy } from '../specs.js';
 import { keepSnapshot } from '../snapshots.js';
 import { withGuidance } from '../guidance.js';
+import { pendingDiagnosticAllowance } from '../../../execution/diagnostic-allowance.js';
+import { focusedRepairOutcome } from '../focused-repair.js';
 
 /**
  * Why an implementation turn stopped. A turn refused for its prompt budget never reached a provider, so
@@ -90,6 +92,18 @@ export const implementationStage: StageHandler = {
       current.answers = null;
       current.snapshot = keepSnapshot(store, after);
     };
+    const allowance = pendingDiagnosticAllowance(store, executionId, result.id);
+    if (allowance)
+      return {
+        kind: 'wait',
+        next: 'implementation',
+        status: 'blocked',
+        update,
+        reason: {
+          code: 'DIAGNOSTIC_ALLOWANCE_REQUIRED',
+          note: `${allowance.family} exhausted ${allowance.from} attempts. ${allowance.to > allowance.from ? `Approve ${allowance.to - allowance.from} additional focused attempts (${allowance.to} total) with the diagnostic allowance action.` : 'The fixed diagnostic ceiling is reached; revise the plan.'} Ordinary answers do not change diagnostic permissions.`,
+        },
+      };
     if (result.result?.reply?.kind === 'question')
       return {
         kind: 'wait',
@@ -98,6 +112,8 @@ export const implementationStage: StageHandler = {
         reason: { code: 'AGENT_QUESTION', note: 'Answer the implementation questions with task-answer.' },
         update,
       };
+    const focused = focusedRepairOutcome(context, result, update);
+    if (focused) return focused;
     const next = afterEditing(state, after);
     return {
       kind: 'advance',

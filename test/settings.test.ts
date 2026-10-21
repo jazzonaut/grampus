@@ -35,7 +35,7 @@ test('without config.json the built-in defaults apply and nothing is created', t
   const root = join(dataDirectory(t), 'absent');
   const settings = loadSettings(root);
   assert.deepEqual(settings, {
-    deferEditableContext: false,
+    deferEditableContext: true,
     claudeMaxTurns: 128,
     maxReadinessConcurrency: 2,
     modelProfiles: [],
@@ -58,7 +58,7 @@ test('without config.json the built-in defaults apply and nothing is created', t
       readinessRounds: 5,
       repairRounds: 5,
       maxSessionTurns: 6,
-      maxContextTokens: 120_000,
+      maxContextTokens: 0,
       maxTaskTurns: 20,
       maxTaskTokens: 0,
     },
@@ -91,7 +91,7 @@ test('a valid partial override merges over the defaults, including the nested wo
       readinessRounds: 5,
       repairRounds: 1,
       maxSessionTurns: 6,
-      maxContextTokens: 120_000,
+      maxContextTokens: 0,
       maxTaskTurns: 20,
       maxTaskTokens: 0,
     },

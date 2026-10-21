@@ -15,6 +15,12 @@ test(
       config = services();
     config.implementationRunner = async options => {
       const id = options.receipt!.checkId;
+      const executionId = f.store.implementation(id).executionId;
+      const snapshotCount = () =>
+        f.store
+          .executionEvents(executionId, ['execution.phase_measured'])
+          .filter(event => (event.data as { phase: string }).phase === 'snapshot').length;
+      const initialSnapshots = snapshotCount();
       let active = 0,
         peak = 0,
         entered = 0;
@@ -56,6 +62,10 @@ test(
       assert.ok(result.checks.every(check => check.stdout === undefined));
       assert.equal(commands.running, false);
       const execution = f.store.execution(f.store.implementation(id).executionId);
+      assert.ok(
+        snapshotCount() - initialSnapshots <= 4,
+        `exclusive finishing cycles took ${snapshotCount() - initialSnapshots} snapshots`,
+      );
       assert.equal(f.store.lease(execution.workspaceId)?.runId, id);
       tasks.pause(execution.taskId);
       return inlineImplementation(options, "console.log('hello world');\n");

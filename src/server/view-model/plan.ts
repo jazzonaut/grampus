@@ -31,7 +31,10 @@ export function workflowSummary(plan: GuidedPlan): string {
   const restore = plan.preparation?.restore
     ? ' Declared prerequisite restoration runs after slice generation before final checks, using the final dependency inputs.'
     : '';
-  return `${mode} ${spending}${restore} Conversations resume within a slice and start fresh after ${policy.maxSessionTurns} turns or ${policy.maxContextTokens.toLocaleString('en-GB')} observed context tokens. Each slice and arbitration starts fresh.`;
+  const context = policy.maxContextTokens
+    ? `${policy.maxContextTokens.toLocaleString('en-GB')} observed context tokens`
+    : '75% of the observed model window (120,000 tokens when unknown)';
+  return `${mode} ${spending}${restore} Conversations resume within a slice and start fresh after ${policy.maxSessionTurns} turns or ${context}. Each slice and arbitration starts fresh.`;
 }
 
 /**

@@ -82,6 +82,7 @@ export type ActionId =
   | 'refresh-checkpoint'
   | 'assess'
   | 'answer'
+  | 'diagnostic-allowance'
   | 'retry'
   | 'retry-preparation'
   | 'rerun-checks'

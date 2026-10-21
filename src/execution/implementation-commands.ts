@@ -20,6 +20,9 @@ import { successfulCheck } from '../verification/check-reuse.js';
 import { nativeCreationPaths } from './native-creations.js';
 import { DiagnosticBudget } from './diagnostic-budget.js';
 import { reusableImplementationDiagnostic } from '../verification/check-reuse.js';
+import { repairDiagnostic } from '../verification/failure-focus.js';
+import { pendingDiagnosticAllowance } from './diagnostic-allowance.js';
+import { latestRepairProbe } from './repair-probes.js';
 
 /** Controller-owned diagnostics; final formatting cannot be starved by agent requests. */
 export class ImplementationCommands {
@@ -32,8 +35,11 @@ export class ImplementationCommands {
   private readonly reusedChecks = new Set<string>();
   private readonly readiness: string[] = [];
   private concurrency = 1;
+  /** Only the current exclusive operation can share captures; finally discards them before native edits resume. */
   private prepared: RepositorySnapshot | undefined;
   private pending: Promise<unknown> | null = null;
+  private repair: ReturnType<typeof repairDiagnostic> = null;
+  private failedCheckId: string | null = null;
 
   /** Native editing is suspended throughout command groups, including their snapshots. */
   get running(): boolean {
@@ -56,6 +62,10 @@ export class ImplementationCommands {
     if (!guided || guided.approvedDigest !== guided.digest || task.version !== execution.version) return;
     const slice = guided.plan.slices[execution.sliceIndex];
     if (!slice || !deepEqual(run.policy, guided.policy)) return;
+    if (guided.failedCheckId) {
+      this.failedCheckId = guided.failedCheckId;
+      this.repair = repairDiagnostic(store.check(guided.failedCheckId), slice.diagnostics);
+    }
     this.concurrency = slice.readinessConcurrency;
     if (slice.formatting) this.commands.set('format', slice.formatting);
     for (const { selection, maxRuns, ...command } of slice.diagnostics) {
@@ -74,12 +84,30 @@ export class ImplementationCommands {
 
   /** Capabilities are turn-specific data; the shared tool definition stays stable for prefix caching. */
   instructions(): string {
-    return `Use grampus_run_check(name, parameters?, files?) for approved diagnostics. Before finishing use name="finish": format first, run approved independent readiness checks together, then validation. Repair returned failures and repeat within this turn. Approved identifiers and diagnostic grammars: ${JSON.stringify([...this.commands].map(([id, command]) => ({ id, name: command.name, selection: this.grammars.get(id), maxRuns: this.diagnosticLimits.get(id) })))}. Diagnostic family budgets cover all selections and repair attempts in this slice. After a failure inspect the assertion, logs and relevant source, then select only the failing case/file. Do not repeatedly run full browser or unit suites while debugging or change assertions merely to obtain a pass. Final approved checks retain complete coverage. Only diagnostic families accept parameters and files. Wait for the entire operation before editing. Final gates adopt only eligible exact-input results; acceptance remains separate. No shell is available.`;
+    return `Focused repair: ${JSON.stringify(this.repair)}. When available, name="repair" runs only observed failing cases with the approved grammar; name="finish" runs them before readiness and validation. Diagnose browser lifecycle failures before changing implementation; do not weaken assertions or repair unrelated features without evidence. A refused exhausted diagnostic creates a controller approval checkpoint: end this turn without asking an ordinary question or repeating finish. Use grampus_run_check(name, parameters?, files?) for approved diagnostics. Before finishing use name="finish": format first, run approved independent readiness checks together, then validation. Repair returned failures and repeat within this turn. Approved identifiers and diagnostic grammars: ${JSON.stringify(this.capabilities())}. Diagnostic family budgets cover all selections and repair attempts in this slice. After a failure inspect the assertion, logs and relevant source, then select only the failing case/file. Do not repeatedly run full browser or unit suites while debugging or change assertions merely to obtain a pass. Final approved checks retain complete coverage. Only diagnostic families accept parameters and files. Wait for the entire operation before editing. Final gates adopt only eligible exact-input results; acceptance remains separate. No shell is available.`;
+  }
+
+  private capabilities() {
+    const budget = new DiagnosticBudget(this.store, this.implementationId);
+    return [...this.commands].map(([id, command]) => {
+      const limit = this.diagnosticLimits.get(id);
+      return {
+        id,
+        name: command.name,
+        selection: this.grammars.get(id),
+        ...(limit === undefined ? {} : { diagnosticBudget: budget.usage(id, limit) }),
+      };
+    });
   }
 
   /** Runs one approved diagnostic or a complete finishing cycle while the provider remains active. */
   async run(name: string, selection: DiagnosticSelection = {}): Promise<unknown> {
     return this.exclusive(async () => {
+      if (name === 'repair') {
+        if (Object.keys(selection).length) throw new Error('The focused repair selection is controller-owned');
+        if (!this.repair) throw new Error('No approved focused repair diagnostic is available');
+        return this.feedbackFor(await this.probeRepair());
+      }
       if (name !== 'finish') {
         const feedback = this.feedbackFor(await this.execute(name, selection));
         const limit = this.diagnosticLimits.get(name);
@@ -102,6 +130,11 @@ export class ImplementationCommands {
       results.push(format);
       if (format.phase !== 'passed') return this.feedback(results);
     }
+    if (this.repair) {
+      const focused = await this.probeRepair();
+      results.push(focused);
+      if (focused.phase !== 'passed') return this.feedback(results);
+    }
     if (this.readiness.length) {
       const specs = await this.readinessSpecs();
       const reused = specs.map(spec => this.reusable(spec));
@@ -117,6 +150,7 @@ export class ImplementationCommands {
             this.prepared,
           )
         : [];
+      const after = fresh.at(-1)?.after;
       results.push(
         ...reused.map(check => {
           const result = check ?? fresh.shift();
@@ -125,6 +159,7 @@ export class ImplementationCommands {
         }),
       );
       this.requireSettled(results);
+      this.prepared = after ?? this.prepared;
       if (results.some(check => check.phase !== 'passed')) return this.feedback(results);
     }
     results.push(await this.execute('validation'));
@@ -217,9 +252,9 @@ export class ImplementationCommands {
     const run = this.store.implementation(this.implementationId),
       execution = this.store.execution(run.executionId);
     const workspaces = new Workspaces(this.store),
-      snapshot = await measurePhase(this.store, execution.id, 'snapshot', () =>
-        captureRepository(workspaces, execution),
-      );
+      snapshot =
+        this.prepared ??
+        (await measurePhase(this.store, execution.id, 'snapshot', () => captureRepository(workspaces, execution)));
     const grammar = this.grammars.get(name);
     if (!grammar && Object.keys(selection).length)
       throw new Error('This command has no approved diagnostic parameters');
@@ -266,13 +301,16 @@ export class ImplementationCommands {
   }
 
   private async execute(name: string, selection: DiagnosticSelection = {}, final = false): Promise<RepositoryCheck> {
+    const budget = new DiagnosticBudget(this.store, this.implementationId);
+    const limit = this.diagnosticLimits.get(name),
+      grammar = this.grammars.get(name);
+    if (limit !== undefined && !this.commands.get(name)?.reuse && budget.usage(name, limit).remaining === 0)
+      budget.exhausted(name, limit);
     const spec = await this.spec(name, selection);
     const reused = this.reusable(spec);
     if (reused) return reused;
-    const grammar = this.grammars.get(name),
-      limit = this.diagnosticLimits.get(name);
-    const budget = new DiagnosticBudget(this.store, this.implementationId);
     const reservation = grammar && limit !== undefined ? budget.reserve(name, limit, grammar, selection) : null;
+    if (grammar && limit !== undefined && !reservation) budget.exhausted(name, limit);
     if (!final) this.spend(1);
     const check = await new Checks(this.store, new Workspaces(this.store)).duringImplementation(
       this.implementationId,
@@ -283,6 +321,7 @@ export class ImplementationCommands {
     if (reservation) budget.settled(reservation, check);
     this.requireSettled([check]);
     if (check.error) throw new Error(check.error);
+    this.prepared = check.after ?? undefined;
     return check;
   }
 
@@ -294,7 +333,13 @@ export class ImplementationCommands {
     const fingerprint = measureSyncPhase(this.store, execution.id, 'input_fingerprint', () =>
       checkInputFingerprint(new Workspaces(this.store).path(execution.workspaceId), spec.file, reuse.inputs),
     );
-    const source = reusableImplementationDiagnostic(this.store.checks(execution.id), run.id, spec, fingerprint);
+    let source = reusableImplementationDiagnostic(this.store.checks(execution.id), execution.id, spec, fingerprint);
+    if (
+      source?.implementationId &&
+      source.implementationId !== run.id &&
+      this.store.implementation(source.implementationId).phase !== 'completed'
+    )
+      source = null;
     if (source) {
       this.reusedChecks.add(source.id);
       this.store.appendExecution(execution.id, 'implementation.diagnostic_reused', {
@@ -306,16 +351,41 @@ export class ImplementationCommands {
     return source;
   }
 
-  /** Formats after editing unless an explicit reusable formatting receipt proves it unnecessary. */
+  private async probeRepair(): Promise<RepositoryCheck> {
+    if (!this.repair || !this.failedCheckId) throw new Error('No approved focused repair diagnostic is available');
+    const check = await this.execute(this.repair.name, this.repair.selection);
+    const run = this.store.implementation(this.implementationId);
+    this.store.appendExecution(run.executionId, 'implementation.repair_probed', {
+      implementationId: run.id,
+      failedCheckId: this.failedCheckId,
+      checkId: check.id,
+    });
+    return check;
+  }
+
+  /** Formats and verifies focused repairs before settlement; broad gates cannot consume an unprobed repair. */
   async finish(): Promise<void> {
     await this.settlePending();
-    if (!this.commands.has('format')) return;
-    await this.exclusive(async () => {
-      if (await this.alreadyFormatted()) return;
-      const check = await this.execute('format', {}, true);
-      if (check.phase !== 'passed')
-        throw new Error(`Automatic formatting failed: ${JSON.stringify(checkFeedback(check))}`);
-    });
+    const run = this.store.implementation(this.implementationId);
+    if (pendingDiagnosticAllowance(this.store, run.executionId, run.id)) return;
+    if (!this.commands.has('format') && !this.repair) return;
+    try {
+      await this.exclusive(async () => {
+        if (this.commands.has('format') && !(await this.alreadyFormatted())) {
+          const check = await this.execute('format', {}, true);
+          if (check.phase !== 'passed')
+            throw new Error(`Automatic formatting failed: ${JSON.stringify(checkFeedback(check))}`);
+        }
+        if (!this.repair || !this.failedCheckId) return;
+        const bound = await this.spec(this.repair.name, this.repair.selection);
+        const probe = latestRepairProbe(this.store, run.id, this.failedCheckId);
+        if (probe?.after?.artifact === bound.artifact && probe.after.instructionsDigest === bound.instructionsDigest)
+          return;
+        await this.probeRepair();
+      });
+    } catch (error) {
+      if (!pendingDiagnosticAllowance(this.store, run.executionId, run.id)) throw error;
+    }
   }
 
   private async alreadyFormatted(): Promise<boolean> {
@@ -327,7 +397,7 @@ export class ImplementationCommands {
     const { artifact: _artifact, ...expected } = spec;
     const source = this.store.checks(execution.id).findLast(check => {
       const { artifact: _previous, ...previous } = check.spec;
-      return check.implementationId === run.id && deepEqual(previous, expected);
+      return !!check.implementationId && deepEqual(previous, expected);
     });
     const fingerprint = checkInputFingerprint(
       new Workspaces(this.store).path(execution.workspaceId),
@@ -337,6 +407,9 @@ export class ImplementationCommands {
     if (
       !fingerprint ||
       !successfulCheck(source) ||
+      !source.implementationId ||
+      (source.implementationId !== run.id &&
+        this.store.implementation(source.implementationId).phase !== 'completed') ||
       source.before?.artifact !== spec.artifact ||
       source.after?.artifact !== spec.artifact ||
       source.inputFingerprint?.before !== fingerprint ||

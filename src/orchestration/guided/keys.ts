@@ -9,13 +9,13 @@ import { required, type GuidedState } from './state.js';
 /**
  * Identifies the pending questions: the session, its latest requested turn and the questions asked.
  * Answers bind to this key so they can never be applied to a later turn's questions. Null unless the
- * task is awaiting an answer; throws when the questioning execution is missing from the state.
+ * task is awaiting an answer or a diagnostic allowance decision; throws when its execution is missing.
  */
 export function guidedQuestionKey(store: Store, state: GuidedState): string | null {
-  if (state.status !== 'awaiting_answer') return null;
+  if (state.status !== 'awaiting_answer' && state.stopReason?.code !== 'DIAGNOSTIC_ALLOWANCE_REQUIRED') return null;
   const execution = store.execution(required(state, state.stage === 'review' ? 'reviewId' : 'executionId'));
   const session = new Sessions(store).get(execution.sessionId);
-  const turn = store.sessionEvents(session.id).findLast(event => event.type === 'turn.requested');
+  const turn = store.sessionEvents(session.id, ['turn.requested']).at(-1);
   return createHash('sha256')
     .update(JSON.stringify({ sessionId: session.id, turn, questions: session.lastReply?.questions }))
     .digest('hex');

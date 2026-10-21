@@ -147,7 +147,8 @@ const policySettings: readonly (IntegerSpec & { key: keyof typeof workflowPolicy
   {
     key: 'maxContextTokens',
     label: 'Context tokens per agent conversation',
-    meaning: 'Observed input tokens before a fresh provider conversation.',
+    meaning:
+      'Zero uses 75% of the observed model window (120,000 tokens when unknown); a positive value is an explicit limit.',
   },
 ];
 

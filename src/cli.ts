@@ -87,6 +87,7 @@ const help = `Grampus - local agent controller
   task-assess <id> --outcome passed|failed|skipped --summary <text>
                                   Record a quality assessment of the selected lenses and continue
   task-answer <id> <answers.json> Answer pending questions and continue
+  task-diagnostic-allowance <id> <decision-key> [answers.json] Approve the displayed diagnostic supplement and continue
   task-retry <id>                 Retry preparation, or start a fresh implementation attempt
   task-rerun-checks <id> <decision-key>  Rerun a check stopped by a timeout or other infrastructure problem
                                   on the unchanged artifact; no agent turn or new attempt
@@ -366,6 +367,7 @@ const taskCommands = [
   'task-authorize',
   'task-assess',
   'task-answer',
+  'task-diagnostic-allowance',
   'task-retry',
   'task-rerun-checks',
   'task-stop',
@@ -374,6 +376,17 @@ const taskCommands = [
   'task-cancel-guidance',
   'task-recover',
 ];
+
+/** Required positional arguments share one check so dispatch stays a small command table. */
+function requireTaskArgument(value: string | undefined, message: string): string {
+  if (!value) throw new Error(message);
+  return value;
+}
+
+/** Optional answers accompany the same explicit allowance decision, never a separate implied grant. */
+function diagnosticAnswers(file: string | undefined): Record<string, string> | undefined {
+  return file ? answersFile(file) : undefined;
+}
 
 /** Run one guided task command and return the id of the task to display afterwards. */
 async function guidedTaskAction(invocation: Invocation, tasks: GuidedTasks, signal: AbortSignal): Promise<string> {
@@ -411,15 +424,29 @@ async function guidedTaskAction(invocation: Invocation, tasks: GuidedTasks, sign
       await tasks.assess(id, assessmentOutcome(values.outcome), requiredText(values.summary, 'summary'), signal);
       return id;
     case 'task-answer':
-      if (!second) throw new Error('task-answer requires an answers JSON file');
-      await tasks.answer(id, answersFile(second), signal);
+      await tasks.answer(
+        id,
+        answersFile(requireTaskArgument(second, 'task-answer requires an answers JSON file')),
+        signal,
+      );
       return id;
     case 'task-retry':
       await tasks.retry(id, signal);
       return id;
+    case 'task-diagnostic-allowance':
+      await tasks.approveDiagnosticAllowance(
+        id,
+        requireTaskArgument(second, 'task-diagnostic-allowance requires the decision key shown by task-show'),
+        signal,
+        diagnosticAnswers(positionals[3]),
+      );
+      return id;
     case 'task-rerun-checks':
-      if (!second) throw new Error('task-rerun-checks requires the decision key shown by task-show');
-      await tasks.rerunChecks(id, second, signal);
+      await tasks.rerunChecks(
+        id,
+        requireTaskArgument(second, 'task-rerun-checks requires the decision key shown by task-show'),
+        signal,
+      );
       return id;
     case 'task-release-workspace':
       await tasks.releaseWorkspace(id);

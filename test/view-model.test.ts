@@ -258,6 +258,18 @@ test('action rules: live work offers stop, uncertain work offers recovery and re
   const task = f.tasks.create(f.plan);
   const base = taskActionFacts(taskFacts(f.store, task.id), view);
   const facts = (change: Partial<TaskActionFacts>): TaskActionFacts => ({ ...base, ...change });
+  const allowance = taskActions(
+    facts({
+      status: 'blocked',
+      stopCode: 'DIAGNOSTIC_ALLOWANCE_REQUIRED',
+      diagnosticAllowance: { family: 'diagnostic:browser', from: 3, to: 5 },
+      questions: [{ id: 'budget', prompt: 'Permit two attempts?', choices: ['Permit'] }],
+    }),
+  )[0]!;
+  assert.equal(allowance.id, 'diagnostic-allowance');
+  assert.match(allowance.description, /from 3 to 5/);
+  assert.equal(allowance.request.path, `/api/tasks/${base.taskId}/diagnostic-allowance`);
+  assert.equal(allowance.form?.fields[0]?.target, '/answers/budget');
   const ids = (value: TaskActionFacts) =>
     taskActions(value).map(item => `${item.id}${item.enabled ? '' : '(disabled)'}`);
 

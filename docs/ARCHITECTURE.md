@@ -256,7 +256,7 @@ form changes cumulative totals only through fresh approval.
 `persistence/store.ts` uses Node's built-in SQLite with WAL, `synchronous=FULL`, foreign keys and a
 15-second busy timeout ([parallel tasks](#parallel-tasks-and-concurrency)). There is one schema,
 version 12, with no migrations. A new or empty
-file gets the schema; any other version, or a version 12 file missing a table, is refused with a
+file gets the schema; any other version, or a version 13 file missing a table, is refused with a
 clear error after a read-only inspection, so the file is never modified. The default journal is
 `grampus.sqlite` in the data directory.
 
@@ -830,7 +830,7 @@ conversations, evidence and both repair counts keep the ordinary task contracts.
 Task claims recheck comparison membership inside the claim transaction; advancing a comparison
 rechecks the member's current ownership and settlement under the same SQLite write lock.
 
-The `comparisons` and `comparison_events` tables are part of journal schema 12. State changes and
+The `comparisons` and `comparison_events` tables are part of journal schema 13. State changes and
 events share a transaction. Schema versions other than 8 are refused without migration.
 Member tasks keep the existing execution, workspace, evidence, spending and verified-delivery
 contracts. Shared planning is retained once at comparison level rather than charged to every member.
@@ -897,6 +897,12 @@ still refuse what they cannot use when a turn starts.
 
 ## Module map
 
+Diagnostic supplements are durable proposals and explicit human grants in the existing journals,
+bound to the immutable approved digest, version and slice. They never reset attempt reservations.
+`verification/failure-focus.ts` provides conservative browser failure observations and approved
+case selections; these are diagnostic hints, not acceptance evidence. Exclusive finishing shares
+captures only while native writes are suspended, discarding them at the operation boundary.
+
 Paths are under `src/`. Folders group modules by responsibility; they are not strict layers.
 
 | Folder | Files | Responsibility |
@@ -921,7 +927,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `quality-passes.ts` | Quality pass definitions, built-ins, plan selection and lens assessments |
 | | `acceptance.ts` | Acceptance expectations and observations against retained output |
 | | `deep-equal.ts` | Structural equality for stored JSON-shaped records |
-| `orchestration/guided/` | `controller.ts` | Guided task controller: public API, runner ownership, drive loop, retry, recovery, revision |
+| `orchestration/guided/` | `controller.ts`, `diagnostic-approval.ts`, `focused-repair.ts` | Guided task controller, explicit diagnostic decisions and focused repair prerequisites |
 | | `runner-pool.ts` | The bounded runner pool (`maxConcurrentTasks`), its typed refusal and the pool view |
 | | `state.ts`, `keys.ts`, `stop-reasons.ts` | Guided state types; decision and question keys; typed stop reason codes |
 | | `context.ts`, `specs.ts`, `prompts.ts` | Stage handler contract and result adoption; exact leaf requests; agent prompts |
@@ -943,7 +949,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `edit-policy.ts`, `implementations.ts`, `implementation-worker.ts` | Edit scope, patch authorization and supervised editing |
 | | `directory-scope.ts`, `native-creations.ts`, `phase-timing.ts` | Portable directory grants, journal-derived creation coverage and monotonic phase observations |
 | | `implementation-prompt.ts` | The exact implementation turn prompt, built within the turn budget |
-| | `implementation-commands.ts`, `diagnostic-budget.ts` | In-turn finishing, pending-command settlement, exact-input reuse and durable slice-wide diagnostic allowances |
+| | `implementation-commands.ts`, `diagnostic-budget.ts`, `diagnostic-allowance.ts`, `repair-probes.ts` | In-turn finishing, pending-command settlement, exact-input reuse and durable slice-wide diagnostic allowances |
 | | `deliveries.ts`, `delivery-worker.ts`, `delivery-operation.ts` | Local commit delivery and verification |
 | | `worker-files.ts` | Validated worker request files and implementation results |
 | | `agent-timeout.ts` | Opt-in provider deadlines for low-level session and implementation commands; guided turns have none |
@@ -968,7 +974,7 @@ Paths are under `src/`. Folders group modules by responsibility; they are not st
 | | `check-process.ts`, `check-host.ts`, `supervisor-protocol.ts` | Supervisor control, its detached host and the pinned supervisor and receipt formats |
 | | `native/check.cs`, `native/check.ps1`, `native/process.ps1` | Job Object helper and process identity queries |
 | `verification/` | `checks.ts`, `check-evidence.ts`, `check-output.ts`, `check-recovery.ts` | Checks and submission, check feedback, log paging, receipts |
-| | `check-spec.ts`, `diagnostic-observations.ts`, `restore-reuse.ts` | Request validation, coordinated stable diagnostic captures and exact prerequisite reuse |
+| | `check-spec.ts`, `diagnostic-observations.ts`, `restore-reuse.ts`, `failure-focus.ts` | Request validation, coordinated stable diagnostic captures and exact prerequisite reuse |
 | `reporting/` | `report.ts`, `task-usage.ts` | Markdown report; per-task usage, per-stage counters and interventions |
 | | `execution-phases.ts` | Phase aggregation without double-counting it as workflow elapsed time |
 | | `run-metrics.ts`, `subscription-metrics.ts` | Model scorecards, observed timing and subscription observations |
@@ -1033,7 +1039,7 @@ The complete in-turn finishing cycle, explicit directory grants, restore contrac
 exploration, ranged batch reads, execution-phase measurements and comparison probe are described in
 [EXECUTION-EFFICIENCY.md](EXECUTION-EFFICIENCY.md). Directory grants extend exact file actions only
 when explicitly approved; neither provider gains general command execution. The optional
-`deferEditableContext` experiment defaults off. Warm workers and isolated general execution remain
+`deferEditableContext` defaults on for exploring Codex turns; it can be disabled for comparison. Warm workers and isolated general execution remain
 **Planned**, conditional on measured benefit.
 
 Readiness and validation commands may approve `reuse: {inputs: [...]}`. This declares a local

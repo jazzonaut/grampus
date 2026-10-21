@@ -44,6 +44,7 @@ import { repairsView } from './repairs.js';
 import { guidanceView } from './guidance.js';
 import { spendingView } from './spending.js';
 import { usageView } from './usage.js';
+import { pendingDiagnosticAllowance } from '../../execution/diagnostic-allowance.js';
 import { evidenceSource, workflowStages } from './workflow.js';
 
 /** The controller's display-only task view (`guidedTaskSummary`). */
@@ -51,6 +52,7 @@ export type GuidedTaskView = ReturnType<typeof guidedTaskSummary>;
 
 /** Everything the view model reads about one task from the journal. */
 export interface TaskFacts {
+  diagnosticAllowance: TaskActionFacts['diagnosticAllowance'];
   view: GuidedTaskView;
   /** Comparison members use the group's approval and continuation controls. */
   comparisonId: string | null;
@@ -90,6 +92,10 @@ export function taskFacts(store: Store, id: string): TaskFacts {
   const retries = comparison ? comparisonRetries(store, comparison.id) : null;
   return {
     view,
+    diagnosticAllowance:
+      state.stopReason?.code === 'DIAGNOSTIC_ALLOWANCE_REQUIRED' && state.executionId
+        ? pendingDiagnosticAllowance(store, state.executionId)
+        : null,
     comparisonId: comparison?.id ?? null,
     comparisonRetry:
       comparison && retries?.active?.taskId !== id
@@ -120,6 +126,7 @@ export function taskActionFacts(facts: TaskFacts, context: ViewContext): TaskAct
   const job = context.job(view.task.id);
   return {
     taskId: view.task.id,
+    diagnosticAllowance: facts.diagnosticAllowance ?? null,
     comparisonId: facts.comparisonId,
     comparisonRetry: facts.comparisonRetry,
     expected: guidedDecisionKey(state, view.questionKey),

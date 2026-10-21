@@ -64,6 +64,15 @@ check. Runtime validation and acceptance remain controller evidence.
 
 ## Implementation readiness
 
+An exhausted diagnostic family stops at **Diagnostic allowance needed**, before review or
+acceptance. Approve the displayed bounded supplement to retain spending and resume the same
+attempt, or revise the plan at the fixed ceiling. Any questions from that turn are included in
+the same approval form. Sending ordinary answers never changes diagnostic permissions.
+Browser repairs can run controller-selected failed cases before readiness, using only the
+approved diagnostic grammar. Pure browser teardown failures stop for explicit investigation
+and rerun without spending an implementation repair. See
+[Execution efficiency](EXECUTION-EFFICIENCY.md) for exact boundaries and unknown-output handling.
+
 Each slice can declare an ordered `readiness` list, with at most one command of each kind:
 `format`, `lint` and `types`. Each command includes `kind`, `name`, `file`, `args` and
 `timeoutMs`. For example, a TypeScript project may approve:
@@ -374,7 +383,7 @@ action and the relevant readiness or shared behavioural budget before the decisi
 structured reply. This makes the choice to repair, arbitrate or stop inspectable alongside the
 existing request/result, check and usage journals.
 
-The current controller uses journal schema 12, including directory grants and restore fingerprints alongside implementation-owned diagnostics, formatting, readiness spending, model assignments, comparisons, pause, guidance and ordered acceptance checks. Journals from
+The current controller uses journal schema 13, including directory grants and restore fingerprints alongside implementation-owned diagnostics, formatting, readiness spending, model assignments, comparisons, pause, guidance and ordered acceptance checks. Journals from
 other schema versions are refused without modification; there is
 no migration. Keep the previous installed build with its journal to finish an existing task.
 
@@ -604,5 +613,5 @@ The Usage panel shows total task elapsed time from linked planning through deliv
 execution, waiting and recovery, then each
 workflow stage and every individual step across slices and retries. Checks, setup and delivery count
 alongside provider work. Provider and command totals overlap during implementation; do not add them.
-Live values include the current open interval and stop advancing on completion. Journal schema 12
+Live values include the current open interval and stop advancing on completion. Journal schema 13
 requires a fresh journal; earlier builds and their journals remain separate.

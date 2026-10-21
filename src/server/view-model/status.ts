@@ -36,6 +36,16 @@ const recovery = (label: string, why: string) => blocked('recovery', label, why)
 
 /** Every stop reason code in UI language. Exhaustive: a new code fails to compile until it is described. */
 export const stopPresentation: Readonly<Record<StopReasonCode, StopPresentation>> = {
+  DIAGNOSTIC_ALLOWANCE_REQUIRED: wait(
+    'approval',
+    'Diagnostic allowance needed',
+    'Approve the displayed additional attempts or revise the plan. Ordinary answers do not change permissions.',
+  ),
+  CHECK_ENVIRONMENT_FAILED: blocked(
+    'failed_check',
+    'Browser environment failed',
+    'Inspect the retained browser lifecycle failure before explicitly rerunning checks. No implementation repair was spent.',
+  ),
   TASK_TURN_LIMIT: wait(
     'blocked',
     'Task turn allowance exhausted',

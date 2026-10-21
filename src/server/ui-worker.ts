@@ -38,6 +38,14 @@ async function perform(
     case 'answer':
       await tasks.answer(id, work.payload.answers, signal);
       return;
+    case 'diagnostic-allowance':
+      await tasks.approveDiagnosticAllowance(
+        id,
+        decisionKeyDigest(work.payload.expected),
+        signal,
+        work.payload.answers,
+      );
+      return;
     case 'retry':
       await tasks.retry(id, signal);
       return;

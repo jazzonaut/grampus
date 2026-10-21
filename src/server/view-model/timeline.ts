@@ -41,6 +41,7 @@ const summaries: Readonly<Record<string, string>> = {
   'guided.scope_authorized': 'Files authorized',
   'guided.assessment_supplied': 'Quality assessment recorded',
   'guided.answers_supplied': 'Answers sent',
+  'guided.diagnostic_allowance_approved': 'Additional diagnostic attempts approved',
   'guided.retry_requested': 'Repair attempt requested',
   'guided.comparison_retry_queued': 'Comparison repair retry queued',
   'guided.repair_decided': 'Repair policy decision',

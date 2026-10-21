@@ -27,6 +27,7 @@ import {
   type DueAcceptance,
 } from '../specs.js';
 import { recordRepairDecision } from '../repair-policy.js';
+import { browserFailureFocus } from '../../../verification/failure-focus.js';
 
 /** The approved budget and journal vocabulary for the failed check's declared stage. */
 function failureBudget(state: GuidedState, stage: GuidedState['stage']) {
@@ -100,6 +101,7 @@ export function observationProblem(result: RepositoryCheck): StopReasonCode | nu
 export function repairIneligibility(state: GuidedState, result: RepositoryCheck): StopReasonCode | null {
   const problem = observationProblem(result);
   if (problem) return problem;
+  if (browserFailureFocus(result).environment) return 'CHECK_ENVIRONMENT_FAILED';
   if (result.after?.artifact !== state.snapshot?.artifact) return 'CHECK_STALE_ARTIFACT';
   if (currentSlice(state).mode === 'no_change') return 'CHECK_FAILED_NO_CHANGE';
   if (!automatic(state)) return 'CHECK_FAILED_SUPERVISED';

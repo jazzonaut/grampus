@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkInputFingerprint } from '../src/verification/check-inputs.js';
-import { reusableDiagnostic } from '../src/verification/check-reuse.js';
+import { reusableDiagnostic, reusableImplementationDiagnostic } from '../src/verification/check-reuse.js';
 import { fixture, windows } from './helpers/checks.js';
 
 test('ignored dependency changes and newer failures invalidate diagnostic reuse', windows, async t => {
@@ -18,6 +18,17 @@ test('ignored dependency changes and newer failures invalidate diagnostic reuse'
   const target = { ...checked, id: 'gate', readiness: undefined };
   const fingerprint = checkInputFingerprint(cwd, spec.file, spec.reuse.inputs);
   assert.equal(reusableDiagnostic([source], target, fingerprint)?.id, source.id);
+  assert.equal(reusableImplementationDiagnostic([source], f.execution.id, spec, fingerprint)?.id, source.id);
+  assert.equal(reusableImplementationDiagnostic([source], 'another-execution', spec, fingerprint), null);
+  assert.equal(
+    reusableImplementationDiagnostic(
+      [source, { ...source, id: 'later-turn', implementationId: 'next-turn', phase: 'failed' }],
+      f.execution.id,
+      spec,
+      fingerprint,
+    ),
+    null,
+  );
   writeFileSync(join(cwd, 'generated', 'dependency'), 'v2');
   const changed = checkInputFingerprint(cwd, spec.file, spec.reuse.inputs);
   assert.notEqual(changed, fingerprint);

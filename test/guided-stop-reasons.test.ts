@@ -155,6 +155,17 @@ test('every stop reason code equals its key, so codes are stable journal values'
 test('repair eligibility names the specific reason a failed check cannot be repaired', () => {
   const automatic = guided('automatic');
   const cases: [RepositoryCheck, GuidedState, string | null][] = [
+    [
+      failedCheck(
+        {},
+        {
+          stderr:
+            'Error: browserContext.close: Protocol error (Target.disposeBrowserContext): Failed to find context with id ABC',
+        },
+      ),
+      automatic,
+      'CHECK_ENVIRONMENT_FAILED',
+    ],
     [failedCheck(), automatic, null],
     [failedCheck({ phase: 'interrupted' }), automatic, 'CHECK_INTERRUPTED'],
     [failedCheck({}, { reason: 'timed_out' }), automatic, 'CHECK_TIMEOUT'],
@@ -482,6 +493,7 @@ function blockedOn(code: string, check: RepositoryCheck, overrides: Record<strin
 test('rerunning checks is offered only for settled infrastructure stops on the unchanged artifact', () => {
   const timedOut = failedCheck({}, { reason: 'timed_out' });
   for (const code of [
+    'CHECK_ENVIRONMENT_FAILED',
     'CHECK_TIMEOUT',
     'CHECK_INTERRUPTED',
     'CHECK_EXIT_UNCONFIRMED',

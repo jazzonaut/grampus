@@ -62,7 +62,7 @@ test(
     assert.notEqual(guidedPlanDigest(amended), task.guided!.digest, 'increasing the allowance requires fresh approval');
     tasks.approve(task.id, 1, task.guided!.digest);
     const state = await tasks.run(task.id);
-    assert.equal(state.stopReason?.code, 'USER_PAUSED', state.note);
+    assert.equal(state.stopReason?.code, 'DIAGNOSTIC_ALLOWANCE_REQUIRED', state.note);
     assert.equal(turns, 2);
     assert.equal(commandsRun, 1);
   },

@@ -121,6 +121,7 @@ const interventionEvents: Readonly<Partial<Record<string, InterventionKind>>> = 
   'guided.guidance_queued': 'guidance',
   'guided.guidance_cancelled': 'guidance',
   'guided.approved': 'approvals',
+  'guided.diagnostic_allowance_approved': 'approvals',
 };
 
 /** Everything measured about a task's provider work. */

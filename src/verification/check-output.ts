@@ -278,6 +278,11 @@ export function checkIssue(check: CheckSummary): string {
   );
 }
 
+/** Bounded retained output for diagnostic case extraction; this is an observation, never passing evidence. */
+export function checkOutputSummary(check: CheckSummary): string {
+  return plainOutput(`${summaryStream(check, 'stdout')}\n${summaryStream(check, 'stderr')}`);
+}
+
 /**
  * Bounded feedback about one check for agents: identity, outcome, the issue line and output excerpts,
  * with a pointer to `grampus_read_check` for complete output. The `readMore` text is part of the

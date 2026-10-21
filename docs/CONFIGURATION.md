@@ -69,7 +69,7 @@ Example:
 | `dashboardProbeMs` | `2000` | 100 to 30000 | Deadline for one authenticated local discovery or shutdown request |
 | `dashboardPollMs` | `100` | 50 to 1000 | Interval between observations while a background dashboard starts |
 | `claudeMaxTurns` | `128` | 16 to 512 | Native Claude agent steps within one controller turn, separate from conversation resets and task-wide controller turns. No automatic replay on exhaustion |
-| `deferEditableContext` | `false` | Boolean | Experiment: read editable text on demand on fresh exploring Codex turns. Compare total tokens, tool calls and completion time before wider use |
+| `deferEditableContext` | `true` | Boolean | Read editable text on demand on fresh exploring Codex turns; disable for eager-context comparisons |
 | `maxReadinessConcurrency` | `2` | 1 to 3 | Workers per task for explicitly approved independent readiness checks. The task runner pool also bounds total concurrency |
 | `usagePollIntervalMs` | `15000` | 1000 to 600000 | How often Claude usage is sampled during a turn. The final result always replaces the samples |
 | `liveChangesIntervalMs` | `5000` | 1000 to 600000 | Interval between display-only working tree observations while the task screen is visible. No agent calls or evidence writes |
@@ -103,7 +103,7 @@ every IPv4 interface; network reachability also depends on the host firewall and
 | `maxTaskTurns` | `20` | 1 to 1000 | Requested provider turns across linked planning, retries, slices and all plan versions; exhaustion stops before another turn |
 | `maxTaskTokens` | `0` | 0 to 1000000000 | Task token threshold; zero disables only the token gate. When enabled, missing or partial usage stops another turn. Active turns may exceed it |
 | `maxSessionTurns` | `6` | 1 to 50 | Turns before a fresh provider conversation |
-| `maxContextTokens` | `120000` | 8000 to 1000000 | Observed input tokens before a fresh provider conversation |
+| `maxContextTokens` | `0` | 0, or 8000 to 1000000 | Zero uses 75% of the observed model window, falling back to 120000 tokens when unknown. Positive values remain explicit limits |
 
 Task spending defaults are copied into each new plan and covered by approval. See [task-wide allowances](WORKFLOW.md#task-wide-spending-allowances) for counting, unknown usage and the limits of dispatch thresholds.
 

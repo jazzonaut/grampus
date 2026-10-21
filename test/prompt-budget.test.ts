@@ -75,6 +75,7 @@ const occurrences = (text: string, marker: string) => text.split(marker).length 
 
 test('optional on-demand initial context preserves authorisation and instructions without eagerly copying editable text', async t => {
   const { repo, editing } = await editedRepository(t);
+  useSettings({ ...defaultSettings(), deferEditableContext: false });
   const original = repairTurn(repo, editing, 'codex').prompt;
   useSettings({ ...defaultSettings(), deferEditableContext: true });
   try {
@@ -90,6 +91,8 @@ test('optional on-demand initial context preserves authorisation and instruction
 
 test('a fresh Codex repair conversation stays within the provider input limit after large edits', async t => {
   const { repo, editing } = await editedRepository(t);
+  useSettings({ ...defaultSettings(), deferEditableContext: false });
+  t.after(() => useSettings(defaultSettings()));
   const { prompt } = repairTurn(repo, editing, 'codex');
   assert.ok(prompt.length <= codexInputCharacters, `prompt is ${prompt.length} characters`);
   assert.ok(Buffer.byteLength(prompt) <= promptLimits.turnBytes, `prompt is ${Buffer.byteLength(prompt)} bytes`);

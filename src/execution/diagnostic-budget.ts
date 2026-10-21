@@ -4,6 +4,7 @@ import type { Store } from '../persistence/store.js';
 import type { DiagnosticGrammar, DiagnosticSelection } from '../domain/diagnostics.js';
 import type { RepositoryCheck } from '../persistence/records.js';
 import { diagnosticSelectionSchema } from '../domain/diagnostics.js';
+import { diagnosticLimit, requestDiagnosticAllowance } from './diagnostic-allowance.js';
 
 const request = z.object({
   family: z.string(),
@@ -40,6 +41,7 @@ export class DiagnosticBudget {
 
   /** Remaining attempts are returned with diagnostics so the agent can plan a bounded investigation. */
   usage(family: string, limit: number) {
+    limit = diagnosticLimit(this.store, this.store.implementation(this.implementationId).executionId, family, limit);
     const used = this.events().filter(
       event =>
         event.type === 'implementation.diagnostic_requested' && request.safeParse(event.data).data?.family === family,
@@ -58,15 +60,13 @@ export class DiagnosticBudget {
         this.store.session(execution.sessionId).run?.id !== run.id
       )
         throw new Error('Diagnostic reservation requires the active implementation lease');
+      limit = diagnosticLimit(this.store, execution.id, family, limit);
       const events = this.events();
       const attempts = events.filter(
         event =>
           event.type === 'implementation.diagnostic_requested' && request.safeParse(event.data).data?.family === family,
       ).length;
-      if (attempts >= limit)
-        throw new Error(
-          `Diagnostic budget exhausted for ${family}: ${attempts}/${limit} slice-wide attempts. Inspect retained failures and source before asking for a revised allowance. Final coverage remains mandatory.`,
-        );
+      if (attempts >= limit) return null;
       const previous = events.findLast(
         event =>
           event.type === 'implementation.diagnostic_finished' && finished.safeParse(event.data).data?.family === family,
@@ -84,6 +84,15 @@ export class DiagnosticBudget {
       });
       return reservation;
     });
+  }
+
+  /** Exhaustion is persisted outside the refused reservation transaction, without spending another attempt. */
+  exhausted(family: string, base: number): never {
+    const usage = this.usage(family, base);
+    requestDiagnosticAllowance(this.store, this.implementationId, family, usage.limit);
+    throw new Error(
+      `Diagnostic budget exhausted for ${family}: ${usage.used}/${usage.limit} slice-wide attempts. A controller allowance approval is required; finish this turn without asking an ordinary question or repeating checks. Final coverage remains mandatory.`,
+    );
   }
 
   /** Links the actual result to its reservation; neither provisional findings nor budget counts are evidence. */

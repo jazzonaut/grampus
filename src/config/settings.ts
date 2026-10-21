@@ -20,7 +20,7 @@ import {
   type QualityPassDefinition,
 } from '../domain/quality-passes.js';
 import { StaleStateError } from '../persistence/errors.js';
-import { KiB, MiB, commandLimits, qualityLimits, workflowPolicyBounds } from './limits.js';
+import { KiB, MiB, commandLimits, contextLimits, qualityLimits, workflowPolicyBounds } from './limits.js';
 import { defaultDashboardPort } from './runtime.js';
 
 /**
@@ -29,7 +29,7 @@ import { defaultDashboardPort } from './runtime.js';
  * when it is normalised.
  */
 export interface Settings {
-  /** Experiment: read editable content on demand on fresh exploring turns, instead of eagerly inlining it. */
+  /** Read editable content on demand on fresh exploring turns; disable for eager-context comparisons. */
   deferEditableContext: boolean;
   /** Native Claude agent steps within one controller turn, separate from conversation reset limits. */
   claudeMaxTurns: number;
@@ -94,7 +94,7 @@ export const settingsFileName = 'config.json';
 /** Built-in defaults: exactly the behaviour without a settings file. */
 export function defaultSettings(): Settings {
   return {
-    deferEditableContext: false,
+    deferEditableContext: true,
     claudeMaxTurns: 128,
     maxReadinessConcurrency: 2,
     modelProfiles: [],
@@ -117,7 +117,7 @@ export function defaultSettings(): Settings {
       readinessRounds: 5,
       repairRounds: 5,
       maxSessionTurns: 6,
-      maxContextTokens: 120_000,
+      maxContextTokens: 0,
       maxTaskTurns: 20,
       maxTaskTokens: 0,
     },
@@ -180,7 +180,9 @@ const overridesSchema = z
         readinessRounds: bounded(workflowPolicyBounds.readinessRounds).optional(),
         repairRounds: bounded(workflowPolicyBounds.repairRounds).optional(),
         maxSessionTurns: bounded(workflowPolicyBounds.maxSessionTurns).optional(),
-        maxContextTokens: bounded(workflowPolicyBounds.maxContextTokens).optional(),
+        maxContextTokens: bounded(workflowPolicyBounds.maxContextTokens)
+          .refine(value => value === 0 || value >= contextLimits.minimumTokens)
+          .optional(),
         maxTaskTurns: bounded(workflowPolicyBounds.maxTaskTurns).optional(),
         maxTaskTokens: bounded(workflowPolicyBounds.maxTaskTokens).optional(),
       })

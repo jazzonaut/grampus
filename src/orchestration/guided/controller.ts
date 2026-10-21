@@ -44,6 +44,7 @@ import {
 import { GuidedStopError, errorReasonCode, stopReason } from './stop-reasons.js';
 import { createGuidance, requireGuidanceSpace, selectGuidance, type GuidanceTarget } from './guidance.js';
 import { isSpendingStop, spendingStop } from './spending.js';
+import { diagnosticApproval } from './diagnostic-approval.js';
 
 const draftNote = 'Inspect the brief, selected files, commands, expected output and pinned base before approving.';
 
@@ -698,6 +699,35 @@ export class GuidedTasks {
         await this.drive(id, token, signal);
       },
       { signal, expected: 'awaiting_assessment' },
+    );
+  }
+  /** Approves the displayed bounded supplement without changing the plan or resetting diagnostic spending. */
+  async approveDiagnosticAllowance(
+    id: string,
+    expected: string,
+    signal?: AbortSignal,
+    answers?: Record<string, string>,
+  ): Promise<GuidedState> {
+    const proposal = diagnosticApproval(this.store, this.current(id), expected, answers);
+    return this.owned(
+      id,
+      async (token, signal) => {
+        this.change(
+          id,
+          token,
+          'guided.diagnostic_allowance_approved',
+          current => {
+            if (diagnosticApproval(this.store, current, expected, answers).requestId !== proposal.requestId)
+              throw new Error('Diagnostic allowance request changed');
+            current.status = 'ready';
+            current.stage = 'scope';
+            current.answers = answers ?? null;
+          },
+          proposal,
+        );
+        await this.drive(id, token, signal);
+      },
+      { signal, expected: 'blocked' },
     );
   }
   /** Answers every pending agent question by id and resumes the same conversation. */

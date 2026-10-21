@@ -6,11 +6,24 @@ import type { WorkflowPolicy } from '../domain/workflow-policy.js';
 import { currentSettings } from '../config/settings.js';
 import { agentToolsetVersion } from '../providers/types.js';
 import { z } from 'zod';
+import { contextLimits } from '../config/limits.js';
 
 /** The input token reading of a journaled `context.updated` event (`{ runId, data }`); unknown when absent. */
-const contextUpdateSchema = z.object({ data: z.object({ inputTokens: z.number().optional() }) });
+const contextUpdateSchema = z.object({
+  data: z.object({ inputTokens: z.number().nonnegative().optional(), windowTokens: z.number().nullish() }),
+});
 /** The status of a journaled `turn.result` event (`{ runId, result, exitConfirmed }`). */
 const turnResultStatusSchema = z.object({ result: z.object({ status: z.string() }) });
+
+/** Explicit approval wins; automatic rotation leaves headroom in the model's measured window. */
+function contextThreshold(policy: WorkflowPolicy, window: number | null | undefined): number {
+  return (
+    policy.maxContextTokens ||
+    (window && window > 0
+      ? Math.floor((window * contextLimits.windowNumerator) / contextLimits.windowDenominator)
+      : contextLimits.fallbackTokens)
+  );
+}
 
 /**
  * Decide whether the next execution may resume `session`'s provider conversation. Decide at a settled
@@ -37,6 +50,7 @@ export function sessionContinuation(
   const turns = events.filter(event => event.type === 'turn.requested').length;
   const context = contextUpdateSchema.safeParse(events.findLast(event => event.type === 'context.updated')?.data);
   const inputTokens = context.data?.data.inputTokens ?? null;
+  const threshold = contextThreshold(policy, context.data?.data.windowTokens);
   const ran =
     context.success ||
     events.some(
@@ -53,8 +67,8 @@ export function sessionContinuation(
         ? 'Start fresh to install the current evidence and dependency tools'
         : turns >= policy.maxSessionTurns
           ? `Conversation reached ${policy.maxSessionTurns} turns`
-          : inputTokens !== null && inputTokens >= policy.maxContextTokens
-            ? `Current context reached ${policy.maxContextTokens} input tokens`
+          : inputTokens !== null && inputTokens >= threshold
+            ? `Current context reached ${threshold} input tokens`
             : 'Continue the same slice with its existing context';
   return {
     resume:
@@ -62,7 +76,7 @@ export function sessionContinuation(
       ran &&
       !outdatedTools &&
       turns < policy.maxSessionTurns &&
-      (inputTokens === null || inputTokens < policy.maxContextTokens),
+      (inputTokens === null || inputTokens < threshold),
     reason,
     turns,
     inputTokens,

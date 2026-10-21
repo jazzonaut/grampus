@@ -23,7 +23,13 @@ import { isSpendingStop, spendingLines, spendingStatus } from './guided/spending
 type Command = (...args: string[]) => string;
 
 /** The next action for a task that is not stale and has no owner, pending step or recovery. */
-function statusAction(state: GuidedState, id: string, command: Command, rerun: string | null): string {
+function statusAction(
+  state: GuidedState,
+  id: string,
+  command: Command,
+  rerun: string | null,
+  questionKey: string | null,
+): string {
   switch (state.status) {
     case 'draft':
       return command('task-approve', id, String(state.version), state.digest);
@@ -38,6 +44,8 @@ function statusAction(state: GuidedState, id: string, command: Command, rerun: s
     case 'awaiting_answer':
       return `${command('task-answer', id)} '<answers.json>'`;
     case 'blocked':
+      if (state.stopReason?.code === 'DIAGNOSTIC_ALLOWANCE_REQUIRED')
+        return `${command('task-diagnostic-allowance', id)} ${guidedDecisionDigest(state, questionKey)} (inspect the allowance in task-show first; supply answers.json for accompanying questions, or revise the plan at the fixed ceiling)`;
       if (isSpendingStop(state.stopReason?.code))
         return `${command('task-revise', id)} ${state.version} '<revised-plan.json>'`;
       if (state.stopReason?.code === 'GUIDANCE_PENDING') return `${command('task-show', id)} --details`;
@@ -87,10 +95,17 @@ function rerunCommand(store: Store, task: Task, state: GuidedState, stale: boole
 }
 
 /** The single next action: inspection when stale, recovery when anything may be live or uncertain. */
-function nextAction(state: GuidedState, id: string, stale: boolean, command: Command, rerun: string | null): string {
+function nextAction(
+  state: GuidedState,
+  id: string,
+  stale: boolean,
+  command: Command,
+  rerun: string | null,
+  questionKey: string | null,
+): string {
   if (stale) return command('show', id);
   if (state.owner || state.pending || state.status === 'recovery_required') return command('task-recover', id);
-  return statusAction(state, id, command, rerun);
+  return statusAction(state, id, command, rerun, questionKey);
 }
 
 /** Whether the task's plan no longer matches its task record, so only inspection is offered. */
@@ -164,7 +179,8 @@ function taskView<T>(store: Store, id: string, records: (store: Store, execution
     const command: Command = (...args) => `npm start -- --db ${quote(store.path)} ${args.map(quote).join(' ')}`;
     const stale = staleState(task, state);
     const rerun = rerunCommand(store, task, state, stale, command);
-    const next = nextAction(state, id, stale, command, rerun);
+    const questionKey = guidedQuestionKey(store, state);
+    const next = nextAction(state, id, stale, command, rerun, questionKey);
     const lease = workspace ? store.lease(workspace.id) : null;
     const usage = taskUsage(store, id);
     const { verdict, carried } = verdictOnDisplay(store, state, review);
@@ -184,9 +200,12 @@ function taskView<T>(store: Store, id: string, records: (store: Store, execution
       carriedFindings: carried,
       integrations: integrationSummary(session ? store.sessionEvents(session.id) : []),
       exploration: explorationSummary(explorationEvents),
-      questionKey: guidedQuestionKey(store, state),
+      questionKey,
       stop: state.owner ? command('task-stop', id) : null,
-      questions: state.status === 'awaiting_answer' ? (session?.lastReply?.questions ?? []) : [],
+      questions:
+        state.status === 'awaiting_answer' || state.stopReason?.code === 'DIAGNOSTIC_ALLOWANCE_REQUIRED'
+          ? (session?.lastReply?.questions ?? [])
+          : [],
       findings: verdict?.findings ?? [],
       /** The reviewer's assessment of each lens in the verdict on display. */
       lenses: verdict?.lenses ?? [],

@@ -74,7 +74,7 @@ export interface StopInput {
  */
 export type StageOutcome =
   | { kind: 'advance'; next: Stage; update?: StateUpdate }
-  | { kind: 'wait'; next: Stage; status: WaitStatus; reason: StopInput; update?: StateUpdate }
+  | { kind: 'wait'; next: Stage; status: WaitStatus | 'blocked'; reason: StopInput; update?: StateUpdate }
   | { kind: 'stop'; reason: StopInput }
   | { kind: 'missing' }
   | { kind: 'rerouted'; to: 'repair' | 'arbitration' };

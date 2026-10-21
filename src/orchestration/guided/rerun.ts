@@ -26,6 +26,7 @@ export const rerunnableStops: ReadonlySet<StopReasonCode> = new Set<StopReasonCo
   'CHECK_EXIT_UNCONFIRMED',
   'CHECK_OUTPUT_UNAVAILABLE',
   'CHECK_ERROR',
+  'CHECK_ENVIRONMENT_FAILED',
 ]);
 
 /** Why the retained check record cannot support a rerun of the current step, or null when it can. */

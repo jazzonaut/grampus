@@ -61,5 +61,5 @@ test('failed broad diagnostics require focus and all selections share a durable 
   assert.equal(task.guided!.plan.slices[0]!.diagnostics[0]!.maxRuns, 3);
   tasks.approve(task.id, 1, task.guided!.digest);
   const state = await tasks.run(task.id);
-  assert.equal(state.stopReason?.code, 'USER_PAUSED', state.note);
+  assert.equal(state.stopReason?.code, 'DIAGNOSTIC_ALLOWANCE_REQUIRED', state.note);
 });
