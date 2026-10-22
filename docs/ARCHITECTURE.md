@@ -24,6 +24,10 @@ Current behaviour of Grampus. Intent and the reasons behind it are in [DESIGN.md
 closes (releasing its hold on the worktree) when the task finishes, and stays open after a stop. The
 driver runs inside that terminal, so Orca resolves it as the Run's coordinator without `--from`.
 
+Clients read state from the logs. `status`, `wait` and `new` print `as of <time>`; `wait --after <time>`
+returns anything newer (a decision request, a question, a stopped driver), including what happened
+between two calls, such as a spec review landing while an agent talked to the user.
+
 ## Module map
 
 | Folder | Module | Owns |

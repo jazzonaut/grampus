@@ -20,7 +20,8 @@ judgement, and never edit a task's worktree yourself: workers do the work, Gramp
 
 This creates an Orca worktree, a terminal tab that runs the task's driver and, shortly after, the
 spec writer. Tell the user they can stay in this chat: workers ask their questions through Grampus,
-and you bring those questions, the spec and the result here. Then start `wait`. Use
+and you bring those questions, the spec and the result here. Then start `wait --after` with the
+`as of` time that `new` printed. Use
 `{{grampus}} recipes` to list recipes when the user asks for a particular pipeline.
 
 ## See what needs the user
@@ -28,13 +29,17 @@ and you bring those questions, the spec and the result here. Then start `wait`. 
 ```text
 {{grampus}} status            all tasks, one block each
 {{grampus}} status <task>     one task with its spec, checks and rounds
-{{grampus}} wait [<task>]     block until something new needs the user (returns after about 9 minutes otherwise)
+{{grampus}} wait [<task>] --after <time>   block until something newer needs the user (returns after about 9 minutes otherwise)
 {{grampus}} report <task>     models, time and tokens per stage, rounds and human cost
 ```
 
 Lines starting `NEEDS YOU`, `QUESTION` and `DRIVER STOPPED` are the ones to relay. `options:` lists
-the commands the task accepts right now. To keep watching, call `wait` again after relaying
-what it returned; do not poll `status` in a loop.
+the commands the task accepts right now. Do not poll `status` in a loop.
+
+Every `status` and `wait` output ends with `as of <time>`. **Always pass the last one you saw to the
+next wait: `wait [<task>] --after <time>`.** Things happen while you talk to the user (a spec review
+landing, a new question); a `wait` without `--after` only reports what happens after it starts and
+would miss them.
 
 ## Decisions
 

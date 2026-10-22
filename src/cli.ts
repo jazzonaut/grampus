@@ -22,7 +22,7 @@ const usage = `Usage: grampus <command> [options]
 
   new --repo <path> [--recipe <name>] [--title <text>] <request...>   Start a task in a new Orca worktree
   status [task] [--json]                                              Show tasks, or one task in detail
-  wait [task] [--json]                                                Block until something new needs you
+  wait [task] [--after <time>] [--json]                               Block until something newer than --after needs you
   report <task> [--json]                                              Models, time and tokens per stage, and human cost
   approve <task> [--version <n>]                                      Approve the latest (or given) spec version
   revise <task> <feedback...>                                         Ask the spec writer for a revision
@@ -49,6 +49,7 @@ async function main(argv: string[]): Promise<number> {
       version: { type: 'string' },
       source: { type: 'string' },
       json: { type: 'boolean' },
+      after: { type: 'string' },
       help: { type: 'boolean' },
     },
   });
@@ -72,7 +73,7 @@ async function main(argv: string[]): Promise<number> {
     case 'status':
       return status(dataDir, rest[0], values.json ?? false);
     case 'wait':
-      return wait(dataDir, rest[0], values.json ?? false);
+      return wait(dataDir, rest[0], values.after, values.json ?? false);
     case 'report':
       return report(dataDir, required(rest[0], 'task'), values.json ?? false);
     case 'recipes':
@@ -144,6 +145,7 @@ async function newTask(
   words: string[],
   values: { repo?: string; recipe?: string; title?: string },
 ): Promise<number> {
+  const asOf = new Date().toISOString();
   const created = await createTask(
     {
       dataDir,
@@ -157,6 +159,7 @@ async function newTask(
   );
   console.log(`Created ${created.taskId}.\n  worktree: ${created.worktree}\n  driver terminal: ${created.terminal}`);
   console.log('The spec writer starts shortly. Its questions and the spec come to you through `grampus wait`.');
+  console.log(`as of ${asOf}`);
   return 0;
 }
 
@@ -190,24 +193,39 @@ function summaries(dataDir: string, taskId: string | undefined): TaskSummary[] {
 }
 
 function status(dataDir: string, taskId: string | undefined, json: boolean): number {
-  const all = summaries(dataDir, taskId);
-  if (json) console.log(JSON.stringify(taskId ? all[0] : all, null, 2));
-  else console.log(all.length ? all.map(renderSummary).join('\n\n') : 'No tasks.');
+  const asOf = new Date().toISOString();
+  print(summaries(dataDir, taskId), asOf, json, 'No tasks.');
   return 0;
 }
 
-/** Block until a task newly needs the user (a decision, a question or a finish), or the wait times out. */
-async function wait(dataDir: string, taskId: string | undefined, json: boolean): Promise<number> {
-  const started = new Date().toISOString();
+/**
+ * Print summaries with the cursor they were read at. Passing that cursor to the next `wait --after`
+ * reports anything that happened in between, such as a request raised while an agent talked to the user.
+ */
+function print(tasks: TaskSummary[], asOf: string, json: boolean, empty: string): void {
+  if (json) console.log(JSON.stringify({ asOf, tasks }, null, 2));
+  else console.log(`${tasks.length ? tasks.map(renderSummary).join('\n\n') : empty}\nas of ${asOf}`);
+}
+
+/**
+ * Block until a task has something newer than `after` that needs the user (a decision, a question or a
+ * stopped driver), or the wait times out. Without `after`, only what happens from now on counts.
+ */
+async function wait(
+  dataDir: string,
+  taskId: string | undefined,
+  after: string | undefined,
+  json: boolean,
+): Promise<number> {
+  if (after !== undefined && Number.isNaN(Date.parse(after)))
+    throw new Error(`--after must be a time printed by Grampus, not "${after}".`);
+  const since = after ?? new Date().toISOString();
   const deadline = Date.now() + currentSettings().waitTimeoutSeconds * 1000;
   for (;;) {
-    const fresh = summaries(dataDir, taskId).filter(summary => isNew(summary, started));
-    if (fresh.length) {
-      console.log(json ? JSON.stringify(fresh, null, 2) : fresh.map(renderSummary).join('\n\n'));
-      return 0;
-    }
-    if (Date.now() >= deadline) {
-      console.log(json ? '[]' : 'Nothing new needs you yet. Run `grampus wait` again to keep waiting.');
+    const asOf = new Date().toISOString();
+    const fresh = summaries(dataDir, taskId).filter(summary => isNew(summary, since));
+    if (fresh.length || Date.now() >= deadline) {
+      print(fresh, asOf, json, `Nothing new needs you yet. Run \`grampus wait --after ${asOf}\` to keep waiting.`);
       return 0;
     }
     await sleep(currentSettings().waitPollMs);
