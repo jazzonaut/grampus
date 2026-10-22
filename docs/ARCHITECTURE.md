@@ -221,7 +221,8 @@ prints the addresses it answers on.
   recipe uses, or a usage limit reached are errors; Orca busy, a driver or the dashboard on an older
   build than the installed one, a quiet or exited worker, and a limit at `providerUsageWarnPercent` are
   warnings. Orca is checked at most every `healthProbeMs` (each check runs its CLI, with a
-  `healthProbeTimeoutMs` deadline); the page asks again on that interval and whenever a log changes.
+  `healthProbeTimeoutMs` deadline); the page asks again on that interval and whenever a log changes. A
+  stopped driver has the same Resume action as its task or comparison page.
 - **Attention**: the tab title counts tasks that need the user and the favicon gets a dot, also while
   the system has an error. The System item in the rail shows the number of problems in the colour of the
   worst. Desktop notifications announce each new decision, question and system error, where the browser

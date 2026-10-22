@@ -3,8 +3,10 @@
   still running, Orca, the agent providers' usage limits and recent Orca hiccups, with the problems first.
 -->
 <script setup lang="ts">
-import { computed } from 'vue';
-import type { HealthLevel, HealthView } from '../../../src/dashboard/types';
+import { useToast } from '@nuxt/ui/composables';
+import { computed, reactive, watch } from 'vue';
+import type { DriverHealth, HealthLevel, HealthView } from '../../../src/dashboard/types';
+import { sendJson } from '../api/client';
 import StatusIcon from '../components/StatusIcon.vue';
 import { useHealth } from '../composables/useHealth';
 import { useNow } from '../composables/useNow';
@@ -12,6 +14,31 @@ import { ago, driverLook, duration, healthLook, hiccupLook, timeOfDay, workerLoo
 
 const { health, error, refresh } = useHealth();
 const now = useNow();
+const toast = useToast();
+
+/** Drivers being resumed; each stays busy until its new driver records its start and the row changes. */
+const resuming = reactive(new Set<string>());
+watch(health, view => {
+  for (const id of resuming)
+    if (!view?.drivers.some(driver => driver.id === id && driver.state === 'stopped')) resuming.delete(id);
+});
+
+async function resume(driver: DriverHealth): Promise<void> {
+  resuming.add(driver.id);
+  const path = `/api/${driver.kind === 'task' ? 'tasks' : 'comparisons'}/${driver.id}/resume`;
+  try {
+    await sendJson('POST', path, {});
+    toast.add({ title: 'Driver resuming in a new Orca tab', icon: 'i-lucide-circle-check', color: 'success' });
+  } catch (failure) {
+    resuming.delete(driver.id);
+    toast.add({
+      title: 'Could not resume the driver',
+      description: (failure as Error).message,
+      icon: 'i-lucide-circle-x',
+      color: 'error',
+    });
+  }
+}
 
 const drivers = computed(() => {
   const order = { stopped: 0, starting: 1, alive: 2 } as const;
@@ -174,8 +201,8 @@ const levelColor: Record<'warning' | 'error', Color> = { warning: 'warning', err
           <section class="space-y-2">
             <h2 class="font-medium">Drivers</h2>
             <p class="text-sm text-muted">
-              One per unfinished task or comparison. A driver proves it is alive by touching its lock file; one that
-              stopped needs <code>grampus drive &lt;task&gt;</code> or Abandon.
+              One per unfinished task or comparison. A driver proves it is alive by touching its lock file. Resume
+              starts a stopped one again in a new Orca tab, and it continues where it stopped.
             </p>
             <UEmpty v-if="!drivers.length" icon="i-lucide-activity" title="No unfinished tasks" />
             <div v-else class="overflow-x-auto rounded-lg border border-default">
@@ -198,6 +225,17 @@ const levelColor: Record<'warning' | 'error', Color> = { warning: 'warning', err
                         {{ driverLook[driver.state].label }}
                       </span>
                       <span v-if="driver.pid" class="text-xs text-dimmed">pid {{ driver.pid }}</span>
+                      <UButton
+                        v-if="driver.state === 'stopped'"
+                        size="xs"
+                        color="error"
+                        variant="soft"
+                        icon="i-lucide-play"
+                        label="Resume"
+                        class="mt-1"
+                        :loading="resuming.has(driver.id)"
+                        @click="resume(driver)"
+                      />
                     </td>
                     <td class="px-3 py-2 max-w-sm">
                       <RouterLink :to="driver.link" class="hover:underline line-clamp-2">
