@@ -233,6 +233,7 @@ function acceptStep(state: TaskState): PipelineStep {
 function specsOf(state: TaskState): SpecView[] {
   const approved = approvedSpec(state);
   return state.specs.map(spec => {
+    const text = readBounded(spec.path, specLimits.bytes);
     const reviewed = state.specReviews.get(spec.version);
     const reviewState: SpecView['review']['state'] = reviewed
       ? reviewed.report
@@ -248,11 +249,28 @@ function specsOf(state: TaskState): SpecView[] {
       hash: spec.hash,
       checks: spec.checks,
       protected: spec.protected,
-      text: readBounded(spec.path, specLimits.bytes),
+      text,
+      outcome: text === null ? null : specSection(text, 'Outcome'),
       review: { state: reviewState, report: reviewed?.report ?? null, error: reviewed?.error ?? null },
       approved: approved === spec.version,
     };
   });
+}
+
+/**
+ * The body of a spec's `## <heading>` section, trimmed, or null when it is missing or empty. The spec
+ * writer is asked for this format but may deviate, so a missing section is normal.
+ */
+export function specSection(text: string, heading: string): string | null {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex(line => line.trim().toLowerCase() === `## ${heading.toLowerCase()}`);
+  if (start < 0) return null;
+  const end = lines.findIndex((line, index) => index > start && /^#{1,2}\s|^```/.test(line));
+  const body = lines
+    .slice(start + 1, end < 0 ? undefined : end)
+    .join('\n')
+    .trim();
+  return body || null;
 }
 
 /** A file's text up to a bound, or null when it is missing. */

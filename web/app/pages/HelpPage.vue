@@ -71,11 +71,7 @@ const states = Object.keys(stepStateLook) as StepState[];
 <template>
   <UDashboardPanel id="help">
     <template #header>
-      <UDashboardNavbar title="Help" icon="i-lucide-circle-help">
-        <template #leading>
-          <UDashboardSidebarCollapse />
-        </template>
-      </UDashboardNavbar>
+      <UDashboardNavbar title="Help" icon="i-lucide-circle-help"> </UDashboardNavbar>
     </template>
 
     <template #body>

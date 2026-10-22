@@ -158,16 +158,22 @@ prints the addresses it answers on.
 - **Live updates**: `/api/live` is a server-sent event stream. A watcher polls log and queue sizes every
   `waitPollMs` and sends the ids of tasks that changed; after a reconnect the page reloads everything.
 - **Files**: only paths a task's log records (spec versions, check logs) can be fetched.
+- **Changes**: `/api/tasks/<id>/changes` counts lines added and deleted per file between the task's base
+  commit and its worktree's current commit; `/api/tasks/<id>/diff` returns that diff, cut at
+  `dashboardDiffBytes`. Uncommitted work is not included, so it matches what checks and review see.
 - **No login.** Anyone who can reach the port can control tasks. The guards stop other web pages from
   using a visitor's browser: requests must name one of this machine's host names or addresses (or
   `dashboardAllowedHosts`), so DNS rebinding fails; writes must carry the dashboard's own `Origin` and a
   JSON body, so cross-site forms and fetches fail; pages cannot be framed; a strict Content Security
   Policy and Markdown rendered without raw HTML contain agent output.
 - Icons are bundled at build time, so the dashboard works without internet access.
-- **Pages**: a task list (needs you first) beside the selected task, with its pipeline strip, the pending
-  decision and its evidence pinned on top, and tabs for overview, spec versions with review, checks and
+- **Pages**: a navigation rail that widens over the page on hover or focus, and a task list (needs you
+  first) beside the selected task. The task header holds its title, repository and base commit, the
+  pipeline strip (wrapping when narrow) and tabs for overview, spec versions with review, checks and
   review per round (with check logs), worker questions and answers, timeline, scorecard and the raw
-  event log. The open tab is part of the address, so it can be bookmarked.
+  event log. The overview shows the pending decision (its evidence behind Show details), the request,
+  the spec's Outcome section as the description and your decisions, beside the workers and the files
+  changed with the full diff. The open tab is part of the address, so it can be bookmarked.
 - **Attention**: the tab title counts tasks that need the user and the favicon gets a dot. Desktop
   notifications are offered where the browser allows them (localhost or HTTPS, so not on a phone over
   plain HTTP). A web app manifest lets it be added to a home screen.

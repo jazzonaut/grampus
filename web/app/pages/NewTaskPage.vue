@@ -121,11 +121,7 @@ async function create(): Promise<void> {
 <template>
   <UDashboardPanel id="new-task">
     <template #header>
-      <UDashboardNavbar :title="comparing ? 'New comparison' : 'New task'" icon="i-lucide-plus">
-        <template #leading>
-          <UDashboardSidebarCollapse />
-        </template>
-      </UDashboardNavbar>
+      <UDashboardNavbar :title="comparing ? 'New comparison' : 'New task'" icon="i-lucide-plus"> </UDashboardNavbar>
     </template>
 
     <template #body>

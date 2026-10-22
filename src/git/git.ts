@@ -69,3 +69,33 @@ export async function changedPaths(cwd: string, from: string, to: string): Promi
 export async function diffStat(cwd: string, from: string, to: string): Promise<string> {
   return (await git(cwd, ['diff', '--shortstat', from, to])).trim();
 }
+
+/** Lines added and deleted in one changed path; null counts mean Git treats the file as binary. */
+export interface LineChange {
+  path: string;
+  oldPath: string | null;
+  added: number | null;
+  deleted: number | null;
+}
+
+/** Lines added and deleted per path between two commits, with rename detection. */
+export async function lineChanges(cwd: string, from: string, to: string): Promise<LineChange[]> {
+  const fields = (await git(cwd, ['diff', '--numstat', '-z', '-M', from, to])).split('\0');
+  const changes: LineChange[] = [];
+  const count = (text: string): number | null => (text === '-' ? null : Number(text));
+  for (let index = 0; index < fields.length;) {
+    const [added, deleted, path] = (fields[index++] ?? '').split('\t');
+    if (added === undefined || deleted === undefined) continue;
+    // A rename leaves the path empty and follows with the old and new paths as separate fields.
+    if (path === '') {
+      const oldPath = fields[index++] ?? '';
+      changes.push({ path: fields[index++] ?? '', oldPath, added: count(added), deleted: count(deleted) });
+    } else changes.push({ path: path ?? '', oldPath: null, added: count(added), deleted: count(deleted) });
+  }
+  return changes;
+}
+
+/** The unified diff between two commits, with rename detection. */
+export async function patch(cwd: string, from: string, to: string): Promise<string> {
+  return git(cwd, ['diff', '-M', '--no-color', from, to]);
+}

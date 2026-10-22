@@ -1,9 +1,10 @@
-<!-- One task: its pipeline, the decision it waits for, and its evidence in tabs. -->
+<!--
+  One task. The header keeps where it stands in view: title, repository and base, the pipeline and the
+  tabs. The decision it waits for is on the overview, which the tab marks while one is pending.
+-->
 <script setup lang="ts">
 import { computed, toRef } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import DecisionActions from '../components/DecisionActions.vue';
-import DecisionPanel from '../components/DecisionPanel.vue';
 import EventLog from '../components/EventLog.vue';
 import MessagesTab from '../components/MessagesTab.vue';
 import OverviewTab from '../components/OverviewTab.vue';
@@ -35,7 +36,14 @@ const tabs = computed(() => {
   const open = task.value?.summary.questions.length ?? 0;
   const latest = task.value?.specs.at(-1);
   return [
-    { label: 'Overview', value: 'overview', icon: 'i-lucide-layout-dashboard' },
+    {
+      label: 'Overview',
+      value: 'overview',
+      icon: 'i-lucide-layout-dashboard',
+      badge: task.value?.needsYou
+        ? { icon: 'i-lucide-hand', color: 'warning' as const, variant: 'subtle' as const }
+        : undefined,
+    },
     { label: 'Spec', value: 'spec', icon: 'i-lucide-file-text', badge: latest ? `v${latest.version}` : undefined },
     { label: 'Checks & review', value: 'rounds', icon: 'i-lucide-list-checks' },
     {
@@ -54,28 +62,60 @@ const tabs = computed(() => {
 <template>
   <UDashboardPanel id="task" class="min-w-0">
     <template #header>
-      <UDashboardNavbar :title="task?.title ?? 'Loading...'" :toggle="false">
-        <template #leading>
+      <header class="px-4 sm:px-6 pt-3 space-y-3">
+        <div class="flex items-start gap-2">
           <UButton
             to="/"
             icon="i-lucide-arrow-left"
             color="neutral"
             variant="ghost"
-            class="lg:hidden"
+            class="lg:hidden -ml-2"
             aria-label="Back to tasks"
           />
+          <h1 class="flex-1 min-w-0 text-lg font-semibold text-highlighted line-clamp-2" :title="task?.title">
+            {{ task?.title ?? 'Loading...' }}
+          </h1>
+          <div v-if="task" class="flex items-center gap-1.5 shrink-0">
+            <UBadge :color="statusLook[task.status].color" variant="subtle" class="gap-1.5">
+              <StatusIcon :look="statusLook[task.status]" size="size-3.5" />
+              <span class="max-sm:hidden">{{ statusLook[task.status].label }}</span>
+            </UBadge>
+            <TaskMenu :task="task" />
+          </div>
+        </div>
+        <template v-if="task">
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
+            <span class="inline-flex items-center gap-1.5" :title="task.repository.path">
+              <UIcon name="i-lucide-folder-git-2" class="size-4" />{{ task.repository.name }}
+            </span>
+            <span class="inline-flex items-center gap-1.5">
+              <UIcon name="i-lucide-chef-hat" class="size-4" />{{ task.recipe }}
+            </span>
+            <span class="inline-flex items-center gap-1.5" :title="when(task.createdAt)">
+              <UIcon name="i-lucide-clock" class="size-4" />started {{ ago(task.createdAt, now) }}
+            </span>
+            <span v-if="task.worktree" class="font-mono text-xs">
+              {{ task.taskId }} · base {{ shortSha(task.worktree.baseSha) }}
+            </span>
+            <RouterLink
+              v-if="task.comparisonId"
+              :to="`/comparisons/${task.comparisonId}`"
+              class="inline-flex items-center gap-1.5 text-primary hover:underline"
+            >
+              <UIcon name="i-lucide-git-compare-arrows" class="size-4" />Part of a comparison
+            </RouterLink>
+          </div>
+          <PipelineStrip :steps="task.pipeline" />
+          <UTabs
+            v-model="tab"
+            :items="tabs"
+            variant="link"
+            :content="false"
+            class="overflow-x-auto -mx-4 sm:-mx-6 px-4 sm:px-6"
+            :ui="{ trigger: 'grow-0 shrink-0', label: 'overflow-visible' }"
+          />
         </template>
-        <template #right>
-          <UBadge v-if="task" :color="statusLook[task.status].color" variant="subtle" class="gap-1.5">
-            <StatusIcon :look="statusLook[task.status]" size="size-3.5" />
-            <span class="max-sm:hidden">{{ statusLook[task.status].label }}</span>
-          </UBadge>
-          <TaskMenu v-if="task" :task="task" />
-        </template>
-      </UDashboardNavbar>
-      <UDashboardToolbar v-if="task">
-        <PipelineStrip :steps="task.pipeline" />
-      </UDashboardToolbar>
+      </header>
     </template>
 
     <template #body>
@@ -84,46 +124,8 @@ const tabs = computed(() => {
         <USkeleton class="h-6 w-1/2" />
         <USkeleton class="h-24 w-full" />
       </div>
-      <div v-else class="space-y-5 max-w-6xl">
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
-          <span class="inline-flex items-center gap-1.5" :title="task.repository.path">
-            <UIcon name="i-lucide-folder-git-2" class="size-4" />{{ task.repository.name }}
-          </span>
-          <span class="inline-flex items-center gap-1.5">
-            <UIcon name="i-lucide-chef-hat" class="size-4" />{{ task.recipe }}
-          </span>
-          <span class="inline-flex items-center gap-1.5" :title="when(task.createdAt)">
-            <UIcon name="i-lucide-clock" class="size-4" />started {{ ago(task.createdAt, now) }}
-          </span>
-          <span v-if="task.worktree" class="font-mono text-xs">
-            {{ task.taskId }} · base {{ shortSha(task.worktree.baseSha) }}
-          </span>
-        </div>
-
-        <RouterLink
-          v-if="task.comparisonId"
-          :to="`/comparisons/${task.comparisonId}`"
-          class="flex items-center gap-2 rounded-lg border border-default px-3 py-2 text-sm hover:bg-elevated/50"
-        >
-          <UIcon name="i-lucide-git-compare-arrows" class="size-4 text-primary" />
-          An entry of a comparison: see it side by side with the other recipes
-          <UIcon name="i-lucide-arrow-right" class="size-4 ml-auto" />
-        </RouterLink>
-
-        <DecisionPanel :task="task" @show="value => (tab = value)">
-          <DecisionActions :task="task" />
-        </DecisionPanel>
-
-        <UTabs
-          v-model="tab"
-          :items="tabs"
-          variant="link"
-          :content="false"
-          class="w-full overflow-x-auto"
-          :ui="{ trigger: 'grow-0', label: 'overflow-visible' }"
-        />
-
-        <OverviewTab v-if="tab === 'overview'" :task="task" />
+      <div v-else class="max-w-7xl">
+        <OverviewTab v-if="tab === 'overview'" :task="task" @show="value => (tab = value)" />
         <SpecTab v-else-if="tab === 'spec'" :specs="task.specs" />
         <RoundsTab v-else-if="tab === 'rounds'" :task="task" />
         <MessagesTab v-else-if="tab === 'messages'" :messages="task.messages">

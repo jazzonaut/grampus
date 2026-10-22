@@ -8,11 +8,12 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { usageText, commands } from '../src/commands.js';
 import { serveDashboard, type RunningDashboard } from '../src/dashboard/server.js';
-import type { TaskDetail, TaskList } from '../src/dashboard/types.js';
+import type { ChangesView, DiffView, TaskDetail, TaskList } from '../src/dashboard/types.js';
 import { standardRecipe } from '../src/domain/recipe.js';
+import { git, headSha } from '../src/git/git.js';
 import { TaskStore } from '../src/store/task-store.js';
 import { FakeOrca } from './helpers/fake-orca.js';
-import { useTestSettings } from './helpers/task-fixture.js';
+import { commitAll, createRepository, useTestSettings, write } from './helpers/task-fixture.js';
 
 const running: RunningDashboard[] = [];
 after(async () => {
@@ -236,4 +237,49 @@ test('a provisional scorecard is measured for a running task', async () => {
   };
   assert.equal(card.final, false);
   assert.equal(card.outcome, 'running');
+});
+
+test("the task's changes so far are counted per file and served as a diff, cut at the configured size", async () => {
+  const { home, base } = await start();
+  const repo = await createRepository();
+  const baseSha = await headSha(repo);
+  const store = TaskStore.create(home, 'task-2');
+  store.append({
+    type: 'task.created',
+    taskId: 'task-2',
+    title: 'T',
+    request: 'R',
+    repoPath: repo,
+    recipe: standardRecipe,
+  });
+  store.append({ type: 'workspace.created', worktreeId: 'wt', path: repo, baseSha, driverTerminal: 'term' });
+  write(repo, 'greet.js', 'export function greet(name) {\n  return `Hello, ${name}!`;\n}\n');
+  write(repo, 'docs/notes.md', 'one\ntwo\n');
+  await git(repo, ['mv', 'package.json', 'package.json.bak']);
+  await commitAll(repo, 'Greet by name');
+  const sha = await headSha(repo);
+
+  const changes = (await (await fetch(`${base}/api/tasks/task-2/changes`)).json()) as ChangesView;
+  assert.equal(changes.baseSha, baseSha);
+  assert.equal(changes.sha, sha);
+  const byPath = new Map(changes.files.map(file => [file.path, file]));
+  assert.deepEqual(byPath.get('greet.js'), { path: 'greet.js', oldPath: null, added: 1, deleted: 1 });
+  assert.deepEqual(byPath.get('docs/notes.md'), { path: 'docs/notes.md', oldPath: null, added: 2, deleted: 0 });
+  assert.equal(byPath.get('package.json.bak')?.oldPath, 'package.json', 'a rename names the old path');
+
+  const diff = (await (await fetch(`${base}/api/tasks/task-2/diff`)).json()) as DiffView;
+  assert.equal(diff.truncated, false);
+  assert.match(diff.patch, /^\+ {2}return `Hello, \$\{name\}!`;$/m);
+
+  useTestSettings({ waitPollMs: 20, dashboardDiffBytes: 40 });
+  const cut = (await (await fetch(`${base}/api/tasks/task-2/diff`)).json()) as DiffView;
+  assert.equal(cut.truncated, true);
+  assert.equal(cut.patch.length, 40);
+});
+
+test('a task without a worktree has no changes to show', async () => {
+  const { base } = await start();
+  const response = await fetch(`${base}/api/tasks/task-1/changes`);
+  assert.equal(response.status, 404);
+  assert.match(await response.text(), /no worktree/);
 });

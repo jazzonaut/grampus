@@ -1,4 +1,7 @@
-<!-- The task's pipeline as a strip of steps, scrolling sideways on narrow screens. -->
+<!--
+  The task's pipeline as a strip of steps that wraps onto more rows when narrow. Each connector trails
+  its step, so a wrapped row ends with one that leads on to the next.
+-->
 <script setup lang="ts">
 import type { PipelineStep } from '../../../src/dashboard/types';
 import { stepIcon, stepStateLook } from '../presentation';
@@ -17,18 +20,16 @@ const ring: Record<PipelineStep['state'], string> = {
 </script>
 
 <template>
-  <ol class="flex items-center gap-1 overflow-x-auto py-1 -mx-1 px-1" aria-label="Pipeline">
-    <template v-for="(step, index) in steps" :key="step.id">
-      <li v-if="index" class="h-px w-3 shrink-0 bg-(--ui-border-accented)" aria-hidden="true" />
-      <li class="shrink-0">
-        <UTooltip :text="`${step.label}: ${stepStateLook[step.state].label}${step.detail ? ` (${step.detail})` : ''}`">
-          <div class="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs" :class="ring[step.state]">
-            <UIcon :name="stepIcon[step.id]" class="size-3.5" />
-            <span class="font-medium" :class="{ 'line-through': step.state === 'skipped' }">{{ step.label }}</span>
-            <StatusIcon v-if="step.state !== 'skipped'" :look="stepStateLook[step.state]" size="size-3.5" />
-          </div>
-        </UTooltip>
-      </li>
-    </template>
+  <ol class="flex flex-wrap items-center gap-y-2" aria-label="Pipeline">
+    <li v-for="(step, index) in steps" :key="step.id" class="flex items-center">
+      <UTooltip :text="`${step.label}: ${stepStateLook[step.state].label}${step.detail ? ` (${step.detail})` : ''}`">
+        <div class="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs" :class="ring[step.state]">
+          <UIcon :name="stepIcon[step.id]" class="size-3.5" />
+          <span class="font-medium" :class="{ 'line-through': step.state === 'skipped' }">{{ step.label }}</span>
+          <StatusIcon v-if="step.state !== 'skipped'" :look="stepStateLook[step.state]" size="size-3.5" />
+        </div>
+      </UTooltip>
+      <span v-if="index < steps.length - 1" class="h-px w-3 mx-1 bg-(--ui-border-accented)" aria-hidden="true" />
+    </li>
   </ol>
 </template>

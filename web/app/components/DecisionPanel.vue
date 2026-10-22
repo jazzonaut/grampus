@@ -1,9 +1,9 @@
 <!--
-  What the task waits for, pinned above the tabs: the decision with the evidence behind it, and any open
-  worker questions. The actions themselves are in the default slot.
+  What the task waits for, at the top of the overview: the decision with its reasons, the evidence behind
+  it under Show details, and any open worker questions. The actions themselves are in the default slot.
 -->
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { TaskDetail } from '../../../src/dashboard/types';
 import { shortSha } from '../presentation';
 import CheckRun from './CheckRun.vue';
@@ -27,6 +27,12 @@ const heading = computed(() => {
   }
 });
 const questions = computed(() => props.task.summary.questions.length);
+/** The evidence starts folded for each new decision, so the reasons and actions come first. */
+const details = ref(false);
+watch(
+  () => props.task.needsYou?.reason,
+  () => (details.value = false),
+);
 /** The round awaiting accept, continue or abandon, with its evidence. */
 const round = computed(() => props.task.rounds.find(entry => entry.round === props.task.summary.result?.round));
 /** An escalation lists its reasons instead of the detail line, which repeats them in one run-on sentence. */
@@ -64,14 +70,6 @@ const specChecks = computed(() => {
       </div>
 
       <div v-if="task.summary.approval" class="pl-8 space-y-1">
-        <CheckRun v-if="specChecks" :task-id="task.taskId" :run="specChecks" title="Checks on the original commit" />
-        <p v-if="specChecks?.results.some(result => !result.passed)" class="text-xs text-muted">
-          A check should fail here only because the behaviour is missing. One that fails for another reason, such as no
-          tests running or a missing tool, cannot pass after the build either.
-        </p>
-        <p v-if="!specChecks" class="text-sm text-muted flex items-center gap-1">
-          <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" /> Running the checks on the original commit
-        </p>
         <ul class="text-sm space-y-0.5">
           <li v-for="line in task.summary.approval.review" :key="line" class="text-muted">{{ line }}</li>
         </ul>
@@ -80,12 +78,41 @@ const specChecks = computed(() => {
         </UButton>
       </div>
 
-      <div v-if="round" class="pl-8 space-y-3">
-        <RoundEvidence :task="task" :round="round" />
-        <UButton size="sm" variant="link" icon="i-lucide-list-checks" class="px-0" @click="emit('show', 'rounds')">
-          See every round and the baseline
+      <UCollapsible v-if="task.summary.approval || round" v-model:open="details" class="pl-8">
+        <UButton
+          size="sm"
+          variant="link"
+          color="neutral"
+          class="px-0"
+          :icon="details ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
+        >
+          {{ details ? 'Hide details' : 'Show details' }}
         </UButton>
-      </div>
+        <template #content>
+          <div v-if="task.summary.approval" class="pt-2 space-y-1">
+            <CheckRun
+              v-if="specChecks"
+              :task-id="task.taskId"
+              :run="specChecks"
+              title="Checks on the original commit"
+            />
+            <p v-if="specChecks?.results.some(result => !result.passed)" class="text-xs text-muted">
+              A check should fail here only because the behaviour is missing. One that fails for another reason, such as
+              no tests running or a missing tool, cannot pass after the build either.
+            </p>
+            <p v-if="!specChecks" class="text-sm text-muted flex items-center gap-1">
+              <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" /> Running the checks on the original
+              commit
+            </p>
+          </div>
+          <div v-if="round" class="pt-2 space-y-3">
+            <RoundEvidence :task="task" :round="round" />
+            <UButton size="sm" variant="link" icon="i-lucide-list-checks" class="px-0" @click="emit('show', 'rounds')">
+              See every round and the baseline
+            </UButton>
+          </div>
+        </template>
+      </UCollapsible>
     </template>
 
     <button

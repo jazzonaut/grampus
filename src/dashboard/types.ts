@@ -81,6 +81,8 @@ export interface SpecView {
   protected: string[];
   /** The spec text, or null when its file is missing. */
   text: string | null;
+  /** The spec's Outcome section: what changes, for whom and why. Null when the spec has none. */
+  outcome: string | null;
   review: SpecReviewView;
   approved: boolean;
 }
@@ -190,6 +192,22 @@ export interface TaskDetail extends TaskListItem {
   merged: { branch: string; sha: string } | null;
   finished: { outcome: TaskOutcome; sha: string | null; override: boolean; at: string } | null;
   lastStop: { reason: string; at: string } | null;
+}
+
+/** What the task's branch changes: the worktree's current commit against the task's base commit. */
+export interface ChangesView {
+  baseSha: string;
+  sha: string;
+  /** Null counts mean Git treats the file as binary. */
+  files: { path: string; oldPath: string | null; added: number | null; deleted: number | null }[];
+}
+
+/** The unified diff behind a ChangesView, cut at `dashboardDiffBytes`. */
+export interface DiffView {
+  baseSha: string;
+  sha: string;
+  patch: string;
+  truncated: boolean;
 }
 
 export interface HelpView {

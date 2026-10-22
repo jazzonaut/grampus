@@ -13,9 +13,6 @@ const now = useNow();
   <UDashboardPanel id="comparisons">
     <template #header>
       <UDashboardNavbar title="Comparisons" icon="i-lucide-git-compare-arrows">
-        <template #leading>
-          <UDashboardSidebarCollapse />
-        </template>
         <template #right>
           <UButton to="/new?compare=1" icon="i-lucide-plus" label="New comparison" />
         </template>

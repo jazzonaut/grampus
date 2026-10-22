@@ -84,9 +84,6 @@ function stages(recipe: Recipe): { label: string; icon: string; value: string }[
   <UDashboardPanel id="recipes">
     <template #header>
       <UDashboardNavbar title="Recipes" icon="i-lucide-chef-hat">
-        <template #leading>
-          <UDashboardSidebarCollapse />
-        </template>
         <template #right>
           <UButton icon="i-lucide-plus" label="New recipe" :disabled="!recipes.length" @click="create" />
         </template>

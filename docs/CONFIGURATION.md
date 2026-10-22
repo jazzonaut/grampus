@@ -29,6 +29,7 @@ the installed data directory.
 | `comparisonConcurrency` | `2` | How many entries of a comparison run at once; the rest wait for a free place |
 | `modelPrices` | built-in table (see below) | API list prices per model for estimated cost; entries replace single models |
 | `dashboardAllowedHosts` | `[]` | Extra host names the dashboard answers to, such as a VPN name; localhost, this machine's name and its addresses are always allowed |
+| `dashboardDiffBytes` | `1048576` (1 MiB) | Bytes of a task's diff the dashboard shows in View full diff; a longer diff is cut |
 | `keptVersions` | `3` | How many installed versions `npm run install:local` keeps, the selected one included |
 
 ## Model prices

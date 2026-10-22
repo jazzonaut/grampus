@@ -1,11 +1,14 @@
 // The dashboard's JSON API. Reads come from the task logs; every write either queues a command for the
 // task's driver (exactly like the CLI, with source `dashboard`) or performs one of the few actions the CLI
 // performs outside a driver.
+import { existsSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { ZodError } from 'zod';
 import { checkLimits } from '../config/limits.js';
+import { currentSettings } from '../config/settings.js';
 import { commandGroups, commands, globalOptions } from '../commands.js';
 import { queueCommand } from '../control.js';
+import { headSha, lineChanges, patch } from '../git/git.js';
 import { buildScorecard } from '../measure/report.js';
 import { measureDispatches } from '../measure/usage.js';
 import type { Orca, OrcaDesk, OrcaWorkspaces } from '../orca/client.js';
@@ -26,7 +29,7 @@ import { comparisonDetail, comparisonList, comparisonMetrics } from './compariso
 import { listComparisonIds } from '../compare/comparison.js';
 import { HttpError, readJson, sendJson, sendText, startEvents } from './http.js';
 import type { LoadedTask, TaskReader, TaskWatcher } from './tasks.js';
-import type { HelpView, LiveChange, ScorecardView, TaskList } from './types.js';
+import type { ChangesView, DiffView, HelpView, LiveChange, ScorecardView, TaskList } from './types.js';
 import { listItem, readBounded, servableFiles, taskDetail } from './views.js';
 
 /** The Orca calls the dashboard makes itself. */
@@ -65,6 +68,8 @@ export const routes: Route[] = [
   { method: 'GET', pattern: new RegExp(`^/api/tasks/${id}/events$`), handle: taskEvents },
   { method: 'GET', pattern: new RegExp(`^/api/tasks/${id}/file$`), handle: taskFile },
   { method: 'GET', pattern: new RegExp(`^/api/tasks/${id}/scorecard$`), handle: taskScorecard },
+  { method: 'GET', pattern: new RegExp(`^/api/tasks/${id}/changes$`), handle: taskChanges },
+  { method: 'GET', pattern: new RegExp(`^/api/tasks/${id}/diff$`), handle: taskDiff },
   { method: 'POST', pattern: new RegExp(`^/api/tasks/${id}/commands$`), handle: addCommand },
   { method: 'POST', pattern: new RegExp(`^/api/tasks/${id}/merge$`), handle: withTask(mergeTask) },
   { method: 'POST', pattern: new RegExp(`^/api/tasks/${id}/open$`), handle: withTask(openInOrca) },
@@ -147,6 +152,34 @@ async function taskScorecard({ app, response, params }: Call): Promise<void> {
   const body: ScorecardView = {
     ...buildScorecard(task.state, task.events, measurements),
     asOf: new Date().toISOString(),
+  };
+  sendJson(response, 200, body);
+}
+
+/** The task's worktree with the base commit and the commit it is at now. */
+async function branchOf(task: LoadedTask): Promise<{ worktree: string; baseSha: string; sha: string }> {
+  const workspace = task.state.workspace;
+  if (!workspace || !existsSync(workspace.path)) throw new HttpError(404, 'The task has no worktree.');
+  return { worktree: workspace.path, baseSha: workspace.baseSha, sha: await headSha(workspace.path) };
+}
+
+/** Lines added and deleted per file on the task's branch so far. Uncommitted work is not counted. */
+async function taskChanges({ app, response, params }: Call): Promise<void> {
+  const { worktree, baseSha, sha } = await branchOf(load(app, params[0]));
+  const body: ChangesView = { baseSha, sha, files: await lineChanges(worktree, baseSha, sha) };
+  sendJson(response, 200, body);
+}
+
+/** The unified diff of the task's branch so far, cut at the configured size. */
+async function taskDiff({ app, response, params }: Call): Promise<void> {
+  const { worktree, baseSha, sha } = await branchOf(load(app, params[0]));
+  const text = Buffer.from(await patch(worktree, baseSha, sha), 'utf8');
+  const limit = currentSettings().dashboardDiffBytes;
+  const body: DiffView = {
+    baseSha,
+    sha,
+    patch: text.subarray(0, limit).toString('utf8'),
+    truncated: text.length > limit,
   };
   sendJson(response, 200, body);
 }

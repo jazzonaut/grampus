@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { recipeSchema, standardRecipe, type Recipe } from '../domain/recipe.js';
 import { defaultModelPrices, type ModelPrice } from '../measure/cost.js';
-import { specLimits } from './limits.js';
+import { MiB, specLimits } from './limits.js';
 
 /** The effective operational settings of one process. */
 export interface Settings {
@@ -51,6 +51,8 @@ export interface Settings {
    * as a VPN name. Requests for any other host are refused, which stops DNS rebinding.
    */
   dashboardAllowedHosts: readonly string[];
+  /** Bytes of a task's diff the dashboard shows; a longer diff is cut. */
+  dashboardDiffBytes: number;
   /** The Claude Code CLI, asked for its model aliases and effort levels by the recipe editor. */
   claudeCommand: readonly string[];
   /** The Codex CLI, asked for its model catalog by the recipe editor. */
@@ -104,6 +106,7 @@ export function defaultSettings(): Settings {
     dashboardPort: 4545,
     dashboardHost: null,
     dashboardAllowedHosts: [],
+    dashboardDiffBytes: MiB,
     claudeCommand: ['claude'],
     codexCommand: ['codex'],
     modelPrices: defaultModelPrices,
@@ -134,6 +137,7 @@ const fileSchema = z
     dashboardPort: z.number().int().min(0).max(maxPort),
     dashboardHost: z.string().min(1).nullable(),
     dashboardAllowedHosts: z.array(z.string().min(1)),
+    dashboardDiffBytes: z.number().int().positive(),
     claudeCommand: z.array(z.string().min(1)).min(1),
     codexCommand: z.array(z.string().min(1)).min(1),
     modelPrices: z.record(

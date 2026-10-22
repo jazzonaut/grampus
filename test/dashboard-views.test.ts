@@ -5,7 +5,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { pipelineOf, taskDetail } from '../src/dashboard/views.js';
+import { pipelineOf, specSection, taskDetail } from '../src/dashboard/views.js';
 import type { CheckResult, UserCommand } from '../src/domain/events.js';
 import { standardRecipe } from '../src/domain/recipe.js';
 import { foldEvents } from '../src/pipeline/state.js';
@@ -188,4 +188,13 @@ test("an escalated round keeps the builder's failure report apart from the other
     builderFailure: 'Added X; the check exits 8.',
   });
   assert.equal(detail.rounds[0]?.decision?.builderFailure, null);
+});
+
+test("a spec's Outcome section is read up to the next heading or the grampus block", () => {
+  const spec =
+    '# Unlock\r\n## Outcome\r\nParents can lift limits.\r\n\r\nUntil midnight.\r\n## Acceptance criteria\r\n1. x\r\n';
+  assert.equal(specSection(spec, 'Outcome'), 'Parents can lift limits.\n\nUntil midnight.');
+  assert.equal(specSection('# T\n## Outcome\nLast.\n```grampus\n{}\n```\n', 'Outcome'), 'Last.');
+  assert.equal(specSection('# T\n## Outcome\n\n## Examples\n', 'Outcome'), null, 'an empty section is missing');
+  assert.equal(specSection('# T\nNo sections.', 'Outcome'), null);
 });

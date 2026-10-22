@@ -65,9 +65,6 @@ const selected = computed(() => (route.name === 'task' ? String(route.params['id
   >
     <template #header>
       <UDashboardNavbar title="Tasks">
-        <template #leading>
-          <UDashboardSidebarCollapse />
-        </template>
         <template #right>
           <UBadge v-if="needsYou.length" color="warning" variant="subtle" icon="i-lucide-hand">
             {{ needsYou.length }}
