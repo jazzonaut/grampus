@@ -36,6 +36,11 @@ export interface Settings {
   testFilePatterns: readonly string[];
   /** Repository paths that configure how checks run; the guard names changes to them for the reviewer. */
   checkConfigPatterns: readonly string[];
+  /**
+   * Regular expressions that, in a failed cross-check log, mean the copied tests did not compile or load
+   * against the candidate (the entries disagree on an API) rather than that the behaviour is wrong.
+   */
+  crossCheckIncompatiblePatterns: readonly string[];
   /** Saved recipes beside the built-in `standard` recipe. */
   recipes: readonly Recipe[];
   /** Folders searched for Claude session transcripts (`<root>/<project>/<session>.jsonl`). */
@@ -81,6 +86,10 @@ export function defaultSettings(): Settings {
     checkConfigPatterns: [
       '**/Directory.Build.props',
       '**/Directory.Build.targets',
+      '**/*Tests.csproj',
+      '**/*Test.csproj',
+      '**/test/**/*.csproj',
+      '**/tests/**/*.csproj',
       '**/*.runsettings',
       '**/testconfig.json',
       '**/global.json',
@@ -99,6 +108,16 @@ export function defaultSettings(): Settings {
       '**/tox.ini',
       '**/conftest.py',
       '**/Makefile',
+    ],
+    crossCheckIncompatiblePatterns: [
+      String.raw`error CS\d{4}`,
+      String.raw`error TS\d{4}`,
+      'does not provide an export named',
+      'Cannot find module',
+      'ModuleNotFoundError',
+      'ImportError',
+      'cannot find symbol',
+      String.raw`error\[E\d{4}\]`,
     ],
     recipes: [],
     claudeProjectRoots: [join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'projects')],
@@ -131,6 +150,16 @@ const fileSchema = z
     checkShell: z.string().min(1).nullable(),
     testFilePatterns: z.array(z.string().min(1)),
     checkConfigPatterns: z.array(z.string().min(1)),
+    crossCheckIncompatiblePatterns: z.array(
+      z.string().refine(pattern => {
+        try {
+          new RegExp(pattern);
+          return true;
+        } catch {
+          return false;
+        }
+      }, 'not a valid regular expression'),
+    ),
     recipes: z.array(recipeSchema),
     claudeProjectRoots: z.array(z.string().min(1)),
     codexSessionRoots: z.array(z.string().min(1)),

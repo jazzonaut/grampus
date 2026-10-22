@@ -20,7 +20,7 @@ import {
   type ComparisonEvent,
   type ComparisonState,
 } from './comparison.js';
-import { crossCheck } from './cross-check.js';
+import { crossCheckCell, crossCheckPairs } from './cross-check.js';
 
 export interface ComparisonDriverOptions {
   dataDir: string;
@@ -98,6 +98,11 @@ class ComparisonDriver {
     if (command.kind === 'abandon') return null;
     if (!this.state.entries.some(entry => entry.taskId === command.taskId))
       return `${command.taskId} is not an entry of this comparison`;
+    // A pick sent before the comparison asked was made without the finished entries and cross-check in
+    // view; one once waited two hours behind the cross-check and was then applied unseen.
+    const asked = this.state.attention?.reason === 'pick' ? Date.parse(this.state.attention.since) : null;
+    if (asked === null || Date.parse(command.at) < asked)
+      return 'the comparison has not asked for a pick yet; pick once every entry has finished and the cross-check is in';
     return entryPickable(this.entry(command.taskId)) ? null : `${command.taskId} is not waiting for acceptance`;
   }
 
@@ -214,8 +219,7 @@ class ComparisonDriver {
       return;
     }
     if (this.state.mode === 'full' && !this.state.crossCheck && this.state.baseSha) {
-      const cells = await crossCheck(this.store, entries, this.state.baseSha, this.options.log);
-      this.record({ type: 'cross_check.recorded', cells });
+      if (!(await this.crossCheckOneCell(entries, this.state.baseSha))) return;
     }
     const ready = entries.filter(entry => entry.attention?.reason.startsWith('ready:')).length;
     this.record({
@@ -224,6 +228,27 @@ class ComparisonDriver {
       detail: `Every entry has finished its rounds (${ready} of ${entries.length} passed everything). Pick the one to keep; the others end as not selected.`,
     });
     this.options.log('Needs you: pick an entry.');
+  }
+
+  /**
+   * Measure the next cross-check cell, or record the whole cross-check once every cell is in. One cell per
+   * pass keeps commands applying and progress visible, and a restarted driver skips the cells it has.
+   * Returns true when the cross-check is complete.
+   */
+  private async crossCheckOneCell(entries: readonly TaskState[], baseSha: string): Promise<boolean> {
+    const pairs = crossCheckPairs(entries);
+    if (this.state.crossCheckTotal === null) this.record({ type: 'cross_check.started', total: pairs.length });
+    const cellOf = (owner: string, candidate: string) =>
+      this.state.crossCheckCells.find(cell => cell.specOf === owner && cell.candidate === candidate);
+    const next = pairs.find(pair => !cellOf(pair.owner.taskId, pair.candidate.taskId));
+    if (next) {
+      const cell = await crossCheckCell(this.store, next.owner, next.candidate, baseSha, this.options.log);
+      this.record({ type: 'cross_check.cell', cell });
+      return false;
+    }
+    const cells = pairs.flatMap(pair => cellOf(pair.owner.taskId, pair.candidate.taskId) ?? []);
+    this.record({ type: 'cross_check.recorded', cells });
+    return true;
   }
 }
 

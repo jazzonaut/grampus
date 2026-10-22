@@ -264,9 +264,14 @@ export interface ComparisonDetail extends ComparisonListItem {
   waiting: string[];
   sharedSpec: { fromTask: string; version: number } | null;
   needsYou: { detail: string; since: string } | null;
+  /** The latest refused pick or abandon, with why. */
+  refused: { kind: string; reason: string; at: string } | null;
   lastStop: { reason: string; at: string } | null;
   entryViews: ComparisonEntryView[];
+  /** Every cell once the cross-check is in; while it runs, the cells measured so far. */
   crossCheck: CrossCheckCell[] | null;
+  /** While the cross-check runs: cells measured of all of them. */
+  crossCheckProgress: { done: number; total: number } | null;
 }
 
 /** One entry's measured figures, for the side-by-side table and the charts. */

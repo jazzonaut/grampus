@@ -10,6 +10,7 @@ import {
   type StoredComparisonEvent,
 } from '../compare/comparison.js';
 import { entryDone, entryPickable } from '../compare/driver.js';
+import { crossCheckProgress } from '../compare/status.js';
 import { buildScorecard } from '../measure/report.js';
 import { measureDispatches } from '../measure/usage.js';
 import type { TaskState } from '../pipeline/state.js';
@@ -100,7 +101,8 @@ export function comparisonDetail(dataDir: string, reader: TaskReader, comparison
         task: listItem(task, taskEvents),
         recipe,
         done: entryDone(task),
-        pickable: !state.decision && entryPickable(task),
+        // Only once the comparison asks: the driver refuses a pick sent before then.
+        pickable: !state.decision && state.attention?.reason === 'pick' && entryPickable(task),
         checks: checks
           ? { passed: checks.results.filter(result => result.passed).length, total: checks.results.length }
           : null,
@@ -108,7 +110,9 @@ export function comparisonDetail(dataDir: string, reader: TaskReader, comparison
         rounds: task.decisions.size,
       };
     }),
-    crossCheck: state.crossCheck,
+    crossCheck: state.crossCheck ?? (state.crossCheckCells.length ? state.crossCheckCells : null),
+    crossCheckProgress: crossCheckProgress(state),
+    refused: state.refused,
   };
 }
 

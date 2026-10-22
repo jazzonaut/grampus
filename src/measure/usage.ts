@@ -91,11 +91,18 @@ function timing(
   const answers = new Map<string, number>();
   for (const command of state.commands)
     if (command.kind === 'reply') answers.set(command.messageId, Date.parse(command.at));
-  let waitingMs = 0;
+  const waits: [number, number][] = [];
   for (const [messageId, question] of state.questions) {
     const asked = Date.parse(question.at);
     if (question.key !== key || asked < from || asked > to) continue;
-    waitingMs += Math.max(0, Math.min(answers.get(messageId) ?? to, to) - asked);
+    waits.push([asked, Math.max(asked, Math.min(answers.get(messageId) ?? to, to))]);
+  }
+  // Questions open at the same time are one wait: summing them once made working time negative.
+  let waitingMs = 0;
+  let reached = -Infinity;
+  for (const [start, end] of waits.sort((left, right) => left[0] - right[0])) {
+    waitingMs += Math.max(0, end - Math.max(start, reached));
+    reached = Math.max(reached, end);
   }
   return { durationMs: to - from, waitingMs, agentMs: to - from - waitingMs };
 }

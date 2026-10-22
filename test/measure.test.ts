@@ -3,7 +3,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { standardRecipe } from '../src/domain/recipe.js';
+import type { StoredEvent, TaskEvent } from '../src/domain/events.js';
+import { buildScorecard, renderScorecard } from '../src/measure/report.js';
+import { measureDispatches } from '../src/measure/usage.js';
 import { providerSessions } from '../src/orca/client.js';
+import { foldEvents } from '../src/pipeline/state.js';
 import {
   findClaudeTranscript,
   findCodexTranscript,
@@ -98,4 +103,52 @@ test('provider sessions are read from Orca transcript message ids', () => {
     'codex:01a160c0-a95f:01a160c0-af84:1',
   ];
   assert.deepEqual(providerSessions(ids.map(id => ({ id }))), ['2109e6da-41e4', '01a160c0-a95f']);
+});
+
+/** A task log with one spec dispatch that asked two questions, open at the same time, and then settled. */
+function overlappingQuestions(): StoredEvent[] {
+  const events: TaskEvent[] = [
+    { type: 'log.header', schema: 1 },
+    { type: 'task.created', taskId: 't', title: 'T', request: 'R', repoPath: '/r', recipe: standardRecipe },
+    { type: 'stage.created', key: 'spec:1', stage: 'spec', round: 1, orcaTaskId: 'task_1' },
+    { type: 'stage.started', key: 'spec:1', dispatchId: 'd1', assignment: null, reusedHandle: null, launch: null },
+    { type: 'worker.message', messageId: 'q1', key: 'spec:1', kind: 'question', subject: 'Q', body: 'One?' },
+    { type: 'worker.message', messageId: 'q2', key: 'spec:1', kind: 'question', subject: 'Q', body: 'Two?' },
+    {
+      type: 'command.applied',
+      command: { id: 'c1', at: at(100), source: 'cli', kind: 'reply', messageId: 'q1', body: 'A' },
+    },
+    {
+      type: 'command.applied',
+      command: { id: 'c2', at: at(110), source: 'cli', kind: 'reply', messageId: 'q2', body: 'B' },
+    },
+    {
+      type: 'stage.settled',
+      key: 'spec:1',
+      dispatchId: 'd1',
+      messageId: 'm',
+      outcome: 'succeeded',
+      subject: 'S',
+      body: 'B',
+    },
+  ];
+  const times = [0, 0, 0, 0, 10, 20, 100, 110, 120];
+  return events.map((event, index): StoredEvent => ({ ...event, at: at(times[index] ?? 0) }));
+}
+
+test('time spent waiting on questions open at the same time counts once', async () => {
+  const state = foldEvents(overlappingQuestions());
+  const orca = { transcriptSessions: () => Promise.resolve({ provider: null, sessionIds: [] }) };
+  const [spec] = await measureDispatches(state, orca);
+  assert.equal(spec?.durationMs, 120_000);
+  assert.equal(spec?.waitingMs, 100_000, 'from the first question at 10s to the last answer at 110s');
+  assert.equal(spec?.agentMs, 20_000);
+});
+
+test('a running task reports its wall time so far', () => {
+  const events = overlappingQuestions();
+  const state = foldEvents(events);
+  const card = buildScorecard(state, events, [], {}, ms(300));
+  assert.equal(card.wallMs, 300_000);
+  assert.match(renderScorecard(card), /wall time 300s so far/);
 });

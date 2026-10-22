@@ -1,7 +1,8 @@
 <!--
   The cross-check of a full comparison: rows are the specs whose checks ran, columns the results they ran
   against. The diagonal is each entry's own verification; the rest show whether a result also meets the
-  other recipes' specs.
+  other recipes' specs. A check whose copied tests did not compile against a result is counted apart as
+  incompatible: the two recipes chose different APIs, which says nothing about behaviour.
 -->
 <script setup lang="ts">
 import { computed } from 'vue';
@@ -21,11 +22,23 @@ function summary(cell: CrossCheckCell | undefined): { text: string; tone: string
   if (!cell) return { text: '-', tone: 'text-dimmed', title: 'Not measured' };
   if (!cell.results) return { text: '?', tone: 'text-warning', title: cell.error ?? 'Unknown' };
   const passed = cell.results.filter(result => result.passed).length;
-  const failed = cell.results.filter(result => !result.passed).map(result => result.name);
+  const incompatible = new Set(cell.incompatible ?? []);
+  const failed = cell.results
+    .filter(result => !result.passed && !incompatible.has(result.name))
+    .map(result => result.name);
+  const titles = [
+    ...(failed.length ? [`Failed: ${failed.join(', ')}`] : []),
+    ...(incompatible.size ? [`Incompatible API (copied tests did not compile): ${[...incompatible].join(', ')}`] : []),
+  ];
   return {
-    text: `${passed}/${cell.results.length}`,
-    tone: passed === cell.results.length ? 'bg-success/15 text-success' : 'bg-error/15 text-error',
-    title: failed.length ? `Failed: ${failed.join(', ')}` : 'Every check passed',
+    text: `${passed}/${cell.results.length}${incompatible.size ? ` · ${incompatible.size} API` : ''}`,
+    tone:
+      passed === cell.results.length
+        ? 'bg-success/15 text-success'
+        : failed.length
+          ? 'bg-error/15 text-error'
+          : 'bg-warning/15 text-warning',
+    title: titles.length ? titles.join('. ') : 'Every check passed',
   };
 }
 </script>

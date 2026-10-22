@@ -8,6 +8,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from 'node:test';
 import { ComparisonStore, foldComparison, type ComparisonState } from '../src/compare/comparison.js';
 import { startComparison } from '../src/compare/create.js';
+import { incompatibleChecks } from '../src/compare/cross-check.js';
+import { renderComparison, summariseComparison } from '../src/compare/status.js';
 import { driveComparison } from '../src/compare/driver.js';
 import { queueCommand, queueComparisonCommand } from '../src/control.js';
 import { standardRecipe, type Recipe } from '../src/domain/recipe.js';
@@ -167,6 +169,13 @@ test('a full comparison runs every recipe end to end, cross-checks the results a
   );
   const cells = asked.crossCheck ?? [];
   assert.equal(cells.length, 4, 'every spec against every result');
+  const recorded = ComparisonStore.open(run.dataDir, run.comparisonId).events();
+  assert.equal(
+    recorded.filter(event => event.type === 'cross_check.cell').length,
+    4,
+    'each cell is recorded as it finishes, so progress shows and a restart resumes',
+  );
+  assert.ok(cells.every(cell => cell.incompatible?.length === 0));
   const standardOnAlt = cells.find(cell => cell.specOf === first.taskId && cell.candidate === second.taskId);
   const altOnStandard = cells.find(cell => cell.specOf === second.taskId && cell.candidate === first.taskId);
   assert.deepEqual(
@@ -214,6 +223,7 @@ test('a shared comparison writes one spec, waits for a free place, and builds th
   assert.ok(![...second.stages.keys()].some(key => key.startsWith('spec')), 'the second entry ran no spec stage');
   assert.equal(second.recipe.name, 'alt');
 
+  await run.until(() => run.comparison().attention?.reason === 'pick', 'the comparison to ask for a pick');
   queueComparisonCommand(run.dataDir, run.comparisonId, 'cli', { kind: 'pick', taskId: run.entry(0).taskId });
   assert.equal(await run.driver, 0);
   await Promise.all(run.entryDrivers);
@@ -232,6 +242,71 @@ test('a pick of an entry that is not waiting for acceptance is refused', async (
   await Promise.all(run.entryDrivers);
   assert.equal(run.comparison().finished?.outcome, 'abandoned');
   assert.ok(run.comparison().entries.every((_, index) => run.entry(index).finished?.outcome === 'abandoned'));
+});
+
+test('a pick sent before the comparison asks for one is refused, not applied later', async () => {
+  const run = await startRun('full', 2);
+  await run.until(() => run.comparison().entries.length === 2, 'both entries');
+  await run.until(() => tryEntry(run, 0)?.attention?.reason === 'approve-spec:1', 'first spec');
+  queueCommand(run.dataDir, run.entry(0).taskId, 'cli', { kind: 'approve', specVersion: 1 });
+  await run.until(() => tryEntry(run, 0)?.attention?.reason === 'ready:0', 'the first entry to finish its rounds');
+  queueComparisonCommand(run.dataDir, run.comparisonId, 'dashboard', { kind: 'pick', taskId: run.entry(0).taskId });
+  await run.until(() => run.comparison().applied.size === 1, 'the early pick to be handled');
+  assert.equal(run.comparison().decision, null);
+  assert.match(run.comparison().refused?.reason ?? '', /has not asked for a pick yet/);
+  assert.match(renderComparison(summariseComparison(run.dataDir, run.comparisonId)), /Refused pick: /);
+
+  await run.until(() => tryEntry(run, 1)?.attention?.reason === 'approve-spec:1', 'second spec');
+  queueCommand(run.dataDir, run.entry(1).taskId, 'cli', { kind: 'approve', specVersion: 1 });
+  await run.until(() => run.comparison().attention?.reason === 'pick', 'the comparison to ask for a pick');
+  queueComparisonCommand(run.dataDir, run.comparisonId, 'dashboard', { kind: 'pick', taskId: run.entry(1).taskId });
+  assert.equal(await run.driver, 0);
+  await Promise.all(run.entryDrivers);
+  assert.equal(run.comparison().finished?.winner, run.entry(1).taskId);
+});
+
+test('the comparison status shows a running cross-check', () => {
+  const shown = renderComparison({
+    comparisonId: 'cmp-x',
+    title: 'X',
+    mode: 'full',
+    entries: [],
+    waiting: [],
+    crossCheck: { done: 23, total: 36 },
+    needsYou: null,
+    refused: null,
+    finished: null,
+    lastStop: null,
+  });
+  assert.match(shown, /cross-check running: 23 of 36 cells/);
+});
+
+test('a check whose copied tests do not compile against the candidate is incompatible, not just failing', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'grampus-incompatible-'));
+  const result = (name: string, text: string, passed = false) => {
+    const logPath = join(dir, `${name}.log`);
+    writeFileSync(logPath, text);
+    return {
+      name,
+      command: name,
+      exitCode: passed ? 0 : 1,
+      timedOut: false,
+      durationMs: 1,
+      logPath,
+      flaky: false,
+      passed,
+    };
+  };
+  const results = [
+    result(
+      'dotnet',
+      "Tests.cs(84,60): error CS1739: The best overload for 'QuickUnlockRequest' does not have a parameter named 'RestOfDay'",
+    ),
+    result('node', "SyntaxError: The requested module '../greet.js' does not provide an export named 'greetAll'"),
+    result('vitest', 'AssertionError: expected false to be true'),
+    result('passing', 'error CS0000 mentioned in a passing log', true),
+  ];
+  assert.deepEqual(incompatibleChecks(results), ['dotnet', 'node']);
 });
 
 test('a task outside a comparison refuses decline', async () => {

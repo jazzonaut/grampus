@@ -5,7 +5,12 @@
 <script setup lang="ts">
 import { useToast } from '@nuxt/ui/composables';
 import { computed, onScopeDispose, ref, watch } from 'vue';
-import type { ComparisonDetail, ComparisonMetrics, EntryMetrics } from '../../../src/dashboard/types';
+import type {
+  ComparisonDetail,
+  ComparisonEntryView,
+  ComparisonMetrics,
+  EntryMetrics,
+} from '../../../src/dashboard/types';
 import { getJson, sendJson } from '../api/client';
 import CrossCheckMatrix from '../components/CrossCheckMatrix.vue';
 import StatusIcon from '../components/StatusIcon.vue';
@@ -66,6 +71,29 @@ watch(
 );
 
 const metricsOf = computed(() => new Map((metrics.value?.entries ?? []).map(entry => [entry.taskId, entry])));
+
+/** An entry that is ready passed its own checks and review; an escalated one did not. */
+function passedEverything(entry: ComparisonEntryView): boolean {
+  return entry.task.needsYou?.reason.startsWith('ready:') ?? false;
+}
+
+/** The entry waiting for confirmation because it did not pass everything. */
+const confirmKeep = ref<ComparisonEntryView | null>(null);
+const confirmOpen = computed({
+  get: () => confirmKeep.value !== null,
+  set: value => {
+    if (!value) confirmKeep.value = null;
+  },
+});
+
+function keep(entry: ComparisonEntryView, confirmed = false): void {
+  if (!passedEverything(entry) && !confirmed) {
+    confirmKeep.value = entry;
+    return;
+  }
+  confirmKeep.value = null;
+  void send({ kind: 'pick', taskId: entry.task.taskId }, `Keeping ${entry.recipe}`);
+}
 
 async function send(body: unknown, success: string): Promise<void> {
   try {
@@ -178,6 +206,14 @@ const charts = computed(() => [
           icon="i-lucide-octagon-pause"
           title="The comparison driver stopped"
           :description="`${detail.lastStop.reason.split('\n')[0]} Run grampus drive-comparison ${detail.comparisonId} in its Orca terminal to resume.`"
+        />
+        <UAlert
+          v-if="detail.refused"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-ban"
+          :title="`Your ${detail.refused.kind} was refused`"
+          :description="detail.refused.reason"
         />
         <div v-if="detail.needsYou" class="rounded-xl border border-warning/50 bg-warning/5 p-4 flex gap-3">
           <UIcon name="i-lucide-trophy" class="size-5 text-warning shrink-0 mt-0.5" />
@@ -296,7 +332,8 @@ const charts = computed(() => [
                       size="xs"
                       icon="i-lucide-trophy"
                       label="Keep this one"
-                      @click="send({ kind: 'pick', taskId: entry.task.taskId }, `Keeping ${entry.recipe}`)"
+                      :color="passedEverything(entry) ? 'primary' : 'warning'"
+                      @click="keep(entry)"
                     />
                   </td>
                 </tr>
@@ -338,8 +375,15 @@ const charts = computed(() => [
             Each recipe wrote its own spec. Here every spec's checks, with its acceptance tests, ran against every
             result, so a lax spec cannot make its own recipe look good.
           </p>
+          <p v-if="detail.crossCheckProgress" class="text-sm text-muted flex items-center gap-1">
+            <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
+            Running: {{ detail.crossCheckProgress.done }} of {{ detail.crossCheckProgress.total }} cells. You pick once
+            it is in.
+          </p>
           <CrossCheckMatrix v-if="detail.crossCheck" :cells="detail.crossCheck" :entries="detail.entryViews" />
-          <p v-else class="text-sm text-muted">Runs when every entry has finished its rounds.</p>
+          <p v-else-if="!detail.crossCheckProgress" class="text-sm text-muted">
+            Runs when every entry has finished its rounds.
+          </p>
         </section>
 
         <UCard>
@@ -360,6 +404,29 @@ const charts = computed(() => [
         color="error"
         @submit="reason => send(reason ? { kind: 'abandon', reason } : { kind: 'abandon' }, 'Abandon queued')"
       />
+      <UModal
+        v-model:open="confirmOpen"
+        :title="`Keep ${confirmKeep?.recipe ?? 'this entry'}?`"
+        description="Its last round did not pass everything, so it is kept with unresolved problems."
+      >
+        <template #body>
+          <p class="text-sm text-muted">
+            Check its failing checks and review on the task page first. The other entries end as not selected, and a
+            pick cannot be undone.
+          </p>
+        </template>
+        <template #footer>
+          <div class="flex w-full justify-end gap-2">
+            <UButton color="neutral" variant="ghost" label="Cancel" @click="confirmKeep = null" />
+            <UButton
+              color="warning"
+              icon="i-lucide-trophy"
+              label="Keep it anyway"
+              @click="confirmKeep && keep(confirmKeep, true)"
+            />
+          </div>
+        </template>
+      </UModal>
     </template>
   </UDashboardPanel>
 </template>

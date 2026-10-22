@@ -29,6 +29,12 @@ export interface CrossCheckCell {
   results: CheckResult[] | null;
   /** Why the cell could not be measured. */
   error: string | null;
+  /**
+   * Failed checks whose log shows the copied tests did not compile or load against the candidate: the
+   * two entries disagree on an API, which says nothing about the candidate's behaviour. Still not a pass.
+   * Absent in cells recorded before Grampus told them apart.
+   */
+  incompatible?: string[];
 }
 
 export type ComparisonEvent =
@@ -51,6 +57,10 @@ export type ComparisonEvent =
   | { type: 'entry.created'; taskId: string; recipe: string }
   /** Shared mode: the first entry's approved spec, handed to the others. */
   | { type: 'spec.shared'; fromTask: string; version: number }
+  /** The cross-check began; it runs one cell per driver pass, so commands still apply between cells. */
+  | { type: 'cross_check.started'; total: number }
+  | { type: 'cross_check.cell'; cell: CrossCheckCell }
+  /** Every cell is in. */
   | { type: 'cross_check.recorded'; cells: CrossCheckCell[] }
   | { type: 'attention.needed'; reason: string; detail: string }
   | { type: 'command.applied'; command: ComparisonCommand }
@@ -153,7 +163,12 @@ export interface ComparisonState {
   entries: { taskId: string; recipe: string; createdAt: string }[];
   sharedSpec: { fromTask: string; version: number } | null;
   crossCheck: CrossCheckCell[] | null;
+  /** Cells measured so far, and how many there will be once the cross-check has started. */
+  crossCheckCells: CrossCheckCell[];
+  crossCheckTotal: number | null;
   attention: { reason: string; detail: string; since: string } | null;
+  /** The latest refused command, until a command is applied. */
+  refused: { kind: ComparisonCommand['kind']; reason: string; at: string } | null;
   applied: Set<string>;
   /** The deciding command, once applied. */
   decision: ComparisonCommand | null;
@@ -179,7 +194,10 @@ export function foldComparison(events: readonly StoredComparisonEvent[]): Compar
     entries: [],
     sharedSpec: null,
     crossCheck: null,
+    crossCheckCells: [],
+    crossCheckTotal: null,
     attention: null,
+    refused: null,
     applied: new Set(),
     decision: null,
     finished: null,
@@ -212,6 +230,12 @@ export function applyComparisonEvent(state: ComparisonState, event: StoredCompar
     case 'spec.shared':
       state.sharedSpec = { fromTask: event.fromTask, version: event.version };
       return;
+    case 'cross_check.started':
+      state.crossCheckTotal = event.total;
+      return;
+    case 'cross_check.cell':
+      state.crossCheckCells.push(event.cell);
+      return;
     case 'cross_check.recorded':
       state.crossCheck = event.cells;
       return;
@@ -222,9 +246,11 @@ export function applyComparisonEvent(state: ComparisonState, event: StoredCompar
       state.applied.add(event.command.id);
       state.decision = event.command;
       state.attention = null;
+      state.refused = null;
       return;
     case 'command.refused':
       state.applied.add(event.command.id);
+      state.refused = { kind: event.command.kind, reason: event.reason, at: event.at };
       return;
     case 'comparison.finished':
       state.finished = { outcome: event.outcome, winner: event.winner, at: event.at };

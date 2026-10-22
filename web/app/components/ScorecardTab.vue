@@ -33,7 +33,11 @@ const tiles = computed(() => {
   if (!value) return [];
   const usage = value.totals.usage;
   return [
-    { label: 'Wall time', value: duration(value.wallMs), icon: 'i-lucide-clock' },
+    {
+      label: value.outcome === 'running' ? 'Wall time so far' : 'Wall time',
+      value: duration(value.wallMs),
+      icon: 'i-lucide-clock',
+    },
     { label: 'Agent time', value: duration(value.totals.agentMs), icon: 'i-lucide-bot' },
     { label: 'Input tokens', value: count(usage?.input), icon: 'i-lucide-arrow-down-to-line' },
     { label: 'Cached input', value: count(usage?.cachedInput), icon: 'i-lucide-database' },

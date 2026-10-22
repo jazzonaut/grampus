@@ -3,7 +3,7 @@
 import { foldEvents } from '../pipeline/state.js';
 import { summarise } from '../pipeline/status.js';
 import { TaskStore } from '../store/task-store.js';
-import { ComparisonStore, foldComparison, type ComparisonMode } from './comparison.js';
+import { ComparisonStore, foldComparison, type ComparisonMode, type ComparisonState } from './comparison.js';
 
 export interface ComparisonSummary {
   comparisonId: string;
@@ -12,7 +12,11 @@ export interface ComparisonSummary {
   entries: { taskId: string; recipe: string; phase: string }[];
   /** Recipes without an entry yet: waiting for a free place, or for the shared spec. */
   waiting: string[];
+  /** While the cross-check runs: cells measured of all of them. */
+  crossCheck: { done: number; total: number } | null;
   needsYou: { detail: string; since: string } | null;
+  /** The latest refused pick or abandon, with why. */
+  refused: { kind: string; reason: string; at: string } | null;
   finished: { outcome: string; winner: string | null; at: string } | null;
   lastStop: { reason: string; at: string } | null;
 }
@@ -34,10 +38,18 @@ export function summariseComparison(dataDir: string, comparisonId: string): Comp
     mode: state.mode,
     entries,
     waiting: state.recipes.slice(state.entries.length).map(recipe => recipe.name),
+    crossCheck: crossCheckProgress(state),
     needsYou: state.attention ? { detail: state.attention.detail, since: state.attention.since } : null,
+    refused: state.refused,
     finished: state.finished,
     lastStop: state.finished ? null : state.lastStop,
   };
+}
+
+/** Cells measured of all of them while the cross-check runs; null before it starts and once it is in. */
+export function crossCheckProgress(state: ComparisonState): { done: number; total: number } | null {
+  if (state.crossCheck || state.crossCheckTotal === null || state.decision) return null;
+  return { done: state.crossCheckCells.length, total: state.crossCheckTotal };
 }
 
 export function renderComparison(summary: ComparisonSummary): string {
@@ -49,6 +61,11 @@ export function renderComparison(summary: ComparisonSummary): string {
       `  NEEDS YOU: ${summary.needsYou.detail}`,
       `    pick with \`grampus pick ${summary.comparisonId} <task>\` after comparing the entries`,
     );
+  if (summary.crossCheck)
+    lines.push(
+      `  cross-check running: ${summary.crossCheck.done} of ${summary.crossCheck.total} cells; the pick comes after it`,
+    );
+  if (summary.refused) lines.push(`  Refused ${summary.refused.kind}: ${summary.refused.reason}`);
   for (const entry of summary.entries) lines.push(`  ${entry.recipe}: ${entry.taskId}  ${entry.phase}`);
   if (summary.waiting.length) lines.push(`  not started yet: ${summary.waiting.join(', ')}`);
   if (summary.lastStop)

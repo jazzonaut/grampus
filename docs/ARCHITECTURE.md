@@ -118,9 +118,9 @@ between two calls, such as a spec review landing while an agent talked to the us
 9. **Verify.** The guard compares the round's start commit with HEAD: uncommitted or untracked files,
    no new commit, rewritten history, protected paths changed, test files deleted or renamed out of the
    test patterns. Modified tests are listed for the reviewer, and so is check configuration: files
-   outside the tests that decide how checks run (`checkConfigPatterns`, such as
-   `Directory.Build.props` or `package.json`, plus any file a check command names), whether changed,
-   added or deleted. Then every check runs at HEAD; a failing check runs once more and a pass is
+   that decide how checks run (`checkConfigPatterns`, such as `Directory.Build.props`, a test
+   project's `.csproj` or `package.json`, plus any file a check command names), whether changed,
+   added or deleted, and even inside a test folder. Then every check runs at HEAD; a failing check runs once more and a pass is
    recorded as flaky.
 10. **Review** (`review:<r>`, optional). The reviewer sees the whole change since the build started,
    the check results, the tests and check configuration modified in any round so far, and the previous
@@ -323,13 +323,21 @@ comparison log; it never writes an entry's log, it queues commands for entries l
 3. **Full mode.** Every entry runs the whole pipeline. When all have reached their result, the
    cross-check (`compare/cross-check.ts`) runs each entry's spec checks against every other entry's
    verified commit, in the candidate's worktree with the spec owner's added or changed test files
-   overlaid, then restores those files and refuses to record a cell unless the worktree is clean.
-4. **Pick.** The comparison asks the user to pick. `grampus pick <comparison> <task>` queues `accept`
-   for the winner and `decline` for every other unfinished entry; a declined entry finishes as
-   `not-selected`, measured like any other. `abandon <comparison>` abandons every entry. The driver
-   finishes when every entry has.
+   overlaid, then restores those files and refuses to record a cell unless the worktree is clean. It
+   runs one cell per driver pass (`cross_check.started`, then `cross_check.cell` for each), so commands
+   still apply, `status` and the dashboard show progress, and a restarted driver skips measured cells;
+   `cross_check.recorded` marks it complete. A failed check whose log matches
+   `crossCheckIncompatiblePatterns` (the copied tests did not compile or load) is listed as
+   incompatible: the entries chose different APIs, which says nothing about behaviour.
+4. **Pick.** The comparison asks the user to pick once every entry has its result and the cross-check
+   is in. A pick sent before that is refused, never held until then. `grampus pick <comparison> <task>`
+   queues `accept` for the winner and `decline` for every other unfinished entry; a declined entry
+   finishes as `not-selected`, measured like any other. `abandon <comparison>` abandons every entry at
+   any time. The driver finishes when every entry has. The dashboard offers "Keep this one" only while
+   the comparison asks, on the comparison page, and asks for confirmation before keeping an entry
+   that did not pass everything.
 
 The dashboard's comparison page shows the entries side by side (checks, review, how many of the other
 specs' checks each result passed, rounds, time to result, agent time, tokens, estimated cost and the
-user's decisions), bar charts of the same, and the cross-check matrix. `status` and `wait` include
+user's decisions), bar charts of the same, and the cross-check matrix, filling in while it runs. `status` and `wait` include
 comparisons, so a chat agent hears when a pick is needed.

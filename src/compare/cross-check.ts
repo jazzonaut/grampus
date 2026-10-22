@@ -2,9 +2,13 @@
 // checks; a lax spec makes that easy. Here every entry's checks run against every other entry's result,
 // with the spec owner's acceptance tests overlaid on the candidate's commit, so all results are judged on
 // the same bars. The overlay is temporary: the candidate's worktree is restored and must end clean.
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+// Copied tests are often written against their owner's API; where they cannot compile or load against
+// the candidate, the check is marked incompatible, which says the entries disagree on an API rather than
+// that the candidate's behaviour is wrong.
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { runChecks } from '../checks/run-checks.js';
+import type { CheckResult } from '../domain/events.js';
 import { currentSettings } from '../config/settings.js';
 import { changedPaths, git, headSha, uncommittedPaths } from '../git/git.js';
 import type { TaskState } from '../pipeline/state.js';
@@ -20,27 +24,23 @@ function candidateOf(state: TaskState): { sha: string; round: number } | null {
   return sha ? { sha, round } : null;
 }
 
-/** Run every entry's checks against every entry's candidate. Entries without a candidate give error cells. */
-export async function crossCheck(
-  store: ComparisonStore,
-  entries: readonly TaskState[],
-  baseSha: string,
-  log: (line: string) => void,
-): Promise<CrossCheckCell[]> {
-  const cells: CrossCheckCell[] = [];
-  for (const owner of entries)
-    for (const candidate of entries) cells.push(await cell(store, owner, candidate, baseSha, log));
-  return cells;
+/** Every cell of the cross-check, in the order they run: each entry's spec against every entry's result. */
+export function crossCheckPairs(entries: readonly TaskState[]): { owner: TaskState; candidate: TaskState }[] {
+  return entries.flatMap(owner => entries.map(candidate => ({ owner, candidate })));
 }
 
-async function cell(
+/**
+ * Run one entry's checks against one entry's candidate. An entry without a candidate gives an error cell.
+ */
+export async function crossCheckCell(
   store: ComparisonStore,
   owner: TaskState,
   candidate: TaskState,
   baseSha: string,
   log: (line: string) => void,
 ): Promise<CrossCheckCell> {
-  const base = { specOf: owner.taskId, candidate: candidate.taskId };
+  // Only a run with copied tests can be incompatible; every other cell says so with an empty list.
+  const base = { specOf: owner.taskId, candidate: candidate.taskId, incompatible: [] as string[] };
   const target = candidateOf(candidate);
   const spec = owner.specs.at(-1);
   const ownerCandidate = candidateOf(owner);
@@ -59,10 +59,22 @@ async function cell(
     const results = await withOverlay(worktree, target.sha, baseSha, ownerCandidate.sha, () =>
       runChecks(worktree, spec.checks, store.crossCheckDir(owner.taskId, candidate.taskId), { rerunFailures: true }),
     );
-    return { ...base, sha: target.sha, results, error: null };
+    return { ...base, sha: target.sha, results, error: null, incompatible: incompatibleChecks(results) };
   } catch (error) {
     return { ...base, sha: target.sha, results: null, error: (error as Error).message };
   }
+}
+
+/** Names of failed checks whose final log shows code that did not compile or load. */
+export function incompatibleChecks(results: readonly CheckResult[]): string[] {
+  const patterns = currentSettings().crossCheckIncompatiblePatterns.map(pattern => new RegExp(pattern));
+  return results
+    .filter(result => !result.passed && existsSync(result.logPath))
+    .filter(result => {
+      const text = readFileSync(result.logPath, 'utf8');
+      return patterns.some(pattern => pattern.test(text));
+    })
+    .map(result => result.name);
 }
 
 /**

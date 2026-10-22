@@ -52,17 +52,16 @@ export async function inspectCandidate(input: GuardInput): Promise<GuardResult> 
       path => input.protectedFiles.includes(path) || matchesAny(path, input.protectedGlobs),
     );
     if (guarded.length) violations.push(`Protected path changed (${change.status}): ${guarded.join(' -> ')}`);
+    // Added and deleted configuration counts too: a new runner settings file changes a check as surely.
+    // Inside a test folder too: a test project's settings are configuration, not a test to read.
+    const configures = touched.some(path => named.has(path) || matchesAny(path, input.checkConfigPatterns));
+    if (configures) modifiedCheckConfig.push(change.path);
     const before = change.oldPath ?? change.path;
-    if (!matchesAny(before, input.testPatterns)) {
-      // Added and deleted configuration counts too: a new runner settings file changes a check as surely.
-      if (touched.some(path => named.has(path) || matchesAny(path, input.checkConfigPatterns)))
-        modifiedCheckConfig.push(change.path);
-      continue;
-    }
+    if (!matchesAny(before, input.testPatterns)) continue;
     if (change.status === 'D') violations.push(`Test file deleted: ${change.path}`);
     else if (change.status === 'R' && !matchesAny(change.path, input.testPatterns))
       violations.push(`Test file renamed out of the test patterns: ${change.oldPath} -> ${change.path}`);
-    else if (change.status !== 'A') modifiedTests.push(change.path);
+    else if (change.status !== 'A' && !configures) modifiedTests.push(change.path);
   }
   return {
     clean: dirty.length === 0,

@@ -25,6 +25,7 @@ export interface Scorecard {
     dispatchesWithUnknownCost: number;
   };
   rounds: number;
+  /** From creation to the end, or to now while the task runs (see `final`). */
   wallMs: number | null;
   /** Decisions (approve, revise, continue, accept...), answers to worker questions, and time tasks waited for both. */
   human: { decisions: number; answers: number; waitingMs: number; fromChat: number };
@@ -41,6 +42,7 @@ export function buildScorecard(
   events: readonly StoredEvent[],
   measured: DispatchMeasurement[],
   prices: Readonly<Record<string, ModelPrice>> = currentSettings().modelPrices,
+  now: number = Date.now(),
 ): Scorecard {
   const dispatches = measured.map(item => {
     const cost = estimateCost(item, prices);
@@ -75,7 +77,7 @@ export function buildScorecard(
       dispatchesWithUnknownCost: dispatches.length - priced.length,
     },
     rounds: state.decisions.size,
-    wallMs: state.finished ? Date.parse(state.finished.at) - created : null,
+    wallMs: (state.finished ? Date.parse(state.finished.at) : now) - created,
     human: humanCost(events),
   };
 }
@@ -169,7 +171,7 @@ export function renderScorecard(card: Scorecard): string {
     `${card.taskId}  ${card.title}  (${card.outcome}, recipe ${card.recipe}${card.final ? '' : ', provisional'})`,
     line(header),
     ...rows.map(line),
-    `rounds ${card.rounds}; wall time ${seconds(card.wallMs)}; human: ${card.human.decisions} decisions and ${card.human.answers} answers (${card.human.fromChat} from chat), tasks waited ${seconds(card.human.waitingMs)} for them`,
+    `rounds ${card.rounds}; wall time ${seconds(card.wallMs)}${card.outcome === 'running' ? ' so far' : ''}; human: ${card.human.decisions} decisions and ${card.human.answers} answers (${card.human.fromChat} from chat), tasks waited ${seconds(card.human.waitingMs)} for them`,
     ...(card.totals.dispatchesWithUnknownUsage
       ? [`usage unknown for ${card.totals.dispatchesWithUnknownUsage} dispatches:`, ...notes]
       : []),

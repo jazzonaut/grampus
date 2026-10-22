@@ -72,8 +72,27 @@ test('the guard names changed check configuration apart from tests', async () =>
   await commitAll(repo, 'Relax the checks');
   const result = await guard(repo, base, { checkCommands: ['node "scripts\\check.mjs"'] });
   assert.deepEqual(result.violations, []);
-  assert.deepEqual(result.modifiedCheckConfig, ['Directory.Build.props', 'package.json', 'scripts/check.mjs']);
+  assert.deepEqual(result.modifiedCheckConfig, [
+    'Directory.Build.props',
+    'package.json',
+    'scripts/check.mjs',
+    'test/vitest.config.js',
+  ]);
   assert.deepEqual(result.modifiedTests, []);
+});
+
+test('a test project file is check configuration, not a modified test', async () => {
+  useTestSettings();
+  const repo = await createRepository();
+  write(repo, 'tests/App.Tests/App.Tests.csproj', '<Project />\n');
+  await commitAll(repo, 'Add a test project');
+  const base = await headSha(repo);
+  write(repo, 'tests/App.Tests/App.Tests.csproj', '<Project><!-- ignore exit code 8 --></Project>\n');
+  write(repo, 'test/greet.test.js', 'console.log("changed")\n');
+  await commitAll(repo, 'Change the test project');
+  const result = await guard(repo, base);
+  assert.deepEqual(result.modifiedCheckConfig, ['tests/App.Tests/App.Tests.csproj']);
+  assert.deepEqual(result.modifiedTests, ['test/greet.test.js']);
 });
 
 test('the guard notices a rewritten branch', async () => {
