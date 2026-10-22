@@ -1,8 +1,10 @@
 # Configuration
 
 Grampus reads `<data directory>/config.json` when it exists. Every field is optional; an invalid file
-is refused rather than ignored. The data directory is `GRAMPUS_HOME`, or `--home <dir>` for one
-command, or `%LOCALAPPDATA%\Grampus\orca` on Windows.
+is refused rather than ignored. The data directory is `--home <dir>` for one command, or
+`GRAMPUS_HOME`, or on Windows `%LOCALAPPDATA%\Grampus\orca` for installed Grampus and
+`%LOCALAPPDATA%\Grampus\orca-dev` when run from a checkout. The installer reads `keptVersions` from
+the installed data directory.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -26,6 +28,7 @@ command, or `%LOCALAPPDATA%\Grampus\orca` on Windows.
 | `comparisonConcurrency` | `2` | How many entries of a comparison run at once; the rest wait for a free place |
 | `modelPrices` | built-in table (see below) | API list prices per model for estimated cost; entries replace single models |
 | `dashboardAllowedHosts` | `[]` | Extra host names the dashboard answers to, such as a VPN name; localhost, this machine's name and its addresses are always allowed |
+| `keptVersions` | `3` | How many installed versions `npm run install:local` keeps, the selected one included |
 
 ## Model prices
 

@@ -16,20 +16,33 @@ recipes (models, stages, repair budgets) can be compared.
 - Node.js 24 or later (`node` on the PATH of Orca terminals), npm and Git.
 - Windows is the tested platform. macOS and Linux are **Planned**.
 
-## Set up
+## Install
+
+From a checkout of the commit you want:
 
 ```text
 npm ci
-npm run build
-npm link
-grampus skill install
+npm run install:local
 ```
 
-`npm link` puts `grampus` on your PATH (in npm's global folder; with nvm, run it again after switching
-Node versions; `npm unlink -g grampus` removes it).
+This builds the checkout and installs it as a new version in `%LOCALAPPDATA%\Programs\Grampus`:
 
-`skill install` writes the Grampus skill for Claude (`~/.claude/skills/grampus`) and Codex
-(`~/.codex/skills/grampus`), so you can control Grampus from an Orca chat.
+- `grampus` goes on your user PATH and always runs the newest installed version. After the first
+  install, restart Orca and open new terminals so they see the PATH change.
+- Each version is an immutable folder named by its build id, `<package version>+<commit>`, such as
+  `0.8.0+a1daeb8c3f21`. `grampus --version` shows the running one. Running tasks and the dashboard keep
+  the code they started with; a driver restarted later runs the newest version.
+- The Grampus skill is installed for Claude (`~/.claude/skills/grampus`) and Codex
+  (`~/.codex/skills/grampus`) and runs `grampus` from PATH, so you can control Grampus from an Orca chat.
+- The newest three versions are kept (`keptVersions` in [Configuration](docs/CONFIGURATION.md)).
+
+The installer refuses uncommitted changes; `npm run install:local -- --dirty` installs them anyway,
+with `.dirty.<time>` in the build id. Reinstalling the same commit just selects it again. Other options:
+`--dir <folder>` and `--no-path`. To release a new version number, change `version` in `package.json`.
+
+Installed Grampus keeps its tasks in `%LOCALAPPDATA%\Grampus\orca`. Running from a checkout
+(`node dist/src/cli.js`) uses `%LOCALAPPDATA%\Grampus\orca-dev`, so development builds never touch
+real tasks.
 
 ## Use it from chat
 

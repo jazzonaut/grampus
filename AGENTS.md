@@ -17,7 +17,8 @@ verification and an append-only evidence log per task. Current behaviour is in
 | `node scripts/run-tests.mjs <name>...` | Run selected compiled test files after `npm run build`, e.g. `pipeline-repair` |
 | `npm run format` | Apply Prettier |
 | `npm run dev:web` | Serve the dashboard with hot reload; it forwards `/api` to a running `grampus dashboard` |
-| `node dist/src/cli.js <command>` | Run the CLI (`status`, `new`, `skill install`, ...) |
+| `node dist/src/cli.js <command>` | Run the CLI from the checkout (`status`, `new`, ...) against the `orca-dev` data folder |
+| `npm run install:local` | Install this commit as a new version of `grampus` on PATH, with the chat skill |
 
 ## Rules
 
@@ -64,6 +65,6 @@ verification and an append-only evidence log per task. Current behaviour is in
 - Working copies use CRLF on Windows; Prettier keeps existing line endings (`endOfLine: auto`).
 - `C:\Users\<you>` may itself be a Git repository. Tests must not assume a temp folder is outside every
   repository.
-- The earlier standalone Grampus is installed separately (`%LOCALAPPDATA%\Programs\Grampus`, data in
-  `%LOCALAPPDATA%\Grampus\installed`). This version uses `%LOCALAPPDATA%\Grampus\orca` and never reads
-  the old data.
+- Installed Grampus (`%LOCALAPPDATA%\Programs\Grampus`) keeps tasks in `%LOCALAPPDATA%\Grampus\orca`;
+  runs from a checkout use `%LOCALAPPDATA%\Grampus\orca-dev`. Data of the earlier standalone Grampus
+  (`%LOCALAPPDATA%\Grampus\installed`) is never read.

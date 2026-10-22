@@ -19,7 +19,8 @@
     "test:all": "npm run build && node scripts/run-tests.mjs all",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
     "check:full": "npm run typecheck && npm run lint && npm run format:check && npm run test:all",
-    "start": "node dist/src/cli.js"
+    "start": "node dist/src/cli.js",
+    "install:local": "npm run build && node dist/src/install/main.js"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

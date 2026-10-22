@@ -20,7 +20,8 @@ Current behaviour of Grampus. Intent and the reasons behind it are in [DESIGN.md
 ```
 
 `grampus new` creates the task folder and log, an Orca worktree (`worktree create --no-parent
---setup run`), and an Orca terminal in that worktree whose command is `grampus drive <task>`. The repository is `--repo`
+--setup run`), and an Orca terminal in that worktree whose command is `grampus drive <task>` (by full
+path; see [Installation](#installation)). The repository is `--repo`
 or the current folder's, resolved through `git rev-parse --git-common-dir` to the main checkout, which
 is how Orca knows repositories. Orca opens a first terminal in every new worktree; Grampus closes it
 once the driver tab exists, so a task has exactly one tab. After a clean finish the driver closes its
@@ -41,6 +42,8 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `control.ts` | Queueing a validated command; shared by the CLI and the dashboard |
 | | `skill.ts` | Renders and installs the chat skill from `skills/grampus/SKILL.md` |
 | `config/` | `limits.ts`, `settings.ts`, `paths.ts` | Fixed bounds, operational settings, data directory |
+| `install/` | `installation.ts` | Installation layout, build identity, launcher; whether this process is installed |
+| | `install.ts`, `main.ts` | `npm run install:local`: copy, smoke check, select, PATH, skill, prune |
 | `domain/` | `recipe.ts` | Recipe schema, the built-in `standard` recipe, family checks |
 | | `spec.ts` | Spec parsing: one fenced `grampus` JSON block with checks and protected paths |
 | | `review.ts` | Review reports and the blocking rule |
@@ -183,9 +186,36 @@ prints the addresses it answers on.
 <worktree>/.grampus/                      files exchanged with workers (excluded from Git)
 ```
 
-The data directory is `GRAMPUS_HOME`, or `%LOCALAPPDATA%\Grampus\orca` on Windows. `.grampus/` is
+The data directory is `GRAMPUS_HOME`, or on Windows `%LOCALAPPDATA%\Grampus\orca` for an installed
+build and `%LOCALAPPDATA%\Grampus\orca-dev` for a checkout. `.grampus/` is
 excluded through the repository's `info/exclude`. Grampus writes no commits, branches or index entries,
 with one explicit exception, `grampus merge` (below).
+
+## Installation
+
+```text
+%LOCALAPPDATA%\Programs\Grampus  grampus-install.json            marks the folder; carries the layout version
+  current.json                    { "build": "<build id>" }: the selected build
+  bin\grampus.cmd, bin\launch.mjs  the command on PATH; reads current.json on every start
+  versions\<build id>\            immutable: package.json, dist\src, dist\web, skills, node_modules, build.json
+```
+
+`npm run install:local` builds the checkout, then `install/main.ts` copies the runtime files into
+`versions\<build id>` and installs production dependencies. It writes `build.json` last and runs
+`grampus version --json` from the copy as a smoke check. Only then does it replace `current.json` in one
+rename, so `grampus` runs the old build or the new one, never a partial copy. A build id is the package
+version plus 12 characters of the commit; a dirty tree is refused unless `--dirty`, which appends
+`.dirty.<UTC time>`. Reinstalling an installed build selects it again. Pruning keeps the selected build
+and the newest others up to `keptVersions`, and removes folders without `build.json` (interrupted
+installs). A lock file stops two installs running at once.
+
+A version folder's `build.json` is how a process knows it is installed: it then uses the installed data
+directory, and driver terminals run the launcher by full path (`node "<install>in\launch.mjs" --home
+...`), so they work before Orca has picked up a PATH change and a restarted driver runs the newest build.
+The chat skill runs `grampus` from PATH. Only an installed build installs the skill; a checkout prints
+it but refuses to install it, so development never replaces the skill people use. A process keeps the
+modules it loaded, but a long-running dashboard serves its web files from its version folder, so pruning
+that version breaks its pages until it is restarted.
 
 ## Delivery
 

@@ -13,6 +13,7 @@ import { driveComparison } from './compare/driver.js';
 import { renderComparison, summariseComparison, type ComparisonSummary } from './compare/status.js';
 import {
   approvedVersion,
+  chatCommand,
   queueCommand,
   queueComparisonCommand,
   selfCommand,
@@ -21,6 +22,7 @@ import {
 } from './control.js';
 import { serveDashboard } from './dashboard/server.js';
 import { mergeAccepted } from './delivery/merge.js';
+import { installationOf, installedBuild, packageRoot, packageVersion } from './install/installation.js';
 import { buildScorecard, renderScorecard } from './measure/report.js';
 import { measureDispatches } from './measure/usage.js';
 import { OrcaCli } from './orca/client.js';
@@ -34,6 +36,8 @@ import { listTaskIds, TaskStore } from './store/task-store.js';
 const usage = usageText();
 
 async function main(argv: string[]): Promise<number> {
+  // `--version` is also approve's spec-version option, so the conventional bare form is matched first.
+  if (argv.length === 1 && argv[0] === '--version') return version(false);
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
@@ -139,7 +143,9 @@ async function otherCommand(
       console.log(JSON.stringify(availableRecipes(), null, 2));
       return 0;
     case 'skill':
-      return skill(selfCommand(dataDir), rest[0] === 'install');
+      return skill(dataDir, rest[0] === 'install');
+    case 'version':
+      return version(values.json ?? false);
     default:
       return null;
   }
@@ -277,12 +283,40 @@ async function newTask(
   return 0;
 }
 
-function skill(commandLine: string, install: boolean): number {
+/**
+ * Print or install the chat skill. Only an installed build installs it, with `grampus` from PATH, so a
+ * development checkout never replaces the skill people use.
+ */
+function skill(dataDir: string, install: boolean): number {
+  const installed = installedBuild() !== null;
+  const commandLine = installed ? chatCommand(dataDir) : selfCommand(dataDir);
   if (!install) {
     console.log(renderSkill(commandLine));
     return 0;
   }
+  if (!installed)
+    throw new Error(
+      'This is a development checkout. Install Grampus with `npm run install:local`, which also installs the chat skill.',
+    );
   for (const path of installSkill(commandLine)) console.log(`Installed ${path}`);
+  return 0;
+}
+
+/** The running build: an installed version and where it is installed, or a development checkout. */
+function version(json: boolean): number {
+  const build = installedBuild();
+  const info = {
+    version: build?.version ?? packageVersion(),
+    build,
+    installation: build ? installationOf(packageRoot) : null,
+    root: packageRoot,
+  };
+  if (json) console.log(JSON.stringify(info, null, 2));
+  else if (build)
+    console.log(
+      `Grampus ${build.build}, installed in ${info.installation} (built ${build.builtAt} from ${build.source})`,
+    );
+  else console.log(`Grampus ${info.version}, development checkout ${packageRoot}`);
   return 0;
 }
 

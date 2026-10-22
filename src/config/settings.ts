@@ -57,6 +57,8 @@ export interface Settings {
   modelPrices: Readonly<Record<string, ModelPrice>>;
   /** How many entries of a comparison run at once; the rest wait for a free place. */
   comparisonConcurrency: number;
+  /** How many installed versions `npm run install:local` keeps, the selected one included. */
+  keptVersions: number;
 }
 
 /** Built-in defaults. */
@@ -82,6 +84,7 @@ export function defaultSettings(): Settings {
     codexCommand: ['codex'],
     modelPrices: defaultModelPrices,
     comparisonConcurrency: 2,
+    keptVersions: 3,
   };
 }
 
@@ -120,6 +123,7 @@ const fileSchema = z
         .strict(),
     ),
     comparisonConcurrency: z.number().int().positive(),
+    keptVersions: z.number().int().positive(),
   })
   .strict()
   .partial();

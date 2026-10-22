@@ -1,9 +1,10 @@
 // Queueing user decisions for a task's (or a comparison's) driver. The CLI, a chat agent and the dashboard all go through
 // here, so every client controls a task the same way: by appending to its command queue.
 import { randomUUID } from 'node:crypto';
-import { resolve } from 'node:path';
 import { ComparisonStore, comparisonCommandSchema, type ComparisonCommand } from './compare/comparison.js';
+import { defaultDataDirectory } from './config/paths.js';
 import { userCommandSchema, type UserCommand } from './domain/events.js';
+import { entryScript } from './install/installation.js';
 import { foldEvents } from './pipeline/state.js';
 import { TaskStore } from './store/task-store.js';
 
@@ -34,9 +35,20 @@ export function approvedVersion(dataDir: string, taskId: string, version: string
   return latest.version;
 }
 
-/** The command line that runs this CLI against a data directory, for driver terminals and skills. */
+/**
+ * The command line that runs this Grampus against a data directory, for driver terminals. It names the
+ * script by its full path, so it works in a terminal that has not picked up a PATH change.
+ */
 export function selfCommand(dataDir: string): string {
-  return `node "${resolve(process.argv[1] ?? '')}" --home "${dataDir}"`;
+  return `node "${entryScript()}" --home "${dataDir}"`;
+}
+
+/**
+ * The command the chat skill runs: `grampus` from PATH, like any installed app, with `--home` only when
+ * the data directory is not the installed default.
+ */
+export function chatCommand(dataDir: string): string {
+  return dataDir === defaultDataDirectory(true) ? 'grampus' : `grampus --home "${dataDir}"`;
 }
 
 /** Validate a comparison decision (pick or abandon) and append it to the comparison's queue. */

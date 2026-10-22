@@ -94,9 +94,16 @@ export const commands: readonly CommandInfo[] = [
   },
   { name: 'recipes', args: '', summary: 'List recipes', group: 'setup' },
   {
+    name: 'version',
+    args: '[--json]',
+    summary: 'Show the running build and where it is installed',
+    group: 'setup',
+    detail: '`grampus --version` prints the same.',
+  },
+  {
     name: 'skill',
     args: '[install]',
-    summary: 'Print the chat skill, or install it for Claude and Codex',
+    summary: 'Print the chat skill, or install it for Claude and Codex (installed builds only)',
     group: 'setup',
   },
   {

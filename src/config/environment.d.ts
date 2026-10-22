@@ -21,6 +21,8 @@ declare global {
       SystemRoot?: string;
       /** The Windows command interpreter, used to start agent CLIs installed as `.cmd` shims. */
       ComSpec?: string;
+      /** npm's CLI script; npm sets it for scripts it runs, and the installer reuses it to install dependencies. */
+      npm_execpath?: string;
       /** Set to `0` for Git child processes so they never prompt. */
       GIT_TERMINAL_PROMPT?: string;
     }

@@ -5,8 +5,9 @@ description: Start and control Grampus coding tasks from chat. Grampus runs a me
 
 # Grampus
 
-Grampus is driven by its CLI. Run every command below exactly as written, including its full
-executable path and data directory.
+Grampus is driven by its CLI, installed on the user's PATH. Run every command below exactly as
+written. If the shell cannot find `grampus`, tell the user to restart Orca (it reads PATH when it
+starts) or to install Grampus; do not look for another copy.
 
 You act for the user. Grampus records every command you queue as coming from chat, so only queue a
 decision the user actually made in this conversation. Never approve, accept or abandon on your own
