@@ -67,8 +67,9 @@ separate dialog, write the evidence in your message first: the dialog alone is n
   found, and say clearly whether anything is blocking.
 - **Accept, continue or escalation:** they print the round's result between `----- round <r> result`
   and `----- end of result -----`: commits and changed files, each check, integrity problems, the
-  review verdict and findings, and why it needs the user. Show all of it, plus any `Note:` in the
-  request, and say plainly if the user would be accepting with unresolved problems.
+  review verdict and findings, and why it needs the user. The block is short: copy it into your reply
+  verbatim, then any `Note:` from the request, then your own reading. Do not replace it with a
+  summary. Say plainly if the user would be accepting with unresolved problems.
 
 A command is applied by the task's driver within a few seconds; confirm with `status`. If `status`
 shows `Refused`, the decision no longer applies (for example, a newer spec version exists).
