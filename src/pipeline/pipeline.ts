@@ -27,19 +27,14 @@ export async function runPipeline(core: DriverCore): Promise<void> {
   const spec = await approveSpec(core, worktree);
   await testsFirst(core, worktree, spec);
   await baseline(core, worktree, spec);
-  let guidance: string | null = null;
   for (let round = 0; ; round++) {
-    const settled = await buildRound(core, worktree, spec, round, guidance);
+    const settled = await buildRound(core, worktree, spec, round);
     await verify(core, worktree, spec, round);
     await review(core, worktree, round);
     const decision = decideRound(core, round, settled);
-    if (decision === 'repair') {
-      guidance = null;
-      continue;
-    }
+    if (decision === 'repair') continue;
     const choice = await askUser(core, round, decision);
     if (choice.kind === 'accept') return finish(core, 'accepted', decision === 'escalate', null);
-    guidance = choice.kind === 'continue' ? choice.guidance : null;
   }
 }
 
@@ -114,13 +109,7 @@ function protectedFiles(core: DriverCore): string[] {
   return core.state.testsFirst?.files ?? [];
 }
 
-function buildRound(
-  core: DriverCore,
-  worktree: string,
-  spec: SpecVersion,
-  round: number,
-  guidance: string | null,
-): Promise<Settled> {
+function buildRound(core: DriverCore, worktree: string, spec: SpecVersion, round: number): Promise<Settled> {
   const recipe = core.state.recipe;
   const protectedPaths = [...spec.protected, ...protectedFiles(core)];
   const specPath = approvedSpecPath(worktree);
@@ -144,7 +133,7 @@ function buildRound(
         checks: spec.checks,
         protectedPaths,
         round,
-        problems: problemsOf(core, round - 1, guidance),
+        problems: problemsOf(core, round - 1),
       }),
     launch: repairLaunch(core, round),
   });
@@ -166,7 +155,7 @@ function sameAssignment(left: Assignment, right: Assignment): boolean {
   return left.agent === right.agent && left.model === right.model && left.effort === right.effort;
 }
 
-function problemsOf(core: DriverCore, round: number, guidance: string | null): RepairProblems {
+function problemsOf(core: DriverCore, round: number): RepairProblems {
   const baselineFailures = new Set(
     core.state.baseline?.results.filter(result => !result.passed).map(result => result.name),
   );
@@ -180,7 +169,9 @@ function problemsOf(core: DriverCore, round: number, guidance: string | null): R
       })),
     violations: core.state.guard.get(round)?.guard.violations ?? [],
     findings: core.state.reviews.get(round)?.blocking ?? [],
-    guidance,
+    // Every continue so far, not only the one that granted this round: an automatic round after it
+    // otherwise never hears what the user asked, and once undid it.
+    guidance: core.state.commands.flatMap(command => (command.kind === 'continue' ? [command.guidance] : [])),
   };
 }
 

@@ -132,7 +132,8 @@ between two calls, such as a spec review landing while an agent talked to the us
     builder that reported failure, or an unavailable review, escalates immediately. Otherwise repair
     while `round < maxRounds + continues`, then escalate.
 12. **The user** accepts (recorded as an override after escalation), continues with guidance (one more
-    round) or abandons. Finishing releases every worker: settled ones with `worker-release`, unsettled
+    round) or abandons. Every repair prompt carries all the guidance given so far, oldest first, so an
+    automatic round after a continue still follows it. Finishing releases every worker: settled ones with `worker-release`, unsettled
     ones with `worker-stop`. When every check already passed at the baseline, the acceptance request
     says so: those checks show no regression but do not demonstrate the new behaviour.
 

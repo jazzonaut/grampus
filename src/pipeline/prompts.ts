@@ -191,7 +191,8 @@ export interface RepairProblems {
   failedChecks: { result: CheckResult; excerpt: string; failedAtBase: boolean }[];
   violations: string[];
   findings: Finding[];
-  guidance: string | null;
+  /** What the user said with each `continue` so far, oldest first. */
+  guidance: string[];
 }
 
 export function repairPrompt(input: {
@@ -229,7 +230,10 @@ ${failureReport}`;
 
 function describeProblems(problems: RepairProblems): string {
   const sections: string[] = [];
-  if (problems.guidance) sections.push(`GUIDANCE FROM THE USER:\n${problems.guidance}`);
+  if (problems.guidance.length)
+    sections.push(
+      `GUIDANCE FROM THE USER, oldest first. All of it still applies; where two disagree, the later wins:\n${bullets(problems.guidance)}`,
+    );
   if (problems.violations.length) sections.push(`INTEGRITY PROBLEMS:\n${bullets(problems.violations)}`);
   for (const failed of problems.failedChecks)
     sections.push(

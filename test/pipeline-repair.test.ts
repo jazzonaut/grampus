@@ -139,6 +139,39 @@ test('continue grants one more round with the user guidance in the repair prompt
   await driver;
 });
 
+test('guidance from continue still reaches the automatic repair rounds after it', async () => {
+  const recipe = { ...standardRecipe, name: 'two-repairs', repair: { maxRounds: 2, reuseBuilderRounds: 0 } };
+  const repairPrompts: string[] = [];
+  const harness = await createHarness(
+    h =>
+      goodWorkers(h, {
+        build: () => ({ outcome: 'failed', body: 'Which way should the exit code go?' }),
+        repair: async context => {
+          repairPrompts.push(context.spec);
+          const worktree = worktreeOf(h);
+          if (repairPrompts.length === 1) {
+            write(worktree, 'notes.txt', 'not greeting yet\n');
+            await commitAll(worktree, 'Not there yet');
+          } else {
+            write(worktree, 'greet.js', 'export function greet(name) {\n  return `Hello, ${name}!`;\n}\n');
+            await commitAll(worktree, 'Greet by name');
+          }
+          return { outcome: 'succeeded' };
+        },
+      }),
+    recipe,
+  );
+  const driver = harness.run();
+  await approveAndWait(harness, 'escalate:0');
+  harness.command({ kind: 'continue', guidance: 'Do not change test runner settings.' });
+  const ready = await harness.until(state => state.attention?.reason === 'ready:2', 'ready after an automatic round');
+  assert.equal(ready.decisions.get(1)?.decision, 'repair', 'round 2 was automatic, not another continue');
+  assert.equal(repairPrompts.length, 2);
+  for (const prompt of repairPrompts) assert.match(prompt, /Do not change test runner settings\./);
+  harness.command({ kind: 'accept' });
+  await driver;
+});
+
 test('deleting a test fails the round even when the checks pass', async () => {
   const harness = await createHarness(h =>
     goodWorkers(h, {
