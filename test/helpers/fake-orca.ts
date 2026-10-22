@@ -149,6 +149,13 @@ export class FakeOrca implements Orca, OrcaWorkspaces {
     this.stopped.push(dispatchId);
   }
 
+  /** Provider sessions per dispatch, for measurement tests. */
+  sessions = new Map<string, { provider: string; sessionIds: string[] }>();
+
+  async transcriptSessions(dispatchId: string) {
+    return this.sessions.get(dispatchId) ?? { provider: null, sessionIds: [] };
+  }
+
   async createWorktree(input: { repoPath: string; name: string }) {
     const path = `${input.repoPath}-${input.name}`;
     await git(input.repoPath, ['worktree', 'add', '-b', input.name, path]);

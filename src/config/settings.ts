@@ -5,6 +5,7 @@
 // Each entry point installs its settings once (`useSettings`). Library code reads `currentSettings()`,
 // which falls back to the built-in defaults, so tests are unaffected by a developer's own config.json.
 import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { recipeSchema, standardRecipe, type Recipe } from '../domain/recipe.js';
@@ -34,6 +35,10 @@ export interface Settings {
   testFilePatterns: readonly string[];
   /** Saved recipes beside the built-in `standard` recipe. */
   recipes: readonly Recipe[];
+  /** Folders searched for Claude session transcripts (`<root>/<project>/<session>.jsonl`). */
+  claudeProjectRoots: readonly string[];
+  /** Folders searched for Codex rollouts (`<root>/YYYY/MM/DD/rollout-...-<session>.jsonl`). */
+  codexSessionRoots: readonly string[];
 }
 
 /** Built-in defaults. */
@@ -50,6 +55,8 @@ export function defaultSettings(): Settings {
     checkShell: null,
     testFilePatterns: ['**/*.test.*', '**/*.spec.*', '**/test/**', '**/tests/**', '**/__tests__/**'],
     recipes: [],
+    claudeProjectRoots: [join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'projects')],
+    codexSessionRoots: [join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'sessions')],
   };
 }
 
@@ -66,6 +73,8 @@ const fileSchema = z
     checkShell: z.string().min(1).nullable(),
     testFilePatterns: z.array(z.string().min(1)),
     recipes: z.array(recipeSchema),
+    claudeProjectRoots: z.array(z.string().min(1)),
+    codexSessionRoots: z.array(z.string().min(1)),
   })
   .strict()
   .partial();

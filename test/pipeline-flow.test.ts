@@ -132,3 +132,25 @@ test('tests first commits acceptance tests that the builder may not change', asy
   harness.command({ kind: 'abandon' });
   await driver;
 });
+
+test('acceptance warns when the checks already passed before the change', async () => {
+  const harness = await createHarness(h =>
+    goodWorkers(h, {
+      spec: context => {
+        writeFileSync(outputPath(context.spec), specText([{ name: 'always', command: 'node -e "process.exit(0)"' }]));
+        return { outcome: 'succeeded' };
+      },
+    }),
+  );
+  const driver = harness.run();
+  await harness.until(state => state.attention?.reason === 'approve-spec:1', 'approval');
+  harness.command({ kind: 'approve', specVersion: 1 });
+  const ready = await harness.until(state => state.attention?.reason === 'ready:0', 'ready');
+  assert.match(ready.attention?.detail ?? '', /every check also passed before the change/);
+  harness.command({ kind: 'accept' });
+  await driver;
+  const measured = harness.state().measurements ?? [];
+  assert.equal(measured.length, 4, 'every dispatch is measured when the task finishes');
+  assert.equal(measured[0]?.note, 'no provider session found', 'the fake has no transcripts: unknown, not zero');
+  assert.equal(measured[0]?.usage, null);
+});

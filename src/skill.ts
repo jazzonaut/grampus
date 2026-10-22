@@ -13,7 +13,7 @@ export function renderSkill(commandLine: string): string {
 
 /** Where agents look for user skills. */
 export function skillTargets(): { agent: string; path: string }[] {
-  const codexHome = process.env['CODEX_HOME'] ?? join(homedir(), '.codex');
+  const codexHome = process.env.CODEX_HOME ?? join(homedir(), '.codex');
   return [
     { agent: 'claude', path: join(homedir(), '.claude', 'skills', 'grampus', 'SKILL.md') },
     { agent: 'codex', path: join(codexHome, 'skills', 'grampus', 'SKILL.md') },

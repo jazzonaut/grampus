@@ -45,6 +45,7 @@ node dist/src/cli.js new --repo D:\Code\MyApp "Add CSV export to the reports pag
 node dist/src/cli.js status
 node dist/src/cli.js approve <task>
 node dist/src/cli.js accept <task>
+node dist/src/cli.js report <task>
 ```
 
 Run `node dist/src/cli.js --help` for every command. Grampus never pushes: the accepted work is a

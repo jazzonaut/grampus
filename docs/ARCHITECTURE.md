@@ -36,6 +36,9 @@ driver runs inside that terminal, so Orca resolves it as the Run's coordinator w
 | | `events.ts` | The event log schema and user command schema |
 | `orca/` | `client.ts`, `protocol.ts` | The Orca CLI client and the JSON it reads |
 | `git/` | `git.ts` | Read-only Git queries |
+| `measure/` | `transcripts.ts` | Reading models, effort and tokens from Claude and Codex transcripts |
+| | `usage.ts` | Per-dispatch measurements, splitting continued conversations by request time |
+| | `report.ts` | The scorecard: per-stage figures, totals and human cost |
 | `checks/` | `run-checks.ts` | Running check commands with logs, timeouts and one flaky rerun |
 | `store/` | `task-store.ts` | Task folders, `events.jsonl`, `commands.jsonl` |
 | `pipeline/` | `driver.ts` | Driver entry point and lock |
@@ -75,7 +78,8 @@ driver runs inside that terminal, so Orca resolves it as the Run's coordinator w
     while `round < maxRounds + continues`, then escalate.
 11. **The user** accepts (recorded as an override after escalation), continues with guidance (one more
     round) or abandons. Finishing releases every worker: settled ones with `worker-release`, unsettled
-    ones with `worker-stop`.
+    ones with `worker-stop`. When every check already passed at the baseline, the acceptance request
+    says so: those checks show no regression but do not demonstrate the new behaviour.
 
 ## Durability and recovery
 
@@ -130,7 +134,19 @@ Observed on Orca 1.4.237 (October 2026). Re-check after upgrades.
 ## Measurements
 
 The event log records the recipe snapshot, Orca version, every dispatch (requested and effective
-launch, start and settle times, outcome), every check (exit code, duration, timeout, flaky) on base and
-head commits, guard results, review findings and downgrades, round decisions with reasons, every user
-command with its source, and how long the task waited for the user. **Planned:** token usage from
-provider transcripts, scorecards, comparisons and exports.
+launch, request, start and settle times, outcome), every check (exit code, duration, timeout, flaky) on
+base and head commits, guard results, review findings and downgrades, round decisions with reasons,
+every user command with its source, and how long the task waited for the user.
+
+When a task finishes, after its workers are released, the driver records `usage.recorded`: for each
+dispatch, the provider, the model that actually ran, effort (Codex), time from start request to report,
+and tokens. Orca's transcript view drops models and usage, but its message ids name the provider
+session (`claude:<session>:...`, `codex:<session>:...`). Grampus reads that session's transcript:
+Claude's `<projects root>/<project>/<session>.jsonl` (usage once per message id) and Codex's
+`<sessions root>/YYYY/MM/DD/rollout-...-<session>.jsonl` (growth of the cumulative total). A
+conversation continued by a later dispatch is split at the time that dispatch was requested. `input`
+counts uncached input for both providers. Anything not found stays unknown with a note.
+
+`grampus report <task>` prints the scorecard: per-stage figures, totals, rounds, wall time and the
+human cost (decisions, how many came from chat, time spent waiting). For a running task it measures
+now and is marked provisional. **Planned:** comparisons, exports and the dashboard.

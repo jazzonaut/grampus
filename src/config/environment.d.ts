@@ -9,6 +9,10 @@ declare global {
       ORCA_CLI_COMMAND?: string;
       /** The handle of the Orca terminal this process runs in. Orca sets it; the driver is that terminal's coordinator. */
       ORCA_TERMINAL_HANDLE?: string;
+      /** Claude Code's configuration directory; its `projects` folder holds session transcripts. */
+      CLAUDE_CONFIG_DIR?: string;
+      /** Codex's home directory; its `sessions` folder holds rollouts and `skills` holds user skills. */
+      CODEX_HOME?: string;
       /** Windows per-user application data root for the default data directory. */
       LOCALAPPDATA?: string;
       /** XDG state root for the default data directory on Linux. */

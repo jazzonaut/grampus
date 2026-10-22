@@ -9,6 +9,7 @@ import { repairAssignment, type Assignment } from '../domain/recipe.js';
 import type { UserCommand } from '../domain/events.js';
 import { changedPaths, headSha } from '../git/git.js';
 import type { DriverCore, Launch, Settled } from './driver-core.js';
+import { measureDispatches } from '../measure/usage.js';
 import { inspectCandidate } from './guard.js';
 import { buildPrompt, repairPrompt, reviewPrompt, testsFirstPrompt, type RepairProblems } from './prompts.js';
 import { approveSpec, ensureGate } from './spec-phase.js';
@@ -286,7 +287,7 @@ function askUser(core: DriverCore, round: number, decision: 'escalate' | 'ready'
   if (decision === 'ready')
     return core.decide(
       `ready:${round}`,
-      `Verified at ${sha}: every check passes${verdict ? `, review ${verdict}` : ', no review'}. Accept, continue with guidance, or abandon.`,
+      `Verified at ${sha}: every check passes${verdict ? `, review ${verdict}` : ', no review'}.${baselineNote(core)} Accept, continue with guidance, or abandon.`,
       ['accept', 'continue', 'abandon'],
     );
   return core.decide(
@@ -294,6 +295,17 @@ function askUser(core: DriverCore, round: number, decision: 'escalate' | 'ready'
     `Round ${round} needs you at ${sha}: ${reasons.join('; ')}. Continue with guidance, accept anyway, or abandon.`,
     ['continue', 'accept', 'abandon'],
   );
+}
+
+/**
+ * Checks that already passed before the change show that nothing regressed, not that the new behaviour
+ * works; for those, only the review vouches for the change. Say so when asking for acceptance.
+ */
+function baselineNote(core: DriverCore): string {
+  const passedBefore = (core.state.baseline?.results ?? []).filter(result => result.passed).map(result => result.name);
+  if (!passedBefore.length) return '';
+  const all = passedBefore.length === core.state.baseline?.results.length;
+  return ` Note: ${all ? 'every check' : `check ${passedBefore.map(name => `"${name}"`).join(', ')}`} also passed before the change, so the checks show no regression but do not demonstrate the new behaviour.`;
 }
 
 /** Release the workers and record the outcome. */
@@ -305,6 +317,9 @@ export async function finish(
 ): Promise<void> {
   if (core.state.finished) return;
   await core.releaseWorkers();
+  // Measured after release so every worker's final turn is in its transcript.
+  if (!core.state.measurements)
+    core.record({ type: 'usage.recorded', measurements: await measureDispatches(core.state, core.orca) });
   const worktree = core.state.workspace?.path;
   const sha = worktree ? await headSha(worktree).catch(() => null) : null;
   core.record({ type: 'task.finished', outcome, sha, override, reason });

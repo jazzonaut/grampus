@@ -75,6 +75,15 @@ export const workerShowSchema = z.object({
   projection: z.object({ liveness: z.unknown().optional() }).nullable().optional(),
 });
 
+/** `worker-read --source transcript`: only the provider and message ids, which name provider sessions. */
+export const workerReadSchema = z.object({
+  provider: z.string().nullable().optional(),
+  transcript: z
+    .object({ messages: z.array(z.object({ id: z.string() })) })
+    .nullable()
+    .optional(),
+});
+
 export const worktreeSchema = z.object({
   worktree: z.object({ id: z.string(), path: z.string(), branch: z.string().nullable().optional() }),
 });

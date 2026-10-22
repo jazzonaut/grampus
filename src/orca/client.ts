@@ -18,6 +18,7 @@ import {
   statusSchema,
   taskCreateSchema,
   terminalCreateSchema,
+  workerReadSchema,
   workerShowSchema,
   workerStartSchema,
   worktreeSchema,
@@ -88,6 +89,8 @@ export interface Orca {
   retainWorker(dispatchId: string): Promise<void>;
   releaseWorker(dispatchId: string): Promise<void>;
   stopWorker(dispatchId: string): Promise<void>;
+  /** The provider and provider session ids behind a dispatch, from Orca's transcript view. */
+  transcriptSessions(dispatchId: string): Promise<{ provider: string | null; sessionIds: string[] }>;
 }
 
 /** Workspace calls made when a task is created, before its driver exists. */
@@ -188,6 +191,12 @@ export class OrcaCli implements Orca, OrcaWorkspaces {
     await this.call(['orchestration', 'worker-stop', '--dispatch', dispatchId]);
   }
 
+  async transcriptSessions(dispatchId: string) {
+    const args = ['orchestration', 'worker-read', '--dispatch', dispatchId, '--source', 'transcript'];
+    const read = workerReadSchema.parse(await this.call([...args, '--limit', String(transcriptPageMessages)]));
+    return { provider: read.provider ?? null, sessionIds: providerSessions(read.transcript?.messages ?? []) };
+  }
+
   async createWorktree(input: { repoPath: string; name: string }) {
     const args = ['worktree', 'create', '--repo', `path:${input.repoPath}`, '--name', input.name];
     args.push('--no-parent', '--setup', 'run');
@@ -230,6 +239,19 @@ export class OrcaCli implements Orca, OrcaWorkspaces {
     if (failed.success) throw new OrcaError(failed.data.error.code, failed.data.error.message, failed.data.error.data);
     throw new OrcaUncertainError(`${name} printed an unrecognised envelope.`);
   }
+}
+
+/** Messages read to find a dispatch's provider sessions; the first page always contains provider messages. */
+const transcriptPageMessages = 50;
+
+/** Provider session ids named by Orca transcript message ids such as `claude:<session>:<message>`. */
+export function providerSessions(messages: readonly { id: string }[]): string[] {
+  const sessions = new Set<string>();
+  for (const { id } of messages) {
+    const [provider, session] = id.split(':');
+    if ((provider === 'claude' || provider === 'codex') && session) sessions.add(session);
+  }
+  return [...sessions];
 }
 
 /** Reads Orca's fleet liveness verdict, which is either a word or an object carrying one. */

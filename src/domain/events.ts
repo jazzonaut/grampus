@@ -6,6 +6,7 @@ import { inputLimits } from '../config/limits.js';
 import type { Assignment, Recipe } from './recipe.js';
 import type { Finding, ReviewReport } from './review.js';
 import type { CheckDefinition } from './spec.js';
+import type { DispatchMeasurement } from '../measure/usage.js';
 
 /** The event log schema. Logs written with another schema are refused; there are no migrations. */
 export const eventSchemaVersion = 1;
@@ -109,6 +110,7 @@ export type TaskEvent =
   | { type: 'round.decided'; round: number; decision: 'repair' | 'escalate' | 'ready'; reasons: string[] }
   | { type: 'attention.needed'; reason: string; detail: string; options: CommandKind[] }
   | { type: 'workers.released'; released: string[]; failures: string[] }
+  | { type: 'usage.recorded'; measurements: DispatchMeasurement[] }
   | {
       type: 'task.finished';
       outcome: 'accepted' | 'abandoned';

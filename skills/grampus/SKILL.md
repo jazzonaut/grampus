@@ -28,6 +28,7 @@ opens as its own Orca chat or terminal: tell the user to discuss the request wit
 {{grampus}} status            all tasks, one block each
 {{grampus}} status <task>     one task with its spec, checks and rounds
 {{grampus}} wait [<task>]     block until something new needs the user (returns after about 9 minutes otherwise)
+{{grampus}} report <task>     models, time and tokens per stage, rounds and human cost
 ```
 
 Lines starting `NEEDS YOU`, `QUESTION` and `DRIVER STOPPED` are the ones to relay. `options:` lists

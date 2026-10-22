@@ -8,6 +8,8 @@ import { parseArgs } from 'node:util';
 import { dataDirectory } from './config/paths.js';
 import { availableRecipes, currentSettings, loadSettings, useSettings } from './config/settings.js';
 import type { UserCommand } from './domain/events.js';
+import { buildScorecard, renderScorecard } from './measure/report.js';
+import { measureDispatches } from './measure/usage.js';
 import { OrcaCli } from './orca/client.js';
 import { createTask } from './pipeline/create-task.js';
 import { drive } from './pipeline/driver.js';
@@ -21,6 +23,7 @@ const usage = `Usage: grampus <command> [options]
   new --repo <path> [--recipe <name>] [--title <text>] <request...>   Start a task in a new Orca worktree
   status [task] [--json]                                              Show tasks, or one task in detail
   wait [task] [--json]                                                Block until something new needs you
+  report <task> [--json]                                              Models, time and tokens per stage, and human cost
   approve <task> [--version <n>]                                      Approve the latest (or given) spec version
   revise <task> <feedback...>                                         Ask the spec writer for a revision
   reply <task> <message-id> <answer...>                               Answer a worker's question
@@ -70,6 +73,8 @@ async function main(argv: string[]): Promise<number> {
       return status(dataDir, rest[0], values.json ?? false);
     case 'wait':
       return wait(dataDir, rest[0], values.json ?? false);
+    case 'report':
+      return report(dataDir, required(rest[0], 'task'), values.json ?? false);
     case 'recipes':
       console.log(JSON.stringify(availableRecipes(), null, 2));
       return 0;
@@ -166,6 +171,16 @@ function skill(commandLine: string, install: boolean): number {
     return 0;
   }
   for (const path of installSkill(commandLine)) console.log(`Installed ${path}`);
+  return 0;
+}
+
+/** A finished task's recorded scorecard, or a provisional one measured now for a running task. */
+async function report(dataDir: string, taskId: string, json: boolean): Promise<number> {
+  const events = TaskStore.open(dataDir, taskId).events();
+  const state = foldEvents(events);
+  const measurements = state.measurements ?? (await measureDispatches(state, new OrcaCli()));
+  const card = buildScorecard(state, events, measurements);
+  console.log(json ? JSON.stringify(card, null, 2) : renderScorecard(card));
   return 0;
 }
 

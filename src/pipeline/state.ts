@@ -1,6 +1,7 @@
 // Task state folded from the event log. The driver, `grampus status` and the dashboard all read the same
 // fold, so what is shown is exactly what the driver will act on.
 import type { Recipe } from '../domain/recipe.js';
+import type { DispatchMeasurement } from '../measure/usage.js';
 import type { Finding, ReviewReport } from '../domain/review.js';
 import type {
   CheckResult,
@@ -15,6 +16,8 @@ import type { CheckDefinition } from '../domain/spec.js';
 
 export interface DispatchRecord {
   dispatchId: string;
+  /** When the start was requested, before Orca injected the prompt: the start of this dispatch's activity. */
+  requestedAt: string;
   startedAt: string;
   reusedHandle: string | null;
   launch: LaunchRecord | null;
@@ -70,6 +73,8 @@ export interface TaskState {
   workspace: { worktreeId: string; path: string; baseSha: string; driverTerminal: string } | null;
   runId: string | null;
   requests: Map<string, string>;
+  /** When each Orca request id was first recorded. */
+  requestTimes: Map<string, string>;
   stages: Map<string, StageRecord>;
   specs: SpecVersion[];
   rejectedSpecs: Map<string, string>;
@@ -91,6 +96,8 @@ export interface TaskState {
   attention: Attention | null;
   finished: { outcome: 'accepted' | 'abandoned'; sha: string | null; override: boolean; at: string } | null;
   released: boolean;
+  /** Per-dispatch models, tokens and times, recorded when the task finishes. */
+  measurements: DispatchMeasurement[] | null;
   lastStop: { reason: string; at: string } | null;
 }
 
@@ -108,6 +115,7 @@ export function foldEvents(events: readonly StoredEvent[]): TaskState {
     workspace: null,
     runId: null,
     requests: new Map(),
+    requestTimes: new Map(),
     stages: new Map(),
     specs: [],
     rejectedSpecs: new Map(),
@@ -127,6 +135,7 @@ export function foldEvents(events: readonly StoredEvent[]): TaskState {
     attention: null,
     finished: null,
     released: false,
+    measurements: null,
     lastStop: null,
   };
   for (const event of events) applyEvent(state, event);
@@ -157,6 +166,7 @@ const handlers: Handlers = {
   },
   'orca.requested': (state, event) => {
     state.requests.set(event.key, event.requestId);
+    state.requestTimes.set(event.key, event.at);
   },
   'run.created': (state, event) => {
     state.runId = event.runId;
@@ -179,6 +189,7 @@ const handlers: Handlers = {
     stage.attempts += 1;
     stage.dispatches.push({
       dispatchId: event.dispatchId,
+      requestedAt: state.requestTimes.get(`${event.key}:start:${stage.attempts}`) ?? event.at,
       startedAt: event.at,
       reusedHandle: event.reusedHandle,
       launch: event.launch,
@@ -269,6 +280,9 @@ const handlers: Handlers = {
   },
   'workers.released': state => {
     state.released = true;
+  },
+  'usage.recorded': (state, event) => {
+    state.measurements = event.measurements;
   },
   'task.finished': (state, event) => {
     state.finished = { outcome: event.outcome, sha: event.sha, override: event.override, at: event.at };
