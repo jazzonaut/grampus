@@ -103,7 +103,9 @@ between two calls, such as a spec review landing while an agent talked to the us
    (commits, changed files, checks, integrity problems, review findings, reasons), so a chat agent can
    show it before asking. The gate is resolved and the approved spec is
    written to `<worktree>/.grampus/spec.md` for later workers.
-6. **Tests first** (`tests:0`, optional). Added files become protected.
+6. **Tests first** (`tests:0`, optional). Added files become protected. If the worker fails or adds no
+   files, the `tests-failed` decision asks the user to build without tests (`continue`, which the
+   dashboard labels "Build without tests") or abandon.
 7. **Baseline.** The checks on the original commit, when HEAD has not moved since; otherwise (after
    tests first) checks run at HEAD before the build, without reruns.
 8. **Rounds.** Round 0 is `build:0`; round `r` is `repair:<r>`. Repair rounds up to

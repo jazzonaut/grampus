@@ -14,6 +14,8 @@ const { queue, busy } = useCommands(() => props.task.taskId);
 const options = computed(() => new Set(props.task.needsYou?.options ?? []));
 const latestSpec = computed(() => props.task.specs.at(-1)?.version ?? null);
 const escalated = computed(() => props.task.needsYou?.reason.startsWith('escalate:') ?? false);
+/** Tests first produced nothing: `continue` here builds without tests, it does not run a repair round. */
+const withoutTests = computed(() => props.task.needsYou?.reason === 'tests-failed');
 const queuedKinds = computed(
   () => new Set(props.task.commands.filter(command => command.state === 'queued').map(command => command.kind)),
 );
@@ -26,10 +28,15 @@ const promptOpen = computed({
     if (!value) prompt.value = null;
   },
 });
-const prompts: Record<
-  Prompted,
-  { title: string; description: string; placeholder: string; confirm: string; optional?: boolean; color?: 'error' }
-> = {
+interface PromptText {
+  title: string;
+  description: string;
+  placeholder: string;
+  confirm: string;
+  optional?: boolean;
+  color?: 'error';
+}
+const prompts: Record<Prompted, PromptText> = {
   revise: {
     title: 'Ask for a revision',
     description: 'The spec writer revises the spec with your feedback. You approve the new version.',
@@ -51,6 +58,16 @@ const prompts: Record<
     color: 'error',
   },
 };
+const buildWithoutTests: PromptText = {
+  title: 'Build without tests',
+  description:
+    'The builder starts from the approved spec with no tests written first. The checks and the review still run. Your note goes to every later repair round.',
+  placeholder: 'A note for later repair rounds, e.g. no tests were written first; rely on the spec checks',
+  confirm: 'Build without tests',
+};
+const promptText = computed(() =>
+  prompt.value === 'continue' && withoutTests.value ? buildWithoutTests : prompt.value ? prompts[prompt.value] : null,
+);
 
 function submitPrompt(text: string): void {
   const kind = prompt.value;
@@ -110,10 +127,10 @@ function approve(): void {
     />
     <UButton
       v-if="options.has('continue')"
-      icon="i-lucide-redo-2"
+      :icon="withoutTests ? 'i-lucide-skip-forward' : 'i-lucide-redo-2'"
       color="neutral"
       variant="outline"
-      label="Another round"
+      :label="withoutTests ? 'Build without tests' : 'Another round'"
       @click="prompt = 'continue'"
     />
     <UButton
@@ -140,7 +157,7 @@ function approve(): void {
       Accepting now is recorded as an override: this round did not pass everything.
     </p>
 
-    <TextPrompt v-if="prompt" v-model:open="promptOpen" v-bind="prompts[prompt]" @submit="submitPrompt" />
+    <TextPrompt v-if="promptText" v-model:open="promptOpen" v-bind="promptText" @submit="submitPrompt" />
     <UModal
       v-model:open="confirmApprove"
       :title="`Approve v${latestSpec} before the ${stillRunning.join(' and ')} finish?`"

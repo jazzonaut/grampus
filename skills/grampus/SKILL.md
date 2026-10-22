@@ -80,6 +80,7 @@ Always pass `--source chat`.
 | Change the spec | `{{grampus}} revise <task> --source chat "<feedback>"` |
 | Answers a worker question | `{{grampus}} reply <task> <message-id> --source chat "<answer>"` |
 | Try again / do another round | `{{grampus}} continue <task> --source chat "<guidance>"` |
+| Tests first wrote no tests; build without them | `{{grampus}} continue <task> --source chat "<note>"` |
 | A stage failed to start or exited; retry it | `{{grampus}} retry <task> --source chat` |
 | Accept the verified result | `{{grampus}} accept <task> --source chat` |
 | Stop the task | `{{grampus}} abandon <task> --source chat "<reason>"` |
