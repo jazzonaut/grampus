@@ -75,7 +75,12 @@ export function taskDetail(
 
 /** The paths the dashboard may serve for a task: its spec versions and check logs, nothing else. */
 export function servableFiles(state: TaskState): Set<string> {
-  const runs = [...state.specChecks.values(), state.baseline, ...state.verify.values()];
+  const runs = [
+    ...state.specChecks.values(),
+    state.baseline,
+    ...state.verify.values(),
+    ...[...state.simplify.values()].map(record => record.checked),
+  ];
   return new Set([
     ...state.specs.map(spec => spec.path),
     ...runs.flatMap(run => run?.results.map(result => result.logPath) ?? []),
@@ -149,8 +154,24 @@ export function pipelineOf(state: TaskState): PipelineStep[] {
     verifyStep(state, round),
     state.recipe.review ? reviewStep(state, round) : step('review', 'Review', 'skipped'),
     repairStep(state, round),
+    state.recipe.simplify ? simplifyStep(state, round) : step('simplify', 'Simplify', 'skipped'),
     acceptStep(state),
   ];
+}
+
+function simplifyStep(state: TaskState, round: number | null): PipelineStep {
+  const decided = round === null ? null : state.simplify.get(round)?.decided;
+  if (decided)
+    return step(
+      'simplify',
+      'Simplify',
+      'done',
+      decided.kept ? `+${decided.before.added} became +${decided.after.added} lines` : 'discarded',
+    );
+  if (round === null) return step('simplify', 'Simplify', 'pending');
+  const working = [`simplify:${round}`, `simplify-review:${round}`].some(key => running(state.stages.get(key)));
+  const checking = state.stages.has(`simplify:${round}`);
+  return step('simplify', 'Simplify', working || checking ? 'running' : 'pending');
 }
 
 function specStep(state: TaskState): PipelineStep {
@@ -354,8 +375,16 @@ function roundsOf(state: TaskState): RoundView[] {
           }
         : null,
       decision: decisionOf(state, record.round),
+      simplify: simplifyOf(state, record.round),
     };
   });
+}
+
+function simplifyOf(state: TaskState, round: number): RoundView['simplify'] {
+  const simplified = state.simplify.get(round);
+  const key = `simplify:${round}`;
+  if (!simplified && !state.stages.has(key)) return null;
+  return { stageKey: key, checked: simplified?.checked ?? null, decided: simplified?.decided ?? null };
 }
 
 function decisionOf(state: TaskState, round: number): RoundView['decision'] {

@@ -6,6 +6,7 @@ import { logExcerpt } from '../checks/run-checks.js';
 import { specLimits } from '../config/limits.js';
 import type { CheckResult, CommandKind, GuardResult } from '../domain/events.js';
 import type { Finding } from '../domain/review.js';
+import { simplifyNote } from './simplify.js';
 import { currentDispatch, type ReviewRecord, type TaskState } from './state.js';
 
 export interface TaskSummary {
@@ -18,7 +19,7 @@ export interface TaskSummary {
   needsYou: { reason: string; detail: string; options: CommandKind[]; since: string } | null;
   questions: { messageId: string; stage: string | null; text: string; at: string }[];
   spec: { version: number; path: string; checks: string[] } | null;
-  rounds: { round: number; checks: string; review: string; decision: string | null }[];
+  rounds: { round: number; checks: string; review: string; decision: string | null; simplify: string | null }[];
   finished: { outcome: string; sha: string | null; override: boolean; at: string } | null;
   lastStop: { reason: string; at: string } | null;
   /** The most recent refused command, if it came after the last applied one. */
@@ -73,6 +74,7 @@ export function summarise(state: TaskState): TaskSummary {
             : `unavailable: ${review.error}`
           : 'none',
         decision: state.decisions.get(round)?.decision ?? null,
+        simplify: simplifyNote(state, round).trim() || null,
       };
     }),
     finished: state.finished
@@ -155,6 +157,7 @@ function resultOf(state: TaskState): TaskSummary['result'] {
     ...guardLines(state.guard.get(round)?.guard),
     ...(state.verify.get(round)?.results ?? []).map(checkLine),
     ...reviewLines(state.reviews.get(round)),
+    ...simplifyLines(state, round),
   ];
   return { round, lines };
 }
@@ -200,6 +203,19 @@ function reviewLines(review: ReviewRecord | undefined): string[] {
   ];
 }
 
+function simplifyLines(state: TaskState, round: number): string[] {
+  const simplified = state.simplify.get(round);
+  if (!simplified?.decided) return [];
+  const changed = simplified.decided.kept ? (simplified.checked?.guard.changedFiles ?? []) : [];
+  return [
+    simplifyNote(state, round).trim(),
+    ...(changed.length ? [`simplification changed: ${changed.slice(0, shownFiles).join(', ')}`] : []),
+    ...(simplified.decided.kept && simplified.checked?.guard.modifiedTests.length
+      ? [`tests adapted by the simplification: ${simplified.checked.guard.modifiedTests.join(', ')}`]
+      : []),
+  ];
+}
+
 /** Changed files listed with a result before the rest are counted. */
 const shownFiles = 15;
 
@@ -240,8 +256,17 @@ function phaseOf(state: TaskState): string {
   const approved = state.inherited || state.commands.some(command => command.kind === 'approve');
   if (approved && !state.baseline) return 'running the checks before the build';
   const round = latestBuiltRound(state);
-  if (round !== null && !state.verify.has(round)) return `running the checks of round ${round}`;
-  return 'waiting for the driver';
+  if (round === null) return 'waiting for the driver';
+  if (!state.verify.has(round)) return `running the checks of round ${round}`;
+  return checkingSimplification(state, round)
+    ? `checking the simplification of round ${round}`
+    : 'waiting for the driver';
+}
+
+/** Whether a round's simplifier has ended and the driver is guarding and checking its commit. */
+function checkingSimplification(state: TaskState, round: number): boolean {
+  const simplified = state.simplify.get(round);
+  return state.stages.has(`simplify:${round}`) && !simplified?.checked && !simplified?.decided;
 }
 
 /** Plain-text rendering for the terminal and chat agents. */
@@ -274,6 +299,7 @@ export function renderSummary(summary: TaskSummary): string {
   for (const round of summary.rounds)
     lines.push(
       `  round ${round.round}: checks ${round.checks}; review ${round.review}${round.decision ? `; ${round.decision}` : ''}`,
+      ...(round.simplify ? [`    ${round.simplify}`] : []),
     );
   if (summary.refused) lines.push(`  Refused ${summary.refused.kind}: ${summary.refused.reason}`);
   if (summary.lastStop && !summary.finished)

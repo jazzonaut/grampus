@@ -146,6 +146,7 @@ export function goodWorkers(harness: Harness, overrides: Partial<Record<string, 
         return { outcome: 'succeeded' };
       case 'spec-review':
       case 'review':
+      case 'simplify-review':
         writeFileSync(outputPath(context.spec), reviewJson('approve'));
         return { outcome: 'succeeded' };
       case 'build':
@@ -172,6 +173,8 @@ export function roleOf(title: string): string {
   if (title.startsWith('Build')) return 'build';
   if (title.startsWith('Repair')) return 'repair';
   if (title.startsWith('Review')) return 'review';
+  if (title.startsWith('Simplify review')) return 'simplify-review';
+  if (title.startsWith('Simplify')) return 'simplify';
   return 'other';
 }
 

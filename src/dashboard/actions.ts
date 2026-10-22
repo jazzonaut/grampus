@@ -150,6 +150,7 @@ export async function listModels({ app, response, url }: Call): Promise<void> {
         recipe.testsFirst,
         recipe.build,
         recipe.review,
+        recipe.simplify,
         recipe.repair.assignment,
       ].flatMap(assignment => (assignment?.agent === 'claude' && assignment.model ? [assignment.model] : [])),
     );

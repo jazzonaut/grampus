@@ -81,7 +81,12 @@ spec ─► spec review ─► [approve] ─► (tests first) ─► baseline �
    Round 1 continues the builder's conversation; later rounds start fresh with a distilled
    list of problems, because a long polluted context does worse. Grampus counts rounds
    itself; after the recipe's limit it escalates to the user.
-10. **Accept.** The user accepts the verified branch, gives guidance for another round, or
+10. **Simplify** (optional per recipe, off by default). Agents overbuild, and a reviewer that
+    blocks only incorrect code lets bloat through. Once a round is ready, a worker makes the
+    change smaller without changing behaviour. The pass is kept only if the guard, the checks and
+    a review of its own diff all hold; otherwise the worktree goes back to the verified commit.
+    It never escalates or repairs, because the verified commit is already a good result.
+11. **Accept.** The user accepts the verified branch, gives guidance for another round, or
     abandons the task. Afterwards the user may ask Grampus to fast-forward their branch to the
     verified commit (`merge`). Pushing and opening a PR stay with the user.
 

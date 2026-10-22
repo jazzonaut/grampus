@@ -59,6 +59,11 @@ const steps: { id: StepId; label: string; text: string }[] = [
     text: 'Failures go back to a repair worker, for a bounded number of rounds, then to you.',
   },
   {
+    id: 'simplify',
+    label: 'Simplify',
+    text: 'Optional: once a round is ready, a worker makes the change smaller without changing behaviour. Grampus keeps it only if the guard, the checks and a review of its diff all hold; otherwise the verified commit stays.',
+  },
+  {
     id: 'accept',
     label: 'Accept',
     text: 'You accept the verified commit, ask for another round, or abandon. Merge is a separate, opt-in step.',

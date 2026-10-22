@@ -10,6 +10,7 @@ import type {
   LaunchRecord,
   Stage,
   StoredEvent,
+  TaskEvent,
   TaskOutcome,
   UserCommand,
 } from '../domain/events.js';
@@ -57,6 +58,13 @@ export interface ReviewRecord {
   error: string | null;
 }
 
+/** The simplify pass of one ready round, filled in as its steps are recorded. */
+export interface SimplifyRecord {
+  round: number;
+  checked: { fromSha: string; sha: string; guard: GuardResult; results: CheckResult[] } | null;
+  decided: Omit<Extract<TaskEvent, { type: 'simplify.decided' }>, 'type' | 'round'> | null;
+}
+
 export interface Attention {
   reason: string;
   detail: string;
@@ -98,6 +106,7 @@ export interface TaskState {
   guard: Map<number, { fromSha: string; sha: string; guard: GuardResult }>;
   reviews: Map<number, ReviewRecord>;
   decisions: Map<number, { decision: 'repair' | 'escalate' | 'ready'; reasons: string[] }>;
+  simplify: Map<number, SimplifyRecord>;
   attention: Attention | null;
   finished: { outcome: TaskOutcome; sha: string | null; override: boolean; at: string } | null;
   /** The comparison this task is an entry of. */
@@ -145,6 +154,7 @@ export function foldEvents(events: readonly StoredEvent[]): TaskState {
     guard: new Map(),
     reviews: new Map(),
     decisions: new Map(),
+    simplify: new Map(),
     attention: null,
     finished: null,
     released: false,
@@ -315,6 +325,12 @@ const handlers: Handlers = {
   'round.decided': (state, event) => {
     state.decisions.set(event.round, { decision: event.decision, reasons: event.reasons });
   },
+  'simplify.checked': (state, { round, fromSha, sha, guard, results }) => {
+    simplifyRecord(state, round).checked = { fromSha, sha, guard, results };
+  },
+  'simplify.decided': (state, { round, fromSha, sha, kept, reasons, review, before, after }) => {
+    simplifyRecord(state, round).decided = { fromSha, sha, kept, reasons, review, before, after };
+  },
   'attention.needed': (state, event) => {
     state.attention = { reason: event.reason, detail: event.detail, options: event.options, since: event.at };
   },
@@ -336,6 +352,14 @@ const handlers: Handlers = {
 /** Apply one event to the state in place. */
 export function applyEvent(state: TaskState, event: StoredEvent): void {
   (handlers[event.type] as (state: TaskState, event: StoredEvent) => void)(state, event);
+}
+
+function simplifyRecord(state: TaskState, round: number): SimplifyRecord {
+  const existing = state.simplify.get(round);
+  if (existing) return existing;
+  const created: SimplifyRecord = { round, checked: null, decided: null };
+  state.simplify.set(round, created);
+  return created;
 }
 
 function requireStage(state: TaskState, key: string): StageRecord {

@@ -1,6 +1,8 @@
-// Git queries against a task worktree. The builder commits and Grampus verifies the commit it finds; the
-// only Git write Grampus makes is the user's explicit `grampus merge` (delivery/merge.ts).
+// Git queries against a task worktree. The builder commits and Grampus verifies the commit it finds. The
+// only Git writes Grampus makes are the user's explicit `grampus merge` (delivery/merge.ts) and
+// `resetWorktree`, which discards a simplify pass that did not hold.
 import { currentSettings } from '../config/settings.js';
+import type { DiffSize } from '../domain/events.js';
 import { runProcess } from '../process/run.js';
 
 /** Run Git and return stdout, failing on a non-zero exit. */
@@ -93,6 +95,25 @@ export async function lineChanges(cwd: string, from: string, to: string): Promis
     } else changes.push({ path: path ?? '', oldPath: null, added: count(added), deleted: count(deleted) });
   }
   return changes;
+}
+
+/** Files and lines changed between two commits. */
+export async function diffSize(cwd: string, from: string, to: string): Promise<DiffSize> {
+  const changes = await lineChanges(cwd, from, to);
+  return {
+    files: changes.length,
+    added: changes.reduce((sum, change) => sum + (change.added ?? 0), 0),
+    deleted: changes.reduce((sum, change) => sum + (change.deleted ?? 0), 0),
+  };
+}
+
+/**
+ * Move a task worktree back to `sha`, dropping later commits, uncommitted changes and untracked files.
+ * Ignored files stay, including the workers' `.grampus/` folder. Only for a task's own worktree.
+ */
+export async function resetWorktree(cwd: string, sha: string): Promise<void> {
+  await git(cwd, ['reset', '--hard', '--quiet', sha]);
+  await git(cwd, ['clean', '-fd', '--quiet']);
 }
 
 /** The unified diff between two commits, with rename detection. */

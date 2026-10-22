@@ -12,6 +12,7 @@ import type { DriverCore, Launch, Settled } from './driver-core.js';
 import { measureDispatches } from '../measure/usage.js';
 import { inspectCandidate } from './guard.js';
 import { buildPrompt, repairPrompt, reviewPrompt, testsFirstPrompt, type RepairProblems } from './prompts.js';
+import { simplify, simplifyNote } from './simplify.js';
 import { approveSpec, ensureGate } from './spec-phase.js';
 import { currentDispatch, grantedRounds, stageKey, type SpecVersion } from './state.js';
 import { approvedSpecPath, excludeWorkerFolder, keepEvidence, readWorkerFile, workerFile } from './workspace-files.js';
@@ -33,6 +34,7 @@ export async function runPipeline(core: DriverCore): Promise<void> {
     await review(core, worktree, round);
     const decision = decideRound(core, round, settled);
     if (decision === 'repair') continue;
+    if (decision === 'ready') await simplify(core, worktree, spec, round, roundStart(core, 0), protectedFiles(core));
     const choice = await askUser(core, round, decision);
     if (choice.kind === 'accept') return finish(core, 'accepted', decision === 'escalate', null);
   }
@@ -98,9 +100,14 @@ async function baseline(core: DriverCore, worktree: string, spec: SpecVersion): 
   );
 }
 
-/** The commit a round starts from: the baseline for the build, the previous candidate for a repair. */
+/**
+ * The commit a round starts from: the baseline for the build, the previous candidate for a repair, or
+ * its simplification when that was kept.
+ */
 function roundStart(core: DriverCore, round: number): string {
-  const sha = round === 0 ? core.state.baseline?.sha : core.state.guard.get(round - 1)?.sha;
+  const simplified = core.state.simplify.get(round - 1)?.decided;
+  const previous = simplified?.kept ? simplified.sha : core.state.guard.get(round - 1)?.sha;
+  const sha = round === 0 ? core.state.baseline?.sha : previous;
   if (!sha) throw new Error(`Round ${round} has no starting commit.`);
   return sha;
 }
@@ -292,7 +299,7 @@ function askUser(core: DriverCore, round: number, decision: 'escalate' | 'ready'
   if (decision === 'ready')
     return core.decide(
       `ready:${round}`,
-      `Verified at ${sha}: every check passes${verdict ? `, review ${verdict}` : ', no review'}.${baselineNote(core)}${checkConfigNote(core, round)} Accept, continue with guidance, or abandon.`,
+      `Verified at ${sha}: every check passes${verdict ? `, review ${verdict}` : ', no review'}.${simplifyNote(core.state, round)}${baselineNote(core)}${checkConfigNote(core, round)} Accept, continue with guidance, or abandon.`,
       ['accept', 'continue', 'abandon'],
     );
   return core.decide(

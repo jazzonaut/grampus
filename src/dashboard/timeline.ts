@@ -115,6 +115,23 @@ const describers: Describers = {
     tone: event.decision === 'ready' ? 'success' : event.decision === 'repair' ? 'warning' : 'error',
   }),
   'attention.needed': event => ({ title: 'Needs you', detail: event.detail, tone: 'warning' }),
+  'simplify.checked': event => {
+    const passed = event.results.filter(result => result.passed).length;
+    return {
+      title: `Round ${event.round} simplification checked`,
+      detail: event.guard.violations.length
+        ? event.guard.violations.join('; ')
+        : `${passed}/${event.results.length} checks pass at ${short(event.sha)}`,
+      tone: 'neutral',
+    };
+  },
+  'simplify.decided': event => ({
+    title: `Round ${event.round} simplification ${event.kept ? 'kept' : 'discarded'}`,
+    detail: event.kept
+      ? `+${event.before.added} -${event.before.deleted} became +${event.after.added} -${event.after.deleted} at ${short(event.sha)}`
+      : event.reasons.join('; '),
+    tone: event.kept ? 'success' : 'neutral',
+  }),
   'workers.released': event => ({
     title: 'Workers released',
     detail: event.failures.length ? `${event.failures.length} could not be released` : null,

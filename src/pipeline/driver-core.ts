@@ -294,6 +294,27 @@ export class DriverCore {
     return record;
   }
 
+  /**
+   * Run a stage the task can do without until its worker ends. A start failure or an exit is returned
+   * as an error instead of asking the user to retry.
+   */
+  async runOptionalStage(request: StageRequest): Promise<Settled | { error: string }> {
+    const record = await this.launchStage(request);
+    const ended = () => {
+      const current = this.state.stages.get(record.key);
+      const dispatch = currentDispatch(current);
+      return Boolean(current?.startFailure || dispatch?.settled || dispatch?.exited);
+    };
+    await this.waitFor(ended);
+    const current = this.state.stages.get(record.key) ?? record;
+    const dispatch = currentDispatch(current);
+    if (dispatch?.settled)
+      return { record: current, dispatch, outcome: dispatch.settled.outcome, body: dispatch.settled.body };
+    if (current.startFailure)
+      return { error: `could not start (${current.startFailure.state}): ${current.startFailure.error}` };
+    return { error: 'exited without reporting' };
+  }
+
   /** Stop a stage's worker if it is still running, because its result is no longer needed. */
   async stopStage(key: string, reason: string): Promise<void> {
     const dispatch = currentDispatch(this.state.stages.get(key));

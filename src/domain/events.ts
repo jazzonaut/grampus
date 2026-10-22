@@ -15,7 +15,7 @@ export type TaskOutcome = 'accepted' | 'abandoned' | 'not-selected';
 export const eventSchemaVersion = 1;
 
 /** Pipeline stages that run as Orca workers. */
-export type Stage = 'spec' | 'spec-review' | 'tests' | 'build' | 'review' | 'repair';
+export type Stage = 'spec' | 'spec-review' | 'tests' | 'build' | 'review' | 'repair' | 'simplify' | 'simplify-review';
 
 /** The result of one check command at one commit. */
 export interface CheckResult {
@@ -46,6 +46,21 @@ export interface GuardResult {
    * rounds recorded before Grampus named them, which means none were named, not none were changed.
    */
   modifiedCheckConfig?: string[];
+}
+
+/** The size of a change between two commits; binary files count as files without lines. */
+export interface DiffSize {
+  files: number;
+  added: number;
+  deleted: number;
+}
+
+/** A code review after Grampus applied its blocking rule, or why there is none. */
+export interface ReviewResult {
+  report: ReviewReport | null;
+  blocking: Finding[];
+  downgraded: Finding[];
+  error: string | null;
 }
 
 /** The launch Orca reported: what was asked for and what it says ran. */
@@ -147,6 +162,35 @@ export type TaskEvent =
       error: string | null;
     }
   | { type: 'round.decided'; round: number; decision: 'repair' | 'escalate' | 'ready'; reasons: string[] }
+  /** The simplify pass's commit, guarded and checked against the ready round's commit `fromSha`. */
+  | {
+      type: 'simplify.checked';
+      round: number;
+      fromSha: string;
+      sha: string;
+      guard: GuardResult;
+      /** Empty when the guard already discarded the pass. */
+      results: CheckResult[];
+    }
+  /**
+   * Whether the simplify pass of a ready round was kept. A discarded pass is recorded before the
+   * worktree is reset to `fromSha`, so a restarted driver finishes the reset.
+   */
+  | {
+      type: 'simplify.decided';
+      round: number;
+      fromSha: string;
+      /** The simplified commit; equals `fromSha` when the worker committed nothing. */
+      sha: string;
+      kept: boolean;
+      /** Why the pass was discarded; empty when kept. */
+      reasons: string[];
+      /** The review of the pass's own diff; null when the recipe has no review or it was not reached. */
+      review: ReviewResult | null;
+      /** The change since the baseline commit before and after the pass. */
+      before: DiffSize;
+      after: DiffSize;
+    }
   | { type: 'attention.needed'; reason: string; detail: string; options: CommandKind[] }
   | { type: 'workers.released'; released: string[]; failures: string[] }
   | { type: 'usage.recorded'; measurements: DispatchMeasurement[] }

@@ -49,6 +49,7 @@ export const stepIcon: Record<StepId, string> = {
   verify: 'i-lucide-shield-check',
   review: 'i-lucide-scan-eye',
   repair: 'i-lucide-wrench',
+  simplify: 'i-lucide-scissors',
   accept: 'i-lucide-flag',
 };
 

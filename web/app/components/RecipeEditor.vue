@@ -130,6 +130,13 @@ async function save(): Promise<void> {
           <AssignmentField v-if="ownRepair" v-model="repairAssignment" label="Repair agent" />
         </div>
 
+        <AssignmentField
+          v-model="draft.simplify"
+          label="Simplify"
+          help="Makes a ready change smaller without changing behaviour. Kept only if the checks and the code reviewer agree."
+          optional
+        />
+
         <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-circle-x" :title="error" />
       </form>
     </template>

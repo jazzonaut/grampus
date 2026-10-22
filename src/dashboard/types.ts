@@ -16,6 +16,7 @@ import type { Recipe } from '../domain/recipe.js';
 import type { Finding, ReviewReport } from '../domain/review.js';
 import type { CheckDefinition } from '../domain/spec.js';
 import type { Scorecard } from '../measure/report.js';
+import type { SimplifyRecord } from '../pipeline/state.js';
 import type { TaskSummary } from '../pipeline/status.js';
 
 /** Where a task stands, for icons, filters and the tab badge. */
@@ -56,7 +57,17 @@ export interface TaskList {
 }
 
 export type StepId =
-  'spec' | 'spec-review' | 'approve' | 'tests' | 'baseline' | 'build' | 'verify' | 'review' | 'repair' | 'accept';
+  | 'spec'
+  | 'spec-review'
+  | 'approve'
+  | 'tests'
+  | 'baseline'
+  | 'build'
+  | 'verify'
+  | 'review'
+  | 'repair'
+  | 'simplify'
+  | 'accept';
 export type StepState = 'pending' | 'running' | 'waiting' | 'done' | 'failed' | 'skipped';
 
 export interface PipelineStep {
@@ -146,6 +157,13 @@ export interface RoundView {
     /** What the builder wrote when it reported failure: long free text, shown as a report, not a reason. */
     builderFailure: string | null;
   } | null;
+  /** The simplify pass after this round was ready; null when none ran. */
+  simplify: SimplifyView | null;
+}
+
+/** A ready round's simplify pass as the driver recorded it. */
+export interface SimplifyView extends Pick<SimplifyRecord, 'checked' | 'decided'> {
+  stageKey: string;
 }
 
 export interface CommandView {

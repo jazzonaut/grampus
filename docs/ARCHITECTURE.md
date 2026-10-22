@@ -15,7 +15,7 @@ Current behaviour of Grampus. Intent and the reasons behind it are in [DESIGN.md
   Orca  ── Run, tasks, dispatches, gate, inbox, liveness
      │   worker-start --agent claude|codex  (chat or terminal, per the user's setting)
      ▼
-  workers  ── spec, spec review, tests, build, review, repair
+  workers  ── spec, spec review, tests, build, review, repair, simplify
              write files under <worktree>/.grampus/, commit on the task branch
 ```
 
@@ -54,7 +54,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `create.ts`, `driver.ts` | Starting a comparison; its driver: entries, shared spec, pick |
 | | `cross-check.ts`, `status.ts` | Every spec against every result; comparison status text |
 | `agents/` | `catalog.ts` | Models and effort levels per agent, read from the Claude and Codex CLIs |
-| `git/` | `git.ts` | Read-only Git queries |
+| `git/` | `git.ts` | Git queries, and the reset that discards a simplify pass |
 | `measure/` | `transcripts.ts` | Reading models, effort and tokens (per model) from Claude and Codex transcripts |
 | | `cost.ts` | Estimated cost at API list prices, with the dated built-in price table |
 | | `usage.ts` | Per-dispatch measurements, splitting continued conversations by request time |
@@ -71,6 +71,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `driver-core.ts` | Recording, request ids, inbox pump, commands, decisions, running a stage |
 | | `pipeline.ts` | Stage order: run, gate, spec, tests first, baseline, rounds, finish |
 | | `spec-phase.ts` | Spec writing, automatic correction, checks on the original commit, spec review, approval |
+| | `simplify.ts` | The optional simplify pass after a ready round |
 | | `guard.ts` | The deterministic integrity guard |
 | | `prompts.ts` | Worker task specs |
 | | `state.ts`, `status.ts` | The fold from events to state, and summaries |
@@ -133,7 +134,23 @@ between two calls, such as a spec review landing while an agent talked to the us
     request to the user names any check configuration changed since the build started. A
     builder that reported failure, or an unavailable review, escalates immediately. Otherwise repair
     while `round < maxRounds + continues`, then escalate.
-12. **The user** accepts (recorded as an override after escalation), continues with guidance (one more
+12. **Simplify** (`simplify:<r>`, optional, every ready round). Reviewers block only incorrect code,
+    so bloat passes; this pass removes it. A worker gets the change since the baseline and makes it
+    smaller without changing behaviour: existing helpers instead of new code, no duplication, no
+    options or abstractions the spec does not need, no dead code. It may change a test only to follow
+    code it simplified. The guard then compares the ready commit with HEAD, with two extra rules:
+    changed check configuration discards the pass, and so do modified tests when the recipe has no
+    reviewer to confirm they were only adapted. The checks run at the new commit (`simplify.checked`)
+    and the recipe's reviewer reads only the simplification's diff (`simplify-review:<r>`), with the
+    modified tests named. The pass is kept only when the worker succeeded, committed something, the
+    guard and every check pass and the review approves with no blocking finding; an unknown verdict
+    or an unavailable review discards it. `simplify.decided` records the outcome, the reasons and the
+    change's size since the baseline (files, lines added and deleted) before and after. A discarded
+    pass is recorded first and then reset: `git reset --hard` to the ready commit and `git clean -fd`
+    in the task worktree, the only Git write besides `grampus merge`. A start failure or an exit
+    discards the pass instead of asking the user; nothing is repaired. The acceptance request says
+    whether the change was simplified, and a later round starts from the simplified commit.
+13. **The user** accepts (recorded as an override after escalation), continues with guidance (one more
     round) or abandons. Every repair prompt carries all the guidance given so far, oldest first, so an
     automatic round after a continue still follows it. Finishing releases every worker: settled ones with `worker-release`, unsettled
     ones with `worker-stop`. When every check already passed at the baseline, the acceptance request
@@ -147,7 +164,7 @@ prints the addresses it answers on.
 
 - **Reads** come from the same fold the driver uses (`TaskReader` caches folds by log size). Views add the
   pipeline strip, spec versions with their text and review, worker messages with their answers, rounds
-  with guard, checks and review, queued commands and a plain-language timeline.
+  with guard, checks, review and simplify pass, queued commands and a plain-language timeline.
 - **Writes** queue commands with source `dashboard`, exactly like the CLI; the driver stays the only
   writer to its Run and log. The few actions the CLI takes outside a driver are offered too: starting
   a task (`grampus new`, with Orca's repositories and recent ones to pick from), `grampus merge`, and
@@ -194,6 +211,8 @@ prints the addresses it answers on.
   passes `--retry-of`.
 - Decisions are keyed (`approve-spec:2`, `ready:1`, `escalate:0`, `stage-failed:build:0:1`), so a
   restarted driver finds a decision already made instead of asking again.
+- A simplify pass resumes at its first unrecorded step: its worker and review are stages, its checks
+  are `simplify.checked`, and a discarded pass whose reset did not happen is reset on restart.
 - A driver started in a different terminal rebinds the Run with `run-use`.
 - `driver.lock` in the task folder stops a second driver for the same task.
 
@@ -205,6 +224,7 @@ prints the addresses it answers on.
 <data>/tasks/<task>/commands.jsonl        queued user commands
 <data>/tasks/<task>/spec/v<n>.md          spec versions and their reviews
 <data>/tasks/<task>/reviews/round-<r>.json
+<data>/tasks/<task>/reviews/simplify-<r>.json
 <data>/tasks/<task>/checks/<phase>-<r>/   check logs
 <data>/comparisons/<id>/events.jsonl      comparison log (schema 1)
 <data>/comparisons/<id>/commands.jsonl    queued picks and abandons

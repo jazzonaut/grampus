@@ -1,9 +1,10 @@
 <!--
-  One round's evidence: the builder's report when it said it failed, the integrity guard, the checks and the
-  review. Shared by the rounds tab and the decision panel, so a decision shows the same evidence as its round.
+  One round's evidence: the builder's report when it said it failed, the integrity guard, the checks, the
+  review and the simplify pass. Shared by the rounds tab and the decision panel, so a decision shows the same evidence as its round.
 -->
 <script setup lang="ts">
 import type { RoundView, TaskDetail } from '../../../src/dashboard/types';
+import type { DiffSize } from '../../../src/domain/events';
 import { shortSha } from '../presentation';
 import CheckRun from './CheckRun.vue';
 import FindingList from './FindingList.vue';
@@ -12,6 +13,10 @@ import MarkdownView from './MarkdownView.vue';
 defineProps<{ task: TaskDetail; round: RoundView }>();
 
 const verdictColor = { approve: 'success', changes: 'warning', unknown: 'neutral' } as const;
+
+function size(diff: DiffSize): string {
+  return `${diff.files} file${diff.files === 1 ? '' : 's'}, +${diff.added} -${diff.deleted}`;
+}
 </script>
 
 <template>
@@ -106,6 +111,62 @@ const verdictColor = { approve: 'success', changes: 'warning', unknown: 'neutral
       </template>
     </section>
     <p v-else-if="!task.recipeSnapshot.review" class="text-sm text-muted">This recipe has no code review.</p>
+
+    <section v-if="round.simplify" class="space-y-2">
+      <h4 class="text-sm font-medium flex items-center gap-2">
+        <UIcon name="i-lucide-scissors" class="size-4" /> Simplify
+        <UBadge
+          v-if="round.simplify.decided"
+          :color="round.simplify.decided.kept ? 'success' : 'neutral'"
+          variant="subtle"
+          size="sm"
+        >
+          {{ round.simplify.decided.kept ? 'kept' : 'discarded' }}
+        </UBadge>
+      </h4>
+      <p v-if="!round.simplify.decided" class="text-sm text-muted flex items-center gap-2">
+        <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-primary" /> Simplifying the verified
+        change.
+      </p>
+      <p v-else-if="round.simplify.decided.kept" class="text-sm">
+        The change went from {{ size(round.simplify.decided.before) }} to {{ size(round.simplify.decided.after) }} at
+        <span class="font-mono">{{ shortSha(round.simplify.decided.sha) }}</span
+        >.
+      </p>
+      <template v-else>
+        <p class="text-sm text-muted">
+          The verified commit <span class="font-mono">{{ shortSha(round.simplify.decided.fromSha) }}</span> stays:
+        </p>
+        <ul class="text-sm text-muted list-disc pl-5">
+          <li v-for="reason in round.simplify.decided.reasons" :key="reason">{{ reason }}</li>
+        </ul>
+      </template>
+      <div v-if="round.simplify.checked?.guard.modifiedTests.length" class="text-sm text-warning space-y-0.5">
+        <p>Tests adapted to the simplified code:</p>
+        <ul class="font-mono text-xs space-y-0.5">
+          <li v-for="file in round.simplify.checked.guard.modifiedTests" :key="file">{{ file }}</li>
+        </ul>
+      </div>
+      <CheckRun
+        v-if="round.simplify.checked?.results.length"
+        :task-id="task.taskId"
+        :run="round.simplify.checked"
+        title="Checks after simplifying"
+      />
+      <template v-if="round.simplify.decided?.review?.report">
+        <p class="text-sm flex items-center gap-2">
+          Review of the simplification
+          <UBadge :color="verdictColor[round.simplify.decided.review.report.verdict]" variant="subtle" size="sm">
+            {{ round.simplify.decided.review.report.verdict }}
+          </UBadge>
+        </p>
+        <p class="text-sm">{{ round.simplify.decided.review.report.summary }}</p>
+        <FindingList
+          :findings="round.simplify.decided.review.report.findings"
+          :downgraded="round.simplify.decided.review.downgraded"
+        />
+      </template>
+    </section>
 
     <p v-if="!round.guard && !round.checks" class="text-sm text-muted flex items-center gap-2">
       <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-primary" /> The worker is still editing.

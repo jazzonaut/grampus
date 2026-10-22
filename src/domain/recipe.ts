@@ -45,6 +45,12 @@ export const recipeSchema = z
     build: assignmentSchema,
     /** Independent code review; null skips review so its value can be measured. */
     review: assignmentSchema.nullable(),
+    /**
+     * Optional pass after a ready round that removes bloat from the change without changing behaviour.
+     * Kept only when the guard, the checks and a review of its own diff hold. Recipes saved before it
+     * existed have no field and mean off.
+     */
+    simplify: assignmentSchema.nullable().default(null),
     repair: z
       .object({
         maxRounds: z.number().int().min(0).max(recipeLimits.maxRepairRounds),
@@ -70,6 +76,7 @@ export const standardRecipe: Recipe = {
   testsFirst: null,
   build: { agent: 'codex' },
   review: { agent: 'claude' },
+  simplify: null,
   repair: { maxRounds: 2, reuseBuilderRounds: 1 },
 };
 
@@ -85,6 +92,11 @@ export function repairAssignment(recipe: Recipe): Assignment {
 export function crossFamilyReview(recipe: Recipe): boolean | null {
   const review = recipe.review;
   if (!review) return null;
-  const editors = [recipe.build, repairAssignment(recipe), ...(recipe.testsFirst ? [recipe.testsFirst] : [])];
+  const editors = [
+    recipe.build,
+    repairAssignment(recipe),
+    ...(recipe.testsFirst ? [recipe.testsFirst] : []),
+    ...(recipe.simplify ? [recipe.simplify] : []),
+  ];
   return editors.every(editor => agentFamily(editor.agent) !== agentFamily(review.agent));
 }

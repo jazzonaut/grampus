@@ -63,14 +63,20 @@ that agent; an effort needs a model. `null` skips an optional stage.
       "testsFirst": { "agent": "claude", "model": "sonnet" },
       "build": { "agent": "codex", "model": "gpt-5.4-mini", "effort": "medium" },
       "review": { "agent": "claude", "model": "sonnet" },
+      "simplify": { "agent": "codex" },
       "repair": { "maxRounds": 2, "reuseBuilderRounds": 1 }
     }
   ]
 }
 ```
 
+`simplify` runs after every ready round: a worker makes the change smaller without changing
+behaviour, and Grampus keeps the result only if the guard, the checks and the code reviewer all agree
+(see [Pipeline](ARCHITECTURE.md#pipeline)). It edits code, so it counts as an editor for cross-family
+review. A recipe without the field has it off.
+
 The built-in `standard` recipe uses Claude for spec and review, Codex for spec review and build, no
-tests-first stage, and two repair rounds of which the first continues the builder's conversation. The
+tests-first or simplify stage, and two repair rounds of which the first continues the builder's conversation. The
 spec review runs `gpt-6.1-sol` at medium effort: at high effort it was the slowest stage and found
 nothing blocking in six runs (Orca accepts an effort only together with a model).
 Review from the builder's own family is allowed so it can be measured; the task records which ran.

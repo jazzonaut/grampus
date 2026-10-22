@@ -1,5 +1,6 @@
 // Delivery after acceptance: an explicit, opt-in fast-forward of the repository's checked-out branch to
-// the verified commit. It is the only Git write Grampus makes. It merges the exact SHA that was verified
+// the verified commit. It is the only Git write Grampus makes outside a task worktree (where a discarded
+// simplify pass is reset, see git.ts). It merges the exact SHA that was verified
 // and accepted, never later commits on the task branch, and refuses anything but a clean fast-forward.
 // It never pushes.
 import { git, headSha, isAncestor, uncommittedPaths } from '../git/git.js';

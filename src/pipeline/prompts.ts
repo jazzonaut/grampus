@@ -303,3 +303,80 @@ ${reportFormat}
 ACCEPTANCE: the report file exists as valid JSON. Then send worker_done with --outcome succeeded and
 --report-path ${input.reportPath}.`;
 }
+
+export function simplifyPrompt(input: {
+  specPath: string;
+  baseSha: string;
+  sha: string;
+  checks: readonly CheckDefinition[];
+  protectedPaths: readonly string[];
+  reviewed: boolean;
+}): string {
+  return `ROLE: simplifier.
+
+TARGET: the change ${input.baseSha.slice(0, 12)}..${input.sha.slice(0, 12)} in this repository
+(\`git diff ${input.baseSha} ${input.sha}\`), which implements the approved spec at ${input.specPath}.
+Its checks pass${input.reviewed ? ' and a reviewer approved it' : ''}.
+
+CHANGE: make the change smaller and plainer without changing what it does. Look for:
+- code that does what the repository already has a helper for: use the helper;
+- duplication within the change;
+- abstractions, options, parameters, configuration or error handling the spec does not need;
+- dead code, unused exports, leftover debugging and comments that restate the code.
+
+CONSTRAINTS:
+- Keep behaviour exactly as it is: every acceptance criterion still holds and these checks still pass:
+${checkList(input.checks)}
+- Change only what this change added or modified; leave the code around it alone.
+- Do not simplify tests. Change a test only where code you simplified requires it, such as an import,
+  a renamed function or a signature, and keep every assertion and case.
+- Do not change how checks run: runner, build or lint settings, or scripts a check names.${
+    input.protectedPaths.length ? `\n- Do not change these protected paths:\n${bullets(input.protectedPaths)}` : ''
+  }
+- A small, sure simplification beats a large, risky one. If nothing is worth simplifying, commit
+  nothing.
+- Commit your work on the current branch and leave no uncommitted or untracked files. Do not push,
+  change branches, amend or rebase commits you did not make.
+
+ACCEPTANCE: Grampus runs the checks at your final commit${input.reviewed ? ' and a reviewer reads your diff' : ''}.
+If anything fails, your commits are discarded and the change stays as it was. When you have committed,
+or decided nothing needs simplifying, send worker_done with --outcome succeeded.`;
+}
+
+export function simplifyReviewPrompt(input: {
+  specPath: string;
+  fromSha: string;
+  sha: string;
+  reportPath: string;
+  results: readonly CheckResult[];
+  modifiedTests: readonly string[];
+}): string {
+  return `ROLE: code reviewer, independent of the simplifier.
+
+TARGET: the simplification ${input.fromSha.slice(0, 12)}..${input.sha.slice(0, 12)} in this repository
+(\`git diff ${input.fromSha} ${input.sha}\`). It simplifies a change that was already verified against
+the approved spec at ${input.specPath}, and must not change behaviour.
+
+Check results at ${input.sha.slice(0, 12)}, run by Grampus:
+${bullets(input.results.map(result => `${result.name}: ${result.passed ? 'passed' : 'FAILED'}`))}${
+    input.modifiedTests.length
+      ? `\nTests the simplification modified. A test may change only to follow the simplified code (an import,
+a name, a signature); a removed or weakened assertion or case is blocking:\n${bullets(input.modifiedTests)}`
+      : ''
+  }
+
+CHANGE: write a review report to ${input.reportPath}.
+
+CONSTRAINTS:
+- Read-only: do not edit, commit or check out anything except writing the report.
+- A finding is "blocking" only if the simplification changes behaviour, breaks a spec criterion or
+  weakens a test, and only with a file, a line and a concrete failing scenario.
+- Whether the result is simpler is a note, not a blocker.
+- Use "approve" only when you are confident behaviour is unchanged. Any other verdict discards the
+  simplification and keeps the change as it was, which is safe.
+
+${reportFormat}
+
+ACCEPTANCE: the report file exists as valid JSON. Then send worker_done with --outcome succeeded and
+--report-path ${input.reportPath}.`;
+}
