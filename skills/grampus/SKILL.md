@@ -57,8 +57,9 @@ separate dialog, write the evidence in your message first: the dialog alone is n
 - **Spec approval:** `wait` and `status` print the spec between `----- spec v<n> -----` and
   `----- end of spec -----`, then its review. Show the outcome, every acceptance criterion, the
   examples, the out-of-scope list, the checks and each review finding, and give the spec file path.
-  If the review is still running, say so: the user may approve now or wait. A later request for the
-  same version means the review found something blocking or failed; show what it found.
+  If the review is still running, say so: the user may approve now or wait. If they wait, keep
+  running `wait`: a fresh request for the same version arrives when the review lands. Show what it
+  found, and say clearly whether anything is blocking.
 - **Accept, continue or escalation:** they print the round's result between `----- round <r> result`
   and `----- end of result -----`: commits and changed files, each check, integrity problems, the
   review verdict and findings, and why it needs the user. Show all of it, plus any `Note:` in the

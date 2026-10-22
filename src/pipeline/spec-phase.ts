@@ -1,7 +1,7 @@
 // The spec phase: a worker writes the spec (asking the user through Orca's `ask`), an
 // optional reviewer from the other family comments on it, and the user approves an exact version or asks
 // for a revision. The spec reaches the user as soon as it is written; its review runs alongside and is
-// added when it lands, with a second request only when it finds something blocking. A review still
+// added when it lands, with a fresh request carrying its findings. A review still
 // running when the user decides is stopped. Revisions continue the spec writer's conversation when Orca can reuse it.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -165,8 +165,9 @@ async function startSpecReview(core: DriverCore, worktree: string, spec: SpecVer
 }
 
 /**
- * Record the spec review once its worker has ended. While the decision is pending (`decision` set), a
- * blocking finding or a failed review raises the request again so the user hears about it.
+ * Record the spec review once its worker has ended. While the decision is pending (`decision` set), the
+ * request is raised again with the review in it, whatever it found: a user waiting for the review must
+ * hear that it landed, and the earlier request still says it is running.
  */
 function collectSpecReview(core: DriverCore, worktree: string, spec: SpecVersion, decision: string | null): void {
   const key = stageKey('spec-review', spec.version);
@@ -176,10 +177,7 @@ function collectSpecReview(core: DriverCore, worktree: string, spec: SpecVersion
   if (!record.startFailure && !dispatch?.settled && !dispatch?.exited) return;
   const reportPath = workerFile(worktree, key, 'report.json');
   recordSpecReview(core, spec, reportPath, dispatch?.settled ?? null, record.startFailure?.error ?? null);
-  const review = core.state.specReviews.get(spec.version);
-  const blocking = review?.report?.findings.some(finding => finding.severity === 'blocking') ?? false;
-  if (decision && (blocking || review?.error))
-    core.requestDecision(decision, approvalDetail(core, spec), ['approve', 'revise']);
+  if (decision) core.requestDecision(decision, approvalDetail(core, spec), ['approve', 'revise']);
 }
 
 function recordSpecReview(

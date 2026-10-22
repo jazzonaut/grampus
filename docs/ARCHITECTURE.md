@@ -62,7 +62,7 @@ driver runs inside that terminal, so Orca resolves it as the Run's coordinator w
    questions the user already answered, so a fresh writer does not ask them again.
 3. **Spec review** (`spec-review:<version>`, optional). Starts as soon as the spec is recorded and runs
    alongside the approval request, so the user sees the spec without waiting for it. Its findings are
-   added to the request when it lands; a blocking finding or a failed review raises the request again.
+   added when it lands, with a fresh request (which wakes `grampus wait`) carrying its findings.
    A review still running when the user decides is stopped (`stage.stopped`) and recorded as such.
 4. **Approval.** `approve` must name the latest version. `status` and `wait` print the spec text and
    its review with the request, and every accept or escalation request prints the round's evidence

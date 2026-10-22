@@ -27,18 +27,19 @@ test('a lost worker-start response stops the driver, and rerunning replays the s
 test('a driver that dies while waiting resumes at the same decision without new dispatches', async () => {
   const harness = await createHarness(h => goodWorkers(h));
   const first = harness.run();
-  await harness.until(state => state.attention?.reason === 'approve-spec:1', 'approval');
+  await harness.until(state => state.attention?.reason === 'approve-spec:1' && state.specReviews.has(1), 'approval');
   harness.orca.failNextCheck = true;
   assert.equal(await first, 1);
   const startsBefore = harness.orca.starts.length;
+  const requests = () =>
+    harness.store.events().filter(event => event.type === 'attention.needed' && event.reason === 'approve-spec:1')
+      .length;
+  const requestsBefore = requests();
 
   const second = harness.run();
   harness.command({ kind: 'approve', specVersion: 1 });
   await harness.until(state => state.attention?.reason === 'ready:0', 'ready');
-  const attentions = harness.store
-    .events()
-    .filter(event => event.type === 'attention.needed' && event.reason === 'approve-spec:1');
-  assert.equal(attentions.length, 1, 'the decision point is not raised twice');
+  assert.equal(requests(), requestsBefore, 'resuming does not raise the decision again');
   assert.equal(harness.orca.starts.length, startsBefore + 2, 'only build and review start after resuming');
   harness.command({ kind: 'accept' });
   assert.equal(await second, 0);

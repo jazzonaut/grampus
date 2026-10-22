@@ -216,3 +216,30 @@ test('a blocking spec review finding that arrives after the request notifies the
   harness.command({ kind: 'abandon' });
   await driver;
 });
+
+test('a clean spec review that lands after the request notifies the user and updates the request', async () => {
+  let release = () => {};
+  const reviewDone = new Promise<void>(resolve => (release = resolve));
+  const harness = await createHarness(h =>
+    goodWorkers(h, {
+      'spec-review': async context => {
+        await reviewDone;
+        writeFileSync(outputPath(context.spec), JSON.stringify({ verdict: 'approve', summary: 'Fine.', findings: [] }));
+        return { outcome: 'succeeded' };
+      },
+    }),
+  );
+  const driver = harness.run();
+  const first = await harness.until(state => state.attention?.reason === 'approve-spec:1', 'first request');
+  assert.match(first.attention?.detail ?? '', /still running/);
+  release();
+  // `grampus wait` wakes on a newer request: someone waiting for the review must hear that it landed.
+  const updated = await harness.until(
+    state => state.specReviews.has(1) && !/still running/.test(state.attention?.detail ?? ''),
+    'request updated with the review',
+  );
+  assert.ok((updated.attention?.since ?? '') > (first.attention?.since ?? ''), 'a newer request wakes waiters');
+  assert.match(updated.attention?.detail ?? '', /spec review: approve, 0 blocking/);
+  harness.command({ kind: 'abandon' });
+  await driver;
+});

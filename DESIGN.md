@@ -57,8 +57,8 @@ spec ─► spec review ─► [approve] ─► (tests first) ─► baseline �
    Orca's `ask` (the user answers from their control chat or the CLI), and writes a spec: outcome, acceptance
    criteria, concrete examples, exclusions, check commands and protected paths.
 2. **Spec review.** A worker from the other model family reviews the spec for gaps and
-   ambiguity while the user reads it. Its findings are added beside the spec when ready; a blocking
-   one notifies the user again. They do not loop automatically.
+   ambiguity while the user reads it. Its findings arrive as a fresh approval request when ready.
+   They do not loop automatically.
 3. **Approval.** An Orca gate blocks the build until the user approves this exact spec
    version, or asks for a revision. The approval request carries the spec text and its review, so
    nobody is asked to approve a spec they have not been shown.
