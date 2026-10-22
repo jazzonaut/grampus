@@ -14,7 +14,7 @@ export interface NewTask {
   request: string;
   title?: string;
   recipeName?: string;
-  /** The command line that runs this task's driver; the task id is appended. */
+  /** The command line that runs this task's driver. Its terminal closes when the driver finishes cleanly. */
   driveCommand: (taskId: string) => string;
 }
 
@@ -39,7 +39,10 @@ export async function createTask(
     terminal = await workspaces.createTerminal({
       worktreeId: worktree.id,
       title: `Grampus: ${title}`,
-      command: input.driveCommand(taskId),
+      // The driver exits 0 only when the task finished; closing the tab then releases the shell that
+      // would otherwise hold the worktree open. A stopped driver exits 1 and keeps its tab for a rerun.
+      // `&&` works in PowerShell 7, cmd and POSIX shells.
+      command: `${input.driveCommand(taskId)} && exit`,
     });
   } catch (error) {
     throw new Error(

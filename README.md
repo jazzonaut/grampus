@@ -21,8 +21,12 @@ recipes (models, stages, repair budgets) can be compared.
 ```text
 npm ci
 npm run build
-node dist/src/cli.js skill install
+npm link
+grampus skill install
 ```
+
+`npm link` puts `grampus` on your PATH (in npm's global folder; with nvm, run it again after switching
+Node versions; `npm unlink -g grampus` removes it).
 
 `skill install` writes the Grampus skill for Claude (`~/.claude/skills/grampus`) and Codex
 (`~/.codex/skills/grampus`), so you can control Grampus from an Orca chat.
@@ -41,12 +45,13 @@ accept the result. The agent can block on `grampus wait` until something new nee
 ## Use it from the terminal
 
 ```text
-node dist/src/cli.js new --repo D:\Code\MyApp "Add CSV export to the reports page"
-node dist/src/cli.js status
-node dist/src/cli.js approve <task>
-node dist/src/cli.js accept <task>
-node dist/src/cli.js report <task>
+grampus new --repo D:\Code\MyApp "Add CSV export to the reports page"
+grampus status
+grampus approve <task>
+grampus accept <task>
+grampus abandon <task> "reason"
+grampus report <task>
 ```
 
-Run `node dist/src/cli.js --help` for every command. Grampus never pushes: the accepted work is a
+Run `grampus --help` for every command. Grampus never pushes: the accepted work is a
 branch in the task worktree, ready for your review and PR.

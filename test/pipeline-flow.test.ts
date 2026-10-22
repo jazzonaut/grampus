@@ -53,6 +53,9 @@ test('a task runs spec, approval, baseline, build, verify and review to acceptan
   assert.equal(harness.orca.gates.get('gate_1'), 'approve');
   assert.deepEqual(harness.orca.released.sort(), harness.orca.starts.map((_, index) => `dispatch_${index + 1}`).sort());
   assert.ok(existsSync(finished.specs[0]?.path ?? ''), 'the approved spec is kept in the task folder');
+  // A finished driver closes its tab, so the shell no longer holds the worktree open; a stopped one
+  // (non-zero exit) keeps it so the user can read why and rerun it.
+  assert.deepEqual(harness.orca.terminals, [`drive ${harness.taskId} && exit`]);
 });
 
 test('a revision continues the spec writer and needs approval of the new version', async () => {

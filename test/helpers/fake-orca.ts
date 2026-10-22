@@ -171,7 +171,11 @@ export class FakeOrca implements Orca, OrcaWorkspaces {
     return { id: `wt:${path}`, path };
   }
 
-  async createTerminal() {
+  /** Commands of the terminals Grampus created. */
+  readonly terminals: string[] = [];
+
+  async createTerminal(input: { command: string }) {
+    this.terminals.push(input.command);
     return 'term_driver';
   }
 

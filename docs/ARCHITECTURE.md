@@ -20,7 +20,8 @@ Current behaviour of Grampus. Intent and the reasons behind it are in [DESIGN.md
 ```
 
 `grampus new` creates the task folder and log, an Orca worktree (`worktree create --no-parent
---setup run`), and an Orca terminal in that worktree whose command is `grampus drive <task>`. The
+--setup run`), and an Orca terminal in that worktree whose command is `grampus drive <task> && exit`, so the tab
+closes (releasing its hold on the worktree) when the task finishes, and stays open after a stop. The
 driver runs inside that terminal, so Orca resolves it as the Run's coordinator without `--from`.
 
 ## Module map
