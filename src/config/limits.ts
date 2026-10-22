@@ -56,4 +56,6 @@ export const inputLimits = {
   requestLength: 20_000,
   titleLength: 120,
   feedbackLength: 20_000,
+  /** A dashboard request body: a request or feedback with room for JSON escaping. */
+  bodyBytes: 256 * KiB,
 } as const;

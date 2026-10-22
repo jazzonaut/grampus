@@ -1,0 +1,95 @@
+@import 'tailwindcss';
+@import '@nuxt/ui';
+
+/* Scan the app for utility classes; Nuxt UI adds its own sources. */
+@source '../';
+
+/* The ocean accent: a deep teal-blue that reads well on both light and dark backgrounds. */
+@theme static {
+  --color-ocean-50: #eefbfd;
+  --color-ocean-100: #d4f3f8;
+  --color-ocean-200: #aee6f1;
+  --color-ocean-300: #76d2e6;
+  --color-ocean-400: #38b4d2;
+  --color-ocean-500: #1a96b8;
+  --color-ocean-600: #16789b;
+  --color-ocean-700: #17617e;
+  --color-ocean-800: #1a5068;
+  --color-ocean-900: #1a4358;
+  --color-ocean-950: #0b2a3b;
+}
+
+/* Rendered agent Markdown: readable defaults without a typography plugin. */
+.markdown {
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.markdown > * + * {
+  margin-top: 0.75em;
+}
+.markdown h1 {
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+.markdown h2 {
+  font-size: 1.15rem;
+  font-weight: 650;
+  margin-top: 1.4em;
+}
+.markdown h3,
+.markdown h4 {
+  font-weight: 600;
+  margin-top: 1.2em;
+}
+.markdown ul {
+  list-style: disc;
+  padding-left: 1.4em;
+}
+.markdown ol {
+  list-style: decimal;
+  padding-left: 1.4em;
+}
+.markdown li + li {
+  margin-top: 0.25em;
+}
+.markdown a {
+  color: var(--ui-primary);
+  text-decoration: underline;
+}
+.markdown code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.875em;
+  padding: 0.1em 0.35em;
+  border-radius: 0.3em;
+  background: var(--ui-bg-elevated);
+}
+.markdown pre {
+  overflow-x: auto;
+  padding: 0.85em 1em;
+  border-radius: 0.5em;
+  background: var(--ui-bg-elevated);
+  border: 1px solid var(--ui-border);
+}
+.markdown pre code {
+  padding: 0;
+  background: none;
+}
+.markdown blockquote {
+  border-left: 3px solid var(--ui-border-accented);
+  padding-left: 0.9em;
+  color: var(--ui-text-muted);
+}
+.markdown table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--ui-border);
+  padding: 0.35em 0.6em;
+  text-align: left;
+}
+.markdown hr {
+  border-color: var(--ui-border);
+}

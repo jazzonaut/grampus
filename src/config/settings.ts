@@ -25,7 +25,7 @@ export interface Settings {
   livenessIntervalMs: number;
   /** How long `grampus wait` blocks before reporting that nothing new needs the user. Below common agent tool limits. */
   waitTimeoutSeconds: number;
-  /** How often `grampus wait` rereads task logs. */
+  /** How often `grampus wait` and the dashboard reread task logs. */
   waitPollMs: number;
   /** Check timeout when the spec does not set one. */
   defaultCheckTimeoutSeconds: number;
@@ -39,6 +39,15 @@ export interface Settings {
   claudeProjectRoots: readonly string[];
   /** Folders searched for Codex rollouts (`<root>/YYYY/MM/DD/rollout-...-<session>.jsonl`). */
   codexSessionRoots: readonly string[];
+  /** Port `grampus dashboard` listens on when `--port` is not given. */
+  dashboardPort: number;
+  /** Address the dashboard listens on; null listens on every interface, so other devices on the network can reach it. */
+  dashboardHost: string | null;
+  /**
+   * Host names the dashboard answers to besides localhost, this machine's name and its addresses, such
+   * as a VPN name. Requests for any other host are refused, which stops DNS rebinding.
+   */
+  dashboardAllowedHosts: readonly string[];
 }
 
 /** Built-in defaults. */
@@ -57,8 +66,14 @@ export function defaultSettings(): Settings {
     recipes: [],
     claudeProjectRoots: [join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'projects')],
     codexSessionRoots: [join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'sessions')],
+    dashboardPort: 4545,
+    dashboardHost: null,
+    dashboardAllowedHosts: [],
   };
 }
+
+/** The largest TCP port number. */
+const maxPort = 65_535;
 
 const fileSchema = z
   .object({
@@ -75,6 +90,9 @@ const fileSchema = z
     recipes: z.array(recipeSchema),
     claudeProjectRoots: z.array(z.string().min(1)),
     codexSessionRoots: z.array(z.string().min(1)),
+    dashboardPort: z.number().int().min(0).max(maxPort),
+    dashboardHost: z.string().min(1).nullable(),
+    dashboardAllowedHosts: z.array(z.string().min(1)),
   })
   .strict()
   .partial();

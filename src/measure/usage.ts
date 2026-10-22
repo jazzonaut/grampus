@@ -45,7 +45,7 @@ interface Located {
 /** Measure every dispatch of a task. Unknown values stay null with a note; nothing becomes zero. */
 export async function measureDispatches(
   state: TaskState,
-  orca: Orca,
+  orca: Pick<Orca, 'transcriptSessions'>,
   settings: Settings = currentSettings(),
 ): Promise<DispatchMeasurement[]> {
   const located: Located[] = [];

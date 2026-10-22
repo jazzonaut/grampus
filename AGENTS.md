@@ -16,6 +16,7 @@ verification and an append-only evidence log per task. Current behaviour is in
 | `npm test` / `npm run test:all` | Build (`npm run build`), then run fast or all tests |
 | `node scripts/run-tests.mjs <name>...` | Run selected compiled test files after `npm run build`, e.g. `pipeline-repair` |
 | `npm run format` | Apply Prettier |
+| `npm run dev:web` | Serve the dashboard with hot reload; it forwards `/api` to a running `grampus dashboard` |
 | `node dist/src/cli.js <command>` | Run the CLI (`status`, `new`, `skill install`, ...) |
 
 ## Rules
@@ -51,6 +52,8 @@ verification and an append-only evidence log per task. Current behaviour is in
 ## Pitfalls
 
 - Tests run from `dist/`. Run `npm run build` (or `npm test`) after editing TypeScript.
+- The dashboard (`web/`) imports its JSON types from `src/dashboard/types.ts` as types only. Name icons
+  as `i-lucide-*` literals so the build bundles them; a test checks every name exists.
 - Worker prompts in `src/pipeline/prompts.ts` are a contract with the agents and change measured
   results. Change them deliberately and say so in the commit.
 - Orca's CLI contract moves quickly. Its JSON is parsed in `src/orca/protocol.ts`; unknown fields are

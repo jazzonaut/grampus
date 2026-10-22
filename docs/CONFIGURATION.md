@@ -12,13 +12,16 @@ command, or `%LOCALAPPDATA%\Grampus\orca` on Windows.
 | `inboxWaitMs` | `5000` | How long the driver blocks on Orca's inbox before reading local commands |
 | `livenessIntervalMs` | `60000` | Minimum interval between liveness checks of unreported workers |
 | `waitTimeoutSeconds` | `540` | How long `grampus wait` blocks before reporting nothing new |
-| `waitPollMs` | `2000` | How often `grampus wait` rereads task logs |
+| `waitPollMs` | `2000` | How often `grampus wait` and the dashboard reread task logs |
 | `defaultCheckTimeoutSeconds` | `900` | Check timeout when the spec sets none (at most 3600) |
 | `checkShell` | `null` | Shell for check commands; null uses cmd.exe on Windows and /bin/sh elsewhere |
 | `testFilePatterns` | `**/*.test.*`, `**/*.spec.*`, `**/test/**`, `**/tests/**`, `**/__tests__/**` | Paths the guard treats as tests |
 | `recipes` | `[]` | Saved recipes beside the built-in `standard` recipe |
 | `claudeProjectRoots` | `["<CLAUDE_CONFIG_DIR or ~/.claude>/projects"]` | Where Claude session transcripts are searched for measurement |
 | `codexSessionRoots` | `["<CODEX_HOME or ~/.codex>/sessions"]` | Where Codex rollouts are searched for measurement |
+| `dashboardPort` | `4545` | Port of `grampus dashboard` when `--port` is not given |
+| `dashboardHost` | `null` | Address the dashboard listens on; null is every interface (reachable from your network), `"127.0.0.1"` keeps it on this machine |
+| `dashboardAllowedHosts` | `[]` | Extra host names the dashboard answers to, such as a VPN name; localhost, this machine's name and its addresses are always allowed |
 
 ## Recipes
 

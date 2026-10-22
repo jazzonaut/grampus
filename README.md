@@ -44,6 +44,17 @@ The agent runs `grampus new`. Grampus creates an Orca worktree and a terminal ta
 writer's questions, the spec to approve and the result to accept all come to you there. Then ask your chat agent what needs you, approve the spec, answer questions and
 accept the result. The agent can block on `grampus wait` until something new needs you.
 
+## Use the dashboard
+
+```text
+grampus dashboard
+```
+
+Open the printed address (`http://localhost:4545/`, or this machine's network address from a phone). The
+dashboard shows every task's pipeline, spec, checks, reviews, worker questions, timeline and scorecard,
+and updates live. It has no login: anyone who can reach the port can control your tasks, so only run it
+on networks you trust, or set `dashboardHost` to `127.0.0.1` (see [Configuration](docs/CONFIGURATION.md)).
+
 ## Use it from the terminal
 
 ```text

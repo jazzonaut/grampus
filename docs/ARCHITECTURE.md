@@ -5,7 +5,7 @@ Current behaviour of Grampus. Intent and the reasons behind it are in [DESIGN.md
 ## Overview
 
 ```text
-  chat agent / CLI / dashboard (Planned)
+  chat agent / CLI / dashboard
           │  queue commands (commands.jsonl), read state (events.jsonl)
           ▼
   task driver  ── one process per task, in the task's own Orca terminal
@@ -37,6 +37,8 @@ between two calls, such as a spec review landing while an agent talked to the us
 | Folder | Module | Owns |
 | --- | --- | --- |
 | `src/` | `cli.ts` | Commands; every control verb queues a command for the driver |
+| | `commands.ts` | The command catalog behind `--help` and the dashboard's Help page |
+| | `control.ts` | Queueing a validated command; shared by the CLI and the dashboard |
 | | `skill.ts` | Renders and installs the chat skill from `skills/grampus/SKILL.md` |
 | `config/` | `limits.ts`, `settings.ts`, `paths.ts` | Fixed bounds, operational settings, data directory |
 | `domain/` | `recipe.ts` | Recipe schema, the built-in `standard` recipe, family checks |
@@ -50,6 +52,11 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `report.ts` | The scorecard: per-stage figures, totals and human cost |
 | `checks/` | `run-checks.ts` | Running check commands with logs, timeouts and one flaky rerun |
 | `store/` | `task-store.ts` | Task folders, `events.jsonl`, `commands.jsonl` |
+| `dashboard/` | `server.ts`, `http.ts` | `grampus dashboard`: static web app, JSON API, request guards |
+| | `api.ts` | API routes |
+| | `views.ts`, `timeline.ts`, `types.ts` | Task views built from the fold, and the JSON contract the web app imports |
+| | `tasks.ts` | Cached log reads and the change watcher behind live updates |
+| `web/` | `app/` | The dashboard: Vue 3, Nuxt UI, built into `dist/web` |
 | `pipeline/` | `driver.ts` | Driver entry point and lock |
 | | `driver-core.ts` | Recording, request ids, inbox pump, commands, decisions, running a stage |
 | | `pipeline.ts` | Stage order: run, gate, spec, tests first, baseline, rounds, finish |
@@ -102,6 +109,27 @@ between two calls, such as a spec review landing while an agent talked to the us
     round) or abandons. Finishing releases every worker: settled ones with `worker-release`, unsettled
     ones with `worker-stop`. When every check already passed at the baseline, the acceptance request
     says so: those checks show no regression but do not demonstrate the new behaviour.
+
+## Dashboard
+
+`grampus dashboard [--port <n>]` serves the built web app (`dist/web`) and a JSON API from one Node
+process, on port 4545 and every interface by default, so a phone on the same network can use it. It
+prints the addresses it answers on.
+
+- **Reads** come from the same fold the driver uses (`TaskReader` caches folds by log size). Views add the
+  pipeline strip, spec versions with their text and review, worker messages with their answers, rounds
+  with guard, checks and review, queued commands and a plain-language timeline.
+- **Writes** queue commands with source `dashboard`, exactly like the CLI; the driver stays the only
+  writer to its Run and log.
+- **Live updates**: `/api/live` is a server-sent event stream. A watcher polls log and queue sizes every
+  `waitPollMs` and sends the ids of tasks that changed; after a reconnect the page reloads everything.
+- **Files**: only paths a task's log records (spec versions, check logs) can be fetched.
+- **No login.** Anyone who can reach the port can control tasks. The guards stop other web pages from
+  using a visitor's browser: requests must name one of this machine's host names or addresses (or
+  `dashboardAllowedHosts`), so DNS rebinding fails; writes must carry the dashboard's own `Origin` and a
+  JSON body, so cross-site forms and fetches fail; pages cannot be framed; a strict Content Security
+  Policy and Markdown rendered without raw HTML contain agent output.
+- Icons are bundled at build time, so the dashboard works without internet access.
 
 ## Durability and recovery
 
@@ -185,4 +213,4 @@ counts uncached input for both providers. Anything not found stays unknown with 
 `grampus report <task>` prints the scorecard: per-stage figures, totals, rounds, wall time and the
 human cost (decisions, answers to worker questions, how many came from chat, and how long tasks waited
 for them). For a running task it measures
-now and is marked provisional. **Planned:** comparisons, exports and the dashboard.
+now and is marked provisional. The dashboard shows the same scorecard. **Planned:** comparisons and exports.

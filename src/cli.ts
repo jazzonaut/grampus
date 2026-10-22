@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // The `grampus` command line. Every control action is a command queued for the task's driver, so the
 // CLI, an Orca chat agent using the Grampus skill and the dashboard all control tasks the same way.
-import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
+import { usageText } from './commands.js';
 import { dataDirectory } from './config/paths.js';
 import { availableRecipes, currentSettings, loadSettings, useSettings } from './config/settings.js';
-import type { UserCommand } from './domain/events.js';
+import { approvedVersion, queueCommand, selfCommand, type CommandBody, type CommandSource } from './control.js';
+import { serveDashboard } from './dashboard/server.js';
 import { mergeAccepted } from './delivery/merge.js';
 import { buildScorecard, renderScorecard } from './measure/report.js';
 import { measureDispatches } from './measure/usage.js';
@@ -19,25 +20,7 @@ import { renderSummary, summarise, type TaskSummary } from './pipeline/status.js
 import { installSkill, renderSkill } from './skill.js';
 import { listTaskIds, TaskStore } from './store/task-store.js';
 
-const usage = `Usage: grampus <command> [options]
-
-  new [--repo <path>] [--recipe <name>] [--title <text>] <request...> Start a task (repository: --repo or the current folder's)
-  status [task] [--json]                                              Show tasks, or one task in detail
-  wait [task] [--after <time>] [--json]                               Block until something newer than --after needs you
-  report <task> [--json]                                              Models, time and tokens per stage, and human cost
-  approve <task> [--version <n>]                                      Approve the latest (or given) spec version
-  revise <task> <feedback...>                                         Ask the spec writer for a revision
-  reply <task> <message-id> <answer...>                               Answer a worker's question
-  continue <task> <guidance...>                                       Run another repair round with guidance
-  retry <task>                                                        Retry a stage that failed to start or exited
-  accept <task>                                                       Accept the task's verified branch
-  abandon <task> [reason...]                                          Abandon the task and release its workers
-  merge <task>                                                        Fast-forward your checked-out branch to an accepted task's commit
-  drive <task>                                                        Run a task's driver (Grampus starts it in Orca)
-  recipes                                                             List recipes
-  skill [install]                                                     Print the chat skill, or install it for Claude and Codex
-
-Options: --home <dir> (data directory), --source cli|chat|dashboard (who is acting; default cli)`;
+const usage = usageText();
 
 async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
@@ -52,6 +35,7 @@ async function main(argv: string[]): Promise<number> {
       source: { type: 'string' },
       json: { type: 'boolean' },
       after: { type: 'string' },
+      port: { type: 'string' },
       help: { type: 'boolean' },
     },
   });
@@ -64,10 +48,12 @@ async function main(argv: string[]): Promise<number> {
   useSettings(loadSettings(dataDir));
   const source = values.source ?? 'cli';
   if (source !== 'cli' && source !== 'chat' && source !== 'dashboard') throw new Error(`Unknown --source ${source}.`);
-  const queue = (taskId: string | undefined, body: CommandBody) => queueCommand(dataDir, taskId, source, body);
+  const queue = (taskId: string | undefined, body: CommandBody) => queued(dataDir, taskId, source, body);
   switch (command) {
     case 'new':
       return newTask(dataDir, rest, values);
+    case 'dashboard':
+      return dashboard(dataDir, values.port);
     case 'drive':
       return drive(TaskStore.open(dataDir, required(rest[0], 'task')), new OrcaCli(), line =>
         console.log(`[${time()}] ${line}`),
@@ -152,21 +138,23 @@ function controlCommand(
   }
 }
 
-type CommandBody = DistributiveOmit<UserCommand, 'id' | 'at' | 'source'>;
-type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
-
-function queueCommand(
-  dataDir: string,
-  taskId: string | undefined,
-  source: 'cli' | 'chat' | 'dashboard',
-  body: CommandBody,
-): number {
-  const store = TaskStore.open(dataDir, required(taskId, 'task'));
-  const command = { ...body, id: randomUUID(), at: new Date().toISOString(), source } as UserCommand;
-  store.addCommand(command);
+function queued(dataDir: string, taskId: string | undefined, source: CommandSource, body: CommandBody): number {
+  const command = queueCommand(dataDir, required(taskId, 'task'), source, body);
   console.log(
     `Queued ${command.kind} for ${taskId}. The task's driver applies it within a few seconds; check with \`grampus status ${taskId}\`.`,
   );
+  return 0;
+}
+
+/** Serve the dashboard until the process is stopped. */
+async function dashboard(dataDir: string, port: string | undefined): Promise<number> {
+  const chosen = port === undefined ? currentSettings().dashboardPort : Number(port);
+  if (!Number.isInteger(chosen) || chosen < 0) throw new Error(`--port must be a port number, not "${port}".`);
+  const server = await serveDashboard({ dataDir, port: chosen, selfCommand: selfCommand(dataDir) });
+  console.log('Grampus dashboard, reachable from this machine and your local network:');
+  for (const url of server.urls) console.log(`  ${url}`);
+  console.log('Anyone who can open these addresses can start and control tasks. Press Ctrl+C to stop.');
+  await server.closed;
   return 0;
 }
 
@@ -193,11 +181,6 @@ async function newTask(
   console.log('The spec writer starts shortly. Its questions and the spec come to you through `grampus wait`.');
   console.log(`as of ${asOf}`);
   return 0;
-}
-
-/** The command line that runs this CLI against this data directory, for terminals and skills. */
-function selfCommand(dataDir: string): string {
-  return `node "${resolve(process.argv[1] ?? '')}" --home "${dataDir}"`;
 }
 
 function skill(commandLine: string, install: boolean): number {
@@ -271,13 +254,6 @@ function isNew(summary: TaskSummary, since: string): boolean {
   // A finish confirms an accept or abandon the user asked for; whoever waits on it must hear it.
   if (summary.finished && summary.finished.at > since) return true;
   return false;
-}
-
-function approvedVersion(dataDir: string, taskId: string, version: string | undefined): number {
-  if (version) return Number(version);
-  const latest = foldEvents(TaskStore.open(dataDir, taskId).events()).specs.at(-1);
-  if (!latest) throw new Error(`Task ${taskId} has no spec yet.`);
-  return latest.version;
 }
 
 function required(value: string | undefined, name: string): string {

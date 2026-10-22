@@ -42,7 +42,8 @@ attention. API dollars are secondary.
 | The builder commits; Grampus verifies that exact SHA | Simple and auditable. A dirty tree or a moved base fails verification. |
 | A recipe is data | Stages, agents, models and effort are configuration, so experiments are recipe changes rather than code changes. |
 | Control is chat first | Every decision is a CLI command, so a Claude or Codex chat in Orca with the Grampus skill can start tasks, relay what needs the user and queue their decisions. `grampus wait` blocks until something new needs the user, so watching costs no tokens. |
-| The dashboard is for evidence and measurements (**Planned**) | Timelines, check output, findings, scorecards and comparisons. It is a local web app: Orca sidebar panels cannot reach a local server (`connect-src 'none'`) and expose only three actions. |
+| The dashboard shows evidence and takes decisions | Timelines, check output, findings and scorecards, plus the same decisions as the CLI, queued for the driver. It is a local web app: Orca sidebar panels cannot reach a local server (`connect-src 'none'`) and expose only three actions. |
+| The dashboard has no login | The user wants it on phones on the local network. Host, origin and framing guards stop other web pages from using it through a visitor's browser; anyone who can reach the port is trusted. |
 
 ## Default pipeline
 

@@ -3,9 +3,21 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import globals from 'globals';
+import pluginVue from 'eslint-plugin-vue';
+import vueParser from 'vue-eslint-parser';
 
 export default tseslint.config(
-  { ignores: ['dist/', 'node_modules/', '.claude/', '.grampus/'] },
+  {
+    ignores: [
+      'dist/',
+      'node_modules/',
+      '.claude/',
+      '.grampus/',
+      '**/.nuxt-ui/',
+      'web/auto-imports.d.ts',
+      'web/components.d.ts',
+    ],
+  },
   js.configs.recommended,
   {
     files: ['**/*.ts'],
@@ -26,6 +38,28 @@ export default tseslint.config(
       'max-depth': ['error', 4],
       'max-params': ['error', 6],
     },
+  },
+  // The dashboard's Vue files: Vue's recommended rules (layout is Prettier's job) with TypeScript in <script>.
+  ...pluginVue.configs['flat/recommended'],
+  pluginVue.configs['no-layout-rules'],
+  {
+    files: ['web/**/*.vue'],
+    extends: [tseslint.configs.recommended],
+    languageOptions: {
+      parser: vueParser,
+      parserOptions: { parser: tseslint.parser, extraFileExtensions: ['.vue'], sourceType: 'module' },
+      globals: globals.browser,
+    },
+    rules: {
+      '@typescript-eslint/consistent-type-imports': 'error',
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-non-null-assertion': 'error',
+      'vue/multi-word-component-names': 'off',
+    },
+  },
+  {
+    files: ['web/**/*.ts'],
+    languageOptions: { globals: globals.browser },
   },
   {
     files: ['test/**/*.ts'],
