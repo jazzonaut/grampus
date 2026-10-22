@@ -69,8 +69,19 @@ function writeSpec(core: DriverCore, worktree: string, number: number, attempt: 
         previousSpecPath: number === 1 ? null : previousSpec,
         feedback: attempt.feedback,
         rejection: attempt.rejection,
+        answered: answeredQuestions(core),
       }),
     launch: previous ? { reuse: previous, fallback: recipe.spec } : { assignment: recipe.spec },
+  });
+}
+
+/** Questions spec writers asked and the user answered, with the answers. */
+function answeredQuestions(core: DriverCore): { question: string; answer: string }[] {
+  return core.state.commands.flatMap(command => {
+    if (command.kind !== 'reply') return [];
+    const question = core.state.questions.get(command.messageId);
+    if (!question?.key?.startsWith('spec:')) return [];
+    return [{ question: question.body || question.subject, answer: command.body }];
   });
 }
 

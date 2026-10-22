@@ -37,6 +37,8 @@ export interface StartCall {
   request: WorkerStartRequest;
   requestId: string;
   title: string;
+  /** The task spec (prompt) the worker received. */
+  spec: string;
 }
 
 export class FakeOrca implements Orca, OrcaWorkspaces {
@@ -100,7 +102,7 @@ export class FakeOrca implements Orca, OrcaWorkspaces {
       const task = this.tasks.get(request.taskId);
       if (!task) throw new OrcaError('task_not_found', `No task ${request.taskId}`);
       const dispatchId = `dispatch_${this.starts.length + 1}`;
-      this.starts.push({ request, requestId, title: task.title });
+      this.starts.push({ request, requestId, title: task.title, spec: task.spec });
       void this.runWorker(dispatchId, request, task);
       return {
         taskId: request.taskId,
@@ -191,7 +193,9 @@ export class FakeOrca implements Orca, OrcaWorkspaces {
       request,
       ask: async question => {
         const id = `msg_${randomUUID()}`;
-        this.inbox.push(message(id, 'question', 'Question', question, null));
+        // Like Orca's `ask`, the question names the asking dispatch.
+        const payload = JSON.stringify({ taskId: request.taskId, dispatchId });
+        this.inbox.push(message(id, 'question', 'Question', question, payload));
         while (!this.replies.has(id)) await sleep(5);
         return this.replies.get(id) ?? '';
       },

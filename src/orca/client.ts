@@ -174,7 +174,7 @@ export class OrcaCli implements Orca, OrcaWorkspaces {
   async showWorker(dispatchId: string) {
     const shown = workerShowSchema.parse(await this.call(['orchestration', 'worker-show', '--dispatch', dispatchId]));
     return {
-      handle: shown.dispatch?.assignee_handle ?? shown.worker?.agent_terminal_handle ?? null,
+      handle: shown.dispatch?.assigneeHandle ?? shown.worker?.agentTerminalHandle ?? null,
       liveness: livenessVerdict(shown.projection?.liveness),
     };
   }

@@ -57,11 +57,18 @@ export function specPrompt(input: {
   previousSpecPath: string | null;
   feedback: string | null;
   rejection: string | null;
+  /** Questions the user answered for earlier attempts; a fresh writer must not ask them again. */
+  answered: readonly { question: string; answer: string }[];
 }): string {
+  const answered = input.answered.length
+    ? `\nQuestions the user already answered (do not ask them again):\n${input.answered
+        .map(item => `- Q: ${item.question}\n  A: ${item.answer}`)
+        .join('\n')}\n`
+    : '';
   const revision = input.previousSpecPath
     ? `\nThis is a revision. The previous spec is at ${input.previousSpecPath}.${
         input.feedback ? `\nThe user's feedback:\n${input.feedback}\n` : ''
-      }${input.rejection ? `\nThe previous file could not be used: ${input.rejection}\n` : ''}`
+      }${input.rejection ? `\nThe previous file could not be used: ${input.rejection}\n` : ''}${answered}`
     : '';
   return `ROLE: spec writer.
 

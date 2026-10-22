@@ -130,10 +130,13 @@ test('check returns the delivery and acknowledges the previous one', async () =>
 
 test('worker-show reads the reusable handle and the fleet liveness verdict', async () => {
   useTestSettings();
+  // The shape Orca 1.4.237 returns for a structured (chat) worker.
   const shown = {
-    dispatch: { assignee_handle: 'orca_session_id:abc' },
-    projection: { liveness: { status: 'exited', reason: 'gone' } },
+    dispatch: { assigneeHandle: 'structworker_c1d5', assigneePaneKey: 'structured-agent-session-7cf1:7a5e' },
+    worker: { state: 'succeeded', stage: 'settled', agentTerminalHandle: 'structworker_c1d5' },
+    terminal: null,
+    projection: { liveness: { verdict: 'exited', reason: 'gone' } },
   };
   const { client } = fakeOrca(JSON.stringify({ ok: true, result: shown }));
-  assert.deepEqual(await client.showWorker('dispatch_1'), { handle: 'orca_session_id:abc', liveness: 'exited' });
+  assert.deepEqual(await client.showWorker('dispatch_1'), { handle: 'structworker_c1d5', liveness: 'exited' });
 });

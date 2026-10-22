@@ -69,9 +69,10 @@ export const checkSchema = z.object({
   messages: z.array(messageSchema),
 });
 
+/** `worker-show`. Unlike `run-create` and messages, its rows are camelCase. */
 export const workerShowSchema = z.object({
-  dispatch: z.object({ assignee_handle: z.string().nullable().optional() }).nullable().optional(),
-  worker: z.object({ agent_terminal_handle: z.string().nullable().optional() }).nullable().optional(),
+  dispatch: z.object({ assigneeHandle: z.string().nullable().optional() }).nullable().optional(),
+  worker: z.object({ agentTerminalHandle: z.string().nullable().optional() }).nullable().optional(),
   projection: z.object({ liveness: z.unknown().optional() }).nullable().optional(),
 });
 

@@ -105,3 +105,28 @@ test('abandoning while a worker runs stops it', async () => {
   assert.deepEqual(harness.orca.stopped, ['dispatch_1']);
   assert.equal(harness.state().finished?.outcome, 'abandoned');
 });
+
+test('a spec revision carries the questions the user already answered', async () => {
+  let asked = 0;
+  const harness = await createHarness(h =>
+    goodWorkers(h, {
+      spec: async context => {
+        if (asked++ === 0) await context.ask('Should greet trim whitespace?');
+        writeFileSync(outputPath(context.spec), specText());
+        return { outcome: 'succeeded' };
+      },
+    }),
+  );
+  const driver = harness.run();
+  const questioned = await harness.until(state => state.questions.size === 1, 'a question');
+  const [messageId] = [...questioned.questions.keys()];
+  harness.command({ kind: 'reply', messageId: messageId ?? '', body: 'Yes, trim it.' });
+  await harness.until(state => state.attention?.reason === 'approve-spec:1', 'approval');
+  harness.command({ kind: 'revise', feedback: 'Mention Unicode whitespace.' });
+  await harness.until(state => state.attention?.reason === 'approve-spec:2', 'second approval');
+  const revision = harness.orca.starts.find(start => start.title.startsWith('Spec revision'));
+  assert.match(revision?.spec ?? '', /already answered[\s\S]*Should greet trim whitespace\?[\s\S]*Yes, trim it\./);
+  assert.match(revision?.spec ?? '', /Mention Unicode whitespace./);
+  harness.command({ kind: 'abandon' });
+  await driver;
+});
