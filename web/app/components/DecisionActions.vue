@@ -75,7 +75,16 @@ function submitPrompt(text: string): void {
   if (kind === 'abandon') void queue(text ? { kind: 'abandon', reason: text } : { kind: 'abandon' });
 }
 
+/** What has not landed for the spec awaiting approval; approving now goes without it. */
+const stillRunning = computed(() => props.task.summary.approval?.running ?? []);
+const confirmApprove = ref(false);
+
 function approve(): void {
+  if (stillRunning.value.length && !confirmApprove.value) {
+    confirmApprove.value = true;
+    return;
+  }
+  confirmApprove.value = false;
   if (latestSpec.value !== null) void queue({ kind: 'approve', specVersion: latestSpec.value });
 }
 </script>
@@ -146,5 +155,27 @@ function approve(): void {
     </p>
 
     <TextPrompt v-if="prompt" v-model:open="promptOpen" v-bind="prompts[prompt]" @submit="submitPrompt" />
+    <UModal
+      v-model:open="confirmApprove"
+      :title="`Approve v${latestSpec} before the ${stillRunning.join(' and ')} finish?`"
+      description="You would be approving without their results."
+    >
+      <template #body>
+        <ul class="text-sm list-disc pl-5 space-y-1">
+          <li v-if="stillRunning.includes('spec review')">
+            The spec review stops, so you will not see what it finds about the spec or its checks.
+          </li>
+          <li v-if="stillRunning.includes('checks')">
+            The checks still finish before the build starts, but you will not see which ones fail before the change.
+          </li>
+        </ul>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton color="neutral" variant="ghost" label="Wait for them" @click="confirmApprove = false" />
+          <UButton color="warning" icon="i-lucide-stamp" label="Approve anyway" @click="approve" />
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

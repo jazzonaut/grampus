@@ -91,6 +91,8 @@ export interface TaskState {
   messages: Set<string>;
   questions: Map<string, { key: string | null; subject: string; body: string; at: string; answered: boolean }>;
   testsFirst: { sha: string; files: string[] } | null;
+  /** Checks of each spec version, run at the base commit while it awaited approval. */
+  specChecks: Map<number, { sha: string; results: CheckResult[] }>;
   baseline: { sha: string; results: CheckResult[] } | null;
   verify: Map<number, { sha: string; results: CheckResult[] }>;
   guard: Map<number, { fromSha: string; sha: string; guard: GuardResult }>;
@@ -137,6 +139,7 @@ export function foldEvents(events: readonly StoredEvent[]): TaskState {
     refusals: [],
     questions: new Map(),
     testsFirst: null,
+    specChecks: new Map(),
     baseline: null,
     verify: new Map(),
     guard: new Map(),
@@ -283,8 +286,10 @@ const handlers: Handlers = {
     state.testsFirst = { sha: event.sha, files: event.files };
   },
   'checks.recorded': (state, event) => {
-    if (event.phase === 'baseline') state.baseline = { sha: event.sha, results: event.results };
-    else state.verify.set(event.round, { sha: event.sha, results: event.results });
+    const run = { sha: event.sha, results: event.results };
+    if (event.phase === 'spec') state.specChecks.set(event.round, run);
+    else if (event.phase === 'baseline') state.baseline = run;
+    else state.verify.set(event.round, run);
   },
   'guard.recorded': (state, event) => {
     state.guard.set(event.round, { fromSha: event.fromSha, sha: event.sha, guard: event.guard });

@@ -181,6 +181,8 @@ export interface TaskDetail extends TaskListItem {
   messages: MessageView[];
   stages: StageView[];
   testsFirst: { sha: string; files: string[] } | null;
+  /** The latest spec version's checks, run on the base commit before approval. */
+  specChecks: (CheckRunView & { version: number }) | null;
   baseline: CheckRunView | null;
   rounds: RoundView[];
   commands: CommandView[];

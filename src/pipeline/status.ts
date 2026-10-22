@@ -2,6 +2,7 @@
 // Derived from the folded log (plus the spec file it names), so it never disagrees with what the driver
 // acts on. An approval request carries the spec itself: nobody should be asked to approve unseen text.
 import { existsSync, readFileSync } from 'node:fs';
+import { logExcerpt } from '../checks/run-checks.js';
 import { specLimits } from '../config/limits.js';
 import type { CheckResult, CommandKind, GuardResult } from '../domain/events.js';
 import type { Finding } from '../domain/review.js';
@@ -22,8 +23,17 @@ export interface TaskSummary {
   lastStop: { reason: string; at: string } | null;
   /** The most recent refused command, if it came after the last applied one. */
   refused: { kind: string; reason: string; at: string } | null;
-  /** While a spec version awaits approval: its text and its review, to show before asking. */
-  approval: { version: number; text: string; review: string[] } | null;
+  /**
+   * While a spec version awaits approval: its text, its checks on the base commit and its review, to
+   * show before asking. `running` names what has not landed yet, so an early approval is a choice.
+   */
+  approval: {
+    version: number;
+    text: string;
+    checks: string[];
+    review: string[];
+    running: ('checks' | 'spec review')[];
+  } | null;
   /** While a round awaits accept, continue or abandon: the evidence behind it, to show before asking. */
   result: { round: number; lines: string[] } | null;
 }
@@ -92,8 +102,25 @@ function approvalOf(state: TaskState): TaskSummary['approval'] {
       : full;
   const reviewed = state.specReviews.get(latest.version);
   const reviewRunning = !reviewed && state.stages.has(`spec-review:${latest.version}`);
+  const reviewWaiting = !reviewed && !reviewRunning && Boolean(state.recipe.specReview);
+  const checked = state.specChecks.get(latest.version);
+  const checks = checked
+    ? [
+        'checks on the original commit (a check should fail here only because the behaviour is missing):',
+        ...checked.results.flatMap(result => [
+          checkLine(result),
+          ...(result.passed ? [] : logTail(result.logPath).map(line => `  | ${line}`)),
+        ]),
+      ]
+    : ['checks on the original commit: still running; their results are added here when they finish'];
   const review = !reviewed
-    ? [reviewRunning ? 'spec review: still running; its findings are added here when it finishes' : 'no spec review']
+    ? [
+        reviewRunning
+          ? 'spec review: still running; its findings are added here when it finishes'
+          : reviewWaiting
+            ? 'spec review: starts when the checks finish'
+            : 'no spec review',
+      ]
     : reviewed.report
       ? [
           `spec review: ${reviewed.report.verdict}. ${reviewed.report.summary}`,
@@ -102,7 +129,20 @@ function approvalOf(state: TaskState): TaskSummary['approval'] {
           ),
         ]
       : [`spec review unavailable: ${reviewed.error ?? 'unknown'}`];
-  return { version: latest.version, text, review };
+  const running: ('checks' | 'spec review')[] = [];
+  if (!checked) running.push('checks');
+  if (reviewRunning || reviewWaiting) running.push('spec review');
+  return { version: latest.version, text, checks, review, running };
+}
+
+/** The last lines of a failing check's log, enough to tell a missing behaviour from a broken command. */
+function logTail(path: string): string[] {
+  if (!existsSync(path)) return [`(the log ${path} is missing)`];
+  const lines = logExcerpt(path)
+    .split(/\r?\n/)
+    .map(line => line.trimEnd())
+    .filter(Boolean);
+  return [...lines.slice(-shownLogLines), `log: ${path}`];
 }
 
 /** The evidence for the round awaiting the user: commits, files, checks, guard and review. */
@@ -163,10 +203,24 @@ function reviewLines(review: ReviewRecord | undefined): string[] {
 /** Changed files listed with a result before the rest are counted. */
 const shownFiles = 15;
 
+/** Log lines shown under a check that fails before the change. */
+const shownLogLines = 6;
+
 function latestRefusal(state: TaskState): TaskSummary['refused'] {
   const refused = state.refusals.at(-1);
   const applied = [...state.commands].reverse().find(command => command.kind !== 'reply');
   return refused && (!applied || refused.at > applied.at) ? refused : null;
+}
+
+/** The latest build or repair round whose worker has ended. */
+function latestBuiltRound(state: TaskState): number | null {
+  let latest: number | null = null;
+  for (const record of state.stages.values()) {
+    const dispatch = currentDispatch(record);
+    if ((record.stage === 'build' || record.stage === 'repair') && (dispatch?.settled || dispatch?.exited))
+      latest = Math.max(latest ?? record.round, record.round);
+  }
+  return latest;
 }
 
 function phaseOf(state: TaskState): string {
@@ -182,6 +236,11 @@ function phaseOf(state: TaskState): string {
         ? `${record.key} running (its questions come to you through Grampus)`
         : `${record.key} running`;
   }
+  // Checks are not stages: between workers the driver may be running them for minutes.
+  const approved = state.inherited || state.commands.some(command => command.kind === 'approve');
+  if (approved && !state.baseline) return 'running the checks before the build';
+  const round = latestBuiltRound(state);
+  if (round !== null && !state.verify.has(round)) return `running the checks of round ${round}`;
   return 'waiting for the driver';
 }
 
@@ -196,6 +255,7 @@ export function renderSummary(summary: TaskSummary): string {
       `  ----- spec v${summary.approval.version} (show this to the user before they decide) -----`,
       summary.approval.text.trimEnd(),
       '  ----- end of spec -----',
+      ...summary.approval.checks.map(line => `  ${line}`),
       ...summary.approval.review.map(line => `  ${line}`),
     );
   if (summary.result)

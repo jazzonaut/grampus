@@ -12,7 +12,10 @@ test('a lost worker-start response stops the driver, and rerunning replays the s
   assert.equal(harness.orca.starts.length, 1, 'Orca did start the worker');
 
   const driver = harness.run();
-  await harness.until(state => state.attention?.reason === 'approve-spec:1', 'approval after resuming');
+  await harness.until(
+    state => state.attention?.reason === 'approve-spec:1' && state.specReviews.has(1),
+    'approval after resuming',
+  );
   const starts = harness.orca.mutations.filter(mutation => mutation.name === 'worker-start');
   assert.deepEqual(
     starts.map(mutation => mutation.replayed),

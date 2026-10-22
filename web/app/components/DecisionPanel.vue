@@ -6,6 +6,7 @@
 import { computed } from 'vue';
 import type { TaskDetail } from '../../../src/dashboard/types';
 import { shortSha } from '../presentation';
+import CheckRun from './CheckRun.vue';
 import RoundEvidence from './RoundEvidence.vue';
 
 const props = defineProps<{ task: TaskDetail }>();
@@ -30,6 +31,11 @@ const questions = computed(() => props.task.summary.questions.length);
 const round = computed(() => props.task.rounds.find(entry => entry.round === props.task.summary.result?.round));
 /** An escalation lists its reasons instead of the detail line, which repeats them in one run-on sentence. */
 const escalated = computed(() => (round.value?.decision?.decision === 'escalate' ? round.value.decision : null));
+/** The checks of the spec awaiting approval, run on the original commit. */
+const specChecks = computed(() => {
+  const checks = props.task.specChecks;
+  return checks && checks.version === props.task.summary.approval?.version ? checks : null;
+});
 </script>
 
 <template>
@@ -58,6 +64,14 @@ const escalated = computed(() => (round.value?.decision?.decision === 'escalate'
       </div>
 
       <div v-if="task.summary.approval" class="pl-8 space-y-1">
+        <CheckRun v-if="specChecks" :task-id="task.taskId" :run="specChecks" title="Checks on the original commit" />
+        <p v-if="specChecks?.results.some(result => !result.passed)" class="text-xs text-muted">
+          A check should fail here only because the behaviour is missing. One that fails for another reason, such as no
+          tests running or a missing tool, cannot pass after the build either.
+        </p>
+        <p v-if="!specChecks" class="text-sm text-muted flex items-center gap-1">
+          <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" /> Running the checks on the original commit
+        </p>
         <ul class="text-sm space-y-0.5">
           <li v-for="line in task.summary.approval.review" :key="line" class="text-muted">{{ line }}</li>
         </ul>

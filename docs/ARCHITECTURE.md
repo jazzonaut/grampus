@@ -70,7 +70,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | `pipeline/` | `driver.ts` | Driver entry point and lock |
 | | `driver-core.ts` | Recording, request ids, inbox pump, commands, decisions, running a stage |
 | | `pipeline.ts` | Stage order: run, gate, spec, tests first, baseline, rounds, finish |
-| | `spec-phase.ts` | Spec writing, automatic correction, spec review, approval |
+| | `spec-phase.ts` | Spec writing, automatic correction, checks on the original commit, spec review, approval |
 | | `guard.ts` | The deterministic integrity guard |
 | | `prompts.ts` | Worker task specs |
 | | `state.ts`, `status.ts` | The fold from events to state, and summaries |
@@ -85,18 +85,28 @@ between two calls, such as a spec review landing while an agent talked to the us
    decides. Valid specs become versions, copied to `<task>/spec/v<version>.md`. Revisions and
    corrections try to continue the previous spec conversation (see reuse below) and always list the
    questions the user already answered, so a fresh writer does not ask them again.
-3. **Spec review** (`spec-review:<version>`, optional). Starts as soon as the spec is recorded and runs
-   alongside the approval request, so the user sees the spec without waiting for it. Its findings are
-   added when it lands, with a fresh request (which wakes `grampus wait`) carrying its findings.
-   A review still running when the user decides is stopped (`stage.stopped`) and recorded as such.
-4. **Approval.** `approve` must name the latest version. `status` and `wait` print the spec text and
-   its review with the request, and every accept or escalation request prints the round's evidence
+3. **Checks on the original commit.** As soon as a spec version is recorded, the driver runs its checks
+   at HEAD, without reruns, alongside the approval request (`checks.recorded`, phase `spec`). The
+   results are added when they land, with a fresh request. A check that fails here for any reason
+   other than the missing behaviour (no tests ran, a missing tool) can never pass, so the user and the
+   spec reviewer see it before anything is built. After an approval the checks finish before the
+   build, since they become the baseline; after a revision they are stopped and not recorded.
+4. **Spec review** (`spec-review:<version>`, optional). Starts when the checks on the original commit
+   have landed, with their results and the log tails of failing ones, and runs alongside the approval
+   request, so the user sees the spec without waiting for it. Its findings are added when it lands,
+   with a fresh request (which wakes `grampus wait`) carrying its findings. A review still running when
+   the user decides is stopped (`stage.stopped`) and recorded as such. The dashboard asks for
+   confirmation before approving while the checks or the review are still running.
+5. **Approval.** `approve` must name the latest version. `status` and `wait` print the spec text, its
+   checks on the original commit (with the last log lines of failing ones) and its review with the
+   request, and every accept or escalation request prints the round's evidence
    (commits, changed files, checks, integrity problems, review findings, reasons), so a chat agent can
    show it before asking. The gate is resolved and the approved spec is
    written to `<worktree>/.grampus/spec.md` for later workers.
-5. **Tests first** (`tests:0`, optional). Added files become protected.
-6. **Baseline.** Checks run at HEAD before the build, without reruns.
-7. **Rounds.** Round 0 is `build:0`; round `r` is `repair:<r>`. Repair rounds up to
+6. **Tests first** (`tests:0`, optional). Added files become protected.
+7. **Baseline.** The checks on the original commit, when HEAD has not moved since; otherwise (after
+   tests first) checks run at HEAD before the build, without reruns.
+8. **Rounds.** Round 0 is `build:0`; round `r` is `repair:<r>`. Repair rounds up to
    `recipe.repair.reuseBuilderRounds` try to continue the previous editor's conversation when the
    assignment is unchanged; later rounds start a fresh worker with the distilled problems.
 
@@ -105,23 +115,23 @@ between two calls, such as a spec review landing while an agent talked to the us
    structured workers, which Orca refuses (`terminal_unsupported_for_agent_session`, nothing applied).
    Grampus then records `stage.reuse_refused`, starts a fresh worker, and stops trying for the rest of
    the task.
-8. **Verify.** The guard compares the round's start commit with HEAD: uncommitted or untracked files,
+9. **Verify.** The guard compares the round's start commit with HEAD: uncommitted or untracked files,
    no new commit, rewritten history, protected paths changed, test files deleted or renamed out of the
    test patterns. Modified tests are listed for the reviewer, and so is check configuration: files
    outside the tests that decide how checks run (`checkConfigPatterns`, such as
    `Directory.Build.props` or `package.json`, plus any file a check command names), whether changed,
    added or deleted. Then every check runs at HEAD; a failing check runs once more and a pass is
    recorded as flaky.
-9. **Review** (`review:<r>`, optional). The reviewer sees the whole change since the build started,
+10. **Review** (`review:<r>`, optional). The reviewer sees the whole change since the build started,
    the check results, the tests and check configuration modified in any round so far, and the previous
    round's blocking findings. A check configuration change that makes a check pass without the
    behaviour is blocking. Only findings with a file, a line and a scenario block; others are kept as
    downgraded notes.
-10. **Decision.** Ready when there are no guard violations, failing checks or blocking findings. The
+11. **Decision.** Ready when there are no guard violations, failing checks or blocking findings. The
     request to the user names any check configuration changed since the build started. A
     builder that reported failure, or an unavailable review, escalates immediately. Otherwise repair
     while `round < maxRounds + continues`, then escalate.
-11. **The user** accepts (recorded as an override after escalation), continues with guidance (one more
+12. **The user** accepts (recorded as an override after escalation), continues with guidance (one more
     round) or abandons. Finishing releases every worker: settled ones with `worker-release`, unsettled
     ones with `worker-stop`. When every check already passed at the baseline, the acceptance request
     says so: those checks show no regression but do not demonstrate the new behaviour.

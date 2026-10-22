@@ -88,6 +88,13 @@ async function testsFirst(core: DriverCore, worktree: string, spec: SpecVersion)
 async function baseline(core: DriverCore, worktree: string, spec: SpecVersion): Promise<void> {
   if (core.state.baseline) return;
   const sha = await headSha(worktree);
+  // Usually the checks already ran at this commit while the spec awaited approval; tests first moves HEAD.
+  const before = core.state.specChecks.get(spec.version);
+  if (before?.sha === sha) {
+    core.record({ type: 'checks.recorded', phase: 'baseline', round: 0, sha, results: before.results });
+    core.log('Baseline: the checks run before approval, at the same commit.');
+    return;
+  }
   core.log('Running baseline checks.');
   const results = await runChecks(worktree, spec.checks, core.store.checksDir('baseline', 0), { rerunFailures: false });
   core.record({ type: 'checks.recorded', phase: 'baseline', round: 0, sha, results });

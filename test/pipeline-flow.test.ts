@@ -73,7 +73,10 @@ test('a task runs spec, approval, baseline, build, verify and review to acceptan
 test('a revision continues the spec writer and needs approval of the new version', async () => {
   const harness = await createHarness(h => goodWorkers(h));
   const driver = harness.run();
-  await harness.until(state => state.attention?.reason === 'approve-spec:1', 'first approval');
+  await harness.until(
+    state => state.attention?.reason === 'approve-spec:1' && state.specReviews.has(1),
+    'first approval with its review',
+  );
   harness.command({ kind: 'approve', specVersion: 2 });
   harness.command({ kind: 'revise', feedback: 'Also greet in French.' });
   await harness.until(state => state.attention?.reason === 'approve-spec:2', 'second approval');
@@ -163,7 +166,7 @@ test('acceptance warns when the checks already passed before the change', async 
     }),
   );
   const driver = harness.run();
-  await harness.until(state => state.attention?.reason === 'approve-spec:1', 'approval');
+  await harness.until(state => state.attention?.reason === 'approve-spec:1' && state.specReviews.has(1), 'approval');
   harness.command({ kind: 'approve', specVersion: 1 });
   const ready = await harness.until(state => state.attention?.reason === 'ready:0', 'ready');
   assert.match(ready.attention?.detail ?? '', /every check also passed before the change/);
@@ -211,8 +214,13 @@ test('check configuration changed in any round is named for the reviewer and the
 test('the spec reaches the user before its review, and approving early stops the reviewer', async () => {
   const harness = await createHarness(h => goodWorkers(h, { 'spec-review': () => 'hang' }));
   const driver = harness.run();
-  const awaiting = await harness.until(state => state.attention?.reason === 'approve-spec:1', 'spec approval');
+  const awaiting = await harness.until(
+    state =>
+      state.attention?.reason === 'approve-spec:1' && Boolean(state.stages.get('spec-review:1')?.dispatches.length),
+    'spec approval with the review running',
+  );
   assert.equal(awaiting.specReviews.has(1), false, 'the review is still running');
+  assert.ok(awaiting.specChecks.has(1), 'the review starts after the checks on the original commit');
   assert.match(renderSummary(summarise(awaiting)), /spec review: still running/);
   harness.command({ kind: 'approve', specVersion: 1 });
   const building = await harness.until(state => state.stages.has('build:0'), 'build after early approval');
@@ -240,13 +248,17 @@ test('a blocking spec review finding that arrives after the request notifies the
     }),
   );
   const driver = harness.run();
-  await harness.until(state => state.attention?.reason === 'approve-spec:1', 'first request');
+  const requests = () =>
+    harness.store.events().filter(event => event.type === 'attention.needed' && event.reason === 'approve-spec:1')
+      .length;
+  await harness.until(
+    state => state.attention?.reason === 'approve-spec:1' && state.stages.has('spec-review:1'),
+    'request with the checks, review running',
+  );
+  const before = requests();
   release();
   const renotified = await harness.until(state => state.specReviews.has(1), 'review recorded');
-  const requests = harness.store
-    .events()
-    .filter(event => event.type === 'attention.needed' && event.reason === 'approve-spec:1');
-  assert.equal(requests.length, 2, 'a second request carries the blocking finding');
+  assert.equal(requests(), before + 1, 'a fresh request carries the blocking finding');
   assert.match(renotified.attention?.detail ?? '', /1 blocking/);
   harness.command({ kind: 'abandon' });
   await driver;

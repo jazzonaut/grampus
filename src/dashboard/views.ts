@@ -62,6 +62,7 @@ export function taskDetail(
     messages: messagesOf(state, events),
     stages: [...state.stages.values()].map(stageView),
     testsFirst: state.testsFirst,
+    specChecks: latestSpecChecks(state),
     baseline: state.baseline,
     rounds: roundsOf(state),
     commands: commandsOf(state, events, queued),
@@ -74,11 +75,17 @@ export function taskDetail(
 
 /** The paths the dashboard may serve for a task: its spec versions and check logs, nothing else. */
 export function servableFiles(state: TaskState): Set<string> {
-  const runs = [state.baseline, ...state.verify.values()];
+  const runs = [...state.specChecks.values(), state.baseline, ...state.verify.values()];
   return new Set([
     ...state.specs.map(spec => spec.path),
     ...runs.flatMap(run => run?.results.map(result => result.logPath) ?? []),
   ]);
+}
+
+function latestSpecChecks(state: TaskState): TaskDetail['specChecks'] {
+  const version = state.specs.at(-1)?.version;
+  const run = version === undefined ? undefined : state.specChecks.get(version);
+  return version !== undefined && run ? { version, ...run } : null;
 }
 
 function statusOf(state: TaskState): TaskStatus {

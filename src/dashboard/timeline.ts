@@ -87,9 +87,14 @@ const describers: Describers = {
     const passed = event.results.filter(result => result.passed).length;
     const all = passed === event.results.length;
     return {
-      title: event.phase === 'baseline' ? 'Baseline checks' : `Round ${event.round} checks`,
+      title:
+        event.phase === 'spec'
+          ? `Spec v${event.round} checks on the original commit`
+          : event.phase === 'baseline'
+            ? 'Baseline checks'
+            : `Round ${event.round} checks`,
       detail: `${passed}/${event.results.length} pass at ${short(event.sha)}`,
-      tone: event.phase === 'baseline' ? 'neutral' : all ? 'success' : 'error',
+      tone: event.phase === 'verify' ? (all ? 'success' : 'error') : 'neutral',
     };
   },
   'guard.recorded': event => ({

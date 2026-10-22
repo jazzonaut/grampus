@@ -20,21 +20,23 @@ interface Attempt {
 
 /**
  * Run each check in order at the worktree's current commit. With `rerunFailures`, a failing check runs
- * once more: a pass on the second attempt is recorded as flaky and counts as passing.
+ * once more: a pass on the second attempt is recorded as flaky and counts as passing. Aborting `signal`
+ * terminates the running check and skips the rest; the partial results are then not evidence.
  */
 export async function runChecks(
   cwd: string,
   checks: readonly CheckDefinition[],
   logDir: string,
-  options: { rerunFailures: boolean },
+  options: { rerunFailures: boolean; signal?: AbortSignal },
 ): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
   for (const check of checks) {
+    if (options.signal?.aborted) break;
     const base = join(logDir, safeName(check.name));
-    let attempt = await runCheck(cwd, check, `${base}.log`);
+    let attempt = await runCheck(cwd, check, `${base}.log`, options.signal);
     let flaky = false;
-    if (!passed(attempt) && options.rerunFailures) {
-      attempt = await runCheck(cwd, check, `${base}.rerun.log`);
+    if (!passed(attempt) && options.rerunFailures && !options.signal?.aborted) {
+      attempt = await runCheck(cwd, check, `${base}.rerun.log`, options.signal);
       flaky = passed(attempt);
     }
     results.push({ name: check.name, command: check.command, ...attempt, flaky, passed: passed(attempt) });
@@ -46,7 +48,7 @@ function passed(attempt: Attempt): boolean {
   return attempt.exitCode === 0 && !attempt.timedOut;
 }
 
-function runCheck(cwd: string, check: CheckDefinition, logPath: string): Promise<Attempt> {
+function runCheck(cwd: string, check: CheckDefinition, logPath: string, signal?: AbortSignal): Promise<Attempt> {
   const settings = currentSettings();
   const timeoutMs = (check.timeoutSeconds ?? settings.defaultCheckTimeoutSeconds) * 1000;
   const log = openSync(logPath, 'w');
@@ -73,6 +75,8 @@ function runCheck(cwd: string, check: CheckDefinition, logPath: string): Promise
       timedOut = true;
       terminateTree(child.pid);
     }, timeoutMs);
+    const abort = () => terminateTree(child.pid);
+    signal?.addEventListener('abort', abort, { once: true });
     child.stdout.on('data', write);
     child.stderr.on('data', write);
     let settled = false;
@@ -81,6 +85,7 @@ function runCheck(cwd: string, check: CheckDefinition, logPath: string): Promise
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       const durationMs = Math.round(performance.now() - started);
       if (timedOut) writeSync(log, `\n[grampus: timed out after ${timeoutMs} ms]\n`);
       closeSync(log);

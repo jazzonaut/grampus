@@ -128,7 +128,14 @@ export type TaskEvent =
   | { type: 'command.applied'; command: UserCommand }
   | { type: 'command.refused'; command: UserCommand; reason: string }
   | { type: 'tests.recorded'; sha: string; files: string[] }
-  | { type: 'checks.recorded'; phase: 'baseline' | 'verify'; round: number; sha: string; results: CheckResult[] }
+  | {
+      type: 'checks.recorded';
+      /** `spec`: at the base commit while spec version `round` awaits approval. */
+      phase: 'spec' | 'baseline' | 'verify';
+      round: number;
+      sha: string;
+      results: CheckResult[];
+    }
   | { type: 'guard.recorded'; round: number; fromSha: string; sha: string; guard: GuardResult }
   | {
       type: 'review.recorded';

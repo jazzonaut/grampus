@@ -14,7 +14,10 @@ import {
 } from './helpers/task-fixture.js';
 
 async function approveAndWait(harness: Harness, reason: string) {
-  await harness.until(state => state.attention?.reason === 'approve-spec:1', 'spec approval');
+  await harness.until(
+    state => state.attention?.reason === 'approve-spec:1' && state.specReviews.has(1),
+    'spec approval',
+  );
   harness.command({ kind: 'approve', specVersion: 1 });
   return harness.until(state => state.attention?.reason === reason, reason);
 }

@@ -31,6 +31,9 @@ Then exactly one fenced code block whose info string is \`grampus\`, containing 
   criteria hold. Prefer the project's existing commands and narrow them to the relevant tests. Each
   must be deterministic and finish within its timeout. They may name tests the builder will add; say
   under the criteria which tests are expected.
+- A check must exit 0 whenever the tests it targets pass. Narrow by test project or package, not by a
+  filter over a whole solution or workspace: some runners fail when a project runs no tests. Grampus
+  runs every check on the current commit before approval and shows the user any that fail.
 - "protected": repository globs the builder must not change (usually empty).`;
 
 const reportFormat = `Write the report as JSON:
@@ -45,11 +48,18 @@ Use "unknown" when you cannot decide; it is a valid answer and better than a gue
 
 // The user reads a failure report before deciding, so it is short and scannable; the dashboard renders it
 // as Markdown.
-const failureReport = `With --outcome failed, write the message as a short Markdown list, one point per
-line: what you changed, what still fails and why, what is not done, and what you need the user to decide.`;
+const failureReport = `Before you send --outcome failed, commit the work worth keeping: uncommitted work is
+not reviewed and the next round cannot build on it. With --outcome failed, write the message as a short
+Markdown list, one point per line: what you changed, what still fails and why, what is not done, and
+what you need the user to decide.`;
 
 function bullets(lines: readonly string[]): string {
   return lines.map(line => `- ${line}`).join('\n');
+}
+
+function checkOutcome(result: CheckResult): string {
+  if (result.passed) return 'passed';
+  return result.timedOut ? 'FAILED (timed out)' : `FAILED (exit ${result.exitCode ?? 'none'})`;
 }
 
 function checkList(checks: readonly CheckDefinition[]): string {
@@ -97,7 +107,20 @@ ACCEPTANCE: the spec file exists in this format. Then send worker_done with --ou
 --report-path ${input.specPath}. Use --outcome failed only if no useful spec is possible, and say why.`;
 }
 
-export function specReviewPrompt(input: { specPath: string; reportPath: string }): string {
+export function specReviewPrompt(input: {
+  specPath: string;
+  reportPath: string;
+  /** The spec's checks as Grampus ran them on the current commit, with failing log tails; null if they could not run. */
+  checksBefore: readonly { result: CheckResult; excerpt: string | null }[] | null;
+}): string {
+  const before = input.checksBefore
+    ? `Grampus ran the spec's checks on the current commit, before any change:
+${input.checksBefore.map(({ result, excerpt }) => `- ${result.name}: ${checkOutcome(result)}${excerpt ? `. Log tail:\n${excerpt}` : ''}`).join('\n')}
+A check may fail here only because the behaviour is missing, for example because it runs tests the
+builder will add. A check that fails for any other reason (no tests ran, a missing tool or dependency,
+a command that cannot work) can never prove its criteria, and is blocking. A check that already passes
+shows no regression but not the new behaviour.`
+    : `Grampus could not run the spec's checks on the current commit; judge the commands by reading them.`;
   return `ROLE: spec reviewer, independent of the spec writer.
 
 TARGET: the spec at ${input.specPath} and this repository, read-only.
@@ -106,6 +129,8 @@ CHANGE: review the spec before the user approves it and write a report to ${inpu
 Look for: ambiguity that would change the result, missing edge cases, criteria that no check
 exercises, checks that cannot prove their criteria or are likely slow or flaky, and scope beyond
 the request. Severity "blocking" means it must be resolved before building; everything else is a note.
+
+${before}
 
 CONSTRAINTS: do not edit any file except the report. Do not repeat the spec back.
 

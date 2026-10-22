@@ -57,16 +57,19 @@ spec ─► spec review ─► [approve] ─► (tests first) ─► baseline �
 1. **Spec.** A worker investigates the repository, asks about consequential ambiguities through
    Orca's `ask` (the user answers from their control chat or the CLI), and writes a spec: outcome, acceptance
    criteria, concrete examples, exclusions, check commands and protected paths.
-2. **Spec review.** A worker from the other model family reviews the spec for gaps and
-   ambiguity while the user reads it. Its findings arrive as a fresh approval request when ready.
-   They do not loop automatically.
+2. **Spec review.** Grampus first runs the spec's checks on the base commit, because a check that
+   fails there for a reason other than the missing behaviour (no tests ran, a missing tool) can
+   never pass, and that is cheapest to learn before anything is built. A worker from the other
+   model family then reviews the spec, with those results, for gaps and ambiguity while the user
+   reads it. Results and findings arrive as fresh approval requests when ready. They do not loop
+   automatically.
 3. **Approval.** An Orca gate blocks the build until the user approves this exact spec
-   version, or asks for a revision. The approval request carries the spec text and its review, so
-   nobody is asked to approve a spec they have not been shown.
+   version, or asks for a revision. The approval request carries the spec text, its checks on the
+   base commit and its review, so nobody is asked to approve a spec they have not been shown.
 4. **Tests first** (optional per recipe, off by default). A worker turns the spec examples
    into failing acceptance tests and commits them. Those files become protected.
-5. **Baseline.** Grampus runs the check commands on the base commit so failures that existed
-   before the change are known before any repair.
+5. **Baseline.** The check results on the base commit, so failures that existed before the change
+   are known before any repair. They are rerun only when tests first moved the commit.
 6. **Build.** A worker implements the spec in the task worktree and commits on its branch.
 7. **Verify.** Grampus checks that the tree is clean and the branch moved, guards protected
    files and tests against deletion or weakening, and runs every check at the head SHA. A

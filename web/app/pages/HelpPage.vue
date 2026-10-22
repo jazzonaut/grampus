@@ -25,7 +25,7 @@ const steps: { id: StepId; label: string; text: string }[] = [
   {
     id: 'spec-review',
     label: 'Spec review',
-    text: 'A model from the other family reviews the spec while you read it. Its findings are shown, never looped.',
+    text: 'Grampus runs the checks before any change, then a model from the other family reviews the spec with their results while you read it. Its findings are shown, never looped.',
   },
   {
     id: 'approve',
@@ -40,7 +40,7 @@ const steps: { id: StepId; label: string; text: string }[] = [
   {
     id: 'baseline',
     label: 'Baseline',
-    text: 'Grampus runs the checks before the change, so earlier failures are known.',
+    text: 'The checks before the change, so earlier failures are known. Usually the run you saw before approving.',
   },
   { id: 'build', label: 'Build', text: 'A worker implements the spec in the task worktree and commits.' },
   {
