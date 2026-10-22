@@ -6,7 +6,7 @@ import { runChecks, logExcerpt } from '../checks/run-checks.js';
 import { currentSettings } from '../config/settings.js';
 import { judgeCodeReview, parseReviewReport } from '../domain/review.js';
 import { repairAssignment, type Assignment } from '../domain/recipe.js';
-import type { TaskOutcome, UserCommand } from '../domain/events.js';
+import type { GuardResult, TaskOutcome, UserCommand } from '../domain/events.js';
 import { changedPaths, headSha } from '../git/git.js';
 import type { DriverCore, Launch, Settled } from './driver-core.js';
 import { measureDispatches } from '../measure/usage.js';
@@ -188,6 +188,8 @@ async function verify(core: DriverCore, worktree: string, spec: SpecVersion, rou
       protectedGlobs: spec.protected,
       protectedFiles: protectedFiles(core),
       testPatterns: currentSettings().testFilePatterns,
+      checkConfigPatterns: currentSettings().checkConfigPatterns,
+      checkCommands: spec.checks.map(check => check.command),
     });
     core.record({ type: 'guard.recorded', round, fromSha, sha, guard });
     if (guard.violations.length) core.log(`Guard: ${guard.violations.join('; ')}`);
@@ -222,7 +224,8 @@ async function review(core: DriverCore, worktree: string, round: number): Promis
         sha: candidate.sha,
         reportPath,
         results: candidate.results,
-        modifiedTests: guard.guard.modifiedTests,
+        modifiedTests: sinceBuild(core, round, result => result.modifiedTests),
+        modifiedCheckConfig: sinceBuild(core, round, result => result.modifiedCheckConfig ?? []),
         previousFindings: round > 0 ? (core.state.reviews.get(round - 1)?.blocking ?? []) : [],
       }),
     launch: { assignment },
@@ -291,12 +294,12 @@ function askUser(core: DriverCore, round: number, decision: 'escalate' | 'ready'
   if (decision === 'ready')
     return core.decide(
       `ready:${round}`,
-      `Verified at ${sha}: every check passes${verdict ? `, review ${verdict}` : ', no review'}.${baselineNote(core)} Accept, continue with guidance, or abandon.`,
+      `Verified at ${sha}: every check passes${verdict ? `, review ${verdict}` : ', no review'}.${baselineNote(core)}${checkConfigNote(core, round)} Accept, continue with guidance, or abandon.`,
       ['accept', 'continue', 'abandon'],
     );
   return core.decide(
     `escalate:${round}`,
-    `Round ${round} needs you at ${sha}: ${reasons.join('; ')}. Continue with guidance, accept anyway, or abandon.`,
+    `Round ${round} needs you at ${sha}: ${reasons.join('; ')}.${checkConfigNote(core, round)} Continue with guidance, accept anyway, or abandon.`,
     ['continue', 'accept', 'abandon'],
   );
 }
@@ -310,6 +313,33 @@ function baselineNote(core: DriverCore): string {
   if (!passedBefore.length) return '';
   const all = passedBefore.length === core.state.baseline?.results.length;
   return ` Note: ${all ? 'every check' : `check ${passedBefore.map(name => `"${name}"`).join(', ')}`} also passed before the change, so the checks show no regression but do not demonstrate the new behaviour.`;
+}
+
+/**
+ * A change to how checks run can make them pass without the behaviour, and no check would notice; only
+ * the review and the user can. Named across every round, since the decision is about the whole change.
+ */
+function checkConfigNote(core: DriverCore, round: number): string {
+  const changed = sinceBuild(core, round, result => result.modifiedCheckConfig ?? []);
+  if (!changed.length) return '';
+  return ` Note: check configuration changed since the build started: ${changed.join(', ')}. Make sure it does not make a check pass without the behaviour.`;
+}
+
+/**
+ * Paths a guard list names in any round up to `round`. The reviewer and the user judge the whole change
+ * since the build started, while each guard record covers one round.
+ */
+function sinceBuild(
+  core: DriverCore,
+  round: number,
+  pick: (guard: GuardResult) => readonly string[] | undefined,
+): string[] {
+  const paths = new Set<string>();
+  for (let earlier = 0; earlier <= round; earlier++) {
+    const guard = core.state.guard.get(earlier)?.guard;
+    for (const path of (guard && pick(guard)) ?? []) paths.add(path);
+  }
+  return [...paths];
 }
 
 /** Release the workers and record the outcome. */

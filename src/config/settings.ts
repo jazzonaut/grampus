@@ -34,6 +34,8 @@ export interface Settings {
   checkShell: string | null;
   /** Repository paths treated as tests by the integrity guard. */
   testFilePatterns: readonly string[];
+  /** Repository paths that configure how checks run; the guard names changes to them for the reviewer. */
+  checkConfigPatterns: readonly string[];
   /** Saved recipes beside the built-in `standard` recipe. */
   recipes: readonly Recipe[];
   /** Folders searched for Claude session transcripts (`<root>/<project>/<session>.jsonl`). */
@@ -74,6 +76,28 @@ export function defaultSettings(): Settings {
     defaultCheckTimeoutSeconds: 15 * 60,
     checkShell: null,
     testFilePatterns: ['**/*.test.*', '**/*.spec.*', '**/test/**', '**/tests/**', '**/__tests__/**'],
+    checkConfigPatterns: [
+      '**/Directory.Build.props',
+      '**/Directory.Build.targets',
+      '**/*.runsettings',
+      '**/testconfig.json',
+      '**/global.json',
+      '**/package.json',
+      '**/tsconfig*.json',
+      '**/vitest.config.*',
+      '**/vitest.workspace.*',
+      '**/jest.config.*',
+      '**/playwright.config.*',
+      '**/eslint.config.*',
+      '**/.eslintrc*',
+      '**/eslint-suppressions.json',
+      '**/pyproject.toml',
+      '**/pytest.ini',
+      '**/setup.cfg',
+      '**/tox.ini',
+      '**/conftest.py',
+      '**/Makefile',
+    ],
     recipes: [],
     claudeProjectRoots: [join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'projects')],
     codexSessionRoots: [join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'sessions')],
@@ -103,6 +127,7 @@ const fileSchema = z
     defaultCheckTimeoutSeconds: z.number().int().positive().max(specLimits.checkTimeoutSeconds),
     checkShell: z.string().min(1).nullable(),
     testFilePatterns: z.array(z.string().min(1)),
+    checkConfigPatterns: z.array(z.string().min(1)),
     recipes: z.array(recipeSchema),
     claudeProjectRoots: z.array(z.string().min(1)),
     codexSessionRoots: z.array(z.string().min(1)),

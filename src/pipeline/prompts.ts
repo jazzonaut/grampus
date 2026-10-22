@@ -228,6 +228,7 @@ export function reviewPrompt(input: {
   reportPath: string;
   results: readonly CheckResult[];
   modifiedTests: readonly string[];
+  modifiedCheckConfig: readonly string[];
   previousFindings: readonly Finding[];
 }): string {
   const results = bullets(
@@ -250,6 +251,12 @@ Check results at ${input.sha.slice(0, 12)}, run by Grampus:
 ${results}${
     input.modifiedTests.length
       ? `\nExisting tests this change modified; check they were not weakened:\n${bullets(input.modifiedTests)}`
+      : ''
+  }${
+    input.modifiedCheckConfig.length
+      ? `\nFiles that configure how the checks run, changed by this change (runner, build or lint settings, or
+files a check command names). A change here that makes a check pass without the behaviour it tests, for
+example by ignoring an exit code, skipping tests or relaxing a rule, is blocking:\n${bullets(input.modifiedCheckConfig)}`
       : ''
   }
 ${previous}

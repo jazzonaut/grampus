@@ -9,6 +9,7 @@ import {
   createHarness,
   goodWorkers,
   outputPath,
+  reviewJson,
   roleOf,
   specText,
   worktreeOf,
@@ -172,6 +173,39 @@ test('acceptance warns when the checks already passed before the change', async 
   assert.equal(measured.length, 4, 'every dispatch is measured when the task finishes');
   assert.equal(measured[0]?.note, 'no provider session found', 'the fake has no transcripts: unknown, not zero');
   assert.equal(measured[0]?.usage, null);
+});
+
+test('check configuration changed in any round is named for the reviewer and the user', async () => {
+  const reviewPrompts: string[] = [];
+  const harness = await createHarness(h =>
+    goodWorkers(h, {
+      build: async () => {
+        const worktree = worktreeOf(h);
+        write(worktree, 'Directory.Build.props', '<Project />\n');
+        await commitAll(worktree, 'Ignore an exit code but do not greet yet');
+        return { outcome: 'succeeded' };
+      },
+      review: context => {
+        reviewPrompts.push(context.spec);
+        writeFileSync(outputPath(context.spec), reviewJson('approve'));
+        return { outcome: 'succeeded' };
+      },
+    }),
+  );
+  const driver = harness.run();
+  await harness.until(state => state.attention?.reason === 'approve-spec:1', 'approval');
+  harness.command({ kind: 'approve', specVersion: 1 });
+  const ready = await harness.until(state => state.attention?.reason === 'ready:1', 'ready after a repair');
+  assert.deepEqual(ready.guard.get(0)?.guard.modifiedCheckConfig, ['Directory.Build.props']);
+  assert.deepEqual(ready.guard.get(1)?.guard.modifiedCheckConfig, []);
+  assert.equal(reviewPrompts.length, 2);
+  for (const prompt of reviewPrompts) assert.match(prompt, /configure how the checks run[^]*Directory\.Build\.props/);
+  assert.match(
+    ready.attention?.detail ?? '',
+    /check configuration changed since the build started: Directory\.Build\.props/,
+  );
+  harness.command({ kind: 'abandon' });
+  await driver;
 });
 
 test('the spec reaches the user before its review, and approving early stops the reviewer', async () => {

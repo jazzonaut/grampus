@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { logExcerpt, runChecks } from '../src/checks/run-checks.js';
+import { currentSettings } from '../src/config/settings.js';
 import { git, headSha } from '../src/git/git.js';
 import { inspectCandidate } from '../src/pipeline/guard.js';
 import { excludeWorkerFolder } from '../src/pipeline/workspace-files.js';
@@ -14,7 +15,7 @@ const testPatterns = ['**/*.test.*', '**/test/**'];
 async function guard(
   repo: string,
   fromSha: string,
-  extra: { protectedGlobs?: string[]; protectedFiles?: string[] } = {},
+  extra: { protectedGlobs?: string[]; protectedFiles?: string[]; checkCommands?: string[] } = {},
 ) {
   return inspectCandidate({
     cwd: repo,
@@ -23,6 +24,8 @@ async function guard(
     protectedGlobs: extra.protectedGlobs ?? [],
     protectedFiles: extra.protectedFiles ?? [],
     testPatterns,
+    checkConfigPatterns: currentSettings().checkConfigPatterns,
+    checkCommands: extra.checkCommands ?? [],
   });
 }
 
@@ -53,6 +56,24 @@ test('the guard fails deleted tests, protected paths, uncommitted work and missi
   assert.match(result.violations.join('\n'), /Test file deleted: test\/greet.test.js/);
   assert.match(result.violations.join('\n'), /Protected path changed \(M\): greet.js/);
   assert.match(result.violations.join('\n'), /Uncommitted changes remain: scratch.txt/);
+});
+
+test('the guard names changed check configuration apart from tests', async () => {
+  useTestSettings();
+  const repo = await createRepository();
+  write(repo, 'scripts/check.mjs', 'process.exit(0);\n');
+  await commitAll(repo, 'Add a check script');
+  const base = await headSha(repo);
+  write(repo, 'Directory.Build.props', '<Project />\n');
+  write(repo, 'package.json', '{"type": "module", "scripts": {"test": "exit 0"}}\n');
+  write(repo, 'scripts/check.mjs', 'process.exit(0); // relaxed\n');
+  write(repo, 'test/vitest.config.js', 'export default {};\n');
+  write(repo, 'greet.js', '// changed\n');
+  await commitAll(repo, 'Relax the checks');
+  const result = await guard(repo, base, { checkCommands: ['node "scripts\\check.mjs"'] });
+  assert.deepEqual(result.violations, []);
+  assert.deepEqual(result.modifiedCheckConfig, ['Directory.Build.props', 'package.json', 'scripts/check.mjs']);
+  assert.deepEqual(result.modifiedTests, []);
 });
 
 test('the guard notices a rewritten branch', async () => {

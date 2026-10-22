@@ -18,6 +18,7 @@ the installed data directory.
 | `defaultCheckTimeoutSeconds` | `900` | Check timeout when the spec sets none (at most 3600) |
 | `checkShell` | `null` | Shell for check commands; null uses cmd.exe on Windows and /bin/sh elsewhere |
 | `testFilePatterns` | `**/*.test.*`, `**/*.spec.*`, `**/test/**`, `**/tests/**`, `**/__tests__/**` | Paths the guard treats as tests |
+| `checkConfigPatterns` | `**/Directory.Build.props`, `**/Directory.Build.targets`, `**/*.runsettings`, `**/testconfig.json`, `**/global.json`, `**/package.json`, `**/tsconfig*.json`, `**/vitest.config.*`, `**/vitest.workspace.*`, `**/jest.config.*`, `**/playwright.config.*`, `**/eslint.config.*`, `**/.eslintrc*`, `**/eslint-suppressions.json`, `**/pyproject.toml`, `**/pytest.ini`, `**/setup.cfg`, `**/tox.ini`, `**/conftest.py`, `**/Makefile` | Paths outside the tests that configure how checks run; the guard names changes to them, and to files a check command names, for the reviewer and the user |
 | `recipes` | `[]` | Saved recipes beside the built-in `standard` recipe |
 | `claudeProjectRoots` | `["<CLAUDE_CONFIG_DIR or ~/.claude>/projects"]` | Where Claude session transcripts are searched for measurement |
 | `codexSessionRoots` | `["<CODEX_HOME or ~/.codex>/sessions"]` | Where Codex rollouts are searched for measurement |

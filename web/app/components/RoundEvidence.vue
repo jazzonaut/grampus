@@ -67,6 +67,17 @@ const verdictColor = { approve: 'success', changes: 'warning', unknown: 'neutral
           <li v-for="file in round.guard.result.modifiedTests" :key="file">{{ file }}</li>
         </ul>
       </div>
+      <div v-if="round.guard.result.modifiedCheckConfig?.length" class="text-sm text-warning space-y-0.5">
+        <p>
+          {{ round.guard.result.modifiedCheckConfig.length }} check configuration file{{
+            round.guard.result.modifiedCheckConfig.length === 1 ? '' : 's'
+          }}
+          changed:
+        </p>
+        <ul class="font-mono text-xs space-y-0.5">
+          <li v-for="file in round.guard.result.modifiedCheckConfig" :key="file">{{ file }}</li>
+        </ul>
+      </div>
     </section>
 
     <CheckRun v-if="round.checks" :task-id="task.taskId" :run="round.checks" title="Checks" />

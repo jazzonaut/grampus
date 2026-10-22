@@ -107,12 +107,18 @@ between two calls, such as a spec review landing while an agent talked to the us
    the task.
 8. **Verify.** The guard compares the round's start commit with HEAD: uncommitted or untracked files,
    no new commit, rewritten history, protected paths changed, test files deleted or renamed out of the
-   test patterns. Modified tests are listed for the reviewer. Then every check runs at HEAD; a failing
-   check runs once more and a pass is recorded as flaky.
+   test patterns. Modified tests are listed for the reviewer, and so is check configuration: files
+   outside the tests that decide how checks run (`checkConfigPatterns`, such as
+   `Directory.Build.props` or `package.json`, plus any file a check command names), whether changed,
+   added or deleted. Then every check runs at HEAD; a failing check runs once more and a pass is
+   recorded as flaky.
 9. **Review** (`review:<r>`, optional). The reviewer sees the whole change since the build started,
-   the check results, modified tests and the previous round's blocking findings. Only findings with a
-   file, a line and a scenario block; others are kept as downgraded notes.
-10. **Decision.** Ready when there are no guard violations, failing checks or blocking findings. A
+   the check results, the tests and check configuration modified in any round so far, and the previous
+   round's blocking findings. A check configuration change that makes a check pass without the
+   behaviour is blocking. Only findings with a file, a line and a scenario block; others are kept as
+   downgraded notes.
+10. **Decision.** Ready when there are no guard violations, failing checks or blocking findings. The
+    request to the user names any check configuration changed since the build started. A
     builder that reported failure, or an unavailable review, escalates immediately. Otherwise repair
     while `round < maxRounds + continues`, then escalate.
 11. **The user** accepts (recorded as an override after escalation), continues with guidance (one more

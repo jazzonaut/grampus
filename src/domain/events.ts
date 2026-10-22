@@ -40,6 +40,12 @@ export interface GuardResult {
   violations: string[];
   /** Existing test files the round modified; shown to the reviewer. */
   modifiedTests: string[];
+  /**
+   * Files outside the tests that decide how checks run (runner, build or lint settings, scripts a check
+   * names) which the round changed, added or deleted; shown to the reviewer and the user. Absent in
+   * rounds recorded before Grampus named them, which means none were named, not none were changed.
+   */
+  modifiedCheckConfig?: string[];
 }
 
 /** The launch Orca reported: what was asked for and what it says ran. */

@@ -127,6 +127,9 @@ function guardLines(guard: GuardResult | undefined): string[] {
     `${guard.commits} commit${guard.commits === 1 ? '' : 's'}; changed: ${files || 'nothing'}${more}`,
     ...guard.violations.map(violation => `integrity problem: ${violation}`),
     ...(guard.modifiedTests.length ? [`existing tests modified: ${guard.modifiedTests.join(', ')}`] : []),
+    ...(guard.modifiedCheckConfig?.length
+      ? [`check configuration changed: ${guard.modifiedCheckConfig.join(', ')}`]
+      : []),
   ];
 }
 
