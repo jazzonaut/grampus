@@ -23,6 +23,8 @@ after(async () => {
 async function start(): Promise<{ home: string; base: string; orca: FakeOrca }> {
   useTestSettings({ waitPollMs: 20 });
   const home = mkdtempSync(join(tmpdir(), 'grampus-actions-'));
+  // Saving a recipe reloads settings from config.json; naming must stay off for the tasks started after.
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ titleModel: null }));
   const orca = new FakeOrca(() => 'hang');
   const server = await serveDashboard({ dataDir: home, port: 0, selfCommand: 'grampus-test', webRoot: home, orca });
   running.push(server);
@@ -114,6 +116,22 @@ test('repositories list recent ones first, then the rest Orca knows, without dup
       ['C:/code/beta', false],
     ],
   );
+});
+
+test('removing a task from the dashboard does what grampus remove does, refusals included', async () => {
+  const { home, base } = await start();
+  const store = taskIn(home, 'C:/code/alpha');
+  const unfinished = await send(base, 'DELETE', '/api/tasks/task-1', { worktree: false, force: false });
+  assert.equal(unfinished.status, 409);
+  assert.match(await unfinished.text(), /has not finished/);
+
+  store.append({ type: 'task.finished', outcome: 'abandoned', sha: null, override: false, reason: null });
+  const removed = await send(base, 'DELETE', '/api/tasks/task-1', { worktree: false, force: false });
+  assert.equal(removed.status, 200, await removed.clone().text());
+  assert.deepEqual(await removed.json(), { taskId: 'task-1', worktree: 'kept', worktreePath: join(home, 'wt') });
+  assert.equal(existsSync(store.dir), false);
+  assert.equal((await fetch(`${base}/api/tasks/task-1`)).status, 404);
+  assert.equal((await send(base, 'DELETE', '/api/tasks/task-1', { worktree: false, force: false })).status, 404);
 });
 
 test('open in Orca brings the driver terminal or the changed files forward', async () => {

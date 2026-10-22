@@ -1,6 +1,7 @@
 // Creates a task: its folder and log, an Orca worktree, and the Orca terminal that runs its driver.
 import { randomBytes } from 'node:crypto';
 import { basename, dirname } from 'node:path';
+import { suggestTitle } from '../agents/title.js';
 import { inputLimits } from '../config/limits.js';
 import { availableRecipes } from '../config/settings.js';
 import type { Recipe } from '../domain/recipe.js';
@@ -45,7 +46,7 @@ export async function createTask(
     throw new Error(`The request must be between 1 and ${inputLimits.requestLength} characters.`);
   const recipe = input.recipe ?? findRecipe(input.recipeName ?? 'standard');
   const repoRoot = await resolveRepository(input.repoPath);
-  const title = (input.title?.trim() || firstLine(request)).slice(0, inputLimits.titleLength);
+  const title = await taskTitle(request, input.title);
   const taskId = `${slug(title)}-${randomBytes(3).toString('hex')}`;
   const store = TaskStore.create(input.dataDir, taskId);
   const comparison = input.comparison;
@@ -138,6 +139,15 @@ function findRecipe(name: string): Recipe {
         .join(', ')}.`,
     );
   return recipe;
+}
+
+/**
+ * The title a task or comparison gets: the one given, else one a small model suggests, else the request's
+ * first line. It also names the task id, worktree and branch, so it is settled before anything exists.
+ */
+export async function taskTitle(request: string, given: string | undefined): Promise<string> {
+  const title = given?.trim() || (await suggestTitle(request)) || firstLine(request);
+  return title.slice(0, inputLimits.titleLength);
 }
 
 function firstLine(text: string): string {

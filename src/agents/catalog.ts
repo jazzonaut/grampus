@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { currentSettings } from '../config/settings.js';
 import type { Agent } from '../domain/recipe.js';
-import { runProcess } from '../process/run.js';
+import { runCommandLine } from '../process/run.js';
 
 export interface ModelChoice {
   id: string;
@@ -38,21 +38,12 @@ const codexCatalogSchema = z.object({
   ),
 });
 
-/**
- * Run an agent CLI with fixed arguments. npm installs CLIs as `.cmd` shims on Windows, which Node cannot
- * start without a shell; the arguments here are constants, so passing them through cmd.exe is safe.
- */
+/** Run an agent CLI with fixed arguments and return what it printed. */
 async function runAgent(command: readonly string[], args: readonly string[]): Promise<string> {
-  const [file, ...prefix] = command;
-  if (!file) throw new Error('No command is configured.');
-  const shim = process.platform === 'win32' && !/\.exe$/i.test(file);
-  const result = shim
-    ? await runProcess(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', file, ...prefix, ...args], {
-        timeoutMs: catalogTimeoutMs,
-      })
-    : await runProcess(file, [...prefix, ...args], { timeoutMs: catalogTimeoutMs });
-  if (result.timedOut) throw new Error(`${file} did not answer within ${catalogTimeoutMs} ms.`);
-  if (result.exitCode !== 0) throw new Error(`${file} exited ${result.exitCode}: ${result.stderr.trim().slice(-300)}`);
+  const result = await runCommandLine(command, args, { timeoutMs: catalogTimeoutMs });
+  const name = command[0] ?? '';
+  if (result.timedOut) throw new Error(`${name} did not answer within ${catalogTimeoutMs} ms.`);
+  if (result.exitCode !== 0) throw new Error(`${name} exited ${result.exitCode}: ${result.stderr.trim().slice(-300)}`);
   return result.stdout;
 }
 

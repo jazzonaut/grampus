@@ -5,7 +5,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { pipelineOf, specSection, taskDetail } from '../src/dashboard/views.js';
+import { listItem, pipelineOf, specSection, taskDetail } from '../src/dashboard/views.js';
 import type { CheckResult, UserCommand } from '../src/domain/events.js';
 import { standardRecipe } from '../src/domain/recipe.js';
 import { foldEvents } from '../src/pipeline/state.js';
@@ -169,6 +169,62 @@ test('task detail pairs questions with answers, rounds with evidence, and queued
   );
   assert.equal(detail.status, 'running');
   assert.ok(detail.timeline.some(item => item.title === 'Round 0: repair' && item.tone === 'warning'));
+});
+
+test('a question whose worker finished before it was answered is closed, not waiting for the user', () => {
+  const store = taskInRepair();
+  store.append({
+    type: 'worker.message',
+    messageId: 'm4',
+    key: 'repair:1',
+    kind: 'question',
+    subject: 'Offsets?',
+    body: 'Accept numeric offsets?',
+  });
+  store.append({
+    type: 'stage.settled',
+    key: 'repair:1',
+    dispatchId: 'd3',
+    messageId: 'm5',
+    outcome: 'succeeded',
+    subject: 'Repaired',
+    body: '',
+  });
+  const events = store.events();
+  const state = foldEvents(events);
+  const detail = taskDetail(state, events, store.commands());
+
+  assert.equal(detail.messages.find(message => message.messageId === 'm4')?.closed, true);
+  assert.equal(detail.summary.questions.length, 0);
+  assert.equal(listItem(state, events).openQuestions, 0);
+  assert.equal(detail.status, 'running');
+});
+
+test("a worker's question stays open when an earlier worker on the same stage ends", () => {
+  const store = taskInRepair();
+  store.append({ type: 'stage.stopped', key: 'repair:1', dispatchId: 'd3', reason: 'retried' });
+  store.append({
+    type: 'stage.started',
+    key: 'repair:1',
+    dispatchId: 'd4',
+    assignment: null,
+    reusedHandle: null,
+    launch: null,
+  });
+  store.append({
+    type: 'worker.message',
+    messageId: 'm4',
+    key: 'repair:1',
+    kind: 'question',
+    subject: 'Offsets?',
+    body: 'Accept numeric offsets?',
+  });
+  store.append({ type: 'stage.exited', key: 'repair:1', dispatchId: 'd3' });
+  const events = store.events();
+  const state = foldEvents(events);
+
+  assert.equal(listItem(state, events).openQuestions, 1);
+  assert.equal(taskDetail(state, events, store.commands()).status, 'needs-you');
 });
 
 test("an escalated round keeps the builder's failure report apart from the other reasons", () => {

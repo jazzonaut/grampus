@@ -97,6 +97,14 @@ export const commands: readonly CommandInfo[] = [
     group: 'evidence',
     detail: 'Never pushes. Refuses when the branch has moved on or the checkout has uncommitted changes.',
   },
+  {
+    name: 'remove',
+    args: '<task> [--worktree] [--force]',
+    summary: 'Delete a finished task and its evidence; --worktree removes its worktree too',
+    group: 'evidence',
+    detail:
+      'Refused while its driver runs and for comparison entries. --force also removes an unfinished task whose driver cannot run (its workers are not stopped) and discards uncommitted changes in its worktree. Orca keeps the task branch unless it is merged.',
+  },
   { name: 'recipes', args: '', summary: 'List recipes', group: 'setup' },
   {
     name: 'update',

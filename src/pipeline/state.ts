@@ -27,6 +27,28 @@ export interface DispatchRecord {
   exited: boolean;
 }
 
+/**
+ * A worker's question. Orca closes a question once the dispatch that asked it ends, so a question
+ * recorded late, such as by a driver that restarted while the worker finished on its default, can be
+ * closed without an answer.
+ */
+export interface QuestionRecord {
+  key: string | null;
+  /** The dispatch that asked, null when the message came from no known stage. */
+  dispatchId: string | null;
+  subject: string;
+  body: string;
+  at: string;
+  answered: boolean;
+  /** The asking dispatch has ended, so Orca refuses any answer. */
+  closed: boolean;
+}
+
+/** Whether a question still waits for the user. */
+export function isOpen(question: QuestionRecord): boolean {
+  return !question.answered && !question.closed;
+}
+
 export interface StageRecord {
   key: string;
   stage: Stage;
@@ -98,7 +120,7 @@ export interface TaskState {
   reuseUnsupported: boolean;
   /** Orca message ids already recorded, so a replayed delivery is not recorded twice. */
   messages: Set<string>;
-  questions: Map<string, { key: string | null; subject: string; body: string; at: string; answered: boolean }>;
+  questions: Map<string, QuestionRecord>;
   testsFirst: { sha: string; files: string[] } | null;
   /** Checks of each spec version, run at the base commit while it awaited approval. */
   specChecks: Map<number, { sha: string; results: CheckResult[] }>;
@@ -241,23 +263,28 @@ const handlers: Handlers = {
     state.messages.add(event.messageId);
     const dispatch = requireDispatch(state, event.key, event.dispatchId);
     dispatch.settled = { outcome: event.outcome, subject: event.subject, body: event.body, at: event.at };
+    closeQuestions(state, event.dispatchId);
   },
   'stage.exited': (state, event) => {
     requireDispatch(state, event.key, event.dispatchId).exited = true;
+    closeQuestions(state, event.dispatchId);
   },
   // A stopped worker has ended like an exited one: it will not report.
   'stage.stopped': (state, event) => {
     requireDispatch(state, event.key, event.dispatchId).exited = true;
+    closeQuestions(state, event.dispatchId);
   },
   'worker.message': (state, event) => {
     state.messages.add(event.messageId);
     if (event.kind === 'question')
       state.questions.set(event.messageId, {
         key: event.key,
+        dispatchId: (event.key && state.stages.get(event.key)?.dispatches.at(-1)?.dispatchId) ?? null,
         subject: event.subject,
         body: event.body,
         at: event.at,
         answered: false,
+        closed: false,
       });
   },
   'gate.created': (state, event) => {
@@ -366,6 +393,10 @@ function simplifyRecord(state: TaskState, round: number): SimplifyRecord {
   const created: SimplifyRecord = { round, checked: null, decided: null };
   state.simplify.set(round, created);
   return created;
+}
+
+function closeQuestions(state: TaskState, dispatchId: string): void {
+  for (const question of state.questions.values()) if (question.dispatchId === dispatchId) question.closed = true;
 }
 
 function requireStage(state: TaskState, key: string): StageRecord {

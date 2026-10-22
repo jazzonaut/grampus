@@ -14,6 +14,7 @@ import {
   applyEvent,
   currentDispatch,
   foldEvents,
+  isOpen,
   type DispatchRecord,
   type StageRecord,
   type TaskState,
@@ -241,7 +242,8 @@ export class DriverCore {
     if (command.kind === 'reply') {
       const question = this.state.questions.get(command.messageId);
       if (!question) return `no question ${command.messageId}`;
-      return question.answered ? 'that question was already answered' : null;
+      if (question.answered) return 'that question was already answered';
+      return question.closed ? 'the worker that asked it has finished' : null;
     }
     const attention = this.state.attention;
     if (!attention?.options.includes(command.kind)) return `nothing is waiting for ${command.kind}`;
@@ -388,7 +390,7 @@ export class DriverCore {
   private quiet(record: StageRecord, dispatch: DispatchRecord): boolean {
     if (dispatch.settled || dispatch.exited) return false;
     for (const question of this.state.questions.values())
-      if (question.key === record.key && !question.answered) return false;
+      if (question.key === record.key && isOpen(question)) return false;
     return Date.now() - this.lastActivity(record, dispatch) >= currentSettings().stalledWorkerMs;
   }
 
@@ -549,16 +551,29 @@ export class DriverCore {
   /**
    * Run an Orca call, repeating it while its outcome is uncertain, such as while Orca restarts. Only for
    * calls that are safe to repeat: mutations with their recorded request id, reads, and stop or release.
+   * A busy refusal applied nothing, so it is repeated for as long as Orca stays busy and does not count
+   * towards `orcaRetries`; a run of parallel drivers can hold every long-poll slot for many minutes.
    */
   async repeatUncertain<T>(call: (repeat: number) => Promise<T>): Promise<T> {
     const { orcaRetries, orcaRetryDelayMs } = currentSettings();
+    let uncertain = 0;
+    let busy = false;
     for (let repeat = 0; ; repeat++) {
       try {
-        return await call(repeat);
+        const result = await call(repeat);
+        if (busy) this.log('Orca has room again.');
+        return result;
       } catch (error) {
-        if (!(error instanceof OrcaUncertainError) || repeat >= orcaRetries) throw error;
-        this.log(`${error.message} Repeating it (${repeat + 1} of ${orcaRetries}).`);
-        await sleep(orcaRetryDelayMs * (repeat + 1));
+        if (error instanceof OrcaBusyError) {
+          if (!busy) this.log(`${error.message} Waiting for room.`);
+          busy = true;
+          await sleep(orcaRetryDelayMs);
+          continue;
+        }
+        if (!(error instanceof OrcaUncertainError) || uncertain >= orcaRetries) throw error;
+        uncertain++;
+        this.log(`${error.message} Repeating it (${uncertain} of ${orcaRetries}).`);
+        await sleep(orcaRetryDelayMs * uncertain);
       }
     }
   }

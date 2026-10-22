@@ -13,8 +13,8 @@ the installed data directory.
 | `gitTimeoutMs` | `60000` | Deadline for one Git query |
 | `inboxWaitMs` | `5000` | How long the driver blocks on Orca's inbox before reading local commands |
 | `livenessIntervalMs` | `60000` | Minimum interval between liveness checks of unreported workers |
-| `orcaRetries` | `3` | How many times the driver repeats an Orca call whose outcome is unknown (Orca unreachable, timed out, no answer) before it stops |
-| `orcaRetryDelayMs` | `5000` | Wait before the first repeat; each later repeat waits that much longer. Also the wait between inbox checks while Orca is busy |
+| `orcaRetries` | `3` | How many times the driver repeats an Orca call whose outcome is unknown (Orca unreachable, timed out, no answer) before it stops. A busy Orca (`runtime_busy`) does not count: that call is repeated until Orca has room |
+| `orcaRetryDelayMs` | `5000` | Wait before the first repeat; each later repeat waits that much longer. Also the wait between repeats of any call while Orca is busy |
 | `driverHeartbeatMs` | `10000` | How often a running driver touches its `driver.lock`, so others can tell it is alive |
 | `driverStaleMs` | `60000` | A driver whose lock has not been touched for this long counts as gone: `status`, `wait` and the dashboard show it as stopped, and a new driver may take over. At least three heartbeats |
 | `stalledWorkerMs` | `3600000` (1 hour) | How long a worker the pipeline waits on may go without reporting, asking or being answered before the user is asked whether to retry it |
@@ -30,7 +30,9 @@ the installed data directory.
 | `codexSessionRoots` | `["<CODEX_HOME or ~/.codex>/sessions"]` | Where Codex rollouts are searched for measurement |
 | `dashboardPort` | `4545` | Port of `grampus dashboard` when `--port` is not given |
 | `dashboardHost` | `null` | Address the dashboard listens on; null is every interface (reachable from your network), `"127.0.0.1"` keeps it on this machine |
-| `claudeCommand` | `["claude"]` | The Claude Code CLI, asked for its model aliases and effort levels by the recipe editor |
+| `claudeCommand` | `["claude"]` | The Claude Code CLI, asked for its model aliases and effort levels by the recipe editor, and asked to name tasks |
+| `titleModel` | `"haiku"` | The Claude model that names a task or comparison from its request when no title is given (letters, digits and `.:[]_-` only); `null` uses the request's first line |
+| `titleTimeoutMs` | `30000` | How long naming may take before the request's first line is used instead |
 | `codexCommand` | `["codex"]` | The Codex CLI, asked for its model catalog by the recipe editor |
 | `comparisonConcurrency` | `2` | How many entries of a comparison run at once; the rest wait for a free place |
 | `modelPrices` | built-in table (see below) | API list prices per model for estimated cost; entries replace single models |

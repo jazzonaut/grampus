@@ -29,7 +29,7 @@ const sourceIcon = {
         <div
           class="min-w-0 rounded-2xl rounded-tl-sm border px-4 py-2.5"
           :class="
-            message.kind === 'question' && !message.answered
+            message.kind === 'question' && !message.answered && !message.closed
               ? 'border-warning/60 bg-warning/5'
               : 'border-default bg-elevated/40'
           "
@@ -59,6 +59,12 @@ const sourceIcon = {
           <UIcon name="i-lucide-user" class="size-4 text-primary" />
         </span>
       </div>
+      <p
+        v-else-if="message.kind === 'question' && message.closed"
+        class="text-sm text-muted pl-10 flex items-center gap-1.5"
+      >
+        <UIcon name="i-lucide-circle-slash" class="size-4" /> Closed without an answer: the worker finished first
+      </p>
       <slot v-else-if="message.kind === 'question'" name="reply" :message="message">
         <p class="text-sm text-warning pl-10 flex items-center gap-1.5">
           <UIcon name="i-lucide-hand" class="size-4" /> Waiting for your answer

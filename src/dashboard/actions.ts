@@ -1,4 +1,4 @@
-// Dashboard actions outside a task's command queue: starting a task, merging an accepted one, bringing
+// Dashboard actions outside a task's command queue: starting, merging and removing a task, bringing
 // Orca tabs forward, resuming a stopped driver, and editing recipes. Each does exactly what the matching
 // CLI command does.
 import { basename } from 'node:path';
@@ -13,6 +13,7 @@ import { mergeAccepted } from '../delivery/merge.js';
 import { recipeSchema, standardRecipe, type Recipe } from '../domain/recipe.js';
 import { OrcaError, OrcaUncertainError } from '../orca/client.js';
 import { createTask, driverTabTitle } from '../pipeline/create-task.js';
+import { removeTask } from '../pipeline/remove-task.js';
 import { loadComparison } from './comparisons.js';
 import { HttpError, readJson, sendJson } from './http.js';
 import type { Call, DashboardApp } from './api.js';
@@ -54,6 +55,18 @@ export async function mergeTask({ app, response, params }: Call): Promise<void> 
   const task = app.reader.load(params[0] ?? '');
   try {
     sendJson(response, 200, await mergeAccepted(task.store));
+  } catch (error) {
+    throw new HttpError(409, (error as Error).message);
+  }
+}
+
+const removeSchema = z.object({ worktree: z.boolean(), force: z.boolean() }).strict();
+
+/** `grampus remove`: delete the task and its evidence, and its worktree when asked. */
+export async function removeTaskRoute({ app, request, response, params }: Call): Promise<void> {
+  const options = removeSchema.parse(await readJson(request));
+  try {
+    sendJson(response, 200, await removeTask(app.dataDir, params[0] ?? '', options, app.orca));
   } catch (error) {
     throw new HttpError(409, (error as Error).message);
   }
