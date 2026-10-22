@@ -19,7 +19,11 @@ test('a task runs spec, approval, baseline, build, verify and review to acceptan
   const harness = await createHarness(h => goodWorkers(h));
   const driver = harness.run();
 
-  const awaiting = await harness.until(state => state.attention?.reason === 'approve-spec:1', 'spec approval');
+  // The spec review runs alongside the approval request; wait for it so the review line is present.
+  const awaiting = await harness.until(
+    state => state.attention?.reason === 'approve-spec:1' && state.specReviews.has(1),
+    'spec approval with its review',
+  );
   assert.equal(awaiting.specs.length, 1);
   assert.equal(awaiting.specReviews.get(1)?.report?.verdict, 'approve');
   assert.ok(awaiting.gate, 'the approval gate exists in Orca');
@@ -30,6 +34,12 @@ test('a task runs spec, approval, baseline, build, verify and review to acceptan
   harness.command({ kind: 'approve', specVersion: 1 });
 
   const ready = await harness.until(state => state.attention?.reason === 'ready:0', 'ready to accept');
+  // The accept request carries the evidence, so it can be shown before anyone is asked to decide.
+  const result = renderSummary(summarise(ready));
+  assert.match(result, /----- round 0 result/);
+  assert.match(result, /1 commit; changed: greet\.js/);
+  assert.match(result, /check greet: passed/);
+  assert.match(result, /review: approve\. Reviewed\./);
   assert.equal(ready.baseline?.results[0]?.passed, false, 'the check fails before the change');
   assert.equal(ready.verify.get(0)?.results[0]?.passed, true);
   assert.deepEqual(ready.guard.get(0)?.guard.violations, []);
@@ -161,4 +171,48 @@ test('acceptance warns when the checks already passed before the change', async 
   assert.equal(measured.length, 4, 'every dispatch is measured when the task finishes');
   assert.equal(measured[0]?.note, 'no provider session found', 'the fake has no transcripts: unknown, not zero');
   assert.equal(measured[0]?.usage, null);
+});
+
+test('the spec reaches the user before its review, and approving early stops the reviewer', async () => {
+  const harness = await createHarness(h => goodWorkers(h, { 'spec-review': () => 'hang' }));
+  const driver = harness.run();
+  const awaiting = await harness.until(state => state.attention?.reason === 'approve-spec:1', 'spec approval');
+  assert.equal(awaiting.specReviews.has(1), false, 'the review is still running');
+  assert.match(renderSummary(summarise(awaiting)), /spec review: still running/);
+  harness.command({ kind: 'approve', specVersion: 1 });
+  const building = await harness.until(state => state.stages.has('build:0'), 'build after early approval');
+  const reviewer = building.stages.get('spec-review:1')?.dispatches[0];
+  assert.ok(reviewer && harness.orca.stopped.includes(reviewer.dispatchId), 'the unfinished reviewer was stopped');
+  assert.match(building.specReviews.get(1)?.error ?? '', /stopped: the user decided before the review finished/);
+  harness.command({ kind: 'abandon' });
+  await driver;
+});
+
+test('a blocking spec review finding that arrives after the request notifies the user again', async () => {
+  let release = () => {};
+  const reviewDone = new Promise<void>(resolve => (release = resolve));
+  const harness = await createHarness(h =>
+    goodWorkers(h, {
+      'spec-review': async context => {
+        await reviewDone;
+        const finding = { severity: 'blocking', title: 'Greeting for an empty name is undefined' };
+        writeFileSync(
+          outputPath(context.spec),
+          JSON.stringify({ verdict: 'changes', summary: 'Gap.', findings: [finding] }),
+        );
+        return { outcome: 'succeeded' };
+      },
+    }),
+  );
+  const driver = harness.run();
+  await harness.until(state => state.attention?.reason === 'approve-spec:1', 'first request');
+  release();
+  const renotified = await harness.until(state => state.specReviews.has(1), 'review recorded');
+  const requests = harness.store
+    .events()
+    .filter(event => event.type === 'attention.needed' && event.reason === 'approve-spec:1');
+  assert.equal(requests.length, 2, 'a second request carries the blocking finding');
+  assert.match(renotified.attention?.detail ?? '', /1 blocking/);
+  harness.command({ kind: 'abandon' });
+  await driver;
 });

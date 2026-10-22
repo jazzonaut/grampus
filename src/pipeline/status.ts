@@ -3,8 +3,9 @@
 // acts on. An approval request carries the spec itself: nobody should be asked to approve unseen text.
 import { existsSync, readFileSync } from 'node:fs';
 import { specLimits } from '../config/limits.js';
-import type { CommandKind } from '../domain/events.js';
-import { currentDispatch, type TaskState } from './state.js';
+import type { CheckResult, CommandKind, GuardResult } from '../domain/events.js';
+import type { Finding } from '../domain/review.js';
+import { currentDispatch, type ReviewRecord, type TaskState } from './state.js';
 
 export interface TaskSummary {
   taskId: string;
@@ -23,6 +24,8 @@ export interface TaskSummary {
   refused: { kind: string; reason: string; at: string } | null;
   /** While a spec version awaits approval: its text and its review, to show before asking. */
   approval: { version: number; text: string; review: string[] } | null;
+  /** While a round awaits accept, continue or abandon: the evidence behind it, to show before asking. */
+  result: { round: number; lines: string[] } | null;
 }
 
 export function summarise(state: TaskState): TaskSummary {
@@ -68,6 +71,7 @@ export function summarise(state: TaskState): TaskSummary {
     lastStop: state.lastStop,
     refused: latestRefusal(state),
     approval: approvalOf(state),
+    result: resultOf(state),
   };
 }
 
@@ -82,8 +86,9 @@ function approvalOf(state: TaskState): TaskSummary['approval'] {
       ? `${Buffer.from(full).subarray(0, specLimits.shownBytes).toString('utf8')}\n[... cut; the full spec is ${latest.path}]`
       : full;
   const reviewed = state.specReviews.get(latest.version);
+  const reviewRunning = !reviewed && state.stages.has(`spec-review:${latest.version}`);
   const review = !reviewed
-    ? ['no spec review']
+    ? [reviewRunning ? 'spec review: still running; its findings are added here when it finishes' : 'no spec review']
     : reviewed.report
       ? [
           `spec review: ${reviewed.report.verdict}. ${reviewed.report.summary}`,
@@ -94,6 +99,62 @@ function approvalOf(state: TaskState): TaskSummary['approval'] {
       : [`spec review unavailable: ${reviewed.error ?? 'unknown'}`];
   return { version: latest.version, text, review };
 }
+
+/** The evidence for the round awaiting the user: commits, files, checks, guard and review. */
+function resultOf(state: TaskState): TaskSummary['result'] {
+  const match = /^(ready|escalate):(\d+)$/.exec(state.attention?.reason ?? '');
+  if (!match) return null;
+  const round = Number(match[2]);
+  const reasons = match[1] === 'escalate' ? (state.decisions.get(round)?.reasons ?? []) : [];
+  const lines = [
+    ...guardLines(state.guard.get(round)?.guard),
+    ...(state.verify.get(round)?.results ?? []).map(checkLine),
+    ...reviewLines(state.reviews.get(round)),
+    ...(reasons.length ? [`why it needs you: ${reasons.join('; ')}`] : []),
+  ];
+  return { round, lines };
+}
+
+function guardLines(guard: GuardResult | undefined): string[] {
+  if (!guard) return [];
+  const files = guard.changedFiles.slice(0, shownFiles).join(', ');
+  const more = guard.changedFiles.length > shownFiles ? ` and ${guard.changedFiles.length - shownFiles} more` : '';
+  return [
+    `${guard.commits} commit${guard.commits === 1 ? '' : 's'}; changed: ${files || 'nothing'}${more}`,
+    ...guard.violations.map(violation => `integrity problem: ${violation}`),
+    ...(guard.modifiedTests.length ? [`existing tests modified: ${guard.modifiedTests.join(', ')}`] : []),
+  ];
+}
+
+function checkLine(result: CheckResult): string {
+  const outcome = result.timedOut
+    ? 'TIMED OUT'
+    : !result.passed
+      ? 'FAILED'
+      : result.flaky
+        ? 'passed on rerun (flaky)'
+        : 'passed';
+  return `check ${result.name}: ${outcome} (${result.command})`;
+}
+
+function reviewLines(review: ReviewRecord | undefined): string[] {
+  if (!review) return ['no review in this recipe'];
+  if (!review.report) return [`review unavailable: ${review.error ?? 'unknown'}`];
+  const where = (finding: Finding) => `${finding.file ?? '?'}:${finding.line ?? '?'}`;
+  return [
+    `review: ${review.report.verdict}. ${review.report.summary}`,
+    ...review.blocking.map(finding =>
+      `- blocking: ${finding.title} (${where(finding)}) ${finding.scenario ?? ''}`.trimEnd(),
+    ),
+    ...review.report.findings
+      .filter(finding => finding.severity === 'note')
+      .map(finding => `- note: ${finding.title}${finding.detail ? ` (${finding.detail})` : ''}`),
+    ...review.downgraded.map(finding => `- unsupported blocker, kept as a note: ${finding.title}`),
+  ];
+}
+
+/** Changed files listed with a result before the rest are counted. */
+const shownFiles = 15;
 
 function latestRefusal(state: TaskState): TaskSummary['refused'] {
   const refused = state.refusals.at(-1);
@@ -126,6 +187,12 @@ export function renderSummary(summary: TaskSummary): string {
       summary.approval.text.trimEnd(),
       '  ----- end of spec -----',
       ...summary.approval.review.map(line => `  ${line}`),
+    );
+  if (summary.result)
+    lines.push(
+      `  ----- round ${summary.result.round} result (show this to the user before they decide) -----`,
+      ...summary.result.lines.map(line => `  ${line}`),
+      '  ----- end of result -----',
     );
   for (const question of summary.questions)
     lines.push(`  QUESTION ${question.messageId} (${question.stage ?? 'worker'}): ${question.text}`);

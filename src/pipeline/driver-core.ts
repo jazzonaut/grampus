@@ -120,18 +120,28 @@ export class DriverCore {
    * Ask the user to choose and wait for the command. `key` identifies the decision point, so after a
    * restart a decision already made is returned instead of being asked again.
    */
-  async decide(key: string, detail: string, options: CommandKind[]): Promise<UserCommand> {
+  async decide(
+    key: string,
+    detail: string,
+    options: CommandKind[],
+    /** Runs after every pump while waiting, for work that continues alongside the decision. */
+    watch?: () => Promise<void> | void,
+  ): Promise<UserCommand> {
     const made = this.decisionAfter(key, options);
     if (made) return made;
-    if (this.state.attention?.reason !== key) {
-      this.record({ type: 'attention.needed', reason: key, detail, options });
-      this.log(`Needs you: ${detail} [${options.join(', ')}]`);
-    }
+    if (this.state.attention?.reason !== key) this.requestDecision(key, detail, options);
     for (;;) {
       await this.pump();
       const decision = this.decisionAfter(key, options);
       if (decision) return decision;
+      await watch?.();
     }
+  }
+
+  /** Raise (or raise again, with new detail) a decision request, which wakes `grampus wait`. */
+  requestDecision(key: string, detail: string, options: CommandKind[]): void {
+    this.record({ type: 'attention.needed', reason: key, detail, options });
+    this.log(`Needs you: ${detail} [${options.join(', ')}]`);
   }
 
   private decisionAfter(key: string, options: CommandKind[]): UserCommand | null {
@@ -267,6 +277,26 @@ export class DriverCore {
         return Boolean(current?.settled || current?.exited);
       });
     }
+  }
+
+  /**
+   * Start a stage's worker without waiting for it, for work that runs alongside a decision. Start
+   * failures are recorded, not escalated: the caller treats them as a missing result.
+   */
+  async launchStage(request: StageRequest): Promise<StageRecord> {
+    const record = await this.ensureStageTask(request);
+    if (!currentDispatch(record) && !record.startFailure) await this.start(record, request, null);
+    return record;
+  }
+
+  /** Stop a stage's worker if it is still running, because its result is no longer needed. */
+  async stopStage(key: string, reason: string): Promise<void> {
+    const dispatch = currentDispatch(this.state.stages.get(key));
+    if (!dispatch || dispatch.settled || dispatch.exited) return;
+    await this.orca.stopWorker(dispatch.dispatchId).catch((error: unknown) => {
+      this.log(`Could not stop ${key}: ${(error as Error).message}`);
+    });
+    this.record({ type: 'stage.stopped', key, dispatchId: dispatch.dispatchId, reason });
   }
 
   private async ensureStageTask(request: StageRequest): Promise<StageRecord> {

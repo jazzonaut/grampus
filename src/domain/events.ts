@@ -74,6 +74,8 @@ export type TaskEvent =
       body: string;
     }
   | { type: 'stage.exited'; key: string; dispatchId: string }
+  /** Grampus stopped a worker whose result was no longer needed, such as a spec review after the decision. */
+  | { type: 'stage.stopped'; key: string; dispatchId: string; reason: string }
   | {
       type: 'worker.message';
       messageId: string;

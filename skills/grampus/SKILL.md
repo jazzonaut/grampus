@@ -50,13 +50,19 @@ Always pass `--source chat`.
 | Accept the verified result | `{{grampus}} accept <task> --source chat` |
 | Stop the task | `{{grampus}} abandon <task> --source chat "<reason>"` |
 
-**Never ask for a decision the user cannot see.** When a task needs approval, `wait` and `status`
-print the spec between `----- spec v<n> -----` and `----- end of spec -----`, followed by its review.
-In your reply, before any question or choice, show the user the outcome, every acceptance criterion,
-the examples, the out-of-scope list, the checks and each review finding, and give the spec file
-path. If your interface asks questions in a separate dialog, write this in your message first: the
-dialog alone is not enough. Before `accept`, report the round's checks, review verdict and any
-`Note:` in the request, and say plainly if the user is accepting with unresolved problems.
+**Never ask for a decision the user cannot see.** Every decision request carries its evidence, and
+you must show it in your reply before any question or choice. If your interface asks questions in a
+separate dialog, write the evidence in your message first: the dialog alone is not enough.
+
+- **Spec approval:** `wait` and `status` print the spec between `----- spec v<n> -----` and
+  `----- end of spec -----`, then its review. Show the outcome, every acceptance criterion, the
+  examples, the out-of-scope list, the checks and each review finding, and give the spec file path.
+  If the review is still running, say so: the user may approve now or wait. A later request for the
+  same version means the review found something blocking or failed; show what it found.
+- **Accept, continue or escalation:** they print the round's result between `----- round <r> result`
+  and `----- end of result -----`: commits and changed files, each check, integrity problems, the
+  review verdict and findings, and why it needs the user. Show all of it, plus any `Note:` in the
+  request, and say plainly if the user would be accepting with unresolved problems.
 
 A command is applied by the task's driver within a few seconds; confirm with `status`. If `status`
 shows `Refused`, the decision no longer applies (for example, a newer spec version exists).

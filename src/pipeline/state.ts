@@ -219,6 +219,10 @@ const handlers: Handlers = {
   'stage.exited': (state, event) => {
     requireDispatch(state, event.key, event.dispatchId).exited = true;
   },
+  // A stopped worker has ended like an exited one: it will not report.
+  'stage.stopped': (state, event) => {
+    requireDispatch(state, event.key, event.dispatchId).exited = true;
+  },
   'worker.message': (state, event) => {
     state.messages.add(event.messageId);
     if (event.kind === 'question')

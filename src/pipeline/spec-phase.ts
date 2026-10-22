@@ -1,6 +1,8 @@
 // The spec phase: a worker writes the spec (asking the user through Orca's `ask`), an
 // optional reviewer from the other family comments on it, and the user approves an exact version or asks
-// for a revision. Revisions continue the spec writer's conversation when Orca can reuse it.
+// for a revision. The spec reaches the user as soon as it is written; its review runs alongside and is
+// added when it lands, with a second request only when it finds something blocking. A review still
+// running when the user decides is stopped. Revisions continue the spec writer's conversation when Orca can reuse it.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { specLimits } from '../config/limits.js';
@@ -36,11 +38,21 @@ export async function approveSpec(core: DriverCore, worktree: string): Promise<S
       attempt = await afterRejection(core, number, recorded);
       continue;
     }
-    await reviewSpec(core, worktree, recorded);
-    const choice = await core.decide(`approve-spec:${recorded.version}`, approvalDetail(core, recorded), [
-      'approve',
-      'revise',
-    ]);
+    await startSpecReview(core, worktree, recorded);
+    const decision = `approve-spec:${recorded.version}`;
+    const choice = await core.decide(decision, approvalDetail(core, recorded), ['approve', 'revise'], () =>
+      collectSpecReview(core, worktree, recorded, decision),
+    );
+    collectSpecReview(core, worktree, recorded, null);
+    if (!core.state.specReviews.has(recorded.version)) {
+      await core.stopStage(stageKey('spec-review', recorded.version), 'the user decided first');
+      core.record({
+        type: 'spec_review.recorded',
+        specVersion: recorded.version,
+        report: null,
+        error: 'stopped: the user decided before the review finished',
+      });
+    }
     if (choice.kind === 'approve') {
       await resolveGate(core);
       writeFileSync(approvedSpecPath(worktree), readFileSync(recorded.path, 'utf8'));
@@ -137,12 +149,12 @@ function countTrailingRejections(core: DriverCore, number: number): number {
   return count;
 }
 
-async function reviewSpec(core: DriverCore, worktree: string, spec: SpecVersion): Promise<void> {
+async function startSpecReview(core: DriverCore, worktree: string, spec: SpecVersion): Promise<void> {
   const assignment = core.state.recipe.specReview;
   if (!assignment || core.state.specReviews.has(spec.version)) return;
   const key = stageKey('spec-review', spec.version);
   const reportPath = workerFile(worktree, key, 'report.json');
-  const settled = await core.runStage({
+  await core.launchStage({
     key,
     stage: 'spec-review',
     round: spec.version,
@@ -150,8 +162,37 @@ async function reviewSpec(core: DriverCore, worktree: string, spec: SpecVersion)
     spec: () => specReviewPrompt({ specPath: spec.path, reportPath }),
     launch: { assignment },
   });
+}
+
+/**
+ * Record the spec review once its worker has ended. While the decision is pending (`decision` set), a
+ * blocking finding or a failed review raises the request again so the user hears about it.
+ */
+function collectSpecReview(core: DriverCore, worktree: string, spec: SpecVersion, decision: string | null): void {
+  const key = stageKey('spec-review', spec.version);
+  const record = core.state.stages.get(key);
+  const dispatch = currentDispatch(record);
+  if (!record || core.state.specReviews.has(spec.version)) return;
+  if (!record.startFailure && !dispatch?.settled && !dispatch?.exited) return;
+  const reportPath = workerFile(worktree, key, 'report.json');
+  recordSpecReview(core, spec, reportPath, dispatch?.settled ?? null, record.startFailure?.error ?? null);
+  const review = core.state.specReviews.get(spec.version);
+  const blocking = review?.report?.findings.some(finding => finding.severity === 'blocking') ?? false;
+  if (decision && (blocking || review?.error))
+    core.requestDecision(decision, approvalDetail(core, spec), ['approve', 'revise']);
+}
+
+function recordSpecReview(
+  core: DriverCore,
+  spec: SpecVersion,
+  reportPath: string,
+  settled: { outcome: 'succeeded' | 'failed'; body: string } | null,
+  startError: string | null,
+): void {
   const text = readWorkerFile(reportPath);
   try {
+    if (startError) throw new Error(`The spec reviewer could not start: ${startError}`);
+    if (!settled) throw new Error('The spec reviewer ended without reporting.');
     if (settled.outcome === 'failed') throw new Error(`The spec reviewer reported failure: ${settled.body}`);
     if (text === null) throw new Error(`No report was written at ${reportPath}.`);
     const report = parseReviewReport(text);
@@ -174,7 +215,9 @@ function approvalDetail(core: DriverCore, spec: SpecVersion): string {
     ? review.report
       ? `spec review: ${review.report.verdict}, ${blocking} blocking of ${review.report.findings.length} findings`
       : `spec review unavailable: ${review.error ?? 'unknown'}`
-    : 'no spec review';
+    : core.state.recipe.specReview
+      ? 'spec review still running (approve now or wait for its findings)'
+      : 'no spec review';
   return `Approve spec version ${spec.version} (${spec.path}); ${reviewText}.`;
 }
 
