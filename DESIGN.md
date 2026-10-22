@@ -106,11 +106,17 @@ Each task records, from the first version:
 - per review: verdict, findings with severity, location and scenario, and downgraded findings;
 - repair rounds and why each one happened;
 - every human intervention and how long the task waited for the user;
-- final outcome: accepted, accepted with override, or abandoned.
+- final outcome: accepted, accepted with override, abandoned, or not selected (a comparison entry
+  the user did not keep);
+- token usage per dispatch from provider transcripts, and an estimated cost at API list prices.
 
-**Planned:** token usage per dispatch from provider transcripts (`worker-read --source
-transcript`), scorecards, comparisons that run one approved spec under several recipes from the
-same base commit, JSON and CSV export, and a private evaluation set of 20 to 50 real tasks.
+Comparisons run one request under several recipes from the same base commit, one task per recipe.
+In full mode each recipe writes its own spec, because spec quality is part of what a recipe buys, and
+every result is then checked against every spec so a lax spec cannot flatter its own recipe. In shared
+mode one approved spec isolates the build stages. The user keeps one entry; the others end as not
+selected and their measurements still count.
+
+**Planned:** JSON and CSV export, and a private evaluation set of 20 to 50 real tasks.
 
 ## Experiment order (Planned)
 

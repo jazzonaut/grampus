@@ -37,7 +37,7 @@ export async function drive(store: TaskStore, orca: Orca, log: Log): Promise<num
  * Close this driver's Orca tab once its task has finished, so no shell keeps the worktree open. A driver
  * that stopped keeps its tab, which shows why and where to rerun it. Closing ends this process.
  */
-async function closeOwnTab(orca: Orca, log: Log): Promise<void> {
+export async function closeOwnTab(orca: Pick<Orca, 'closeTerminal'>, log: Log): Promise<void> {
   const handle = process.env.ORCA_TERMINAL_HANDLE;
   if (!handle) return;
   log('Task finished; closing this tab.');
@@ -52,7 +52,7 @@ async function runToEnd(core: DriverCore, log: Log): Promise<number> {
     return 0;
   } catch (error) {
     if (error instanceof TaskAbandoned) {
-      await finish(core, 'abandoned', false, error.reason);
+      await finish(core, error.outcome, false, error.reason);
       return 0;
     }
     const reason =
@@ -63,8 +63,8 @@ async function runToEnd(core: DriverCore, log: Log): Promise<number> {
   }
 }
 
-/** Take the task's driver lock, replacing it only when the recorded process no longer exists. */
-function acquireLock(path: string): () => void {
+/** Take a driver lock, replacing it only when the recorded process no longer exists. */
+export function acquireLock(path: string): () => void {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const handle = openSync(path, 'wx');

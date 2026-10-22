@@ -1,7 +1,10 @@
-// A task's scorecard: per-dispatch models, time and tokens, totals, and the human cost (decisions made
-// and time spent waiting for the user). Built from recorded events, so it is reproducible.
+// A task's scorecard: per-dispatch models, time, tokens and estimated cost, totals, and the human cost
+// (decisions made and time spent waiting for the user). Built from recorded events, so it is reproducible;
+// cost uses the current price table, so it is an estimate that moves when prices do.
+import { currentSettings } from '../config/settings.js';
 import type { StoredEvent } from '../domain/events.js';
 import type { TaskState } from '../pipeline/state.js';
+import { estimateCost, type ModelPrice } from './cost.js';
 import type { Usage } from './transcripts.js';
 import type { DispatchMeasurement } from './usage.js';
 
@@ -12,20 +15,39 @@ export interface Scorecard {
   outcome: string;
   /** False while the task runs: later turns may still add to the figures. */
   final: boolean;
-  dispatches: DispatchMeasurement[];
-  totals: { agentMs: number; usage: Usage | null; dispatchesWithUnknownUsage: number };
+  dispatches: ScoredDispatch[];
+  totals: {
+    agentMs: number;
+    usage: Usage | null;
+    dispatchesWithUnknownUsage: number;
+    /** Estimated US dollars at list prices for the dispatches whose cost is known. */
+    costUsd: number | null;
+    dispatchesWithUnknownCost: number;
+  };
   rounds: number;
   wallMs: number | null;
   /** Decisions (approve, revise, continue, accept...), answers to worker questions, and time tasks waited for both. */
   human: { decisions: number; answers: number; waitingMs: number; fromChat: number };
 }
 
+/** A dispatch's measurement with its estimated cost. */
+export interface ScoredDispatch extends DispatchMeasurement {
+  costUsd: number | null;
+  costNote: string | null;
+}
+
 export function buildScorecard(
   state: TaskState,
   events: readonly StoredEvent[],
-  dispatches: DispatchMeasurement[],
+  measured: DispatchMeasurement[],
+  prices: Readonly<Record<string, ModelPrice>> = currentSettings().modelPrices,
 ): Scorecard {
+  const dispatches = measured.map(item => {
+    const cost = estimateCost(item, prices);
+    return { ...item, costUsd: cost.usd, costNote: cost.note };
+  });
   const known = dispatches.filter(item => item.usage);
+  const priced = dispatches.filter(item => item.costUsd !== null);
   const sum = (pick: (usage: Usage) => number) =>
     known.reduce((total, item) => total + (item.usage ? pick(item.usage) : 0), 0);
   const created = Date.parse(state.createdAt);
@@ -49,6 +71,8 @@ export function buildScorecard(
           }
         : null,
       dispatchesWithUnknownUsage: dispatches.length - known.length,
+      costUsd: priced.length ? priced.reduce((total, item) => total + (item.costUsd ?? 0), 0) : null,
+      dispatchesWithUnknownCost: dispatches.length - priced.length,
     },
     rounds: state.decisions.size,
     wallMs: state.finished ? Date.parse(state.finished.at) - created : null,
@@ -86,6 +110,9 @@ function humanCost(events: readonly StoredEvent[]): Scorecard['human'] {
 const number = (value: number | null | undefined) =>
   value === null || value === undefined ? '?' : value.toLocaleString('en-GB');
 const seconds = (ms: number | null) => (ms === null ? '?' : `${Math.round(ms / 1000)}s`);
+/** Dollars to the cent, or below a cent with more precision; unknown stays '?'. */
+export const dollars = (usd: number | null | undefined) =>
+  usd === null || usd === undefined ? '?' : usd > 0 && usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
 
 export function renderScorecard(card: Scorecard): string {
   const header = [
@@ -99,6 +126,7 @@ export function renderScorecard(card: Scorecard): string {
     'cached',
     'cache write',
     'output',
+    'est. cost',
     'outcome',
   ];
   const rows = card.dispatches.map(item => [
@@ -112,6 +140,7 @@ export function renderScorecard(card: Scorecard): string {
     number(item.usage?.cachedInput),
     number(item.usage?.cacheWrite),
     number(item.usage?.output),
+    dollars(item.costUsd),
     item.outcome ?? 'unsettled',
   ]);
   const usage = card.totals.usage;
@@ -126,6 +155,7 @@ export function renderScorecard(card: Scorecard): string {
     number(usage?.cachedInput),
     number(usage?.cacheWrite),
     number(usage?.output),
+    dollars(card.totals.costUsd),
     '',
   ]);
   const widths = header.map((_, column) => Math.max(...[header, ...rows].map(row => (row[column] ?? '').length)));
@@ -143,5 +173,12 @@ export function renderScorecard(card: Scorecard): string {
     ...(card.totals.dispatchesWithUnknownUsage
       ? [`usage unknown for ${card.totals.dispatchesWithUnknownUsage} dispatches:`, ...notes]
       : []),
+    ...(card.totals.dispatchesWithUnknownCost
+      ? [
+          `cost unknown for ${card.totals.dispatchesWithUnknownCost} dispatches:`,
+          ...card.dispatches.filter(item => item.costNote).map(item => `  ${item.key}: ${item.costNote}`),
+        ]
+      : []),
+    'Estimated cost uses API list prices (modelPrices); subscription use is not billed per token.',
   ].join('\n');
 }

@@ -13,6 +13,7 @@ const verbs: Record<CommandBody['kind'], string> = {
   retry: 'Retry',
   accept: 'Acceptance',
   abandon: 'Abandon',
+  decline: 'Not selected',
 };
 
 export function useCommands(taskId: () => string) {

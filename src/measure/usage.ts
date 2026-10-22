@@ -26,6 +26,8 @@ export interface DispatchMeasurement {
   models: string[];
   effort: string | null;
   usage: Usage | null;
+  /** The same usage per model, for pricing; null when it cannot be split. Absent in older measurements. */
+  usageByModel?: Record<string, Usage> | null;
   /** From the start request to the worker's report; null when it never reported. */
   durationMs: number | null;
   /** Part of the duration spent waiting for the user to answer this worker's questions. */
@@ -122,6 +124,7 @@ function readUsage(item: Located, all: readonly Located[], settings: Settings): 
   measurement.models = [...new Set(readings.flatMap(reading => reading.models))];
   measurement.effort = readings.find(reading => reading.effort)?.effort ?? null;
   measurement.usage = sumUsage(readings.map(reading => reading.usage));
+  measurement.usageByModel = sumByModel(readings.map(reading => reading.usageByModel));
   if (!measurement.usage) measurement.note = 'the transcript has no usage in this dispatch window';
 }
 
@@ -142,6 +145,17 @@ function readSession(
   }
   return null;
 }
+
+/** Sum per-model usage across sessions; any session that cannot be split makes the whole unsplit. */
+function sumByModel(parts: readonly (Record<string, Usage> | null)[]): Record<string, Usage> | null {
+  if (!parts.length || parts.some(part => part === null)) return null;
+  const models = [...new Set(parts.flatMap(part => Object.keys(part ?? {})))];
+  return Object.fromEntries(
+    models.map(model => [model, sumUsage(parts.map(part => part?.[model] ?? zeroUsage))]),
+  ) as Record<string, Usage>;
+}
+
+const zeroUsage: Usage = { input: 0, cachedInput: 0, cacheWrite: 0, output: 0, reasoning: null };
 
 /** Sum known usage; any unknown part makes the whole unknown rather than an undercount. */
 function sumUsage(parts: readonly (Usage | null)[]): Usage | null {

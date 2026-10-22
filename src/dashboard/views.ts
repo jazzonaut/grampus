@@ -37,6 +37,7 @@ export function listItem(state: TaskState, events: readonly StoredEvent[]): Task
     createdAt: state.createdAt,
     updatedAt: events.at(-1)?.at ?? state.createdAt,
     finishedAt: state.finished?.at ?? null,
+    comparisonId: state.comparisonId,
   };
 }
 
@@ -102,6 +103,7 @@ function stageState(record: StageRecord | undefined): StepState {
 }
 
 function approvedSpec(state: TaskState): number | null {
+  if (state.inherited) return 1;
   const approval = state.commands.findLast(command => command.kind === 'approve');
   return approval?.kind === 'approve' ? approval.specVersion : null;
 }
@@ -122,14 +124,14 @@ export function pipelineOf(state: TaskState): PipelineStep[] {
   const round = latestRound(state);
   return [
     specStep(state),
-    state.recipe.specReview
+    state.recipe.specReview && !state.inherited
       ? specReviewStep(state, latestSpec?.version)
       : step('spec-review', 'Spec review', 'skipped'),
     step(
       'approve',
       'Approve',
       approved !== null ? 'done' : state.attention?.reason.startsWith('approve-spec:') ? 'waiting' : 'pending',
-      approved !== null ? `v${approved}` : null,
+      state.inherited ? 'shared spec' : approved !== null ? `v${approved}` : null,
     ),
     state.recipe.testsFirst
       ? step('tests', 'Tests first', state.testsFirst ? 'done' : stageState(state.stages.get('tests:0')))
@@ -148,6 +150,7 @@ function specStep(state: TaskState): PipelineStep {
   const writing = [...state.stages.values()].filter(record => record.stage === 'spec').at(-1);
   if (writing && running(writing))
     return step('spec', 'Spec', 'running', latest ? `revising v${latest.version}` : null);
+  if (state.inherited) return step('spec', 'Spec', 'done', `shared from ${state.inherited.fromTask}`);
   if (latest) return step('spec', 'Spec', 'done', `v${latest.version}`);
   return step('spec', 'Spec', writing ? stageState(writing) : 'pending');
 }
@@ -343,6 +346,7 @@ function commandText(command: UserCommand): string | null {
       return `spec v${command.specVersion}`;
     case 'retry':
     case 'accept':
+    case 'decline':
       return null;
   }
 }

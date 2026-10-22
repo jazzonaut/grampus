@@ -1,6 +1,8 @@
 // Client-side routes. The server answers unknown paths with index.html, so every route can be reloaded
 // or bookmarked.
 import { createRouter, createWebHistory } from 'vue-router';
+import ComparisonPage from './pages/ComparisonPage.vue';
+import ComparisonsPage from './pages/ComparisonsPage.vue';
 import EmptyTask from './pages/EmptyTask.vue';
 import HelpPage from './pages/HelpPage.vue';
 import NewTaskPage from './pages/NewTaskPage.vue';
@@ -20,6 +22,8 @@ export const router = createRouter({
       ],
     },
     { path: '/new', name: 'new', component: NewTaskPage },
+    { path: '/comparisons', name: 'comparisons', component: ComparisonsPage },
+    { path: '/comparisons/:id', name: 'comparison', component: ComparisonPage, props: true },
     { path: '/recipes', name: 'recipes', component: RecipesPage },
     { path: '/help', name: 'help', component: HelpPage },
     { path: '/:rest(.*)*', redirect: '/' },

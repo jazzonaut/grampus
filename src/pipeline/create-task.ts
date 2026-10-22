@@ -4,6 +4,9 @@ import { basename, dirname } from 'node:path';
 import { inputLimits } from '../config/limits.js';
 import { availableRecipes } from '../config/settings.js';
 import type { Recipe } from '../domain/recipe.js';
+import type { CheckDefinition } from '../domain/spec.js';
+import { join } from 'node:path';
+import { keepEvidence } from './workspace-files.js';
 import { git, headSha } from '../git/git.js';
 import type { OrcaWorkspaces } from '../orca/client.js';
 import { TaskStore } from '../store/task-store.js';
@@ -15,8 +18,22 @@ export interface NewTask {
   request: string;
   title?: string;
   recipeName?: string;
+  /** A recipe snapshot to use instead of looking `recipeName` up, as comparisons do. */
+  recipe?: Recipe;
   /** The command line that runs this task's driver. The driver closes its own tab when the task finishes. */
   driveCommand: (taskId: string) => string;
+  /** For a comparison entry: the comparison, the commit every entry starts from, and the shared spec. */
+  comparison?: { comparisonId: string; baseSha: string | null; spec: InheritedSpec | null };
+}
+
+/** A spec approved in one comparison entry and given to its siblings. */
+export interface InheritedSpec {
+  fromTask: string;
+  fromVersion: number;
+  path: string;
+  hash: string;
+  checks: CheckDefinition[];
+  protected: string[];
 }
 
 export async function createTask(
@@ -26,14 +43,30 @@ export async function createTask(
   const request = input.request.trim();
   if (!request || request.length > inputLimits.requestLength)
     throw new Error(`The request must be between 1 and ${inputLimits.requestLength} characters.`);
-  const recipe = findRecipe(input.recipeName ?? 'standard');
+  const recipe = input.recipe ?? findRecipe(input.recipeName ?? 'standard');
   const repoRoot = await resolveRepository(input.repoPath);
   const title = (input.title?.trim() || firstLine(request)).slice(0, inputLimits.titleLength);
   const taskId = `${slug(title)}-${randomBytes(3).toString('hex')}`;
   const store = TaskStore.create(input.dataDir, taskId);
-  store.append({ type: 'task.created', taskId, title, request, repoPath: repoRoot, recipe });
-  const worktree = await workspaces.createWorktree({ repoPath: repoRoot, name: `grampus-${taskId}` });
+  const comparison = input.comparison;
+  store.append({
+    type: 'task.created',
+    taskId,
+    title,
+    request,
+    repoPath: repoRoot,
+    recipe,
+    ...(comparison ? { comparison: { comparisonId: comparison.comparisonId } } : {}),
+  });
+  const worktree = await workspaces.createWorktree({
+    repoPath: repoRoot,
+    name: `grampus-${taskId}`,
+    ...(comparison?.baseSha ? { baseRef: comparison.baseSha } : {}),
+  });
   const baseSha = await headSha(worktree.path);
+  // Entries of one comparison must start from the same commit, or their results are not comparable.
+  if (comparison?.baseSha && baseSha !== comparison.baseSha)
+    throw new Error(`Task ${taskId}'s worktree starts at ${baseSha}, not the comparison's ${comparison.baseSha}.`);
   await excludeWorkerFolder(worktree.path);
   // Orca opens a first terminal in every new worktree. The driver gets its own tab, so that one is
   // closed: an idle shell left in the worktree would stop Orca from deleting it later.
@@ -41,7 +74,7 @@ export async function createTask(
   let terminal: string;
   try {
     terminal = await workspaces.createTerminal({
-      worktreeId: worktree.id,
+      worktree: { id: worktree.id },
       title: `Grampus: ${title}`,
       command: input.driveCommand(taskId),
     });
@@ -59,7 +92,23 @@ export async function createTask(
     baseSha,
     driverTerminal: terminal,
   });
+  if (comparison?.spec) inheritSpec(store, comparison.spec);
   return { taskId, repository: repoRoot, worktree: worktree.path, terminal };
+}
+
+/** Copy the shared spec into this entry's task folder and record it, before the driver starts. */
+function inheritSpec(store: TaskStore, spec: InheritedSpec): void {
+  const path = join(store.dir, 'spec', 'v1.md');
+  keepEvidence(spec.path, path);
+  store.append({
+    type: 'spec.inherited',
+    fromTask: spec.fromTask,
+    fromVersion: spec.fromVersion,
+    hash: spec.hash,
+    path,
+    checks: spec.checks,
+    protected: spec.protected,
+  });
 }
 
 /**

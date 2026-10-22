@@ -100,7 +100,7 @@ export function safeName(key: string): string {
 }
 
 /** Complete lines of a file. A final line without its newline is a torn append and is ignored. */
-function readLines(path: string): string[] {
+export function readLines(path: string): string[] {
   const text = readFileSync(path, 'utf8');
   const lines = text.split('\n');
   lines.pop();

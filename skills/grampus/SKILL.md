@@ -35,13 +35,28 @@ and you bring those questions, the spec and the result here. Then start `wait --
 `as of` time that `new` printed. Use
 `{{grampus}} recipes` to list recipes when the user asks for a particular pipeline.
 
+## Compare recipes
+
+When the user wants to know which recipe does a request best, start a comparison instead of a task:
+
+```text
+{{grampus}} compare [--repo <absolute repo path>] --recipes <a,b,...> [--mode full|shared] --source chat "<request>"
+```
+
+Each recipe runs as its own task (an entry) from the same base commit. In `full` mode (the default)
+every entry writes its own spec, so the user approves one per recipe, and every result is then checked
+against every spec. In `shared` mode the first recipe's spec is approved once and every recipe builds
+from it. Entries show up in `status` and `wait` like tasks; the comparison block above them says when
+the user should pick. For an entry, never run `accept`: the user keeps one entry with `pick`, which
+ends the others as not selected. The dashboard shows the entries side by side.
+
 ## See what needs the user
 
 ```text
 {{grampus}} status            all tasks, one block each
 {{grampus}} status <task>     one task with its spec, checks and rounds
 {{grampus}} wait [<task>] --after <time>   block until something newer needs the user (returns after about 9 minutes otherwise)
-{{grampus}} report <task>     models, time and tokens per stage, rounds and human cost
+{{grampus}} report <task>     models, time, tokens and estimated cost per stage, rounds and human cost
 ```
 
 Lines starting `NEEDS YOU`, `QUESTION` and `DRIVER STOPPED` are the ones to relay. `options:` lists
@@ -65,6 +80,8 @@ Always pass `--source chat`.
 | A stage failed to start or exited; retry it | `{{grampus}} retry <task> --source chat` |
 | Accept the verified result | `{{grampus}} accept <task> --source chat` |
 | Stop the task | `{{grampus}} abandon <task> --source chat "<reason>"` |
+| Keep one comparison entry | `{{grampus}} pick <comparison> <task> --source chat` |
+| Stop a whole comparison | `{{grampus}} abandon <comparison> --source chat "<reason>"` |
 
 **Never ask for a decision the user cannot see.** Every decision request carries its evidence, and
 you must show it in your reply before any question or choice. If your interface asks questions in a

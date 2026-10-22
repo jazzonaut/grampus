@@ -28,6 +28,22 @@ export interface TranscriptReading {
   models: string[];
   effort: string | null;
   usage: Usage | null;
+  /** The same usage per model, when every turn names its model; null when it cannot be split. */
+  usageByModel: Record<string, Usage> | null;
+}
+
+function emptyUsage(): Usage {
+  return { input: 0, cachedInput: 0, cacheWrite: 0, output: 0, reasoning: null };
+}
+
+function addTokens(usage: Usage, tokens: Record<string, unknown>): void {
+  usage.input += count(tokens['input_tokens']);
+  usage.cachedInput += count(tokens['cache_read_input_tokens']);
+  usage.cacheWrite += count(tokens['cache_creation_input_tokens']);
+  usage.output += count(tokens['output_tokens']);
+  const details = tokens['output_tokens_details'] as Record<string, unknown> | undefined;
+  if (typeof details?.['thinking_tokens'] === 'number')
+    usage.reasoning = (usage.reasoning ?? 0) + details['thinking_tokens'];
 }
 
 /** The Claude transcript of a session, searched under each projects root. */
@@ -91,7 +107,9 @@ function count(value: unknown): number {
 export function readClaudeTranscript(path: string, window: TranscriptWindow): TranscriptReading {
   const seen = new Set<string>();
   const models = new Set<string>();
-  const usage: Usage = { input: 0, cachedInput: 0, cacheWrite: 0, output: 0, reasoning: null };
+  const usage = emptyUsage();
+  const byModel: Record<string, Usage> = {};
+  let unattributed = false;
   let messages = 0;
   for (const line of lines(path)) {
     if (line['type'] !== 'assistant' || !inWindow(line['timestamp'], window)) continue;
@@ -99,19 +117,21 @@ export function readClaudeTranscript(path: string, window: TranscriptWindow): Tr
     const id = typeof message?.['id'] === 'string' ? message['id'] : null;
     if (!message || !id || seen.has(id)) continue;
     seen.add(id);
-    if (typeof message['model'] === 'string' && message['model'] !== '<synthetic>') models.add(message['model']);
+    const model = typeof message['model'] === 'string' && message['model'] !== '<synthetic>' ? message['model'] : null;
+    if (model) models.add(model);
     const tokens = message['usage'] as Record<string, unknown> | undefined;
     if (!tokens) continue;
     messages++;
-    usage.input += count(tokens['input_tokens']);
-    usage.cachedInput += count(tokens['cache_read_input_tokens']);
-    usage.cacheWrite += count(tokens['cache_creation_input_tokens']);
-    usage.output += count(tokens['output_tokens']);
-    const details = tokens['output_tokens_details'] as Record<string, unknown> | undefined;
-    if (typeof details?.['thinking_tokens'] === 'number')
-      usage.reasoning = (usage.reasoning ?? 0) + details['thinking_tokens'];
+    addTokens(usage, tokens);
+    if (model) addTokens((byModel[model] ??= emptyUsage()), tokens);
+    else unattributed = true;
   }
-  return { models: [...models], effort: null, usage: messages ? usage : null };
+  return {
+    models: [...models],
+    effort: null,
+    usage: messages ? usage : null,
+    usageByModel: messages && !unattributed ? byModel : null,
+  };
 }
 
 /** Codex reports cumulative session totals; a dispatch's usage is the growth of the total in its window. */
@@ -136,18 +156,17 @@ export function readCodexTranscript(path: string, window: TranscriptWindow): Tra
       before = total as Record<string, unknown>;
     else if (inWindow(timestamp, window)) last = total as Record<string, unknown>;
   }
-  if (!last) return { models: [...models], effort, usage: null };
+  if (!last) return { models: [...models], effort, usage: null, usageByModel: null };
   const delta = (key: string) => count(last[key]) - count(before?.[key]);
-  return {
-    models: [...models],
-    effort,
-    usage: {
-      // Codex counts cache reads inside input_tokens; Claude reports them separately.
-      input: delta('input_tokens') - delta('cached_input_tokens'),
-      cachedInput: delta('cached_input_tokens'),
-      cacheWrite: delta('cache_write_input_tokens'),
-      output: delta('output_tokens'),
-      reasoning: delta('reasoning_output_tokens'),
-    },
+  const usage: Usage = {
+    // Codex counts cache reads inside input_tokens; Claude reports them separately.
+    input: delta('input_tokens') - delta('cached_input_tokens'),
+    cachedInput: delta('cached_input_tokens'),
+    cacheWrite: delta('cache_write_input_tokens'),
+    output: delta('output_tokens'),
+    reasoning: delta('reasoning_output_tokens'),
   };
+  // Codex reports session totals, not per turn, so usage splits between models only when one model ran.
+  const [only] = models;
+  return { models: [...models], effort, usage, usageByModel: models.size === 1 && only ? { [only]: usage } : null };
 }

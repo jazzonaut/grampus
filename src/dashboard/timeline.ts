@@ -59,6 +59,11 @@ const describers: Describers = {
     detail: `${event.checks.length} checks${event.protected.length ? `, ${event.protected.length} protected paths` : ''}`,
     tone: 'success',
   }),
+  'spec.inherited': event => ({
+    title: 'Shared spec received',
+    detail: `Spec v${event.fromVersion} approved in ${event.fromTask}, ${event.checks.length} checks`,
+    tone: 'success',
+  }),
   'spec.rejected': event => ({ title: 'Spec file unusable', detail: event.error, tone: 'warning' }),
   'spec_review.recorded': event => ({
     title: `Spec v${event.specVersion} reviewed`,
@@ -111,7 +116,10 @@ const describers: Describers = {
   }),
   'usage.recorded': event => ({ title: 'Usage measured', detail: `${event.measurements.length} dispatches` }),
   'task.finished': event => ({
-    title: `Task ${event.outcome}${event.override ? ' with unresolved problems' : ''}`,
+    title:
+      event.outcome === 'not-selected'
+        ? 'Not selected: another comparison entry was picked'
+        : `Task ${event.outcome}${event.override ? ' with unresolved problems' : ''}`,
     detail: event.reason ?? (event.sha ? `at ${short(event.sha)}` : null),
     tone: event.outcome === 'accepted' ? 'success' : 'neutral',
   }),

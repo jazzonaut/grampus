@@ -29,6 +29,14 @@ export const commands: readonly CommandInfo[] = [
     group: 'tasks',
     detail: 'Creates the task log, an Orca worktree and the terminal that runs its driver.',
   },
+  {
+    name: 'compare',
+    args: '[--repo <path>] --recipes <a,b,...> [--mode full|shared] [--title <text>] <request...>',
+    summary: 'Run one request under several recipes from the same base commit',
+    group: 'tasks',
+    detail:
+      'Full mode (default) runs each recipe end to end and cross-checks every result against every spec; shared mode writes one spec in the first entry and builds every recipe from it.',
+  },
   { name: 'status', args: '[task] [--json]', summary: 'Show tasks, or one task in detail', group: 'tasks' },
   {
     name: 'wait',
@@ -65,9 +73,16 @@ export const commands: readonly CommandInfo[] = [
     group: 'decisions',
   },
   {
+    name: 'pick',
+    args: '<comparison> <task>',
+    summary: 'Keep one comparison entry; the others end as not selected',
+    group: 'decisions',
+    detail: '`abandon <comparison>` abandons every entry of a comparison instead.',
+  },
+  {
     name: 'report',
     args: '<task> [--json]',
-    summary: 'Models, time and tokens per stage, and human cost',
+    summary: 'Models, time, tokens and estimated cost per stage, and human cost',
     group: 'evidence',
   },
   {
@@ -82,6 +97,12 @@ export const commands: readonly CommandInfo[] = [
     name: 'skill',
     args: '[install]',
     summary: 'Print the chat skill, or install it for Claude and Codex',
+    group: 'setup',
+  },
+  {
+    name: 'drive-comparison',
+    args: '<comparison>',
+    summary: "Run a comparison's driver (Grampus starts it in Orca)",
     group: 'setup',
   },
   {

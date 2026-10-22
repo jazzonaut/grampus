@@ -166,14 +166,16 @@ export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk {
     return this.sessions.get(dispatchId) ?? { provider: null, sessionIds: [] };
   }
 
-  async createWorktree(input: { repoPath: string; name: string }) {
+  async createWorktree(input: { repoPath: string; name: string; baseRef?: string }) {
     const path = `${input.repoPath}-${input.name}`;
-    await git(input.repoPath, ['worktree', 'add', '-b', input.name, path]);
+    await git(input.repoPath, ['worktree', 'add', '-b', input.name, path, ...(input.baseRef ? [input.baseRef] : [])]);
     return { id: `wt:${path}`, path };
   }
 
   /** Commands of the terminals Grampus created. */
   readonly terminals: string[] = [];
+  /** Where each terminal was created: `id:<worktree>` or `path:<checkout>`. */
+  readonly terminalPlaces: string[] = [];
   /** Terminals Grampus closed, by handle. */
   readonly closed: string[] = [];
   /** The first terminal Orca opens in every new worktree. */
@@ -187,8 +189,9 @@ export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk {
     this.closed.push(handle);
   }
 
-  async createTerminal(input: { command: string }) {
+  async createTerminal(input: { worktree: { id: string } | { path: string }; command: string }) {
     this.terminals.push(input.command);
+    this.terminalPlaces.push('id' in input.worktree ? `id:${input.worktree.id}` : `path:${input.worktree.path}`);
     return 'term_driver';
   }
 

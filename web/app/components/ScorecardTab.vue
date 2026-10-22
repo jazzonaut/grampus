@@ -6,7 +6,7 @@
 import { computed, ref, watch } from 'vue';
 import type { ScorecardView } from '../../../src/dashboard/types';
 import { getJson } from '../api/client';
-import { count, duration } from '../presentation';
+import { count, duration, money } from '../presentation';
 
 const props = defineProps<{ taskId: string; finished: boolean }>();
 
@@ -35,10 +35,10 @@ const tiles = computed(() => {
   return [
     { label: 'Wall time', value: duration(value.wallMs), icon: 'i-lucide-clock' },
     { label: 'Agent time', value: duration(value.totals.agentMs), icon: 'i-lucide-bot' },
-    { label: 'Rounds', value: String(value.rounds), icon: 'i-lucide-repeat' },
     { label: 'Input tokens', value: count(usage?.input), icon: 'i-lucide-arrow-down-to-line' },
     { label: 'Cached input', value: count(usage?.cachedInput), icon: 'i-lucide-database' },
     { label: 'Output tokens', value: count(usage?.output), icon: 'i-lucide-arrow-up-from-line' },
+    { label: 'Estimated cost', value: money(value.totals.costUsd), icon: 'i-lucide-receipt' },
     {
       label: 'Your decisions',
       value: String(value.human.decisions + value.human.answers),
@@ -99,6 +99,7 @@ const tiles = computed(() => {
               <th class="px-3 py-2 text-right font-medium">Input</th>
               <th class="px-3 py-2 text-right font-medium">Cached</th>
               <th class="px-3 py-2 text-right font-medium">Output</th>
+              <th class="px-3 py-2 text-right font-medium">Est. cost</th>
               <th class="px-3 py-2 text-left font-medium">Outcome</th>
             </tr>
           </thead>
@@ -113,6 +114,12 @@ const tiles = computed(() => {
               <td class="px-3 py-2 text-right tabular-nums">{{ count(item.usage?.input) }}</td>
               <td class="px-3 py-2 text-right tabular-nums">{{ count(item.usage?.cachedInput) }}</td>
               <td class="px-3 py-2 text-right tabular-nums">{{ count(item.usage?.output) }}</td>
+              <td class="px-3 py-2 text-right tabular-nums">
+                <UTooltip v-if="item.costNote" :text="item.costNote">
+                  <span class="underline decoration-dotted">?</span>
+                </UTooltip>
+                <span v-else>{{ money(item.costUsd) }}</span>
+              </td>
               <td class="px-3 py-2">
                 <UTooltip v-if="item.note" :text="item.note">
                   <span class="underline decoration-dotted">{{ item.outcome ?? 'unsettled' }}</span>
@@ -125,7 +132,8 @@ const tiles = computed(() => {
       </div>
       <p class="text-xs text-muted">
         Human cost: {{ card.human.decisions }} decisions and {{ card.human.answers }} answers,
-        {{ card.human.fromChat }} from chat. Input counts uncached tokens; cached input is listed separately.
+        {{ card.human.fromChat }} from chat. Input counts uncached tokens; cached input is listed separately. Cost is
+        estimated at API list prices (modelPrices in config.json); subscription use is not billed per token.
       </p>
     </template>
   </div>

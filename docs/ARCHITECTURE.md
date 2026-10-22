@@ -46,9 +46,13 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `review.ts` | Review reports and the blocking rule |
 | | `events.ts` | The event log schema and user command schema |
 | `orca/` | `client.ts`, `protocol.ts` | The Orca CLI client and the JSON it reads |
+| `compare/` | `comparison.ts` | Comparison log, commands and fold |
+| | `create.ts`, `driver.ts` | Starting a comparison; its driver: entries, shared spec, pick |
+| | `cross-check.ts`, `status.ts` | Every spec against every result; comparison status text |
 | `agents/` | `catalog.ts` | Models and effort levels per agent, read from the Claude and Codex CLIs |
 | `git/` | `git.ts` | Read-only Git queries |
-| `measure/` | `transcripts.ts` | Reading models, effort and tokens from Claude and Codex transcripts |
+| `measure/` | `transcripts.ts` | Reading models, effort and tokens (per model) from Claude and Codex transcripts |
+| | `cost.ts` | Estimated cost at API list prices, with the dated built-in price table |
 | | `usage.ts` | Per-dispatch measurements, splitting continued conversations by request time |
 | | `report.ts` | The scorecard: per-stage figures, totals and human cost |
 | `checks/` | `run-checks.ts` | Running check commands with logs, timeouts and one flaky rerun |
@@ -173,6 +177,9 @@ prints the addresses it answers on.
 <data>/tasks/<task>/spec/v<n>.md          spec versions and their reviews
 <data>/tasks/<task>/reviews/round-<r>.json
 <data>/tasks/<task>/checks/<phase>-<r>/   check logs
+<data>/comparisons/<id>/events.jsonl      comparison log (schema 1)
+<data>/comparisons/<id>/commands.jsonl    queued picks and abandons
+<data>/comparisons/<id>/cross-check/      cross-check logs
 <worktree>/.grampus/                      files exchanged with workers (excluded from Git)
 ```
 
@@ -229,4 +236,42 @@ counts uncached input for both providers. Anything not found stays unknown with 
 `grampus report <task>` prints the scorecard: per-stage figures, totals, rounds, wall time and the
 human cost (decisions, answers to worker questions, how many came from chat, and how long tasks waited
 for them). For a running task it measures
-now and is marked provisional. The dashboard shows the same scorecard. **Planned:** comparisons and exports.
+now and is marked provisional. The dashboard shows the same scorecard.
+
+**Estimated cost** (`measure/cost.ts`) prices each dispatch's tokens at API list prices: input,
+cached input, cache writes and output (reasoning is inside output for both providers). Claude
+transcripts name the model of every message, so usage is split per model; Codex reports session
+totals, which split only when one model ran. A model without a price, or usage that cannot be split,
+stays unknown with a note. Cost is computed when the scorecard is built, from the current
+`modelPrices` (a dated built-in table that `config.json` overrides per model), so nothing
+price-dependent is recorded in the log. **Planned:** exports.
+
+## Comparisons
+
+`grampus compare --recipes a,b[,c] [--mode full|shared] <request>` (or the dashboard) writes
+`<data>/comparisons/<id>/events.jsonl` and opens an Orca terminal in the repository's main checkout
+that runs `grampus drive-comparison <id>`. That driver (`compare/driver.ts`) is the only writer to the
+comparison log; it never writes an entry's log, it queues commands for entries like any client.
+
+1. **Entries.** One task per recipe, using the recipe snapshot taken when the comparison started.
+   The first entry starts from the repository's default base; its base commit is recorded and every
+   other entry's worktree is created from that exact commit (`worktree create --base-branch <sha>`),
+   which `createTask` verifies. At most `comparisonConcurrency` entries run at once; an entry stops
+   counting once it has finished or waits for acceptance. An entry created just before a crash is
+   adopted on restart.
+2. **Shared mode.** Only the first entry starts until the user approves its spec. The others then
+   start with `spec.inherited`: the approved spec copied into their task folder, no spec stages and
+   no approval gate. The spec phase's cost is counted in the first entry.
+3. **Full mode.** Every entry runs the whole pipeline. When all have reached their result, the
+   cross-check (`compare/cross-check.ts`) runs each entry's spec checks against every other entry's
+   verified commit, in the candidate's worktree with the spec owner's added or changed test files
+   overlaid, then restores those files and refuses to record a cell unless the worktree is clean.
+4. **Pick.** The comparison asks the user to pick. `grampus pick <comparison> <task>` queues `accept`
+   for the winner and `decline` for every other unfinished entry; a declined entry finishes as
+   `not-selected`, measured like any other. `abandon <comparison>` abandons every entry. The driver
+   finishes when every entry has.
+
+The dashboard's comparison page shows the entries side by side (checks, review, how many of the other
+specs' checks each result passed, rounds, time to result, agent time, tokens, estimated cost and the
+user's decisions), bar charts of the same, and the cross-check matrix. `status` and `wait` include
+comparisons, so a chat agent hears when a pick is needed.

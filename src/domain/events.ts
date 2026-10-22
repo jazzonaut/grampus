@@ -8,6 +8,9 @@ import type { Finding, ReviewReport } from './review.js';
 import type { CheckDefinition } from './spec.js';
 import type { DispatchMeasurement } from '../measure/usage.js';
 
+/** How a task ended. `not-selected` is a comparison entry the user did not pick; its evidence still counts. */
+export type TaskOutcome = 'accepted' | 'abandoned' | 'not-selected';
+
 /** The event log schema. Logs written with another schema are refused; there are no migrations. */
 export const eventSchemaVersion = 1;
 
@@ -47,7 +50,16 @@ export interface LaunchRecord {
 
 export type TaskEvent =
   | { type: 'log.header'; schema: number }
-  | { type: 'task.created'; taskId: string; title: string; request: string; repoPath: string; recipe: Recipe }
+  | {
+      type: 'task.created';
+      taskId: string;
+      title: string;
+      request: string;
+      repoPath: string;
+      recipe: Recipe;
+      /** Set for an entry of a comparison. */
+      comparison?: { comparisonId: string };
+    }
   | { type: 'workspace.created'; worktreeId: string; path: string; baseSha: string; driverTerminal: string }
   | { type: 'driver.started'; pid: number; orcaVersion: string | null; terminal: string | null }
   | { type: 'orca.requested'; key: string; requestId: string }
@@ -94,6 +106,16 @@ export type TaskEvent =
       protected: string[];
     }
   | { type: 'spec.rejected'; key: string; error: string }
+  /** A comparison entry received the spec the user approved in its shared-mode sibling; it has no spec phase of its own. */
+  | {
+      type: 'spec.inherited';
+      fromTask: string;
+      fromVersion: number;
+      hash: string;
+      path: string;
+      checks: CheckDefinition[];
+      protected: string[];
+    }
   | { type: 'spec_review.recorded'; specVersion: number; report: ReviewReport | null; error: string | null }
   | { type: 'gate.created'; gateId: string; orcaTaskId: string }
   | { type: 'gate.resolved'; gateId: string; resolution: string }
@@ -117,7 +139,7 @@ export type TaskEvent =
   | { type: 'usage.recorded'; measurements: DispatchMeasurement[] }
   | {
       type: 'task.finished';
-      outcome: 'accepted' | 'abandoned';
+      outcome: TaskOutcome;
       sha: string | null;
       override: boolean;
       reason: string | null;
@@ -147,6 +169,8 @@ export const userCommandSchema = z.intersection(
     z.object({ kind: z.literal('retry') }),
     z.object({ kind: z.literal('accept') }),
     z.object({ kind: z.literal('abandon'), reason: z.string().max(inputLimits.feedbackLength).optional() }),
+    /** A comparison picked another entry: end this one as not selected, keeping its evidence. */
+    z.object({ kind: z.literal('decline') }),
   ]),
 );
 export type UserCommand = z.infer<typeof userCommandSchema>;

@@ -99,8 +99,14 @@ export interface Orca {
 
 /** Workspace calls made when a task is created, before its driver exists. */
 export interface OrcaWorkspaces {
-  createWorktree(input: { repoPath: string; name: string }): Promise<{ id: string; path: string }>;
-  createTerminal(input: { worktreeId: string; title: string; command: string }): Promise<string>;
+  /** A new worktree, from the repository's default base or from `baseRef` (a branch or commit). */
+  createWorktree(input: { repoPath: string; name: string; baseRef?: string }): Promise<{ id: string; path: string }>;
+  /** A terminal in a worktree, named by Orca id or by path (a repository's main checkout has a path, not an id). */
+  createTerminal(input: {
+    worktree: { id: string } | { path: string };
+    title: string;
+    command: string;
+  }): Promise<string>;
   /** Handles of the live terminals in a worktree. */
   listTerminals(worktreeId: string): Promise<string[]>;
   closeTerminal(handle: string): Promise<void>;
@@ -213,15 +219,17 @@ export class OrcaCli implements Orca, OrcaWorkspaces, OrcaDesk {
     return { provider: read.provider ?? null, sessionIds: providerSessions(read.transcript?.messages ?? []) };
   }
 
-  async createWorktree(input: { repoPath: string; name: string }) {
+  async createWorktree(input: { repoPath: string; name: string; baseRef?: string }) {
     const args = ['worktree', 'create', '--repo', `path:${input.repoPath}`, '--name', input.name];
     args.push('--no-parent', '--setup', 'run');
+    if (input.baseRef) args.push('--base-branch', input.baseRef);
     const { worktree } = await this.parse(worktreeSchema, args);
     return { id: worktree.id, path: worktree.path };
   }
 
-  async createTerminal(input: { worktreeId: string; title: string; command: string }) {
-    const args = ['terminal', 'create', '--worktree', `id:${input.worktreeId}`, '--title', input.title];
+  async createTerminal(input: { worktree: { id: string } | { path: string }; title: string; command: string }) {
+    const selector = 'id' in input.worktree ? `id:${input.worktree.id}` : `path:${input.worktree.path}`;
+    const args = ['terminal', 'create', '--worktree', selector, '--title', input.title];
     args.push('--command', input.command);
     return (await this.parse(terminalCreateSchema, args)).terminal.handle;
   }

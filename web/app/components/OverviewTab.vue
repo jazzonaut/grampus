@@ -24,6 +24,7 @@ const commandIcon = {
   retry: 'i-lucide-rotate-ccw',
   accept: 'i-lucide-check-check',
   abandon: 'i-lucide-trash-2',
+  decline: 'i-lucide-circle-slash',
 } as const;
 const commandState = {
   queued: { icon: 'i-lucide-clock', color: 'neutral', label: 'Queued for the driver' },

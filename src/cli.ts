@@ -7,7 +7,18 @@ import { parseArgs } from 'node:util';
 import { usageText } from './commands.js';
 import { dataDirectory } from './config/paths.js';
 import { availableRecipes, currentSettings, loadSettings, useSettings } from './config/settings.js';
-import { approvedVersion, queueCommand, selfCommand, type CommandBody, type CommandSource } from './control.js';
+import { listComparisonIds } from './compare/comparison.js';
+import { startComparison } from './compare/create.js';
+import { driveComparison } from './compare/driver.js';
+import { renderComparison, summariseComparison, type ComparisonSummary } from './compare/status.js';
+import {
+  approvedVersion,
+  queueCommand,
+  queueComparisonCommand,
+  selfCommand,
+  type CommandBody,
+  type CommandSource,
+} from './control.js';
 import { serveDashboard } from './dashboard/server.js';
 import { mergeAccepted } from './delivery/merge.js';
 import { buildScorecard, renderScorecard } from './measure/report.js';
@@ -36,6 +47,8 @@ async function main(argv: string[]): Promise<number> {
       json: { type: 'boolean' },
       after: { type: 'string' },
       port: { type: 'string' },
+      recipes: { type: 'string' },
+      mode: { type: 'string' },
       help: { type: 'boolean' },
     },
   });
@@ -59,13 +72,50 @@ async function main(argv: string[]): Promise<number> {
         console.log(`[${time()}] ${line}`),
       );
     default: {
-      const handled = await otherCommand(dataDir, command, rest, values);
+      const handled =
+        (await comparisonCommand(dataDir, command, rest, source, values)) ??
+        (await otherCommand(dataDir, command, rest, values));
       if (handled !== null) return handled;
       const body = controlCommand(dataDir, command, rest, values.version);
       if (body) return queue(rest[0], body);
       console.error(usage);
       return 1;
     }
+  }
+}
+
+/** Comparison commands; null for anything else. `abandon` with a comparison id abandons the comparison. */
+async function comparisonCommand(
+  dataDir: string,
+  command: string,
+  rest: string[],
+  source: CommandSource,
+  values: { repo?: string; recipes?: string; mode?: string; title?: string },
+): Promise<number | null> {
+  switch (command) {
+    case 'compare':
+      return compare(dataDir, rest, values);
+    case 'drive-comparison':
+      return driveComparison({
+        dataDir,
+        comparisonId: required(rest[0], 'comparison'),
+        orca: new OrcaCli(),
+        selfCommand: selfCommand(dataDir),
+        log: line => console.log(`[${time()}] ${line}`),
+      });
+    case 'pick':
+      return comparisonDecision(dataDir, required(rest[0], 'comparison'), source, {
+        kind: 'pick',
+        taskId: required(rest[1], 'task'),
+      });
+    case 'abandon': {
+      const [id, ...words] = rest;
+      if (!id || !listComparisonIds(dataDir).includes(id)) return null;
+      const reason = words.join(' ');
+      return comparisonDecision(dataDir, id, source, reason ? { kind: 'abandon', reason } : { kind: 'abandon' });
+    }
+    default:
+      return null;
   }
 }
 
@@ -146,6 +196,50 @@ function queued(dataDir: string, taskId: string | undefined, source: CommandSour
   return 0;
 }
 
+/** Start a comparison: one entry task per recipe, from the same base commit. */
+async function compare(
+  dataDir: string,
+  words: string[],
+  values: { repo?: string; recipes?: string; mode?: string; title?: string },
+): Promise<number> {
+  const mode = values.mode ?? 'full';
+  if (mode !== 'shared' && mode !== 'full') throw new Error(`--mode must be shared or full, not "${mode}".`);
+  const created = await startComparison(
+    {
+      dataDir,
+      repoPath: resolve(values.repo ?? process.cwd()),
+      request: required(words.join(' '), 'request'),
+      recipeNames: required(values.recipes, '--recipes').split(','),
+      mode,
+      ...(values.title ? { title: values.title } : {}),
+      driveCommand: comparisonId => `${selfCommand(dataDir)} drive-comparison ${comparisonId}`,
+    },
+    new OrcaCli(),
+  );
+  console.log(
+    `Created ${created.comparisonId} (${mode} mode).
+  repository: ${created.repository}
+  driver terminal: ${created.terminal}`,
+  );
+  console.log(
+    mode === 'shared'
+      ? 'The first entry writes the spec; after you approve it, the other entries build from it.'
+      : 'Each entry writes its own spec, so you approve one per recipe. When all are done, pick the one to keep.',
+  );
+  return 0;
+}
+
+function comparisonDecision(
+  dataDir: string,
+  comparisonId: string,
+  source: CommandSource,
+  body: { kind: 'pick'; taskId: string } | { kind: 'abandon'; reason?: string },
+): number {
+  queueComparisonCommand(dataDir, comparisonId, source, body);
+  console.log(`Queued ${body.kind} for ${comparisonId}. Its driver applies it within a few seconds.`);
+  return 0;
+}
+
 /** Serve the dashboard until the process is stopped. */
 async function dashboard(dataDir: string, port: string | undefined): Promise<number> {
   const chosen = port === undefined ? currentSettings().dashboardPort : Number(port);
@@ -207,9 +301,14 @@ function summaries(dataDir: string, taskId: string | undefined): TaskSummary[] {
   return ids.map(id => summarise(foldEvents(TaskStore.open(dataDir, id).events())));
 }
 
+/** Comparisons, when no single task was asked for. */
+function comparisons(dataDir: string, taskId: string | undefined): ComparisonSummary[] {
+  return taskId ? [] : listComparisonIds(dataDir).map(id => summariseComparison(dataDir, id));
+}
+
 function status(dataDir: string, taskId: string | undefined, json: boolean): number {
   const asOf = new Date().toISOString();
-  print(summaries(dataDir, taskId), asOf, json, 'No tasks.');
+  print(summaries(dataDir, taskId), comparisons(dataDir, taskId), asOf, json, 'No tasks.');
   return 0;
 }
 
@@ -217,9 +316,13 @@ function status(dataDir: string, taskId: string | undefined, json: boolean): num
  * Print summaries with the cursor they were read at. Passing that cursor to the next `wait --after`
  * reports anything that happened in between, such as a request raised while an agent talked to the user.
  */
-function print(tasks: TaskSummary[], asOf: string, json: boolean, empty: string): void {
-  if (json) console.log(JSON.stringify({ asOf, tasks }, null, 2));
-  else console.log(`${tasks.length ? tasks.map(renderSummary).join('\n\n') : empty}\nas of ${asOf}`);
+function print(tasks: TaskSummary[], compared: ComparisonSummary[], asOf: string, json: boolean, empty: string): void {
+  if (json) {
+    console.log(JSON.stringify({ asOf, tasks, comparisons: compared }, null, 2));
+    return;
+  }
+  const blocks = [...compared.map(renderComparison), ...tasks.map(renderSummary)];
+  console.log(`${blocks.length ? blocks.join('\n\n') : empty}\nas of ${asOf}`);
 }
 
 /**
@@ -239,8 +342,15 @@ async function wait(
   for (;;) {
     const asOf = new Date().toISOString();
     const fresh = summaries(dataDir, taskId).filter(summary => isNew(summary, since));
-    if (fresh.length || Date.now() >= deadline) {
-      print(fresh, asOf, json, `Nothing new needs you yet. Run \`grampus wait --after ${asOf}\` to keep waiting.`);
+    const picks = comparisons(dataDir, taskId).filter(summary => isNewComparison(summary, since));
+    if (fresh.length || picks.length || Date.now() >= deadline) {
+      print(
+        fresh,
+        picks,
+        asOf,
+        json,
+        `Nothing new needs you yet. Run \`grampus wait --after ${asOf}\` to keep waiting.`,
+      );
       return 0;
     }
     await sleep(currentSettings().waitPollMs);
@@ -254,6 +364,12 @@ function isNew(summary: TaskSummary, since: string): boolean {
   // A finish confirms an accept or abandon the user asked for; whoever waits on it must hear it.
   if (summary.finished && summary.finished.at > since) return true;
   return false;
+}
+
+function isNewComparison(summary: ComparisonSummary, since: string): boolean {
+  if (summary.needsYou && summary.needsYou.since > since) return true;
+  if (summary.lastStop && summary.lastStop.at > since) return true;
+  return Boolean(summary.finished && summary.finished.at > since);
 }
 
 function required(value: string | undefined, name: string): string {

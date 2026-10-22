@@ -1,7 +1,7 @@
 // The dashboard's visual language in one place: which icon and colour stands for each task status, step
 // state, pipeline step and timeline event, and how times read. Pages never pick icons ad hoc.
 import type { StoredEvent } from '../../src/domain/events';
-import type { StepId, StepState, TaskStatus, Tone } from '../../src/dashboard/types';
+import type { ComparisonStatus, StepId, StepState, TaskStatus, Tone } from '../../src/dashboard/types';
 
 export type Color = 'primary' | 'secondary' | 'success' | 'info' | 'warning' | 'error' | 'neutral';
 
@@ -18,6 +18,15 @@ export const statusLook: Record<TaskStatus, Look> = {
   running: { icon: 'i-lucide-loader-circle', color: 'primary', label: 'Running', spin: true },
   stopped: { icon: 'i-lucide-octagon-pause', color: 'error', label: 'Driver stopped' },
   accepted: { icon: 'i-lucide-circle-check', color: 'success', label: 'Accepted' },
+  abandoned: { icon: 'i-lucide-circle-x', color: 'neutral', label: 'Abandoned' },
+  'not-selected': { icon: 'i-lucide-circle-slash', color: 'neutral', label: 'Not selected' },
+};
+
+export const comparisonStatusLook: Record<ComparisonStatus, Look> = {
+  'needs-you': { icon: 'i-lucide-hand', color: 'warning', label: 'Pick a result' },
+  running: { icon: 'i-lucide-loader-circle', color: 'primary', label: 'Running', spin: true },
+  stopped: { icon: 'i-lucide-octagon-pause', color: 'error', label: 'Driver stopped' },
+  picked: { icon: 'i-lucide-trophy', color: 'success', label: 'Picked' },
   abandoned: { icon: 'i-lucide-circle-x', color: 'neutral', label: 'Abandoned' },
 };
 
@@ -129,4 +138,10 @@ export function count(value: number | null | undefined): string {
 
 export function shortSha(sha: string | null | undefined): string {
   return sha ? sha.slice(0, 10) : '?';
+}
+
+/** Estimated US dollars: cents, or more precision below a cent; "?" when unknown. */
+export function money(usd: number | null | undefined): string {
+  if (usd === null || usd === undefined) return '?';
+  return usd > 0 && usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
 }

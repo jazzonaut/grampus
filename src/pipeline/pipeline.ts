@@ -6,7 +6,7 @@ import { runChecks, logExcerpt } from '../checks/run-checks.js';
 import { currentSettings } from '../config/settings.js';
 import { judgeCodeReview, parseReviewReport } from '../domain/review.js';
 import { repairAssignment, type Assignment } from '../domain/recipe.js';
-import type { UserCommand } from '../domain/events.js';
+import type { TaskOutcome, UserCommand } from '../domain/events.js';
 import { changedPaths, headSha } from '../git/git.js';
 import type { DriverCore, Launch, Settled } from './driver-core.js';
 import { measureDispatches } from '../measure/usage.js';
@@ -22,7 +22,8 @@ export async function runPipeline(core: DriverCore): Promise<void> {
   if (!worktree) throw new Error('The task has no worktree.');
   await excludeWorkerFolder(worktree);
   await ensureRun(core);
-  await ensureGate(core);
+  // An inherited spec was approved in the sibling that wrote it; there is nothing to gate here.
+  if (!core.state.inherited) await ensureGate(core);
   const spec = await approveSpec(core, worktree);
   await testsFirst(core, worktree, spec);
   await baseline(core, worktree, spec);
@@ -311,7 +312,7 @@ function baselineNote(core: DriverCore): string {
 /** Release the workers and record the outcome. */
 export async function finish(
   core: DriverCore,
-  outcome: 'accepted' | 'abandoned',
+  outcome: TaskOutcome,
   override: boolean,
   reason: string | null,
 ): Promise<void> {

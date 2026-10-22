@@ -10,6 +10,7 @@ import type {
   LaunchRecord,
   Stage,
   StoredEvent,
+  TaskOutcome,
   UserCommand,
 } from '../domain/events.js';
 import type { CheckDefinition } from '../domain/spec.js';
@@ -96,7 +97,11 @@ export interface TaskState {
   reviews: Map<number, ReviewRecord>;
   decisions: Map<number, { decision: 'repair' | 'escalate' | 'ready'; reasons: string[] }>;
   attention: Attention | null;
-  finished: { outcome: 'accepted' | 'abandoned'; sha: string | null; override: boolean; at: string } | null;
+  finished: { outcome: TaskOutcome; sha: string | null; override: boolean; at: string } | null;
+  /** The comparison this task is an entry of. */
+  comparisonId: string | null;
+  /** The shared spec this entry inherited instead of writing its own. */
+  inherited: { fromTask: string; fromVersion: number } | null;
   released: boolean;
   /** Set by `grampus merge` after acceptance. */
   merged: { branch: string; sha: string } | null;
@@ -143,6 +148,8 @@ export function foldEvents(events: readonly StoredEvent[]): TaskState {
     merged: null,
     measurements: null,
     lastStop: null,
+    comparisonId: created.comparison?.comparisonId ?? null,
+    inherited: null,
   };
   for (const event of events) applyEvent(state, event);
   return state;
@@ -253,6 +260,18 @@ const handlers: Handlers = {
       protected: event.protected,
       at: event.at,
     });
+  },
+  'spec.inherited': (state, event) => {
+    state.specs.push({
+      version: 1,
+      key: 'inherited',
+      hash: event.hash,
+      path: event.path,
+      checks: event.checks,
+      protected: event.protected,
+      at: event.at,
+    });
+    state.inherited = { fromTask: event.fromTask, fromVersion: event.fromVersion };
   },
   'spec.rejected': (state, event) => {
     state.rejectedSpecs.set(event.key, event.error);

@@ -162,3 +162,45 @@ test("Claude's aliases and effort levels are read from its help, and an unexpect
   });
   assert.deepEqual(parseClaudeHelp('Usage: claude [options]'), { aliases: [], efforts: [] });
 });
+
+test('a comparison started from the dashboard gets its log and a driver terminal in the main checkout', async () => {
+  const { base, orca } = await start();
+  const repo = await createRepository();
+  const alt = { ...standardRecipe, name: 'alt', build: { agent: 'claude' } };
+  assert.equal((await send(base, 'PUT', '/api/recipes/alt', alt)).status, 201);
+  const tooFew = await send(base, 'POST', '/api/comparisons', {
+    repo,
+    request: 'Greet',
+    recipes: ['standard'],
+    mode: 'full',
+  });
+  assert.equal(tooFew.status, 400);
+  const response = await send(base, 'POST', '/api/comparisons', {
+    repo,
+    request: 'Greet by name',
+    recipes: ['standard', 'alt'],
+    mode: 'shared',
+  });
+  assert.equal(response.status, 201, await response.clone().text());
+  const { comparisonId } = (await response.json()) as { comparisonId: string };
+  assert.match(orca.terminals.at(-1) ?? '', new RegExp(`drive-comparison ${comparisonId}$`));
+  assert.match(orca.terminalPlaces.at(-1) ?? '', /^path:/);
+
+  const detail = (await (await fetch(`${base}/api/comparisons/${comparisonId}`)).json()) as {
+    mode: string;
+    waiting: string[];
+    status: string;
+  };
+  assert.deepEqual([detail.mode, detail.waiting, detail.status], ['shared', ['standard', 'alt'], 'running']);
+  const list = (await (await fetch(`${base}/api/comparisons`)).json()) as { comparisons: { comparisonId: string }[] };
+  assert.deepEqual(
+    list.comparisons.map(item => item.comparisonId),
+    [comparisonId],
+  );
+
+  const badPick = await send(base, 'POST', `/api/comparisons/${comparisonId}/commands`, { kind: 'pick' });
+  assert.equal(badPick.status, 400, 'a pick without a task is refused before it is queued');
+  const pick = await send(base, 'POST', `/api/comparisons/${comparisonId}/commands`, { kind: 'abandon' });
+  assert.equal(pick.status, 202);
+  assert.equal((await send(base, 'POST', '/api/comparisons/missing/commands', { kind: 'abandon' })).status, 404);
+});

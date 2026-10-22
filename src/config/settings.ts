@@ -9,6 +9,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { recipeSchema, standardRecipe, type Recipe } from '../domain/recipe.js';
+import { defaultModelPrices, type ModelPrice } from '../measure/cost.js';
 import { specLimits } from './limits.js';
 
 /** The effective operational settings of one process. */
@@ -52,6 +53,10 @@ export interface Settings {
   claudeCommand: readonly string[];
   /** The Codex CLI, asked for its model catalog by the recipe editor. */
   codexCommand: readonly string[];
+  /** API list prices per model for estimated cost, in US dollars per million tokens. config.json entries replace single models. */
+  modelPrices: Readonly<Record<string, ModelPrice>>;
+  /** How many entries of a comparison run at once; the rest wait for a free place. */
+  comparisonConcurrency: number;
 }
 
 /** Built-in defaults. */
@@ -75,6 +80,8 @@ export function defaultSettings(): Settings {
     dashboardAllowedHosts: [],
     claudeCommand: ['claude'],
     codexCommand: ['codex'],
+    modelPrices: defaultModelPrices,
+    comparisonConcurrency: 2,
   };
 }
 
@@ -101,6 +108,18 @@ const fileSchema = z
     dashboardAllowedHosts: z.array(z.string().min(1)),
     claudeCommand: z.array(z.string().min(1)).min(1),
     codexCommand: z.array(z.string().min(1)).min(1),
+    modelPrices: z.record(
+      z.string().min(1),
+      z
+        .object({
+          input: z.number().nonnegative(),
+          cachedInput: z.number().nonnegative(),
+          cacheWrite: z.number().nonnegative(),
+          output: z.number().nonnegative(),
+        })
+        .strict(),
+    ),
+    comparisonConcurrency: z.number().int().positive(),
   })
   .strict()
   .partial();
@@ -109,7 +128,10 @@ const fileSchema = z
 export function loadSettings(dataDir: string): Settings {
   const path = join(dataDir, 'config.json');
   if (!existsSync(path)) return defaultSettings();
-  return { ...defaultSettings(), ...validated(JSON.parse(readFileSync(path, 'utf8')), path) };
+  const defaults = defaultSettings();
+  const overrides = validated(JSON.parse(readFileSync(path, 'utf8')), path);
+  // Prices are merged per model, so adding one model keeps the built-in table.
+  return { ...defaults, ...overrides, modelPrices: { ...defaults.modelPrices, ...overrides.modelPrices } };
 }
 
 /** The overrides a config file sets, after the same checks `loadSettings` applies. */

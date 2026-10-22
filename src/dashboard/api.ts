@@ -19,7 +19,11 @@ import {
   openInOrca,
   putRecipe,
   startTask,
+  startComparisonRoute,
+  comparisonCommandRoute,
 } from './actions.js';
+import { comparisonDetail, comparisonList, comparisonMetrics } from './comparisons.js';
+import { listComparisonIds } from '../compare/comparison.js';
 import { HttpError, readJson, sendJson, sendText, startEvents } from './http.js';
 import type { LoadedTask, TaskReader, TaskWatcher } from './tasks.js';
 import type { HelpView, LiveChange, ScorecardView, TaskList } from './types.js';
@@ -69,6 +73,11 @@ export const routes: Route[] = [
   { method: 'PUT', pattern: /^\/api\/recipes\/([^/]+)$/, handle: putRecipe },
   { method: 'DELETE', pattern: /^\/api\/recipes\/([^/]+)$/, handle: deleteRecipe },
   { method: 'GET', pattern: /^\/api\/models$/, handle: listModels },
+  { method: 'GET', pattern: /^\/api\/comparisons$/, handle: listComparisons },
+  { method: 'POST', pattern: /^\/api\/comparisons$/, handle: startComparisonRoute },
+  { method: 'GET', pattern: new RegExp(`^/api/comparisons/${id}$`), handle: showComparison },
+  { method: 'GET', pattern: new RegExp(`^/api/comparisons/${id}/metrics$`), handle: measureComparison },
+  { method: 'POST', pattern: new RegExp(`^/api/comparisons/${id}/commands$`), handle: comparisonCommandRoute },
   { method: 'GET', pattern: /^\/api\/help$/, handle: help },
   { method: 'GET', pattern: /^\/api\/live$/, handle: live },
 ];
@@ -146,6 +155,25 @@ async function addCommand({ app, request, response, params }: Call): Promise<voi
   const task = load(app, params[0]);
   const command = queueCommand(app.dataDir, task.state.taskId, 'dashboard', await readJson(request));
   sendJson(response, 202, command);
+}
+
+function listComparisons({ app, response }: Call): void {
+  sendJson(response, 200, { asOf: new Date().toISOString(), comparisons: comparisonList(app.dataDir) });
+}
+
+function knownComparison(app: DashboardApp, comparisonId: string | undefined): string {
+  if (!comparisonId || !listComparisonIds(app.dataDir).includes(comparisonId))
+    throw new HttpError(404, `Comparison ${comparisonId ?? ''} was not found.`);
+  return comparisonId;
+}
+
+function showComparison({ app, response, params }: Call): void {
+  sendJson(response, 200, comparisonDetail(app.dataDir, app.reader, knownComparison(app, params[0])));
+}
+
+async function measureComparison({ app, response, params }: Call): Promise<void> {
+  const comparisonId = knownComparison(app, params[0]);
+  sendJson(response, 200, await comparisonMetrics(app.dataDir, app.reader, app.orca, comparisonId));
 }
 
 function help({ response }: Call): void {

@@ -1,7 +1,17 @@
 // The dashboard's JSON contract. The server builds these views from the folded task state and the web app
 // imports them as types only, so both sides agree on one definition.
 import type { CommandGroup } from '../commands.js';
-import type { CheckResult, CommandKind, GuardResult, Stage, StoredEvent, UserCommand } from '../domain/events.js';
+import type { CrossCheckCell } from '../compare/comparison.js';
+import type { Usage } from '../measure/transcripts.js';
+import type {
+  CheckResult,
+  CommandKind,
+  GuardResult,
+  Stage,
+  StoredEvent,
+  TaskOutcome,
+  UserCommand,
+} from '../domain/events.js';
 import type { Recipe } from '../domain/recipe.js';
 import type { Finding, ReviewReport } from '../domain/review.js';
 import type { CheckDefinition } from '../domain/spec.js';
@@ -9,7 +19,7 @@ import type { Scorecard } from '../measure/report.js';
 import type { TaskSummary } from '../pipeline/status.js';
 
 /** Where a task stands, for icons, filters and the tab badge. */
-export type TaskStatus = 'needs-you' | 'running' | 'stopped' | 'accepted' | 'abandoned';
+export type TaskStatus = 'needs-you' | 'running' | 'stopped' | TaskOutcome;
 
 export interface AttentionView {
   reason: string;
@@ -34,6 +44,8 @@ export interface TaskListItem {
   /** Time of the latest event. */
   updatedAt: string;
   finishedAt: string | null;
+  /** The comparison this task is an entry of. */
+  comparisonId: string | null;
 }
 
 export interface TaskList {
@@ -168,7 +180,7 @@ export interface TaskDetail extends TaskListItem {
   commands: CommandView[];
   timeline: TimelineItem[];
   merged: { branch: string; sha: string } | null;
-  finished: { outcome: 'accepted' | 'abandoned'; sha: string | null; override: boolean; at: string } | null;
+  finished: { outcome: TaskOutcome; sha: string | null; override: boolean; at: string } | null;
   lastStop: { reason: string; at: string } | null;
 }
 
@@ -189,4 +201,67 @@ export interface ScorecardView extends Scorecard {
 export interface LiveChange {
   asOf: string;
   tasks: string[];
+}
+
+export type ComparisonStatus = 'running' | 'needs-you' | 'stopped' | 'picked' | 'abandoned';
+
+export interface ComparisonListItem {
+  comparisonId: string;
+  title: string;
+  mode: 'shared' | 'full';
+  recipes: string[];
+  status: ComparisonStatus;
+  entries: number;
+  createdAt: string;
+  updatedAt: string;
+  winner: string | null;
+}
+
+export interface ComparisonEntryView {
+  task: TaskListItem;
+  recipe: string;
+  /** Finished, or waiting to be accepted: as far as it goes without the user. */
+  done: boolean;
+  pickable: boolean;
+  /** The final round's checks and review, when it has one. */
+  checks: { passed: number; total: number } | null;
+  review: string | null;
+  rounds: number;
+}
+
+export interface ComparisonDetail extends ComparisonListItem {
+  request: string;
+  repository: { path: string; name: string };
+  baseSha: string | null;
+  concurrency: number;
+  /** Recipes without an entry yet. */
+  waiting: string[];
+  sharedSpec: { fromTask: string; version: number } | null;
+  needsYou: { detail: string; since: string } | null;
+  lastStop: { reason: string; at: string } | null;
+  entryViews: ComparisonEntryView[];
+  crossCheck: CrossCheckCell[] | null;
+}
+
+/** One entry's measured figures, for the side-by-side table and the charts. */
+export interface EntryMetrics {
+  taskId: string;
+  recipe: string;
+  /** From creation to the result the user decides on (or to the finish). Null while still working. */
+  resultMs: number | null;
+  agentMs: number;
+  usage: Usage | null;
+  costUsd: number | null;
+  dispatchesWithUnknownCost: number;
+  decisions: number;
+  answers: number;
+  waitingMs: number;
+  /** Over the other entries' specs: how many of their checks this entry's result passed. */
+  crossCheck: { passed: number; total: number } | null;
+  provisional: boolean;
+}
+
+export interface ComparisonMetrics {
+  asOf: string;
+  entries: EntryMetrics[];
 }

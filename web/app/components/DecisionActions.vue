@@ -5,11 +5,27 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { TaskDetail } from '../../../src/dashboard/types';
+import { useToast } from '@nuxt/ui/composables';
+import { sendJson } from '../api/client';
 import { useCommands } from '../composables/useCommands';
 import TextPrompt from './TextPrompt.vue';
 
 const props = defineProps<{ task: TaskDetail }>();
 const { queue, busy } = useCommands(() => props.task.taskId);
+const toast = useToast();
+
+/** A comparison entry is accepted by picking it in its comparison, which declines the others. */
+async function keep(): Promise<void> {
+  try {
+    await sendJson('POST', `/api/comparisons/${encodeURIComponent(props.task.comparisonId ?? '')}/commands`, {
+      kind: 'pick',
+      taskId: props.task.taskId,
+    });
+    toast.add({ title: 'Pick queued', description: 'The other entries end as not selected.', color: 'success' });
+  } catch (failure) {
+    toast.add({ title: 'Not queued', description: (failure as Error).message, color: 'error' });
+  }
+}
 
 const options = computed(() => new Set(props.task.needsYou?.options ?? []));
 const latestSpec = computed(() => props.task.specs.at(-1)?.version ?? null);
@@ -75,7 +91,13 @@ function approve(): void {
       @click="approve"
     />
     <UButton
-      v-if="options.has('accept')"
+      v-if="options.has('accept') && task.comparisonId"
+      icon="i-lucide-trophy"
+      label="Keep this one"
+      @click="keep"
+    />
+    <UButton
+      v-if="options.has('accept') && !task.comparisonId"
       icon="i-lucide-check-check"
       :color="escalated ? 'warning' : 'primary'"
       :label="escalated ? 'Accept anyway' : 'Accept'"

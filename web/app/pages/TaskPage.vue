@@ -100,6 +100,16 @@ const tabs = computed(() => {
           </span>
         </div>
 
+        <RouterLink
+          v-if="task.comparisonId"
+          :to="`/comparisons/${task.comparisonId}`"
+          class="flex items-center gap-2 rounded-lg border border-default px-3 py-2 text-sm hover:bg-elevated/50"
+        >
+          <UIcon name="i-lucide-git-compare-arrows" class="size-4 text-primary" />
+          An entry of a comparison: see it side by side with the other recipes
+          <UIcon name="i-lucide-arrow-right" class="size-4 ml-auto" />
+        </RouterLink>
+
         <DecisionPanel :task="task" @show="value => (tab = value)">
           <DecisionActions :task="task" />
         </DecisionPanel>

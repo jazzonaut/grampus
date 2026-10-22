@@ -17,10 +17,10 @@ const filter = ref<Filter>('all');
 const search = ref('');
 
 const groups: Record<Filter, readonly TaskStatus[]> = {
-  all: ['needs-you', 'running', 'stopped', 'accepted', 'abandoned'],
+  all: ['needs-you', 'running', 'stopped', 'accepted', 'abandoned', 'not-selected'],
   'needs-you': ['needs-you', 'stopped'],
   running: ['running'],
-  finished: ['accepted', 'abandoned'],
+  finished: ['accepted', 'abandoned', 'not-selected'],
 };
 
 const filters = computed(() => [
@@ -31,7 +31,14 @@ const filters = computed(() => [
 ]);
 
 /** Needs you first, then running, then the rest; newest activity first within each. */
-const order: Record<TaskStatus, number> = { 'needs-you': 0, stopped: 1, running: 2, accepted: 3, abandoned: 3 };
+const order: Record<TaskStatus, number> = {
+  'needs-you': 0,
+  stopped: 1,
+  running: 2,
+  accepted: 3,
+  abandoned: 3,
+  'not-selected': 3,
+};
 
 const shown = computed(() => {
   const words = search.value.trim().toLowerCase();

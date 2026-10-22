@@ -31,8 +31,17 @@ agent or the dashboard and applied by the driver.
 The deterministic integrity check of a round: clean tree, new commits, no rewritten history, protected
 paths and tests intact.
 
-**Comparison** (**Planned**):
-One approved spec run under several recipes from the same base commit, scored side by side.
+**Comparison**:
+One request run under several recipes from the same base commit, one task per recipe, scored side by
+side. Full mode gives each recipe its own spec and cross-checks every result against every spec;
+shared mode builds every recipe from one approved spec.
+
+**Entry**:
+One task of a comparison. The user keeps one entry (`pick`); the others finish as not selected.
+
+**Estimated cost**:
+A dispatch's tokens priced at API list prices (`modelPrices`). A yardstick for comparing recipes, not a
+bill: subscription use is not charged per token.
 
 ## Example dialogue
 

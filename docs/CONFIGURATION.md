@@ -12,7 +12,7 @@ command, or `%LOCALAPPDATA%\Grampus\orca` on Windows.
 | `inboxWaitMs` | `5000` | How long the driver blocks on Orca's inbox before reading local commands |
 | `livenessIntervalMs` | `60000` | Minimum interval between liveness checks of unreported workers |
 | `waitTimeoutSeconds` | `540` | How long `grampus wait` blocks before reporting nothing new |
-| `waitPollMs` | `2000` | How often `grampus wait` and the dashboard reread task logs |
+| `waitPollMs` | `2000` | How often `grampus wait`, the dashboard and comparison drivers reread logs |
 | `defaultCheckTimeoutSeconds` | `900` | Check timeout when the spec sets none (at most 3600) |
 | `checkShell` | `null` | Shell for check commands; null uses cmd.exe on Windows and /bin/sh elsewhere |
 | `testFilePatterns` | `**/*.test.*`, `**/*.spec.*`, `**/test/**`, `**/tests/**`, `**/__tests__/**` | Paths the guard treats as tests |
@@ -23,7 +23,24 @@ command, or `%LOCALAPPDATA%\Grampus\orca` on Windows.
 | `dashboardHost` | `null` | Address the dashboard listens on; null is every interface (reachable from your network), `"127.0.0.1"` keeps it on this machine |
 | `claudeCommand` | `["claude"]` | The Claude Code CLI, asked for its model aliases and effort levels by the recipe editor |
 | `codexCommand` | `["codex"]` | The Codex CLI, asked for its model catalog by the recipe editor |
+| `comparisonConcurrency` | `2` | How many entries of a comparison run at once; the rest wait for a free place |
+| `modelPrices` | built-in table (see below) | API list prices per model for estimated cost; entries replace single models |
 | `dashboardAllowedHosts` | `[]` | Extra host names the dashboard answers to, such as a VPN name; localhost, this machine's name and its addresses are always allowed |
+
+## Model prices
+
+Estimated cost multiplies each dispatch's tokens by US dollars per million tokens. The built-in table
+holds the standard-tier list prices published on 2026-10-22 for the Claude 5.x models and OpenAI's
+GPT-6 and GPT-5.6 models (Codex). Prices change; add or override models in `config.json`. Anything
+without a price shows as unknown, never as free.
+
+```json
+{
+  "modelPrices": {
+    "gpt-6-luna": { "input": 0.1, "cachedInput": 0.01, "cacheWrite": 0, "output": 0.5 }
+  }
+}
+```
 
 ## Recipes
 

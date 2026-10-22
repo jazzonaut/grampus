@@ -22,10 +22,13 @@ import {
 /** Orca's refusal to give a worker that cannot take another dispatch (a Chat UI worker) a new task. */
 const reuseRefused = 'terminal_unsupported_for_agent_session';
 
-/** The user abandoned the task. */
+/** The user ended the task early: abandoned it, or picked another entry of its comparison. */
 export class TaskAbandoned extends Error {
-  constructor(readonly reason: string | null) {
-    super('The task was abandoned.');
+  constructor(
+    readonly reason: string | null,
+    readonly outcome: 'abandoned' | 'not-selected' = 'abandoned',
+  ) {
+    super(outcome === 'abandoned' ? 'The task was abandoned.' : 'Another comparison entry was picked.');
   }
 }
 
@@ -165,12 +168,14 @@ export class DriverCore {
       this.record({ type: 'command.applied', command });
       this.log(`Applied ${command.kind} from ${command.source}.`);
       if (command.kind === 'abandon') throw new TaskAbandoned(command.reason ?? null);
+      if (command.kind === 'decline') throw new TaskAbandoned('another comparison entry was picked', 'not-selected');
     }
   }
 
   private refusal(command: UserCommand): string | null {
     if (this.state.finished) return 'the task is finished';
     if (command.kind === 'abandon') return null;
+    if (command.kind === 'decline') return this.state.comparisonId ? null : 'only a comparison entry can be declined';
     if (command.kind === 'reply') {
       const question = this.state.questions.get(command.messageId);
       if (!question) return `no question ${command.messageId}`;

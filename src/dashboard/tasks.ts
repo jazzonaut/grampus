@@ -4,6 +4,7 @@
 import { existsSync, statSync } from 'node:fs';
 import type { StoredEvent } from '../domain/events.js';
 import { foldEvents, type TaskState } from '../pipeline/state.js';
+import { ComparisonStore, listComparisonIds } from '../compare/comparison.js';
 import { listTaskIds, TaskStore } from '../store/task-store.js';
 
 export interface LoadedTask {
@@ -52,6 +53,13 @@ function signature(dataDir: string, taskId: string): string {
   return `${statSync(store.eventsPath).size}:${commands}`;
 }
 
+/** A comparison's change signature: the sizes of its log and command queue. */
+function comparisonSignature(dataDir: string, comparisonId: string): string {
+  const store = ComparisonStore.open(dataDir, comparisonId);
+  const commands = existsSync(store.commandsPath) ? statSync(store.commandsPath).size : 0;
+  return `${statSync(store.eventsPath).size}:${commands}`;
+}
+
 /**
  * Polls task logs and reports the ids of tasks that appeared, disappeared or grew. Polling rather than
  * file watching keeps behaviour the same on every platform and network drive.
@@ -90,6 +98,14 @@ export class TaskWatcher {
 
   private scan(): Map<string, string> {
     const next = new Map<string, string>();
+    // Comparisons are reported as `cmp:<id>`, so pages can tell them from tasks.
+    for (const comparisonId of listComparisonIds(this.dataDir)) {
+      try {
+        next.set(`cmp:${comparisonId}`, comparisonSignature(this.dataDir, comparisonId));
+      } catch {
+        // Reported by the comparison list.
+      }
+    }
     for (const taskId of listTaskIds(this.dataDir)) {
       try {
         next.set(taskId, signature(this.dataDir, taskId));

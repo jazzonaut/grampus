@@ -20,6 +20,11 @@ interface Attempt {
 
 /** Run the spec phase to an approved spec version. */
 export async function approveSpec(core: DriverCore, worktree: string): Promise<SpecVersion> {
+  const inherited = core.state.inherited ? core.state.specs[0] : undefined;
+  if (inherited) {
+    writeFileSync(approvedSpecPath(worktree), readFileSync(inherited.path, 'utf8'));
+    return inherited;
+  }
   let attempt: Attempt = { feedback: null, rejection: null };
   for (let number = 1; ; number++) {
     const key = stageKey('spec', number);

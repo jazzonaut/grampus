@@ -3,10 +3,12 @@
 import type { NavigationMenuItem } from '@nuxt/ui';
 import { computed } from 'vue';
 import { useNotificationPermission } from '../composables/useAttention';
+import { useComparisons } from '../composables/useComparisons';
 import { useLive } from '../composables/useLive';
 import { useTasks } from '../composables/useTasks';
 
 const { needsYou } = useTasks();
+const comparisons = useComparisons();
 const { connected } = useLive();
 const notifications = useNotificationPermission();
 
@@ -17,6 +19,14 @@ const items = computed<NavigationMenuItem[]>(() => [
     to: '/',
     badge: needsYou.value.length
       ? { label: String(needsYou.value.length), color: 'warning', variant: 'solid' }
+      : undefined,
+  },
+  {
+    label: 'Comparisons',
+    icon: 'i-lucide-git-compare-arrows',
+    to: '/comparisons',
+    badge: comparisons.needsYou.value.length
+      ? { label: String(comparisons.needsYou.value.length), color: 'warning', variant: 'solid' }
       : undefined,
   },
   { label: 'Recipes', icon: 'i-lucide-chef-hat', to: '/recipes' },

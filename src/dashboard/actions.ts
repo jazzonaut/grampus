@@ -3,6 +3,9 @@
 import { basename } from 'node:path';
 import { z } from 'zod';
 import { agentCatalogs, type AgentCatalog } from '../agents/catalog.js';
+import { listComparisonIds } from '../compare/comparison.js';
+import { startComparison } from '../compare/create.js';
+import { queueComparisonCommand } from '../control.js';
 import { inputLimits, recipeLimits } from '../config/limits.js';
 import { availableRecipes, currentSettings, saveRecipes, useSettings } from '../config/settings.js';
 import { mergeAccepted } from '../delivery/merge.js';
@@ -158,4 +161,43 @@ export async function listModels({ app, response, url }: Call): Promise<void> {
     catalogs = agentCatalogs([...new Set([...fromRecipes, ...measured])].sort());
   }
   sendJson(response, 200, { agents: await catalogs });
+}
+
+const newComparisonSchema = z
+  .object({
+    repo: z.string().min(1),
+    request: z.string().min(1).max(inputLimits.requestLength),
+    title: z.string().max(inputLimits.titleLength).optional(),
+    recipes: z.array(z.string().min(1).max(recipeLimits.nameLength)).min(2),
+    mode: z.enum(['shared', 'full']),
+  })
+  .strict();
+
+/** Start a comparison like `grampus compare`: its log and the terminal running its driver. */
+export async function startComparisonRoute({ app, request, response }: Call): Promise<void> {
+  const input = newComparisonSchema.parse(await readJson(request));
+  const created = await startComparison(
+    {
+      dataDir: app.dataDir,
+      repoPath: input.repo,
+      request: input.request,
+      recipeNames: input.recipes,
+      mode: input.mode,
+      ...(input.title?.trim() ? { title: input.title } : {}),
+      driveCommand: comparisonId => `${app.selfCommand} drive-comparison ${comparisonId}`,
+    },
+    app.orca,
+  ).catch((error: unknown) => {
+    const orca = error instanceof OrcaError || error instanceof OrcaUncertainError;
+    throw new HttpError(orca ? 502 : 400, (error as Error).message);
+  });
+  sendJson(response, 201, created);
+}
+
+/** Pick an entry or abandon the comparison, queued for the comparison's driver. */
+export async function comparisonCommandRoute({ app, request, response, params }: Call): Promise<void> {
+  const comparisonId = params[0] ?? '';
+  if (!listComparisonIds(app.dataDir).includes(comparisonId))
+    throw new HttpError(404, `Comparison ${comparisonId} was not found.`);
+  sendJson(response, 202, queueComparisonCommand(app.dataDir, comparisonId, 'dashboard', await readJson(request)));
 }

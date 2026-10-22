@@ -56,6 +56,17 @@ and updates live. You can start tasks, approve, answer questions, accept, merge 
 too. It has no login: anyone who can reach the port can control your tasks, so only run it
 on networks you trust, or set `dashboardHost` to `127.0.0.1` (see [Configuration](docs/CONFIGURATION.md)).
 
+## Compare recipes
+
+```text
+grampus compare --recipes standard,cheap-build "Add CSV export to the reports page"
+```
+
+Each recipe runs as its own task from the same base commit. By default each writes its own spec (you
+approve each) and every result is also checked against the other specs; `--mode shared` writes one spec
+and builds every recipe from it. When they are done, compare them in the dashboard and keep one with
+`grampus pick <comparison> <task>`.
+
 ## Use it from the terminal
 
 ```text
