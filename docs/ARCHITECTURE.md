@@ -224,6 +224,9 @@ prints the addresses it answers on.
   messages are skipped by id.
 - A reply Orca refuses (say its worker has gone) is recorded as `command.refused` and the question
   stays open, instead of stopping the driver on every restart.
+- A question closes when the dispatch that asked it settles, exits or is stopped, as Orca's does. It
+  no longer counts as waiting for the user, and the driver refuses a reply to it without calling Orca.
+  A driver that restarts after a worker went on with its default records the question already closed.
 - A settled worker is retained before its message is acknowledged and released when the task finishes.
 - A worker is treated as gone only on Orca's positive `exited` liveness verdict. Start failures and
   exits wait for the user (`retry` or `abandon`); `retry` stops an `outcome_unknown` start first and

@@ -7,7 +7,7 @@ import { specLimits } from '../config/limits.js';
 import type { CheckResult, CommandKind, GuardResult } from '../domain/events.js';
 import type { Finding } from '../domain/review.js';
 import { simplifyNote } from './simplify.js';
-import { currentDispatch, type ReviewRecord, type TaskState } from './state.js';
+import { currentDispatch, isOpen, type ReviewRecord, type TaskState } from './state.js';
 
 export interface TaskSummary {
   taskId: string;
@@ -49,7 +49,7 @@ export function summarise(state: TaskState): TaskSummary {
     phase: phaseOf(state),
     needsYou: state.attention,
     questions: [...state.questions]
-      .filter(([, question]) => !question.answered)
+      .filter(([, question]) => isOpen(question))
       .map(([messageId, question]) => ({
         messageId,
         stage: question.key,

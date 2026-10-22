@@ -106,6 +106,8 @@ export interface MessageView {
   body: string;
   at: string;
   answered: boolean;
+  /** The asking worker finished before an answer, so none can be sent. */
+  closed: boolean;
   answer: { body: string; at: string; source: UserCommand['source'] } | null;
 }
 

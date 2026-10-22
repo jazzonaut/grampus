@@ -14,6 +14,7 @@ import {
   applyEvent,
   currentDispatch,
   foldEvents,
+  isOpen,
   type DispatchRecord,
   type StageRecord,
   type TaskState,
@@ -241,7 +242,8 @@ export class DriverCore {
     if (command.kind === 'reply') {
       const question = this.state.questions.get(command.messageId);
       if (!question) return `no question ${command.messageId}`;
-      return question.answered ? 'that question was already answered' : null;
+      if (question.answered) return 'that question was already answered';
+      return question.closed ? 'the worker that asked it has finished' : null;
     }
     const attention = this.state.attention;
     if (!attention?.options.includes(command.kind)) return `nothing is waiting for ${command.kind}`;
@@ -388,7 +390,7 @@ export class DriverCore {
   private quiet(record: StageRecord, dispatch: DispatchRecord): boolean {
     if (dispatch.settled || dispatch.exited) return false;
     for (const question of this.state.questions.values())
-      if (question.key === record.key && !question.answered) return false;
+      if (question.key === record.key && isOpen(question)) return false;
     return Date.now() - this.lastActivity(record, dispatch) >= currentSettings().stalledWorkerMs;
   }
 
