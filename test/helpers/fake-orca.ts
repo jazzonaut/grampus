@@ -139,6 +139,10 @@ export class FakeOrca implements Orca, OrcaWorkspaces {
     return { handle: `term_${dispatchId}`, liveness: this.liveness.get(dispatchId) ?? 'live' };
   }
 
+  async conversationAddress(dispatchId: string) {
+    return `term_${dispatchId}`;
+  }
+
   async retainWorker(dispatchId: string) {
     this.retained.push(dispatchId);
   }

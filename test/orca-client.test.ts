@@ -7,8 +7,15 @@ import { test } from 'node:test';
 import { OrcaCli, OrcaError, OrcaUncertainError } from '../src/orca/client.js';
 import { useTestSettings } from './helpers/task-fixture.js';
 
-/** A fake `orca` that prints `response` and appends its argv to a log. */
-function fakeOrca(response: string, exitCode = 0): { client: OrcaCli; calls: () => string[][] } {
+/**
+ * A fake `orca` that appends its argv to a log and prints `response`, or the response for its
+ * subcommand (e.g. `worker-show`) when given a map.
+ */
+function fakeOrca(
+  response: string | Record<string, string>,
+  exitCode = 0,
+): { client: OrcaCli; calls: () => string[][] } {
+  const responses = typeof response === 'string' ? { '*': response } : response;
   const dir = mkdtempSync(join(tmpdir(), 'grampus-orca-'));
   const log = join(dir, 'calls.jsonl');
   const script = join(dir, 'orca.mjs');
@@ -16,7 +23,8 @@ function fakeOrca(response: string, exitCode = 0): { client: OrcaCli; calls: () 
     script,
     `import { appendFileSync } from 'node:fs';
 appendFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)) + '\\n');
-process.stdout.write(${JSON.stringify(response)});
+const responses = ${JSON.stringify(responses)};
+process.stdout.write(responses[process.argv[3]] ?? responses['*']);
 process.exit(${exitCode});\n`,
   );
   return {
@@ -139,4 +147,33 @@ test('worker-show reads the reusable handle and the fleet liveness verdict', asy
   };
   const { client } = fakeOrca(JSON.stringify({ ok: true, result: shown }));
   assert.deepEqual(await client.showWorker('dispatch_1'), { handle: 'structworker_c1d5', liveness: 'exited' });
+});
+
+test('a chat worker is continued through the Orca session address its preamble names', async () => {
+  useTestSettings();
+  const chat = fakeOrca({
+    'worker-show': JSON.stringify({ ok: true, result: { dispatch: { assigneeHandle: 'structworker_c1d5' } } }),
+    'worker-read': JSON.stringify({
+      ok: true,
+      result: {
+        provider: 'codex',
+        transcript: {
+          messages: [
+            {
+              id: 'orca:1',
+              blocks: [
+                {
+                  type: 'text',
+                  text: 'Your task ID is: task_1\nYour Orca session ID is: orca_session_id:e025aa19-0478\n',
+                },
+              ],
+            },
+          ],
+        },
+      },
+    }),
+  });
+  assert.equal(await chat.client.conversationAddress('ctx_1'), 'orca_session_id:e025aa19-0478');
+  const terminal = fakeOrca(JSON.stringify({ ok: true, result: { dispatch: { assigneeHandle: 'term_abc' } } }));
+  assert.equal(await terminal.client.conversationAddress('ctx_2'), 'term_abc', 'a terminal worker keeps its handle');
 });

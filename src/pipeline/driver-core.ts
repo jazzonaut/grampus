@@ -337,8 +337,7 @@ export class DriverCore {
   }
 
   private async reusableHandle(previous: DispatchRecord): Promise<string | null> {
-    const view = await this.orca.showWorker(previous.dispatchId).catch(() => null);
-    return view?.handle ?? null;
+    return this.orca.conversationAddress(previous.dispatchId).catch(() => null);
   }
 
   /** Run an Orca mutation. An uncertain result stops the driver; rerunning it replays the same request id. */
