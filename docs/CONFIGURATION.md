@@ -13,8 +13,8 @@ the installed data directory.
 | `gitTimeoutMs` | `60000` | Deadline for one Git query |
 | `inboxWaitMs` | `5000` | How long the driver blocks on Orca's inbox before reading local commands |
 | `livenessIntervalMs` | `60000` | Minimum interval between liveness checks of unreported workers |
-| `orcaRetries` | `3` | How many times the driver repeats an Orca call whose outcome is unknown (Orca unreachable, timed out, no answer) before it stops |
-| `orcaRetryDelayMs` | `5000` | Wait before the first repeat; each later repeat waits that much longer. Also the wait between inbox checks while Orca is busy |
+| `orcaRetries` | `3` | How many times the driver repeats an Orca call whose outcome is unknown (Orca unreachable, timed out, no answer) before it stops. A busy Orca (`runtime_busy`) does not count: that call is repeated until Orca has room |
+| `orcaRetryDelayMs` | `5000` | Wait before the first repeat; each later repeat waits that much longer. Also the wait between repeats of any call while Orca is busy |
 | `driverHeartbeatMs` | `10000` | How often a running driver touches its `driver.lock`, so others can tell it is alive |
 | `driverStaleMs` | `60000` | A driver whose lock has not been touched for this long counts as gone: `status`, `wait` and the dashboard show it as stopped, and a new driver may take over. At least three heartbeats |
 | `stalledWorkerMs` | `3600000` (1 hour) | How long a worker the pipeline waits on may go without reporting, asking or being answered before the user is asked whether to retry it |

@@ -63,12 +63,13 @@ test('a busy Orca is waited out, however long it stays busy', async () => {
   const harness = await createHarness(h => goodWorkers(h));
   const driver = harness.run();
   await harness.until(approvalWithReview, 'approval');
-  // More busy checks than any repeat budget: a refused check applied nothing, so waiting costs nothing.
+  // More busy checks and starts than any repeat budget: a refused call applied nothing, so waiting costs nothing.
   harness.orca.busyChecks = currentSettings().orcaRetries * 3;
-  harness.orca.busyStarts = 1;
+  harness.orca.busyStarts = currentSettings().orcaRetries * 3;
   harness.command({ kind: 'approve', specVersion: 1 });
   await harness.until(state => state.attention?.reason === 'ready:0', 'ready');
   assert.equal(harness.orca.busyChecks, 0, 'every busy check was waited out');
+  assert.equal(harness.orca.busyStarts, 0, 'every busy start was waited out');
   harness.command({ kind: 'accept' });
   assert.equal(await driver, 0);
   const events = harness.store.events();

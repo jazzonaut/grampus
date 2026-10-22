@@ -24,7 +24,7 @@ export interface Settings {
   inboxWaitMs: number;
   /** Minimum interval between liveness checks of a dispatch that has not reported. */
   livenessIntervalMs: number;
-  /** How many times the driver repeats an Orca call whose outcome is unknown before it stops. */
+  /** How many times the driver repeats an Orca call whose outcome is unknown before it stops; busy refusals do not count. */
   orcaRetries: number;
   /** Wait before the first repeat of an uncertain Orca call; each later repeat waits that much longer. */
   orcaRetryDelayMs: number;

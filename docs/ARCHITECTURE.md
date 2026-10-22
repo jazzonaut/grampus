@@ -217,9 +217,12 @@ prints the addresses it answers on.
   repeated inbox `check` leaves out its acknowledgement, as a restarted driver does. A call that stays
   uncertain stops the driver (`driver.stopped`); running `grampus drive <task>` again resumes.
 - `runtime_busy` (Orca's long-poll slots are full; see [Orca contract](#orca-contract)) means Orca
-  applied nothing. A busy mutation is repeated like an uncertain one. A busy inbox `check` is not
-  counted at all: the driver waits `orcaRetryDelayMs` and checks again on its next pump, for as long as
-  Orca stays busy, applying user commands in between.
+  applied nothing, so a busy call never counts towards `orcaRetries`. A busy mutation (such as
+  `worker-start`) is repeated with the same request id every `orcaRetryDelayMs` for as long as Orca
+  stays busy; user commands wait until it goes through. A busy inbox `check` is likewise not counted:
+  the driver waits `orcaRetryDelayMs` and checks again on its next pump, applying user commands in
+  between. A comparison with more running entries than Orca's long-poll limit keeps Orca busy, so
+  this waiting is routine there rather than a fault.
 - The inbox is acknowledged only on the next `check` after every message is recorded. Replayed
   messages are skipped by id.
 - A reply Orca refuses (say its worker has gone) is recorded as `command.refused` and the question

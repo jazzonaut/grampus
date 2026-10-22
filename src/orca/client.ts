@@ -51,7 +51,7 @@ export class OrcaUncertainError extends Error {
 /**
  * Orca turned the call away before running it (`runtime_busy`): all its long-poll slots were taken, by
  * `check --wait`, `worker-start` and workers' `ask` among others. Nothing was applied, so it is replayed
- * like an uncertain call.
+ * until Orca has room, without counting towards the uncertain-call budget.
  */
 export class OrcaBusyError extends OrcaUncertainError {
   constructor(message: string) {
