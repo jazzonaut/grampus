@@ -208,8 +208,8 @@ function print(tasks: TaskSummary[], asOf: string, json: boolean, empty: string)
 }
 
 /**
- * Block until a task has something newer than `after` that needs the user (a decision, a question or a
- * stopped driver), or the wait times out. Without `after`, only what happens from now on counts.
+ * Block until a task has something newer than `after` for the user (a decision, a question, a stopped
+ * driver or a finish), or the wait times out. Without `after`, only what happens from now on counts.
  */
 async function wait(
   dataDir: string,
@@ -236,6 +236,8 @@ function isNew(summary: TaskSummary, since: string): boolean {
   if (summary.needsYou && summary.needsYou.since > since) return true;
   if (summary.questions.some(question => question.at > since)) return true;
   if (summary.lastStop && !summary.finished && summary.lastStop.at > since) return true;
+  // A finish confirms an accept or abandon the user asked for; whoever waits on it must hear it.
+  if (summary.finished && summary.finished.at > since) return true;
   return false;
 }
 

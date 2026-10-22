@@ -71,7 +71,8 @@ separate dialog, write the evidence in your message first: the dialog alone is n
   verbatim, then any `Note:` from the request, then your own reading. Do not replace it with a
   summary. Say plainly if the user would be accepting with unresolved problems.
 
-A command is applied by the task's driver within a few seconds; confirm with `status`. If `status`
+A command is applied by the task's driver within a few seconds. After `accept` or `abandon`,
+`wait --after <time>` returns as soon as the task has finished; then offer the `report`. If `status`
 shows `Refused`, the decision no longer applies (for example, a newer spec version exists).
 
 ## When the driver stopped

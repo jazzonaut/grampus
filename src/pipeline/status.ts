@@ -18,7 +18,7 @@ export interface TaskSummary {
   questions: { messageId: string; stage: string | null; text: string; at: string }[];
   spec: { version: number; path: string; checks: string[] } | null;
   rounds: { round: number; checks: string; review: string; decision: string | null }[];
-  finished: { outcome: string; sha: string | null; override: boolean } | null;
+  finished: { outcome: string; sha: string | null; override: boolean; at: string } | null;
   lastStop: { reason: string; at: string } | null;
   /** The most recent refused command, if it came after the last applied one. */
   refused: { kind: string; reason: string; at: string } | null;
@@ -66,7 +66,12 @@ export function summarise(state: TaskState): TaskSummary {
       };
     }),
     finished: state.finished
-      ? { outcome: state.finished.outcome, sha: state.finished.sha, override: state.finished.override }
+      ? {
+          outcome: state.finished.outcome,
+          sha: state.finished.sha,
+          override: state.finished.override,
+          at: state.finished.at,
+        }
       : null,
     lastStop: state.lastStop,
     refused: latestRefusal(state),

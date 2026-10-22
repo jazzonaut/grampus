@@ -52,3 +52,13 @@ test('wait --after the latest cursor waits for something newer', () => {
   assert.ok(cursor, 'status prints a cursor');
   assert.match(grampus(home, 'wait', '--after', cursor), /Nothing new needs you yet/);
 });
+
+test('wait reports a task that finished after the cursor', () => {
+  const { home } = taskWithRequest();
+  const cursor = /as of (\S+)/.exec(grampus(home, 'status'))?.[1] ?? '';
+  const store = TaskStore.open(home, 'task-1');
+  store.append({ type: 'task.finished', outcome: 'accepted', sha: 'abc123', override: false, reason: null });
+  const output = grampus(home, 'wait', '--after', cursor);
+  assert.match(output, /accepted/);
+  assert.doesNotMatch(output, /Nothing new/);
+});
