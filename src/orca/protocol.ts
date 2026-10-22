@@ -91,6 +91,8 @@ export const worktreeSchema = z.object({
 
 export const terminalCreateSchema = z.object({ terminal: z.object({ handle: z.string() }) });
 
+export const terminalListSchema = z.object({ terminals: z.array(z.object({ handle: z.string() })) });
+
 export const statusSchema = z.object({
   runtime: z.object({ appVersion: z.string().optional(), reachable: z.boolean().optional() }).optional(),
 });

@@ -10,6 +10,7 @@ import { finish, runPipeline } from './pipeline.js';
 /** Run a task's driver until the task finishes or the driver must stop. Returns the process exit code. */
 export async function drive(store: TaskStore, orca: Orca, log: Log): Promise<number> {
   const release = acquireLock(join(store.dir, 'driver.lock'));
+  let finished = false;
   try {
     const core = new DriverCore(store, orca, log);
     if (core.state.finished) {
@@ -23,10 +24,26 @@ export async function drive(store: TaskStore, orca: Orca, log: Log): Promise<num
       terminal: process.env.ORCA_TERMINAL_HANDLE ?? null,
     });
     log(`Driving ${core.state.taskId}: ${core.state.title}`);
-    return await runToEnd(core, log);
+    const code = await runToEnd(core, log);
+    finished = code === 0 && core.state.finished !== null;
+    return code;
   } finally {
     release();
+    if (finished) await closeOwnTab(orca, log);
   }
+}
+
+/**
+ * Close this driver's Orca tab once its task has finished, so no shell keeps the worktree open. A driver
+ * that stopped keeps its tab, which shows why and where to rerun it. Closing ends this process.
+ */
+async function closeOwnTab(orca: Orca, log: Log): Promise<void> {
+  const handle = process.env.ORCA_TERMINAL_HANDLE;
+  if (!handle) return;
+  log('Task finished; closing this tab.');
+  await orca
+    .closeTerminal(handle)
+    .catch((error: unknown) => log(`Could not close this tab: ${(error as Error).message}`));
 }
 
 async function runToEnd(core: DriverCore, log: Log): Promise<number> {

@@ -20,7 +20,7 @@ import { listTaskIds, TaskStore } from './store/task-store.js';
 
 const usage = `Usage: grampus <command> [options]
 
-  new --repo <path> [--recipe <name>] [--title <text>] <request...>   Start a task in a new Orca worktree
+  new [--repo <path>] [--recipe <name>] [--title <text>] <request...> Start a task (repository: --repo or the current folder's)
   status [task] [--json]                                              Show tasks, or one task in detail
   wait [task] [--after <time>] [--json]                               Block until something newer than --after needs you
   report <task> [--json]                                              Models, time and tokens per stage, and human cost
@@ -149,7 +149,7 @@ async function newTask(
   const created = await createTask(
     {
       dataDir,
-      repoPath: resolve(required(values.repo, '--repo')),
+      repoPath: resolve(values.repo ?? process.cwd()),
       request: required(words.join(' '), 'request'),
       ...(values.title ? { title: values.title } : {}),
       ...(values.recipe ? { recipeName: values.recipe } : {}),
@@ -157,7 +157,9 @@ async function newTask(
     },
     new OrcaCli(),
   );
-  console.log(`Created ${created.taskId}.\n  worktree: ${created.worktree}\n  driver terminal: ${created.terminal}`);
+  console.log(
+    `Created ${created.taskId}.\n  repository: ${created.repository}\n  worktree: ${created.worktree}\n  driver terminal: ${created.terminal}`,
+  );
   console.log('The spec writer starts shortly. Its questions and the spec come to you through `grampus wait`.');
   console.log(`as of ${asOf}`);
   return 0;

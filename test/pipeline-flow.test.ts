@@ -65,7 +65,8 @@ test('a task runs spec, approval, baseline, build, verify and review to acceptan
   assert.ok(existsSync(finished.specs[0]?.path ?? ''), 'the approved spec is kept in the task folder');
   // A finished driver closes its tab, so the shell no longer holds the worktree open; a stopped one
   // (non-zero exit) keeps it so the user can read why and rerun it.
-  assert.deepEqual(harness.orca.terminals, [`drive ${harness.taskId} && exit`]);
+  assert.deepEqual(harness.orca.terminals, [`drive ${harness.taskId}`]);
+  assert.ok(harness.orca.closed.includes(harness.orca.firstTerminal), "Orca's automatic first tab was closed");
 });
 
 test('a revision continues the spec writer and needs approval of the new version', async () => {
@@ -242,4 +243,23 @@ test('a clean spec review that lands after the request notifies the user and upd
   assert.match(updated.attention?.detail ?? '', /spec review: approve, 0 blocking/);
   harness.command({ kind: 'abandon' });
   await driver;
+});
+
+test('a driver that finishes cleanly closes its own Orca tab; one that stops keeps it', async () => {
+  const previous = process.env.ORCA_TERMINAL_HANDLE;
+  process.env.ORCA_TERMINAL_HANDLE = 'term_driver';
+  try {
+    const harness = await createHarness(h => goodWorkers(h));
+    harness.orca.failNextStarts = 1;
+    assert.equal(await harness.run(), 1);
+    assert.equal(harness.orca.closed.includes('term_driver'), false, 'a stopped driver keeps its tab for a rerun');
+    const driver = harness.run();
+    await harness.until(state => state.attention?.reason === 'approve-spec:1', 'approval');
+    harness.command({ kind: 'abandon' });
+    assert.equal(await driver, 0);
+    assert.ok(harness.orca.closed.includes('term_driver'), 'a finished driver closes its tab, releasing the worktree');
+  } finally {
+    if (previous === undefined) delete process.env.ORCA_TERMINAL_HANDLE;
+    else process.env.ORCA_TERMINAL_HANDLE = previous;
+  }
 });

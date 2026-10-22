@@ -65,6 +65,11 @@ test('a worker question is recorded, answered through a command and relayed to O
   assert.equal([...approved.questions.values()][0]?.answered, true);
   harness.command({ kind: 'abandon' });
   await driver;
+  // Time spent waiting for the user's answer is not agent time.
+  const spec = harness.state().measurements?.find(item => item.key === 'spec:1');
+  assert.ok(spec?.durationMs !== null && spec?.waitingMs !== null && spec?.agentMs !== null);
+  assert.ok((spec?.waitingMs ?? 0) > 0, 'the wait for the answer is measured');
+  assert.equal(spec?.agentMs, (spec?.durationMs ?? 0) - (spec?.waitingMs ?? 0));
 });
 
 test('a worker that exits without reporting waits for the user to retry', async () => {

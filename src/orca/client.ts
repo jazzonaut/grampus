@@ -18,6 +18,7 @@ import {
   statusSchema,
   taskCreateSchema,
   terminalCreateSchema,
+  terminalListSchema,
   workerReadSchema,
   workerShowSchema,
   workerStartSchema,
@@ -89,6 +90,8 @@ export interface Orca {
   retainWorker(dispatchId: string): Promise<void>;
   releaseWorker(dispatchId: string): Promise<void>;
   stopWorker(dispatchId: string): Promise<void>;
+  /** Close an Orca terminal, such as the driver's own tab once its task has finished. */
+  closeTerminal(handle: string): Promise<void>;
   /** The provider and provider session ids behind a dispatch, from Orca's transcript view. */
   transcriptSessions(dispatchId: string): Promise<{ provider: string | null; sessionIds: string[] }>;
 }
@@ -97,6 +100,9 @@ export interface Orca {
 export interface OrcaWorkspaces {
   createWorktree(input: { repoPath: string; name: string }): Promise<{ id: string; path: string }>;
   createTerminal(input: { worktreeId: string; title: string; command: string }): Promise<string>;
+  /** Handles of the live terminals in a worktree. */
+  listTerminals(worktreeId: string): Promise<string[]>;
+  closeTerminal(handle: string): Promise<void>;
 }
 
 /** The real Orca CLI. */
@@ -208,6 +214,15 @@ export class OrcaCli implements Orca, OrcaWorkspaces {
     const args = ['terminal', 'create', '--worktree', `id:${input.worktreeId}`, '--title', input.title];
     args.push('--command', input.command);
     return (await this.parse(terminalCreateSchema, args)).terminal.handle;
+  }
+
+  async listTerminals(worktreeId: string) {
+    const listed = await this.parse(terminalListSchema, ['terminal', 'list', '--worktree', `id:${worktreeId}`]);
+    return listed.terminals.map(terminal => terminal.handle);
+  }
+
+  async closeTerminal(handle: string) {
+    await this.call(['terminal', 'close', '--terminal', handle]);
   }
 
   private async parse<T>(schema: z.ZodType<T>, args: string[], requestId?: string): Promise<T> {

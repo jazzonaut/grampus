@@ -20,8 +20,12 @@ Current behaviour of Grampus. Intent and the reasons behind it are in [DESIGN.md
 ```
 
 `grampus new` creates the task folder and log, an Orca worktree (`worktree create --no-parent
---setup run`), and an Orca terminal in that worktree whose command is `grampus drive <task> && exit`, so the tab
-closes (releasing its hold on the worktree) when the task finishes, and stays open after a stop. The
+--setup run`), and an Orca terminal in that worktree whose command is `grampus drive <task>`. The repository is `--repo`
+or the current folder's, resolved through `git rev-parse --git-common-dir` to the main checkout, which
+is how Orca knows repositories. Orca opens a first terminal in every new worktree; Grampus closes it
+once the driver tab exists, so a task has exactly one tab. After a clean finish the driver closes its
+own tab through `orca terminal close`, so no shell holds the worktree open; a stopped driver keeps its
+tab. The
 driver runs inside that terminal, so Orca resolves it as the Run's coordinator without `--from`.
 
 Clients read state from the logs. `status`, `wait` and `new` print `as of <time>`; `wait --after <time>`
@@ -161,8 +165,8 @@ base and head commits, guard results, review findings and downgrades, round deci
 every user command with its source, and how long the task waited for the user.
 
 When a task finishes, after its workers are released, the driver records `usage.recorded`: for each
-dispatch, the provider, the model that actually ran, effort (Codex), time from start request to report,
-and tokens. Orca's transcript view drops models and usage, but its message ids name the provider
+dispatch, the provider, the model that actually ran, effort (Codex), time from start request to report
+split into working time and time spent waiting for the user's answers to its questions, and tokens. Orca's transcript view drops models and usage, but its message ids name the provider
 session (`claude:<session>:...`, `codex:<session>:...`). Grampus reads that session's transcript:
 Claude's `<projects root>/<project>/<session>.jsonl` (usage once per message id) and Codex's
 `<sessions root>/YYYY/MM/DD/rollout-...-<session>.jsonl` (growth of the cumulative total). A
@@ -170,5 +174,6 @@ conversation continued by a later dispatch is split at the time that dispatch wa
 counts uncached input for both providers. Anything not found stays unknown with a note.
 
 `grampus report <task>` prints the scorecard: per-stage figures, totals, rounds, wall time and the
-human cost (decisions, how many came from chat, time spent waiting). For a running task it measures
+human cost (decisions, answers to worker questions, how many came from chat, and how long tasks waited
+for them). For a running task it measures
 now and is marked provisional. **Planned:** comparisons, exports and the dashboard.

@@ -12,13 +12,22 @@ You act for the user. Grampus records every command you queue as coming from cha
 decision the user actually made in this conversation. Never approve, accept or abandon on your own
 judgement, and never edit a task's worktree yourself: workers do the work, Grampus verifies it.
 
+- **Say only what has happened.** Describe a command as sent only after you ran it and saw
+  `Queued ...`. While asking, say what you will do ("if you approve, I will start the build"), never
+  "approving it now".
+- **Grampus ends at a verified branch.** It never merges, pushes or opens pull requests, and neither
+  do you unless the user asks for that in this conversation. After `accept`, name the branch and
+  worktree, and stop there.
+
 ## Start a task
 
 ```text
-{{grampus}} new --repo <absolute repo path> [--recipe <name>] [--title "<short title>"] --source chat "<request in the user's words>"
+{{grampus}} new [--repo <absolute repo path>] [--recipe <name>] [--title "<short title>"] --source chat "<request in the user's words>"
 ```
 
-This creates an Orca worktree, a terminal tab that runs the task's driver and, shortly after, the
+Without `--repo`, Grampus uses the repository of the current folder (the workspace this chat runs
+in; a linked worktree resolves to its main checkout). Pass `--repo` only when the user names another
+repository. `new` prints the repository it used: tell the user. This creates an Orca worktree, a terminal tab that runs the task's driver and, shortly after, the
 spec writer. Tell the user they can stay in this chat: workers ask their questions through Grampus,
 and you bring those questions, the spec and the result here. Then start `wait --after` with the
 `as of` time that `new` printed. Use

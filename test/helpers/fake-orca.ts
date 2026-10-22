@@ -173,6 +173,18 @@ export class FakeOrca implements Orca, OrcaWorkspaces {
 
   /** Commands of the terminals Grampus created. */
   readonly terminals: string[] = [];
+  /** Terminals Grampus closed, by handle. */
+  readonly closed: string[] = [];
+  /** The first terminal Orca opens in every new worktree. */
+  readonly firstTerminal = 'term_first';
+
+  async listTerminals() {
+    return [this.firstTerminal];
+  }
+
+  async closeTerminal(handle: string) {
+    this.closed.push(handle);
+  }
 
   async createTerminal(input: { command: string }) {
     this.terminals.push(input.command);

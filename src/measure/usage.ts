@@ -28,6 +28,10 @@ export interface DispatchMeasurement {
   usage: Usage | null;
   /** From the start request to the worker's report; null when it never reported. */
   durationMs: number | null;
+  /** Part of the duration spent waiting for the user to answer this worker's questions. */
+  waitingMs: number | null;
+  /** Duration minus waiting: the time the worker was actually working. */
+  agentMs: number | null;
   outcome: 'succeeded' | 'failed' | null;
   /** Why something is unknown. */
   note: string | null;
@@ -64,7 +68,7 @@ export async function measureDispatches(
           models: [],
           effort: null,
           usage: null,
-          durationMs: dispatch.settled ? Date.parse(dispatch.settled.at) - from : null,
+          ...timing(state, record.key, from, dispatch.settled ? Date.parse(dispatch.settled.at) : null),
           outcome: dispatch.settled?.outcome ?? null,
           note: typeof sessions === 'string' ? `transcript unavailable: ${sessions}` : null,
         },
@@ -72,6 +76,26 @@ export async function measureDispatches(
     }
   for (const item of located) readUsage(item, located, settings);
   return located.map(item => item.measurement);
+}
+
+/** Duration, the part spent waiting for answers to this dispatch's questions, and the rest. */
+function timing(
+  state: TaskState,
+  key: string,
+  from: number,
+  to: number | null,
+): Pick<DispatchMeasurement, 'durationMs' | 'waitingMs' | 'agentMs'> {
+  if (to === null) return { durationMs: null, waitingMs: null, agentMs: null };
+  const answers = new Map<string, number>();
+  for (const command of state.commands)
+    if (command.kind === 'reply') answers.set(command.messageId, Date.parse(command.at));
+  let waitingMs = 0;
+  for (const [messageId, question] of state.questions) {
+    const asked = Date.parse(question.at);
+    if (question.key !== key || asked < from || asked > to) continue;
+    waitingMs += Math.max(0, Math.min(answers.get(messageId) ?? to, to) - asked);
+  }
+  return { durationMs: to - from, waitingMs, agentMs: to - from - waitingMs };
 }
 
 function readUsage(item: Located, all: readonly Located[], settings: Settings): void {

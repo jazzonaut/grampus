@@ -1,5 +1,6 @@
 // Creates a task: its folder and log, an Orca worktree, and the Orca terminal that runs its driver.
 import { randomBytes } from 'node:crypto';
+import { basename, dirname } from 'node:path';
 import { inputLimits } from '../config/limits.js';
 import { availableRecipes } from '../config/settings.js';
 import type { Recipe } from '../domain/recipe.js';
@@ -14,19 +15,19 @@ export interface NewTask {
   request: string;
   title?: string;
   recipeName?: string;
-  /** The command line that runs this task's driver. Its terminal closes when the driver finishes cleanly. */
+  /** The command line that runs this task's driver. The driver closes its own tab when the task finishes. */
   driveCommand: (taskId: string) => string;
 }
 
 export async function createTask(
   input: NewTask,
   workspaces: OrcaWorkspaces,
-): Promise<{ taskId: string; worktree: string; terminal: string }> {
+): Promise<{ taskId: string; repository: string; worktree: string; terminal: string }> {
   const request = input.request.trim();
   if (!request || request.length > inputLimits.requestLength)
     throw new Error(`The request must be between 1 and ${inputLimits.requestLength} characters.`);
   const recipe = findRecipe(input.recipeName ?? 'standard');
-  const repoRoot = (await git(input.repoPath, ['rev-parse', '--show-toplevel'])).trim();
+  const repoRoot = await resolveRepository(input.repoPath);
   const title = (input.title?.trim() || firstLine(request)).slice(0, inputLimits.titleLength);
   const taskId = `${slug(title)}-${randomBytes(3).toString('hex')}`;
   const store = TaskStore.create(input.dataDir, taskId);
@@ -34,15 +35,15 @@ export async function createTask(
   const worktree = await workspaces.createWorktree({ repoPath: repoRoot, name: `grampus-${taskId}` });
   const baseSha = await headSha(worktree.path);
   await excludeWorkerFolder(worktree.path);
+  // Orca opens a first terminal in every new worktree. The driver gets its own tab, so that one is
+  // closed: an idle shell left in the worktree would stop Orca from deleting it later.
+  const opened = await workspaces.listTerminals(worktree.id).catch(() => []);
   let terminal: string;
   try {
     terminal = await workspaces.createTerminal({
       worktreeId: worktree.id,
       title: `Grampus: ${title}`,
-      // The driver exits 0 only when the task finished; closing the tab then releases the shell that
-      // would otherwise hold the worktree open. A stopped driver exits 1 and keeps its tab for a rerun.
-      // `&&` works in PowerShell 7, cmd and POSIX shells.
-      command: `${input.driveCommand(taskId)} && exit`,
+      command: input.driveCommand(taskId),
     });
   } catch (error) {
     throw new Error(
@@ -50,6 +51,7 @@ export async function createTask(
       { cause: error },
     );
   }
+  for (const handle of opened) if (handle !== terminal) await workspaces.closeTerminal(handle).catch(() => undefined);
   store.append({
     type: 'workspace.created',
     worktreeId: worktree.id,
@@ -57,7 +59,17 @@ export async function createTask(
     baseSha,
     driverTerminal: terminal,
   });
-  return { taskId, worktree: worktree.path, terminal };
+  return { taskId, repository: repoRoot, worktree: worktree.path, terminal };
+}
+
+/**
+ * The main checkout of the repository containing `path`, so a task can start from any folder or linked
+ * worktree inside it (such as the workspace a chat runs in). Orca knows repositories by that checkout.
+ */
+export async function resolveRepository(path: string): Promise<string> {
+  const common = (await git(path, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim();
+  if (basename(common) !== '.git') throw new Error(`${path} is not inside a repository with a working checkout.`);
+  return dirname(common);
 }
 
 function findRecipe(name: string): Recipe {

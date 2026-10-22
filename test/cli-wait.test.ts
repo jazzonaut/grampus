@@ -62,3 +62,17 @@ test('wait reports a task that finished after the cursor', () => {
   assert.match(output, /accepted/);
   assert.doesNotMatch(output, /Nothing new/);
 });
+
+test('the repository defaults to the current directory, resolved from a worktree to its main checkout', async () => {
+  const { resolveRepository } = await import('../src/pipeline/create-task.js');
+  const { createRepository } = await import('./helpers/task-fixture.js');
+  const { git } = await import('../src/git/git.js');
+  const repo = await createRepository();
+  const worktree = `${repo}-linked`;
+  await git(repo, ['worktree', 'add', '-q', '-b', 'linked', worktree]);
+  const { realpathSync } = await import('node:fs');
+  const same = (a: string, b: string) => realpathSync(a).toLowerCase() === realpathSync(b).toLowerCase();
+  assert.ok(same(await resolveRepository(repo), repo));
+  assert.ok(same(await resolveRepository(join(repo, 'test')), repo), 'a subfolder resolves to the repository');
+  assert.ok(same(await resolveRepository(worktree), repo), 'a linked worktree resolves to its main checkout');
+});

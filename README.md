@@ -35,7 +35,9 @@ Node versions; `npm unlink -g grampus` removes it).
 
 In any Claude or Codex chat in Orca:
 
-> Start a Grampus task in D:\Code\MyApp: add CSV export to the reports page.
+> Start a Grampus task: add CSV export to the reports page.
+
+The task uses the repository your chat runs in; name another one ("in D:\Code\MyApp") if needed.
 
 The agent runs `grampus new`. Grampus creates an Orca worktree and a terminal tab named
 `Grampus: <title>` that runs the task's driver; you can leave both alone. Stay in your chat: the spec
@@ -45,7 +47,8 @@ accept the result. The agent can block on `grampus wait` until something new nee
 ## Use it from the terminal
 
 ```text
-grampus new --repo D:\Code\MyApp "Add CSV export to the reports page"
+grampus new "Add CSV export to the reports page"          # repository of the current folder
+grampus new --repo D:\Code\MyApp "Add CSV export ..."    # or a named one
 grampus status
 grampus approve <task>
 grampus accept <task>

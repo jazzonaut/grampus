@@ -16,7 +16,8 @@ export interface Scorecard {
   totals: { agentMs: number; usage: Usage | null; dispatchesWithUnknownUsage: number };
   rounds: number;
   wallMs: number | null;
-  human: { decisions: number; waitingMs: number; fromChat: number };
+  /** Decisions (approve, revise, continue, accept...), answers to worker questions, and time tasks waited for both. */
+  human: { decisions: number; answers: number; waitingMs: number; fromChat: number };
 }
 
 export function buildScorecard(
@@ -36,7 +37,7 @@ export function buildScorecard(
     final: Boolean(state.finished && state.measurements),
     dispatches,
     totals: {
-      agentMs: dispatches.reduce((total, item) => total + (item.durationMs ?? 0), 0),
+      agentMs: dispatches.reduce((total, item) => total + (item.agentMs ?? item.durationMs ?? 0), 0),
       // Partial totals are still shown, with the count of dispatches they miss.
       usage: known.length
         ? {
@@ -58,18 +59,28 @@ export function buildScorecard(
 /** Decisions the user made and how long tasks waited for them, from attention to the deciding command. */
 function humanCost(events: readonly StoredEvent[]): Scorecard['human'] {
   let decisions = 0;
+  let answers = 0;
   let waitingMs = 0;
   let fromChat = 0;
   let since: number | null = null;
+  const asked = new Map<string, number>();
   for (const event of events) {
     if (event.type === 'attention.needed') since = Date.parse(event.at);
-    if (event.type !== 'command.applied' || event.command.kind === 'reply') continue;
+    if (event.type === 'worker.message' && event.kind === 'question') asked.set(event.messageId, Date.parse(event.at));
+    if (event.type !== 'command.applied') continue;
+    if (event.command.kind === 'reply') {
+      answers++;
+      if (event.command.source === 'chat') fromChat++;
+      const question = asked.get(event.command.messageId);
+      if (question !== undefined) waitingMs += Date.parse(event.at) - question;
+      continue;
+    }
     decisions++;
     if (event.command.source === 'chat') fromChat++;
     if (since !== null) waitingMs += Date.parse(event.at) - since;
     since = null;
   }
-  return { decisions, waitingMs, fromChat };
+  return { decisions, answers, waitingMs, fromChat };
 }
 
 const number = (value: number | null | undefined) =>
@@ -77,13 +88,26 @@ const number = (value: number | null | undefined) =>
 const seconds = (ms: number | null) => (ms === null ? '?' : `${Math.round(ms / 1000)}s`);
 
 export function renderScorecard(card: Scorecard): string {
-  const header = ['stage', 'agent', 'model', 'effort', 'time', 'input', 'cached', 'cache write', 'output', 'outcome'];
+  const header = [
+    'stage',
+    'agent',
+    'model',
+    'effort',
+    'working',
+    'waited',
+    'input',
+    'cached',
+    'cache write',
+    'output',
+    'outcome',
+  ];
   const rows = card.dispatches.map(item => [
     item.key,
     item.provider ?? item.agent ?? '?',
     item.models.join(',') || '?',
     item.effort ?? '-',
-    seconds(item.durationMs),
+    seconds(item.agentMs ?? item.durationMs),
+    item.waitingMs ? seconds(item.waitingMs) : '-',
     number(item.usage?.input),
     number(item.usage?.cachedInput),
     number(item.usage?.cacheWrite),
@@ -97,6 +121,7 @@ export function renderScorecard(card: Scorecard): string {
     '',
     '',
     seconds(card.totals.agentMs),
+    '',
     number(usage?.input),
     number(usage?.cachedInput),
     number(usage?.cacheWrite),
@@ -114,7 +139,7 @@ export function renderScorecard(card: Scorecard): string {
     `${card.taskId}  ${card.title}  (${card.outcome}, recipe ${card.recipe}${card.final ? '' : ', provisional'})`,
     line(header),
     ...rows.map(line),
-    `rounds ${card.rounds}; wall time ${seconds(card.wallMs)}; human: ${card.human.decisions} decisions (${card.human.fromChat} from chat), waited ${seconds(card.human.waitingMs)}`,
+    `rounds ${card.rounds}; wall time ${seconds(card.wallMs)}; human: ${card.human.decisions} decisions and ${card.human.answers} answers (${card.human.fromChat} from chat), tasks waited ${seconds(card.human.waitingMs)} for them`,
     ...(card.totals.dispatchesWithUnknownUsage
       ? [`usage unknown for ${card.totals.dispatchesWithUnknownUsage} dispatches:`, ...notes]
       : []),
