@@ -6,13 +6,13 @@
 // Modes: `shared` writes and approves one spec in the first entry and gives it to the others, isolating
 // the build stages; `full` runs every recipe end to end, so spec quality counts too, and then runs every
 // entry's checks against every entry's result, so a lax spec cannot make its own recipe look good.
-import { appendFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { inputLimits } from '../config/limits.js';
 import type { CheckResult } from '../domain/events.js';
 import type { Recipe } from '../domain/recipe.js';
-import { readLines } from '../store/task-store.js';
+import { appendRecord, readRecords } from '../store/task-store.js';
 
 /** The comparison log schema. Logs written with another schema are refused; there are no migrations. */
 export const comparisonSchemaVersion = 1;
@@ -84,9 +84,17 @@ export class ComparisonStore {
   readonly eventsPath: string;
   readonly commandsPath: string;
 
+  /** Checked before every append; the comparison driver uses it to stop writing once it lost its lock. */
+  private fence: (() => void) | null = null;
+
   private constructor(readonly dir: string) {
     this.eventsPath = join(dir, 'events.jsonl');
     this.commandsPath = join(dir, 'commands.jsonl');
+  }
+
+  /** Run `check` before every later append. It throws to refuse the write. */
+  fenceWith(check: () => void): void {
+    this.fence = check;
   }
 
   static create(dataDir: string, comparisonId: string): ComparisonStore {
@@ -107,22 +115,23 @@ export class ComparisonStore {
   }
 
   append(event: ComparisonEvent): StoredComparisonEvent {
+    this.fence?.();
     const stored: StoredComparisonEvent = { ...event, at: new Date().toISOString() };
-    appendFileSync(this.eventsPath, `${JSON.stringify(stored)}\n`);
+    appendRecord(this.eventsPath, stored);
     return stored;
   }
 
   events(): StoredComparisonEvent[] {
-    return readLines(this.eventsPath).map(line => JSON.parse(line) as StoredComparisonEvent);
+    return readRecords(this.eventsPath) as StoredComparisonEvent[];
   }
 
   addCommand(command: ComparisonCommand): void {
-    appendFileSync(this.commandsPath, `${JSON.stringify(comparisonCommandSchema.parse(command))}\n`);
+    appendRecord(this.commandsPath, comparisonCommandSchema.parse(command));
   }
 
   commands(): ComparisonCommand[] {
     if (!existsSync(this.commandsPath)) return [];
-    return readLines(this.commandsPath).map(line => comparisonCommandSchema.parse(JSON.parse(line)));
+    return readRecords(this.commandsPath).map(record => comparisonCommandSchema.parse(record));
   }
 
   /** Folder for one cross-check cell's logs. */

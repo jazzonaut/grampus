@@ -97,9 +97,11 @@ review or the user, because judges flip verdicts under pushback.
 
 - Unknown is never success. A missing outcome, an uncertain dispatch or an unreadable report
   stops for the user.
-- Never replay an uncertain mutation. Every Orca mutation carries a request id recorded
-  before the call; after a crash the driver asks Orca what happened (`request-show`) rather
-  than repeating it.
+- Never replay an uncertain mutation except by its recorded request id. Every Orca mutation
+  carries a request id recorded before the call, and Orca answers a repeated id with the
+  original receipt instead of acting twice. So the driver repeats an uncertain call a few times
+  with the same id, which rides out an Orca restart, and stops for the user if it stays
+  uncertain.
 - Evidence is bound to a commit SHA and a spec version.
 - Unknown measurements stay unknown; they never count as zero.
 

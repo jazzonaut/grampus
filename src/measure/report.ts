@@ -92,6 +92,8 @@ function humanCost(events: readonly StoredEvent[]): Scorecard['human'] {
   const asked = new Map<string, number>();
   for (const event of events) {
     if (event.type === 'attention.needed') since = Date.parse(event.at);
+    // A lapsed request was not waited on: the task went on without the user.
+    if (event.type === 'attention.withdrawn') since = null;
     if (event.type === 'worker.message' && event.kind === 'question') asked.set(event.messageId, Date.parse(event.at));
     if (event.type !== 'command.applied') continue;
     if (event.command.kind === 'reply') {

@@ -5,6 +5,7 @@ import { existsSync, statSync } from 'node:fs';
 import type { StoredEvent } from '../domain/events.js';
 import { foldEvents, type TaskState } from '../pipeline/state.js';
 import { ComparisonStore, listComparisonIds } from '../compare/comparison.js';
+import { driverAlive, withObservedStop } from '../store/driver-lock.js';
 import { listTaskIds, TaskStore } from '../store/task-store.js';
 
 export interface LoadedTask {
@@ -19,16 +20,23 @@ export class TaskReader {
 
   constructor(readonly dataDir: string) {}
 
-  /** One task, read again only when its log grew. Throws for an unknown or unreadable task. */
+  /**
+   * One task, read again only when its log grew. Throws for an unknown or unreadable task. A driver that
+   * went missing without recording why shows as stopped; that is checked on every load, since it leaves
+   * the log unchanged.
+   */
   load(taskId: string): LoadedTask {
     const store = TaskStore.open(this.dataDir, taskId);
     const size = statSync(store.eventsPath).size;
     const cached = this.cache.get(taskId);
-    if (cached?.size === size) return cached.task;
+    const task = cached?.size === size ? cached.task : this.read(store);
+    if (cached?.size !== size) this.cache.set(taskId, { size, task });
+    return { ...task, state: withObservedStop(task.state, store.dir, task.events) };
+  }
+
+  private read(store: TaskStore): LoadedTask {
     const events = store.events();
-    const task = { store, events, state: foldEvents(events) };
-    this.cache.set(taskId, { size, task });
-    return task;
+    return { store, events, state: foldEvents(events) };
   }
 
   /** Every task, with the ids of folders whose logs could not be read. */
@@ -46,18 +54,22 @@ export class TaskReader {
   }
 }
 
-/** A task's change signature: the sizes of its event log and command queue. */
+/**
+ * A task's change signature: the sizes of its event log and command queue, and whether its driver is
+ * alive, so a driver that dies without writing anything still updates the page.
+ */
 function signature(dataDir: string, taskId: string): string {
-  const store = TaskStore.open(dataDir, taskId);
-  const commands = existsSync(store.commandsPath) ? statSync(store.commandsPath).size : 0;
-  return `${statSync(store.eventsPath).size}:${commands}`;
+  return storeSignature(TaskStore.open(dataDir, taskId));
 }
 
-/** A comparison's change signature: the sizes of its log and command queue. */
+/** A comparison's change signature, made like a task's. */
 function comparisonSignature(dataDir: string, comparisonId: string): string {
-  const store = ComparisonStore.open(dataDir, comparisonId);
+  return storeSignature(ComparisonStore.open(dataDir, comparisonId));
+}
+
+function storeSignature(store: { dir: string; eventsPath: string; commandsPath: string }): string {
   const commands = existsSync(store.commandsPath) ? statSync(store.commandsPath).size : 0;
-  return `${statSync(store.eventsPath).size}:${commands}`;
+  return `${statSync(store.eventsPath).size}:${commands}:${driverAlive(store.dir) ? 'alive' : 'gone'}`;
 }
 
 /**

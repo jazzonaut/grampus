@@ -42,11 +42,12 @@ export async function runPipeline(core: DriverCore): Promise<void> {
 
 async function ensureRun(core: DriverCore): Promise<void> {
   const here = process.env.ORCA_TERMINAL_HANDLE ?? null;
-  if (core.state.runId) {
+  const runId = core.state.runId;
+  if (runId) {
     const created = core.events.find(event => event.type === 'run.created');
     // An Orca terminal coordinates one Run; a driver restarted in another terminal must rebind it.
     if (created?.type === 'run.created' && here && created.coordinatorHandle !== here)
-      await core.orca.useRun(core.state.runId);
+      await core.repeatUncertain(() => core.orca.useRun(runId));
     return;
   }
   const run = await core.mutate(() => core.orca.createRun(`Grampus: ${core.state.title}`, core.requestId('run')));

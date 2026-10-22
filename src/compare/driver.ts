@@ -3,13 +3,13 @@
 // once than the comparison's concurrency), hands the shared spec on in shared mode, runs the cross-check
 // in full mode, asks the user to pick, and applies the pick by queueing commands for the entries, exactly
 // as the CLI would. Every step reads the logs first, so a restarted driver continues where it stopped.
-import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { currentSettings } from '../config/settings.js';
 import { queueCommand } from '../control.js';
 import type { OrcaWorkspaces } from '../orca/client.js';
 import { createTask, type InheritedSpec } from '../pipeline/create-task.js';
-import { acquireLock, closeOwnTab } from '../pipeline/driver.js';
+import { closeOwnTab } from '../pipeline/driver.js';
+import { acquireDriverLock, LockLost } from '../store/driver-lock.js';
 import { foldEvents, type TaskState } from '../pipeline/state.js';
 import { listTaskIds, TaskStore } from '../store/task-store.js';
 import {
@@ -254,26 +254,27 @@ class ComparisonDriver {
 
 /** Run a comparison's driver until the comparison is over or the driver must stop. Returns the exit code. */
 export async function driveComparison(options: ComparisonDriverOptions & { orca: OrcaWorkspaces }): Promise<number> {
-  const store = ComparisonStore.open(options.dataDir, options.comparisonId);
-  const release = acquireLock(join(store.dir, 'driver.lock'));
+  const lock = acquireDriverLock(ComparisonStore.open(options.dataDir, options.comparisonId).dir);
   let finished = false;
   try {
     const driver = new ComparisonDriver(options);
+    driver.store.fenceWith(() => lock.assertHeld());
     if (driver.state.finished) return 0;
     driver.record({ type: 'driver.started', pid: process.pid });
     options.log(`Driving comparison ${driver.state.comparisonId}: ${driver.state.title}`);
     try {
       while (!(await driver.step())) await sleep(currentSettings().waitPollMs);
     } catch (error) {
-      const reason = (error as Error).stack ?? String(error);
-      driver.record({ type: 'driver.stopped', reason });
-      options.log(`Stopped: ${reason}`);
+      // The log belongs to the driver that took over; even the reason for stopping is not ours to record.
+      const reason = error instanceof LockLost ? null : ((error as Error).stack ?? String(error));
+      if (reason) driver.record({ type: 'driver.stopped', reason });
+      options.log(`Stopped: ${reason ?? (error as Error).message}`);
       return 1;
     }
     finished = true;
     return 0;
   } finally {
-    release();
+    lock.release();
     if (finished) await closeOwnTab(options.orca, options.log);
   }
 }

@@ -1,15 +1,16 @@
 // Entry point of a task driver: one process per task, normally running in the task's own Orca terminal.
-// A lock file keeps a second driver for the same task from starting.
-import { closeSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
-import { join } from 'node:path';
+// The driver lock keeps a second driver for the same task from starting, and stops this one from writing
+// if another driver took the lock over.
 import type { Orca } from '../orca/client.js';
+import { acquireDriverLock, LockLost } from '../store/driver-lock.js';
 import type { TaskStore } from '../store/task-store.js';
 import { DriverCore, DriverStop, TaskAbandoned, type Log } from './driver-core.js';
 import { finish, runPipeline } from './pipeline.js';
 
 /** Run a task's driver until the task finishes or the driver must stop. Returns the process exit code. */
 export async function drive(store: TaskStore, orca: Orca, log: Log): Promise<number> {
-  const release = acquireLock(join(store.dir, 'driver.lock'));
+  const lock = acquireDriverLock(store.dir);
+  store.fenceWith(() => lock.assertHeld());
   let finished = false;
   try {
     const core = new DriverCore(store, orca, log);
@@ -28,7 +29,7 @@ export async function drive(store: TaskStore, orca: Orca, log: Log): Promise<num
     finished = code === 0 && core.state.finished !== null;
     return code;
   } finally {
-    release();
+    lock.release();
     if (finished) await closeOwnTab(orca, log);
   }
 }
@@ -48,46 +49,23 @@ export async function closeOwnTab(orca: Pick<Orca, 'closeTerminal'>, log: Log): 
 
 async function runToEnd(core: DriverCore, log: Log): Promise<number> {
   try {
-    await runPipeline(core);
+    try {
+      await runPipeline(core);
+    } catch (error) {
+      if (!(error instanceof TaskAbandoned)) throw error;
+      await finish(core, error.outcome, false, error.reason);
+    }
     return 0;
   } catch (error) {
-    if (error instanceof TaskAbandoned) {
-      await finish(core, error.outcome, false, error.reason);
-      return 0;
+    // The log belongs to the driver that took over; even the reason for stopping is not ours to record.
+    if (error instanceof LockLost) {
+      log(`Stopped: ${error.message}`);
+      return 1;
     }
     const reason =
       error instanceof DriverStop ? error.message : `Unexpected error: ${(error as Error).stack ?? String(error)}`;
     core.record({ type: 'driver.stopped', reason });
     log(`Stopped: ${reason}`);
     return 1;
-  }
-}
-
-/** Take a driver lock, replacing it only when the recorded process no longer exists. */
-export function acquireLock(path: string): () => void {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const handle = openSync(path, 'wx');
-      writeSync(handle, String(process.pid));
-      closeSync(handle);
-      return () => rmSync(path, { force: true });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      const owner = Number(readFileSync(path, 'utf8'));
-      if (processExists(owner))
-        throw new Error(`Another driver (process ${owner}) is running this task.`, { cause: error });
-      rmSync(path, { force: true });
-    }
-  }
-  throw new Error(`Could not take the driver lock at ${path}.`);
-}
-
-function processExists(pid: number): boolean {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
   }
 }

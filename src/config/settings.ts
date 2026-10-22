@@ -24,6 +24,16 @@ export interface Settings {
   inboxWaitMs: number;
   /** Minimum interval between liveness checks of a dispatch that has not reported. */
   livenessIntervalMs: number;
+  /** How many times the driver repeats an Orca call whose outcome is unknown before it stops. */
+  orcaRetries: number;
+  /** Wait before the first repeat of an uncertain Orca call; each later repeat waits that much longer. */
+  orcaRetryDelayMs: number;
+  /** How often a running driver touches its lock file, so readers can tell it is alive. */
+  driverHeartbeatMs: number;
+  /** A driver whose lock has not been touched for this long is treated as gone. Several heartbeats long. */
+  driverStaleMs: number;
+  /** How long a worker the pipeline waits on may go without reporting, asking or being answered before the user is asked whether to retry it. */
+  stalledWorkerMs: number;
   /** How long `grampus wait` blocks before reporting that nothing new needs the user. Below common agent tool limits. */
   waitTimeoutSeconds: number;
   /** How often `grampus wait` and the dashboard reread task logs. */
@@ -78,6 +88,11 @@ export function defaultSettings(): Settings {
     gitTimeoutMs: 60_000,
     inboxWaitMs: 5_000,
     livenessIntervalMs: 60_000,
+    orcaRetries: 3,
+    orcaRetryDelayMs: 5_000,
+    driverHeartbeatMs: 10_000,
+    driverStaleMs: 60_000,
+    stalledWorkerMs: 60 * 60_000,
     waitTimeoutSeconds: 9 * 60,
     waitPollMs: 2_000,
     defaultCheckTimeoutSeconds: 15 * 60,
@@ -144,6 +159,11 @@ const fileSchema = z
     gitTimeoutMs: z.number().int().positive(),
     inboxWaitMs: z.number().int().positive(),
     livenessIntervalMs: z.number().int().positive(),
+    orcaRetries: z.number().int().nonnegative(),
+    orcaRetryDelayMs: z.number().int().positive(),
+    driverHeartbeatMs: z.number().int().positive(),
+    driverStaleMs: z.number().int().positive(),
+    stalledWorkerMs: z.number().int().positive(),
     waitTimeoutSeconds: z.number().int().positive(),
     waitPollMs: z.number().int().positive(),
     defaultCheckTimeoutSeconds: z.number().int().positive().max(specLimits.checkTimeoutSeconds),
@@ -193,8 +213,16 @@ export function loadSettings(dataDir: string): Settings {
   const defaults = defaultSettings();
   const overrides = validated(JSON.parse(readFileSync(path, 'utf8')), path);
   // Prices are merged per model, so adding one model keeps the built-in table.
-  return { ...defaults, ...overrides, modelPrices: { ...defaults.modelPrices, ...overrides.modelPrices } };
+  const settings = { ...defaults, ...overrides, modelPrices: { ...defaults.modelPrices, ...overrides.modelPrices } };
+  if (settings.driverStaleMs < staleHeartbeats * settings.driverHeartbeatMs)
+    throw new Error(
+      `Invalid settings in ${path}: driverStaleMs must be at least ${staleHeartbeats} heartbeats (driverHeartbeatMs), or a live driver could be taken for a dead one.`,
+    );
+  return settings;
 }
+
+/** Heartbeats a driver may miss before it counts as gone, so a busy moment is not mistaken for a crash. */
+const staleHeartbeats = 3;
 
 /** The overrides a config file sets, after the same checks `loadSettings` applies. */
 function validated(raw: unknown, path: string): Partial<Settings> {

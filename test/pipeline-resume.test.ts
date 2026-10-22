@@ -1,21 +1,20 @@
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from 'node:test';
-import { createHarness, goodWorkers, outputPath, specText } from './helpers/task-fixture.js';
+import { currentSettings, useSettings } from '../src/config/settings.js';
+import type { TaskState } from '../src/pipeline/state.js';
+import { createHarness, goodWorkers, outputPath, roleOf, specText } from './helpers/task-fixture.js';
 
-test('a lost worker-start response stops the driver, and rerunning replays the same request', async () => {
+const approvalWithReview = (state: TaskState) =>
+  state.attention?.reason === 'approve-spec:1' && state.specReviews.has(1);
+
+test('a lost worker-start response is replayed with the same request id', async () => {
   const harness = await createHarness(h => goodWorkers(h));
   harness.orca.failNextStarts = 1;
-  assert.equal(await harness.run(), 1, 'the driver stops instead of guessing');
-  const stopped = harness.state();
-  assert.match(stopped.lastStop?.reason ?? '', /worker-start response lost/);
-  assert.equal(harness.orca.starts.length, 1, 'Orca did start the worker');
-
   const driver = harness.run();
-  await harness.until(
-    state => state.attention?.reason === 'approve-spec:1' && state.specReviews.has(1),
-    'approval after resuming',
-  );
+  await harness.until(approvalWithReview, 'approval');
   const starts = harness.orca.mutations.filter(mutation => mutation.name === 'worker-start');
   assert.deepEqual(
     starts.map(mutation => mutation.replayed),
@@ -23,8 +22,165 @@ test('a lost worker-start response stops the driver, and rerunning replays the s
     'the spec start is replayed by request id, then the spec review starts once',
   );
   assert.equal(harness.orca.starts.length, 2, 'no duplicate spec writer');
+  assert.equal(harness.state().lastStop, null, 'the driver carried on');
+  harness.command({ kind: 'abandon' });
+  assert.equal(await driver, 0);
+});
+
+test('an Orca that stays uncertain stops the driver, and rerunning replays the same request', async () => {
+  const harness = await createHarness(h => goodWorkers(h));
+  harness.orca.failNextStarts = currentSettings().orcaRetries + 1;
+  assert.equal(await harness.run(), 1, 'the driver stops instead of guessing');
+  assert.match(harness.state().lastStop?.reason ?? '', /worker-start response lost/);
+  assert.equal(harness.orca.starts.length, 1, 'Orca did start the worker');
+
+  const driver = harness.run();
+  await harness.until(approvalWithReview, 'approval after resuming');
+  const replays = harness.orca.mutations.filter(mutation => mutation.name === 'worker-start' && mutation.replayed);
+  assert.equal(replays.length, currentSettings().orcaRetries + 1, 'every repeat replays the one request');
+  assert.equal(harness.orca.starts.length, 2, 'no duplicate spec writer');
   harness.command({ kind: 'abandon' });
   await driver;
+});
+
+test('an unreachable Orca is waited out without stopping the driver', async () => {
+  const harness = await createHarness(h => goodWorkers(h));
+  const driver = harness.run();
+  await harness.until(approvalWithReview, 'approval');
+  harness.orca.uncertainChecks = currentSettings().orcaRetries;
+  harness.command({ kind: 'approve', specVersion: 1 });
+  await harness.until(state => state.attention?.reason === 'ready:0', 'ready');
+  harness.orca.uncertainReleases = 1;
+  harness.command({ kind: 'accept' });
+  assert.equal(await driver, 0);
+  const events = harness.store.events();
+  assert.ok(!events.some(event => event.type === 'driver.stopped'), 'no stop was recorded');
+  const released = events.find(event => event.type === 'workers.released');
+  assert.deepEqual(released?.type === 'workers.released' ? released.failures : null, [], 'the release was repeated');
+});
+
+test('a busy Orca is waited out, however long it stays busy', async () => {
+  const harness = await createHarness(h => goodWorkers(h));
+  const driver = harness.run();
+  await harness.until(approvalWithReview, 'approval');
+  // More busy checks than any repeat budget: a refused check applied nothing, so waiting costs nothing.
+  harness.orca.busyChecks = currentSettings().orcaRetries * 3;
+  harness.orca.busyStarts = 1;
+  harness.command({ kind: 'approve', specVersion: 1 });
+  await harness.until(state => state.attention?.reason === 'ready:0', 'ready');
+  assert.equal(harness.orca.busyChecks, 0, 'every busy check was waited out');
+  harness.command({ kind: 'accept' });
+  assert.equal(await driver, 0);
+  const events = harness.store.events();
+  assert.ok(!events.some(event => event.type === 'driver.stopped'), 'no stop was recorded');
+  assert.ok(!events.some(event => event.type === 'stage.start_failed'), 'a busy start is not a failed start');
+});
+
+test('a reply Orca refuses is recorded as refused and the driver carries on', async () => {
+  const harness = await createHarness(h =>
+    goodWorkers(h, {
+      spec: async context => {
+        await context.ask('Should greet trim whitespace?');
+        writeFileSync(outputPath(context.spec), specText());
+        return { outcome: 'succeeded' };
+      },
+    }),
+  );
+  const driver = harness.run();
+  const asked = await harness.until(state => state.questions.size === 1, 'a question');
+  const [messageId = ''] = [...asked.questions.keys()];
+  harness.orca.refuseReplies = true;
+  harness.command({ kind: 'reply', messageId, body: 'No.' });
+  const refused = await harness.until(state => state.refusals.length === 1, 'the refusal');
+  assert.match(refused.refusals[0]?.reason ?? '', /Orca refused the reply: No open question/);
+  assert.equal(refused.questions.get(messageId)?.answered, false, 'the question is still open');
+
+  harness.orca.refuseReplies = false;
+  harness.command({ kind: 'reply', messageId, body: 'No.' });
+  await harness.until(state => state.attention?.reason === 'approve-spec:1', 'approval after a second answer');
+  assert.equal(harness.state().lastStop, null);
+  harness.command({ kind: 'abandon' });
+  assert.equal(await driver, 0);
+});
+
+test('a worker that goes quiet asks the user, and retry replaces it', async () => {
+  let specStarts = 0;
+  const harness = await createHarness(h =>
+    goodWorkers(h, {
+      spec: context => {
+        if (specStarts++ === 0) return 'hang';
+        writeFileSync(outputPath(context.spec), specText());
+        return { outcome: 'succeeded' };
+      },
+    }),
+  );
+  useSettings({ ...currentSettings(), stalledWorkerMs: 150 });
+  const driver = harness.run();
+  const quiet = await harness.until(state => state.attention?.reason === 'stage-quiet:spec:1:1', 'quiet worker');
+  assert.deepEqual(quiet.attention?.options, ['retry', 'abandon']);
+  harness.command({ kind: 'retry' });
+  await harness.until(state => state.attention?.reason === 'approve-spec:1', 'approval after retry');
+  assert.equal(harness.orca.stopped[0], 'dispatch_1', 'the quiet worker was stopped');
+  assert.equal(harness.orca.starts[1]?.request.retryOf, 'dispatch_1');
+  harness.command({ kind: 'abandon' });
+  assert.equal(await driver, 0);
+});
+
+test('a quiet worker that reports after all withdraws the request', async () => {
+  const gate = { open: () => {} };
+  const harness = await createHarness(h =>
+    goodWorkers(h, {
+      spec: async context => {
+        await new Promise<void>(resolve => {
+          gate.open = resolve;
+        });
+        writeFileSync(outputPath(context.spec), specText());
+        return { outcome: 'succeeded' };
+      },
+    }),
+  );
+  useSettings({ ...currentSettings(), stalledWorkerMs: 150 });
+  const driver = harness.run();
+  await harness.until(state => state.attention?.reason === 'stage-quiet:spec:1:1', 'quiet worker');
+  gate.open();
+  await harness.until(state => state.attention?.reason === 'approve-spec:1', 'approval');
+  const events = harness.store.events();
+  assert.ok(events.some(event => event.type === 'attention.withdrawn' && event.reason === 'stage-quiet:spec:1:1'));
+  assert.equal(harness.orca.starts.filter(start => roleOf(start.title) === 'spec').length, 1, 'not replaced');
+  harness.command({ kind: 'abandon' });
+  assert.equal(await driver, 0);
+});
+
+test('a worker waiting for an answer is not quiet', async () => {
+  const harness = await createHarness(h =>
+    goodWorkers(h, {
+      spec: async context => {
+        await context.ask('Should greet trim whitespace?');
+        writeFileSync(outputPath(context.spec), specText());
+        return { outcome: 'succeeded' };
+      },
+    }),
+  );
+  useSettings({ ...currentSettings(), stalledWorkerMs: 50 });
+  const driver = harness.run();
+  await harness.until(state => state.questions.size === 1, 'a question');
+  await sleep(300);
+  assert.equal(harness.state().attention, null, 'the wait is for the user, not the worker');
+  harness.command({ kind: 'abandon' });
+  assert.equal(await driver, 0);
+});
+
+test('a driver whose lock another driver took stops without writing', async () => {
+  const harness = await createHarness(h => goodWorkers(h));
+  const driver = harness.run();
+  await harness.until(approvalWithReview, 'approval');
+  const lock = join(harness.store.dir, 'driver.lock');
+  writeFileSync(lock, JSON.stringify({ pid: process.pid, token: 'another-driver' }));
+  const recorded = harness.store.events().length;
+  harness.command({ kind: 'approve', specVersion: 1 });
+  assert.equal(await driver, 1);
+  assert.equal(harness.store.events().length, recorded, 'nothing was written after the lock was lost');
+  assert.match(readFileSync(lock, 'utf8'), /another-driver/, "the other driver's lock is kept");
 });
 
 test('a driver that dies while waiting resumes at the same decision without new dispatches', async () => {

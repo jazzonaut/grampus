@@ -31,6 +31,29 @@ test('a torn final line is ignored and the rest of the log folds', () => {
   assert.deepEqual(listTaskIds(dataDir), ['task-1']);
 });
 
+test('an append after a torn final line keeps the log readable', () => {
+  const { dataDir, store } = newStore();
+  appendFileSync(store.eventsPath, '{"type":"run.created","runId":"r');
+  const resumed = TaskStore.open(dataDir, 'task-1');
+  resumed.append({ type: 'run.created', runId: 'run_2', coordinatorHandle: null });
+  const events = TaskStore.open(dataDir, 'task-1').events();
+  assert.equal(events.length, 3, 'the torn event stays unrecorded; the next one is recorded');
+  assert.equal(foldEvents(events).runId, 'run_2');
+});
+
+test('a command queued after a torn command line is read back', () => {
+  const { store } = newStore();
+  appendFileSync(store.commandsPath, '{"id":"');
+  const command = {
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    source: 'cli' as const,
+    kind: 'accept' as const,
+  };
+  store.addCommand(command);
+  assert.deepEqual(store.commands(), [command]);
+});
+
 test('a log written with another schema is refused', () => {
   const { dataDir, store } = newStore();
   writeFileSync(store.eventsPath, '{"type":"log.header","schema":0,"at":"x"}\n');

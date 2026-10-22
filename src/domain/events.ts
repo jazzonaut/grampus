@@ -192,6 +192,8 @@ export type TaskEvent =
       after: DiffSize;
     }
   | { type: 'attention.needed'; reason: string; detail: string; options: CommandKind[] }
+  /** A request that lapsed before the user answered it, such as a quiet worker that reported after all. */
+  | { type: 'attention.withdrawn'; reason: string; why: string }
   | { type: 'workers.released'; released: string[]; failures: string[] }
   | { type: 'usage.recorded'; measurements: DispatchMeasurement[] }
   | {

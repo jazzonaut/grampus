@@ -7,7 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { currentSettings } from '../config/settings.js';
 import type { Assignment } from '../domain/recipe.js';
 import type { CommandKind, Stage, StoredEvent, TaskEvent, UserCommand } from '../domain/events.js';
-import { OrcaError, OrcaUncertainError, type Orca } from '../orca/client.js';
+import { OrcaBusyError, OrcaError, OrcaUncertainError, type Delivery, type Orca } from '../orca/client.js';
 import { lifecyclePayloadSchema, type OrcaMessage, type WorkerStartReceipt } from '../orca/protocol.js';
 import type { TaskStore } from '../store/task-store.js';
 import {
@@ -21,6 +21,8 @@ import {
 
 /** Orca's refusal to give a worker that cannot take another dispatch (a Chat UI worker) a new task. */
 const reuseRefused = 'terminal_unsupported_for_agent_session';
+
+const minuteMs = 60_000;
 
 /** The user ended the task early: abandoned it, or picked another entry of its comparison. */
 export class TaskAbandoned extends Error {
@@ -63,6 +65,8 @@ export class DriverCore {
   readonly state: TaskState;
   private pendingAck: string | null = null;
   private lastLiveness = 0;
+  /** Orca is turning inbox checks away as busy; logged once per spell. */
+  private busy = false;
 
   constructor(
     readonly store: TaskStore,
@@ -98,20 +102,51 @@ export class DriverCore {
   /** Process user commands and one round of Orca messages. Throws `TaskAbandoned` when the user abandons. */
   async pump(): Promise<void> {
     await this.applyCommands();
-    if (!this.state.runId) {
+    const runId = this.state.runId;
+    if (!runId) {
       await sleep(currentSettings().inboxWaitMs);
       return;
     }
-    const delivery = await this.orca.check(this.state.runId, {
-      waitMs: currentSettings().inboxWaitMs,
-      ...(this.pendingAck ? { ack: this.pendingAck } : {}),
-    });
+    const delivery = await this.checkInbox(runId);
+    // Orca was busy: nothing was delivered or acknowledged, so the acknowledgement waits for the next check.
+    if (!delivery) return;
     this.pendingAck = null;
     for (const message of delivery.messages) await this.handleMessage(message);
     // Acknowledge only after every message is recorded; a crash before then replays the batch.
     this.pendingAck = delivery.deliveryId;
     await this.checkLiveness();
     await this.applyCommands();
+  }
+
+  /**
+   * One inbox check, or null when Orca turned it away as busy. A busy check applied nothing, so the
+   * driver backs off and tries again on the next pump, for as long as it takes, applying user commands
+   * in between; only an uncertain check counts towards stopping. A repeated check leaves the
+   * acknowledgement out, as a restarted driver does: Orca delivers anything unacknowledged again, and
+   * messages already recorded are skipped by id.
+   */
+  private async checkInbox(runId: string): Promise<Delivery | null> {
+    const ack = this.pendingAck;
+    const delivery = await this.mutate(async repeat => {
+      try {
+        return await this.orca.check(runId, {
+          waitMs: currentSettings().inboxWaitMs,
+          ...(ack && repeat === 0 ? { ack } : {}),
+        });
+      } catch (error) {
+        if (!(error instanceof OrcaBusyError)) throw error;
+        return null;
+      }
+    });
+    if (delivery) {
+      if (this.busy) this.log('Orca has room again.');
+      this.busy = false;
+      return delivery;
+    }
+    if (!this.busy) this.log('Orca is busy (all its long-poll slots are taken); waiting for room.');
+    this.busy = true;
+    await sleep(currentSettings().orcaRetryDelayMs);
+    return null;
   }
 
   /** Pump until the predicate holds. */
@@ -141,6 +176,32 @@ export class DriverCore {
     }
   }
 
+  /**
+   * Like `decide`, for a request that can lapse: once `lapsed` holds before the user answers, the request
+   * is withdrawn (`why` says why) and null is returned.
+   */
+  async decideUnless(
+    key: string,
+    detail: string,
+    options: CommandKind[],
+    lapsed: () => boolean,
+    why: string,
+  ): Promise<UserCommand | null> {
+    for (;;) {
+      const decision = this.decisionAfter(key, options);
+      if (decision) return decision;
+      if (lapsed()) {
+        if (this.state.attention?.reason === key) {
+          this.record({ type: 'attention.withdrawn', reason: key, why });
+          this.log(`No longer needs you: ${why}`);
+        }
+        return null;
+      }
+      if (this.state.attention?.reason !== key) this.requestDecision(key, detail, options);
+      await this.pump();
+    }
+  }
+
   /** Raise (or raise again, with new detail) a decision request, which wakes `grampus wait`. */
   requestDecision(key: string, detail: string, options: CommandKind[]): void {
     this.record({ type: 'attention.needed', reason: key, detail, options });
@@ -150,21 +211,22 @@ export class DriverCore {
   private decisionAfter(key: string, options: CommandKind[]): UserCommand | null {
     const index = this.events.findLastIndex(event => event.type === 'attention.needed' && event.reason === key);
     if (index < 0) return null;
-    for (const event of this.events.slice(index + 1))
+    for (const event of this.events.slice(index + 1)) {
+      if (event.type === 'attention.withdrawn' && event.reason === key) return null;
       if (event.type === 'command.applied' && options.includes(event.command.kind)) return event.command;
+    }
     return null;
   }
 
   private async applyCommands(): Promise<void> {
     for (const command of this.store.commands()) {
       if (this.state.applied.has(command.id)) continue;
-      const refusal = this.refusal(command);
+      const refusal = this.refusal(command) ?? (command.kind === 'reply' ? await this.relay(command) : null);
       if (refusal) {
         this.record({ type: 'command.refused', command, reason: refusal });
         this.log(`Refused ${command.kind}: ${refusal}`);
         continue;
       }
-      if (command.kind === 'reply') await this.orca.reply(command.messageId, command.body, command.id);
       this.record({ type: 'command.applied', command });
       this.log(`Applied ${command.kind} from ${command.source}.`);
       if (command.kind === 'abandon') throw new TaskAbandoned(command.reason ?? null);
@@ -188,6 +250,20 @@ export class DriverCore {
       if (latest?.version !== command.specVersion) return `spec version ${command.specVersion} is not the latest`;
     }
     return null;
+  }
+
+  /**
+   * Relay an answer to the worker that asked. Returns why Orca refused it, such as a worker that has
+   * gone, so the refusal is recorded instead of stopping the driver on every restart.
+   */
+  private async relay(command: Extract<UserCommand, { kind: 'reply' }>): Promise<string | null> {
+    try {
+      await this.mutate(() => this.orca.reply(command.messageId, command.body, command.id));
+      return null;
+    } catch (error) {
+      if (error instanceof OrcaError) return `Orca refused the reply: ${error.message}`;
+      throw error;
+    }
   }
 
   private async handleMessage(message: OrcaMessage): Promise<void> {
@@ -271,17 +347,63 @@ export class DriverCore {
         if (choice.kind !== 'retry') continue;
         const previous = failed?.dispatchId ?? dispatch?.dispatchId ?? null;
         if (failed?.state === 'outcome_unknown' && previous)
-          await this.orca
-            .stopWorker(previous)
-            .catch((error: unknown) => this.log(`Stop failed: ${(error as Error).message}`));
+          await this.repeatUncertain(() => this.orca.stopWorker(previous)).catch((error: unknown) =>
+            this.log(`Stop failed: ${(error as Error).message}`),
+          );
         await this.start(record, request, previous);
         continue;
       }
+      if (dispatch && this.quiet(record, dispatch)) {
+        await this.askAboutQuietWorker(record, request, dispatch);
+        continue;
+      }
       await this.waitFor(() => {
-        const current = currentDispatch(this.state.stages.get(record.key));
-        return Boolean(current?.settled || current?.exited);
+        const current = currentDispatch(record);
+        return Boolean(current?.settled || current?.exited || (current && this.quiet(record, current)));
       });
     }
+  }
+
+  /**
+   * A worker that has not reported, asked or been answered for `stalledWorkerMs` may be stuck, for
+   * example on a prompt in its terminal; Orca still calls it alive. Ask the user while it keeps running:
+   * `retry` replaces it, and the request is withdrawn if the worker shows signs of life first.
+   */
+  private async askAboutQuietWorker(record: StageRecord, request: StageRequest, dispatch: DispatchRecord) {
+    const minutes = Math.round((Date.now() - this.lastActivity(record, dispatch)) / minuteMs);
+    const choice = await this.decideUnless(
+      `stage-quiet:${record.key}:${record.attempts}`,
+      `${record.key} has not reported, asked or been answered for ${minutes} minutes; it may be stuck, for example on a prompt in its Orca terminal. It keeps running while you decide: retry replaces it with a fresh worker.`,
+      ['retry', 'abandon'],
+      () => !this.quiet(record, dispatch),
+      `${record.key} is no longer quiet`,
+    );
+    // A retry that crossed with the worker's report is moot: the report stands.
+    if (choice?.kind !== 'retry' || dispatch.settled) return;
+    await this.stopStage(record.key, 'the user retried a worker that had gone quiet');
+    await this.start(record, request, dispatch.dispatchId);
+  }
+
+  /** Whether a running dispatch has been silent too long while not waiting for the user. */
+  private quiet(record: StageRecord, dispatch: DispatchRecord): boolean {
+    if (dispatch.settled || dispatch.exited) return false;
+    for (const question of this.state.questions.values())
+      if (question.key === record.key && !question.answered) return false;
+    return Date.now() - this.lastActivity(record, dispatch) >= currentSettings().stalledWorkerMs;
+  }
+
+  /** When a dispatch last showed signs of life: its start, a message from its stage, or an answer to it. */
+  private lastActivity(record: StageRecord, dispatch: DispatchRecord): number {
+    let last = Date.parse(dispatch.startedAt);
+    for (const event of this.events) {
+      const active =
+        (event.type === 'worker.message' && event.key === record.key) ||
+        (event.type === 'command.applied' &&
+          event.command.kind === 'reply' &&
+          this.state.questions.get(event.command.messageId)?.key === record.key);
+      if (active) last = Math.max(last, Date.parse(event.at));
+    }
+    return last;
   }
 
   /**
@@ -319,7 +441,7 @@ export class DriverCore {
   async stopStage(key: string, reason: string): Promise<void> {
     const dispatch = currentDispatch(this.state.stages.get(key));
     if (!dispatch || dispatch.settled || dispatch.exited) return;
-    await this.orca.stopWorker(dispatch.dispatchId).catch((error: unknown) => {
+    await this.repeatUncertain(() => this.orca.stopWorker(dispatch.dispatchId)).catch((error: unknown) => {
       this.log(`Could not stop ${key}: ${(error as Error).message}`);
     });
     this.record({ type: 'stage.stopped', key, dispatchId: dispatch.dispatchId, reason });
@@ -409,14 +531,35 @@ export class DriverCore {
     return view?.handle ?? null;
   }
 
-  /** Run an Orca mutation. An uncertain result stops the driver; rerunning it replays the same request id. */
-  async mutate<T>(call: () => Promise<T>): Promise<T> {
+  /**
+   * Run an Orca mutation (or a read). An uncertain result is repeated, as a restarted driver would repeat
+   * it, so the call must carry its recorded request id. One that stays uncertain stops the driver;
+   * rerunning it replays the same request id. `repeat` counts the repeats so far.
+   */
+  async mutate<T>(call: (repeat: number) => Promise<T>): Promise<T> {
     try {
-      return await call();
+      return await this.repeatUncertain(call);
     } catch (error) {
       if (error instanceof OrcaUncertainError)
         throw new DriverStop(`${error.message} Run \`grampus drive ${this.state.taskId}\` again to replay it safely.`);
       throw error;
+    }
+  }
+
+  /**
+   * Run an Orca call, repeating it while its outcome is uncertain, such as while Orca restarts. Only for
+   * calls that are safe to repeat: mutations with their recorded request id, reads, and stop or release.
+   */
+  async repeatUncertain<T>(call: (repeat: number) => Promise<T>): Promise<T> {
+    const { orcaRetries, orcaRetryDelayMs } = currentSettings();
+    for (let repeat = 0; ; repeat++) {
+      try {
+        return await call(repeat);
+      } catch (error) {
+        if (!(error instanceof OrcaUncertainError) || repeat >= orcaRetries) throw error;
+        this.log(`${error.message} Repeating it (${repeat + 1} of ${orcaRetries}).`);
+        await sleep(orcaRetryDelayMs * (repeat + 1));
+      }
     }
   }
 
@@ -427,10 +570,11 @@ export class DriverCore {
     const failures: string[] = [];
     for (const record of this.state.stages.values())
       for (const dispatch of record.dispatches) {
-        const action =
+        const action = this.repeatUncertain(() =>
           dispatch.settled || dispatch.exited
             ? this.orca.releaseWorker(dispatch.dispatchId)
-            : this.orca.stopWorker(dispatch.dispatchId);
+            : this.orca.stopWorker(dispatch.dispatchId),
+        );
         await action.then(
           () => released.push(dispatch.dispatchId),
           (error: unknown) => failures.push(`${dispatch.dispatchId}: ${(error as Error).message}`),

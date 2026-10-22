@@ -81,7 +81,7 @@ Always pass `--source chat`.
 | Answers a worker question | `{{grampus}} reply <task> <message-id> --source chat "<answer>"` |
 | Try again / do another round | `{{grampus}} continue <task> --source chat "<guidance>"` |
 | Tests first wrote no tests; build without them | `{{grampus}} continue <task> --source chat "<note>"` |
-| A stage failed to start or exited; retry it | `{{grampus}} retry <task> --source chat` |
+| A stage failed to start, exited or went quiet; retry it | `{{grampus}} retry <task> --source chat` |
 | Accept the verified result | `{{grampus}} accept <task> --source chat` |
 | Stop the task | `{{grampus}} abandon <task> --source chat "<reason>"` |
 | Keep one comparison entry | `{{grampus}} pick <comparison> <task> --source chat` |
@@ -112,6 +112,13 @@ shows `Refused`, the decision no longer applies (for example, a newer spec versi
 
 ## When the driver stopped
 
-`DRIVER STOPPED` means the driver could not continue safely, for example after an uncertain Orca call.
-Tell the user the reason. They resume it by running `{{grampus}} drive <task>` in the task's Grampus
-terminal tab in Orca; resuming replays the uncertain call safely and never starts a duplicate worker.
+`DRIVER STOPPED` means the driver could not continue safely, for example after an Orca call that stayed
+uncertain through its repeats, or that the driver went missing without recording why (its process
+ended, its tab was closed or the machine restarted). Tell the user the reason. They resume it by
+running `{{grampus}} drive <task>` in the task's Grampus terminal tab in Orca (a new tab in the task's
+worktree also works); resuming replays the uncertain call safely and never starts a duplicate worker.
+
+A `stage-quiet:` request means a worker has not reported, asked or been answered for a long time and
+may be stuck, for example on a prompt in its Orca terminal. It keeps running while the user decides:
+suggest they look at the worker's terminal first, then `retry` replaces it with a fresh worker. The
+request is withdrawn on its own if the worker reports after all.

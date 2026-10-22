@@ -32,6 +32,7 @@ import { drive } from './pipeline/driver.js';
 import { foldEvents } from './pipeline/state.js';
 import { renderSummary, summarise, type TaskSummary } from './pipeline/status.js';
 import { installSkill, renderSkill } from './skill.js';
+import { withObservedStop } from './store/driver-lock.js';
 import { listTaskIds, TaskStore } from './store/task-store.js';
 
 const usage = usageText();
@@ -348,9 +349,14 @@ async function report(dataDir: string, taskId: string, json: boolean): Promise<n
   return 0;
 }
 
+/** Task summaries, counting a driver that went missing without recording why as stopped. */
 function summaries(dataDir: string, taskId: string | undefined): TaskSummary[] {
   const ids = taskId ? [taskId] : listTaskIds(dataDir);
-  return ids.map(id => summarise(foldEvents(TaskStore.open(dataDir, id).events())));
+  return ids.map(id => {
+    const store = TaskStore.open(dataDir, id);
+    const events = store.events();
+    return summarise(withObservedStop(foldEvents(events), store.dir, events));
+  });
 }
 
 /** Comparisons, when no single task was asked for. */

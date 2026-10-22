@@ -17,7 +17,16 @@ import { FakeOrca, type Behaviour } from './fake-orca.js';
 
 /** Fast settings for driver tests. */
 export function useTestSettings(overrides: Partial<Settings> = {}): void {
-  useSettings({ ...defaultSettings(), inboxWaitMs: 10, livenessIntervalMs: 30, waitPollMs: 10, ...overrides });
+  useSettings({
+    ...defaultSettings(),
+    inboxWaitMs: 10,
+    livenessIntervalMs: 30,
+    waitPollMs: 10,
+    orcaRetries: 2,
+    orcaRetryDelayMs: 5,
+    driverHeartbeatMs: 20,
+    ...overrides,
+  });
 }
 
 export const checkCommand = 'node test/greet.test.js';

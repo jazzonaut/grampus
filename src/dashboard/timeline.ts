@@ -115,6 +115,7 @@ const describers: Describers = {
     tone: event.decision === 'ready' ? 'success' : event.decision === 'repair' ? 'warning' : 'error',
   }),
   'attention.needed': event => ({ title: 'Needs you', detail: event.detail, tone: 'warning' }),
+  'attention.withdrawn': event => ({ title: 'No longer needs you', detail: event.why }),
   'simplify.checked': event => {
     const passed = event.results.filter(result => result.passed).length;
     return {

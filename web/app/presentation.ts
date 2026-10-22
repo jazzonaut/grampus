@@ -88,6 +88,7 @@ const eventIcons: Partial<Record<StoredEvent['type'], string>> = {
   'review.recorded': 'i-lucide-scan-eye',
   'round.decided': 'i-lucide-git-fork',
   'attention.needed': 'i-lucide-hand',
+  'attention.withdrawn': 'i-lucide-undo-2',
   'workers.released': 'i-lucide-log-out',
   'usage.recorded': 'i-lucide-gauge',
   'task.finished': 'i-lucide-flag',

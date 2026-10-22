@@ -48,6 +48,18 @@ export class OrcaUncertainError extends Error {
   }
 }
 
+/**
+ * Orca turned the call away before running it (`runtime_busy`): all its long-poll slots were taken, by
+ * `check --wait`, `worker-start` and workers' `ask` among others. Nothing was applied, so it is replayed
+ * like an uncertain call.
+ */
+export class OrcaBusyError extends OrcaUncertainError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OrcaBusyError';
+  }
+}
+
 export interface WorkerStartRequest {
   runId: string;
   taskId: string;
@@ -282,10 +294,30 @@ export class OrcaCli implements Orca, OrcaWorkspaces, OrcaDesk {
     const ok = okEnvelopeSchema.safeParse(json);
     if (ok.success) return ok.data.result;
     const failed = errorEnvelopeSchema.safeParse(json);
-    if (failed.success) throw new OrcaError(failed.data.error.code, failed.data.error.message, failed.data.error.data);
+    if (failed.success) {
+      const { code, message, data } = failed.data.error;
+      if (code === busyCode) throw new OrcaBusyError(`${name}: Orca is busy (${message})`);
+      if (unknownOutcomeCodes.has(code))
+        throw new OrcaUncertainError(`${name} could not reach Orca (${code}): ${message}`);
+      throw new OrcaError(code, message, data);
+    }
     throw new OrcaUncertainError(`${name} printed an unrecognised envelope.`);
   }
 }
+
+/**
+ * Error codes Orca's own CLI treats as an unknown mutation outcome: the runtime was unreachable or did
+ * not answer, so the call may or may not have been applied. They are not refusals.
+ */
+const unknownOutcomeCodes = new Set([
+  'runtime_unavailable',
+  'remote_runtime_unavailable',
+  'runtime_timeout',
+  'invalid_runtime_response',
+]);
+
+/** Orca's admission refusal: it applied nothing and asks the caller to retry with backoff. */
+const busyCode = 'runtime_busy';
 
 /** Messages read to find a dispatch's provider sessions; the first page always contains provider messages. */
 const transcriptPageMessages = 50;

@@ -1,7 +1,7 @@
 // `grampus wait` through the real CLI: it must not miss a request raised between two calls.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -61,6 +61,23 @@ test('wait reports a task that finished after the cursor', () => {
   const output = grampus(home, 'wait', '--after', cursor);
   assert.match(output, /accepted/);
   assert.doesNotMatch(output, /Nothing new/);
+});
+
+test('wait reports a driver that went missing without recording why', () => {
+  const { home } = taskWithRequest();
+  const staleMs = 300;
+  writeFileSync(
+    join(home, 'config.json'),
+    JSON.stringify({ waitTimeoutSeconds: 1, waitPollMs: 50, driverStaleMs: staleMs, driverHeartbeatMs: 100 }),
+  );
+  const cursor = /as of (\S+)/.exec(grampus(home, 'status'))?.[1] ?? '';
+  const lock = join(home, 'tasks', 'task-1', 'driver.lock');
+  writeFileSync(lock, JSON.stringify({ pid: process.pid, token: 'killed-driver' }));
+  // Its last heartbeat came just before the cursor; it counts as gone a little after it.
+  const lastBeat = new Date(Date.parse(cursor) - staleMs / 2);
+  utimesSync(lock, lastBeat, lastBeat);
+  const output = grampus(home, 'wait', '--after', cursor);
+  assert.match(output, /DRIVER STOPPED: The driver has not been seen since/);
 });
 
 test('the repository defaults to the current directory, resolved from a worktree to its main checkout', async () => {

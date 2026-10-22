@@ -14,6 +14,7 @@ import { crossCheckProgress } from '../compare/status.js';
 import { buildScorecard } from '../measure/report.js';
 import { measureDispatches } from '../measure/usage.js';
 import type { TaskState } from '../pipeline/state.js';
+import { withObservedStop } from '../store/driver-lock.js';
 import type { DashboardOrca } from './api.js';
 import type { TaskReader } from './tasks.js';
 import type {
@@ -30,9 +31,11 @@ interface Loaded {
   events: StoredComparisonEvent[];
 }
 
+/** A comparison as the dashboard shows it: a driver that went missing without recording why is stopped. */
 export function loadComparison(dataDir: string, comparisonId: string): Loaded {
-  const events = ComparisonStore.open(dataDir, comparisonId).events();
-  return { state: foldComparison(events), events };
+  const store = ComparisonStore.open(dataDir, comparisonId);
+  const events = store.events();
+  return { state: withObservedStop(foldComparison(events), store.dir, events), events };
 }
 
 /** Every readable comparison, newest activity first. */

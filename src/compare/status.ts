@@ -2,6 +2,7 @@
 // are listed by `grampus status` as ordinary tasks; this adds the comparison around them.
 import { foldEvents } from '../pipeline/state.js';
 import { summarise } from '../pipeline/status.js';
+import { withObservedStop } from '../store/driver-lock.js';
 import { TaskStore } from '../store/task-store.js';
 import { ComparisonStore, foldComparison, type ComparisonMode, type ComparisonState } from './comparison.js';
 
@@ -22,7 +23,9 @@ export interface ComparisonSummary {
 }
 
 export function summariseComparison(dataDir: string, comparisonId: string): ComparisonSummary {
-  const state = foldComparison(ComparisonStore.open(dataDir, comparisonId).events());
+  const store = ComparisonStore.open(dataDir, comparisonId);
+  const events = store.events();
+  const state = withObservedStop(foldComparison(events), store.dir, events);
   const entries = state.entries.map(entry => {
     let phase: string;
     try {

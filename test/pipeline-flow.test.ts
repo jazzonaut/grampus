@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { currentSettings } from '../src/config/settings.js';
 import { standardRecipe } from '../src/domain/recipe.js';
 import { headSha } from '../src/git/git.js';
 import { renderSummary, summarise } from '../src/pipeline/status.js';
@@ -296,7 +297,7 @@ test('a driver that finishes cleanly closes its own Orca tab; one that stops kee
   process.env.ORCA_TERMINAL_HANDLE = 'term_driver';
   try {
     const harness = await createHarness(h => goodWorkers(h));
-    harness.orca.failNextStarts = 1;
+    harness.orca.failNextStarts = currentSettings().orcaRetries + 1;
     assert.equal(await harness.run(), 1);
     assert.equal(harness.orca.closed.includes('term_driver'), false, 'a stopped driver keeps its tab for a rerun');
     const driver = harness.run();

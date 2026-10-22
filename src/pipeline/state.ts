@@ -334,6 +334,9 @@ const handlers: Handlers = {
   'attention.needed': (state, event) => {
     state.attention = { reason: event.reason, detail: event.detail, options: event.options, since: event.at };
   },
+  'attention.withdrawn': (state, event) => {
+    if (state.attention?.reason === event.reason) state.attention = null;
+  },
   'workers.released': state => {
     state.released = true;
   },

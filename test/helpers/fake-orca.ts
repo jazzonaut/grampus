@@ -4,6 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
+  OrcaBusyError,
   OrcaError,
   OrcaUncertainError,
   type Delivery,
@@ -56,6 +57,16 @@ export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk {
   failNextStarts = 0;
   /** Make the next inbox check fail unexpectedly, as if the driver process died. */
   failNextCheck = false;
+  /** Leave the next N inbox checks uncertain, as an unreachable Orca does. */
+  uncertainChecks = 0;
+  /** Turn the next N inbox checks away unapplied, as Orca does when its long-poll slots are full. */
+  busyChecks = 0;
+  /** Turn the next N worker starts away unapplied, likewise. */
+  busyStarts = 0;
+  /** Leave the next N worker releases uncertain. */
+  uncertainReleases = 0;
+  /** Refuse replies, as Orca does for a question whose worker has gone. */
+  refuseReplies = false;
   /** Refuse `--terminal` reuse, as Orca does for workers started in Chat UI mode. */
   refuseReuse = false;
   liveness = new Map<string, string>();
@@ -101,6 +112,10 @@ export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk {
   }
 
   async startWorker(request: WorkerStartRequest, requestId: string): Promise<WorkerStartReceipt> {
+    if (this.busyStarts > 0) {
+      this.busyStarts--;
+      throw new OrcaBusyError('orca orchestration worker-start: Orca is busy (long-poll capacity reached)');
+    }
     if (this.refuseReuse && request.terminal)
       throw new OrcaError(
         'terminal_unsupported_for_agent_session',
@@ -131,6 +146,16 @@ export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk {
       this.failNextCheck = false;
       throw new Error('connection lost');
     }
+    if (this.busyChecks > 0) {
+      this.busyChecks--;
+      throw new OrcaBusyError(
+        'orca orchestration check: Orca is busy (long-poll capacity reached; retry with backoff)',
+      );
+    }
+    if (this.uncertainChecks > 0) {
+      this.uncertainChecks--;
+      throw new OrcaUncertainError('orca orchestration check: Orca is not running.');
+    }
     if (options.ack && this.delivery?.id === options.ack) this.delivery = null;
     if (!this.delivery && this.inbox.length)
       this.delivery = { id: `delivery_${randomUUID()}`, messages: this.inbox.splice(0) };
@@ -140,6 +165,7 @@ export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk {
   }
 
   async reply(messageId: string, body: string, requestId: string) {
+    if (this.refuseReplies) throw new OrcaError('message_not_found', `No open question ${messageId}`);
     this.once('reply', requestId, () => this.replies.set(messageId, body));
   }
 
@@ -152,6 +178,10 @@ export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk {
   }
 
   async releaseWorker(dispatchId: string) {
+    if (this.uncertainReleases > 0) {
+      this.uncertainReleases--;
+      throw new OrcaUncertainError('orca orchestration worker-release did not finish.');
+    }
     this.released.push(dispatchId);
   }
 

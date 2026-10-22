@@ -61,6 +61,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `report.ts` | The scorecard: per-stage figures, totals and human cost |
 | `checks/` | `run-checks.ts` | Running check commands with logs, timeouts and one flaky rerun |
 | `store/` | `task-store.ts` | Task folders, `events.jsonl`, `commands.jsonl` |
+| | `driver-lock.ts` | The driver lock, its heartbeat, and whether a driver went missing |
 | `dashboard/` | `server.ts`, `http.ts` | `grampus dashboard`: static web app, JSON API, request guards |
 | | `api.ts` | API routes |
 | | `actions.ts` | Starting tasks, merge, Orca tabs, recipe edits and the model catalog |
@@ -201,20 +202,48 @@ prints the addresses it answers on.
 
 - Every Orca mutation's request id is recorded (`orca.requested`) before the call and passed as
   `--retry-request`. Orca replays a repeated id with the original receipt, so after a crash or an
-  uncertain result the driver simply repeats the call. An uncertain result stops the driver
-  (`driver.stopped`); running `grampus drive <task>` again resumes.
+  uncertain result the driver simply repeats the call.
+- An uncertain result is a timeout, output without a JSON envelope, or one of the codes Orca's own CLI
+  treats as an unknown outcome (`runtime_unavailable`, `remote_runtime_unavailable`, `runtime_timeout`,
+  `invalid_runtime_response`); any other error envelope is a refusal. The driver repeats an uncertain
+  call up to `orcaRetries` times, waiting longer each time, so a restarting Orca does not stop it. A
+  repeated inbox `check` leaves out its acknowledgement, as a restarted driver does. A call that stays
+  uncertain stops the driver (`driver.stopped`); running `grampus drive <task>` again resumes.
+- `runtime_busy` (Orca's long-poll slots are full; see [Orca contract](#orca-contract)) means Orca
+  applied nothing. A busy mutation is repeated like an uncertain one. A busy inbox `check` is not
+  counted at all: the driver waits `orcaRetryDelayMs` and checks again on its next pump, for as long as
+  Orca stays busy, applying user commands in between.
 - The inbox is acknowledged only on the next `check` after every message is recorded. Replayed
   messages are skipped by id.
+- A reply Orca refuses (say its worker has gone) is recorded as `command.refused` and the question
+  stays open, instead of stopping the driver on every restart.
 - A settled worker is retained before its message is acknowledged and released when the task finishes.
 - A worker is treated as gone only on Orca's positive `exited` liveness verdict. Start failures and
   exits wait for the user (`retry` or `abandon`); `retry` stops an `outcome_unknown` start first and
   passes `--retry-of`.
+- A worker the pipeline waits on that has not reported, asked or been answered for `stalledWorkerMs`
+  raises `stage-quiet:<stage>:<attempt>` (`retry` or `abandon`) while it keeps running; Orca's
+  liveness cannot tell a worker stuck at a prompt from a busy one. `retry` stops it and starts a fresh
+  worker with `--retry-of`. If the worker reports, asks or ends first, the request is withdrawn
+  (`attention.withdrawn`). A worker waiting for the user's answer is never quiet. Workers that run
+  alongside a decision (the spec review) are not watched.
 - Decisions are keyed (`approve-spec:2`, `ready:1`, `escalate:0`, `stage-failed:build:0:1`), so a
   restarted driver finds a decision already made instead of asking again.
 - A simplify pass resumes at its first unrecorded step: its worker and review are stages, its checks
   are `simplify.checked`, and a discarded pass whose reset did not happen is reset on restart.
 - A driver started in a different terminal rebinds the Run with `run-use`.
-- `driver.lock` in the task folder stops a second driver for the same task.
+- `driver.lock` in the task folder holds the driver's process id and a random token, and the driver
+  touches it every `driverHeartbeatMs`. A second driver is refused while the owner's process runs and
+  its heartbeat is fresh; a lock whose process ended, or whose heartbeat is older than `driverStaleMs`,
+  is taken over (Windows reuses process ids). The driver checks its token before every write, so a
+  driver whose lock was taken over stops without writing, not even `driver.stopped`. Comparison drivers
+  use the same lock.
+- A driver that ends without recording why (killed, its tab closed, the machine restarted) is shown as
+  stopped by `status`, `wait` and the dashboard once its heartbeat is `driverStaleMs` old, or, without
+  a lock, `driverStaleMs` after the task was created. The time it is reported from does not move, so
+  `wait --after` reports it once. Nothing restarts drivers automatically.
+- Log and command files are JSON Lines appended one record per write. A crash can tear only the line
+  being written; it never parses, so readers skip it and the next append starts a fresh line.
 
 ## Files
 
@@ -222,12 +251,14 @@ prints the addresses it answers on.
 <data>/config.json                       optional settings
 <data>/tasks/<task>/events.jsonl          append-only event log (schema 1)
 <data>/tasks/<task>/commands.jsonl        queued user commands
+<data>/tasks/<task>/driver.lock          the running driver's process id, token and heartbeat
 <data>/tasks/<task>/spec/v<n>.md          spec versions and their reviews
 <data>/tasks/<task>/reviews/round-<r>.json
 <data>/tasks/<task>/reviews/simplify-<r>.json
 <data>/tasks/<task>/checks/<phase>-<r>/   check logs
 <data>/comparisons/<id>/events.jsonl      comparison log (schema 1)
 <data>/comparisons/<id>/commands.jsonl    queued picks and abandons
+<data>/comparisons/<id>/driver.lock      the comparison driver's lock, as for a task
 <data>/comparisons/<id>/cross-check/      cross-check logs
 <worktree>/.grampus/                      files exchanged with workers (excluded from Git)
 ```
@@ -295,6 +326,11 @@ Observed on Orca 1.4.237 (October 2026). Re-check after upgrades.
 - `worker_done` payloads carry `taskId`, `dispatchId`, `outcome`, optional `filesModified`,
   `reportPath` and `phase`, as a JSON string.
 - There is no per-Run delete, and `orchestration reset` wipes all orchestration state.
+- Orca admits 16 long-polls at once (at most half of them `ask`). `check --wait`, `worker-start`,
+  `ask`, `terminal wait` and agent launches count; every running driver holds a `check --wait` most of
+  the time. Past the limit Orca answers `runtime_busy` ("long-poll capacity reached; retry with
+  backoff") before running the call. Its CLI treats `runtime_unavailable`,
+  `remote_runtime_unavailable`, `runtime_timeout` and `invalid_runtime_response` as unknown outcomes.
 - Plugin sidebar panels cannot reach a local server (`connect-src 'none'`).
 
 ## Measurements

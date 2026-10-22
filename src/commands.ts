@@ -64,7 +64,12 @@ export const commands: readonly CommandInfo[] = [
     summary: 'Run another repair round with guidance',
     group: 'decisions',
   },
-  { name: 'retry', args: '<task>', summary: 'Retry a stage that failed to start or exited', group: 'decisions' },
+  {
+    name: 'retry',
+    args: '<task>',
+    summary: 'Retry a stage that failed to start, exited or went quiet',
+    group: 'decisions',
+  },
   { name: 'accept', args: '<task>', summary: "Accept the task's verified branch", group: 'decisions' },
   {
     name: 'abandon',

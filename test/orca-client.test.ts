@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { OrcaCli, OrcaError, OrcaUncertainError } from '../src/orca/client.js';
+import { OrcaBusyError, OrcaCli, OrcaError, OrcaUncertainError } from '../src/orca/client.js';
 import { useTestSettings } from './helpers/task-fixture.js';
 
 /**
@@ -106,6 +106,35 @@ test('an Orca error envelope is a refusal and missing JSON is uncertain', async 
   );
   const garbled = fakeOrca('Segmentation fault', 139);
   await assert.rejects(garbled.client.createRun('objective', 'req-4'), OrcaUncertainError);
+});
+
+test('a busy Orca is a call to repeat, not a refusal', async () => {
+  useTestSettings();
+  const busy = fakeOrca(
+    JSON.stringify({
+      ok: false,
+      error: { code: 'runtime_busy', message: 'long-poll capacity reached; retry with backoff' },
+    }),
+    1,
+  );
+  await assert.rejects(busy.client.check('run_1', { waitMs: 10 }), OrcaBusyError);
+});
+
+test('Orca codes for an unreachable or slow runtime are uncertain, not refusals', async () => {
+  useTestSettings();
+  for (const code of [
+    'runtime_unavailable',
+    'remote_runtime_unavailable',
+    'runtime_timeout',
+    'invalid_runtime_response',
+  ]) {
+    const unreachable = fakeOrca(JSON.stringify({ ok: false, error: { code, message: 'Orca is not running.' } }), 1);
+    await assert.rejects(
+      unreachable.client.startWorker({ runId: 'run_1', taskId: 'task_1', worktree: 'current' }, 'req-5'),
+      OrcaUncertainError,
+      code,
+    );
+  }
 });
 
 test('check returns the delivery and acknowledges the previous one', async () => {

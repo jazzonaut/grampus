@@ -1,9 +1,19 @@
 // One folder per task under `<dataDir>/tasks/<taskId>/`: `events.jsonl` (append-only, written only by the
 // task's driver and by `grampus new`), `commands.jsonl` (user decisions, appended by any client) and the
 // files workers and checks produce. Appends are single writes of one line, so a crash can tear at most
-// the final line, which readers ignore: that event was not recorded and its step is redone, which is safe
-// because every Orca mutation is idempotent by request id.
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
+// the line being written. A torn line never parses, so readers skip it: that event was not recorded and
+// its step is redone, which is safe because every Orca mutation is idempotent by request id.
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  statSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import {
   eventSchemaVersion,
@@ -17,6 +27,9 @@ import {
 export class TaskStore {
   readonly eventsPath: string;
   readonly commandsPath: string;
+
+  /** Checked before every append; a driver uses it to stop writing once it no longer holds its lock. */
+  private fence: (() => void) | null = null;
 
   private constructor(readonly dir: string) {
     this.eventsPath = join(dir, 'events.jsonl');
@@ -42,26 +55,32 @@ export class TaskStore {
     return store;
   }
 
+  /** Run `check` before every later append. It throws to refuse the write. */
+  fenceWith(check: () => void): void {
+    this.fence = check;
+  }
+
   /** Append one event with the current time and return it as stored. */
   append(event: TaskEvent): StoredEvent {
+    this.fence?.();
     const stored: StoredEvent = { ...event, at: new Date().toISOString() };
-    appendFileSync(this.eventsPath, `${JSON.stringify(stored)}\n`);
+    appendRecord(this.eventsPath, stored);
     return stored;
   }
 
   events(): StoredEvent[] {
-    return readLines(this.eventsPath).map(line => JSON.parse(line) as StoredEvent);
+    return readRecords(this.eventsPath) as StoredEvent[];
   }
 
   /** Queue a user command for the driver. */
   addCommand(command: UserCommand): void {
-    appendFileSync(this.commandsPath, `${JSON.stringify(userCommandSchema.parse(command))}\n`);
+    appendRecord(this.commandsPath, userCommandSchema.parse(command));
   }
 
-  /** Every queued command. Invalid lines are refused: a client wrote something the driver cannot apply. */
+  /** Every queued command. Invalid ones are refused: a client wrote something the driver cannot apply. */
   commands(): UserCommand[] {
     if (!existsSync(this.commandsPath)) return [];
-    return readLines(this.commandsPath).map(line => userCommandSchema.parse(JSON.parse(line)));
+    return readRecords(this.commandsPath).map(record => userCommandSchema.parse(record));
   }
 
   /** Folder for one dispatch's files, such as a spec draft or a review report. */
@@ -99,10 +118,44 @@ export function safeName(key: string): string {
   return key.replace(/[^a-zA-Z0-9-]+/g, '-');
 }
 
-/** Complete lines of a file. A final line without its newline is a torn append and is ignored. */
-export function readLines(path: string): string[] {
-  const text = readFileSync(path, 'utf8');
-  const lines = text.split('\n');
-  lines.pop();
-  return lines.filter(line => line.trim() !== '');
+/**
+ * Append one JSON record as a line. A line torn by a crash is ended first, so this record gets a line of
+ * its own instead of being glued to the fragment, which would make both unreadable.
+ */
+export function appendRecord(path: string, record: unknown): void {
+  appendFileSync(path, `${endsTorn(path) ? '\n' : ''}${JSON.stringify(record)}\n`);
 }
+
+/**
+ * The records of a JSON Lines file. Every record is one JSON object and no strict prefix of an object
+ * parses, so a line that does not parse is a torn append and is skipped.
+ */
+export function readRecords(path: string): unknown[] {
+  const records: unknown[] = [];
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    if (line.trim() === '') continue;
+    try {
+      records.push(JSON.parse(line));
+    } catch {
+      // A torn append: never recorded.
+    }
+  }
+  return records;
+}
+
+/** Whether a file's last line lacks its newline, as a crash during an append leaves it. */
+function endsTorn(path: string): boolean {
+  if (!existsSync(path)) return false;
+  const size = statSync(path).size;
+  if (size === 0) return false;
+  const last = Buffer.alloc(1);
+  const handle = openSync(path, 'r');
+  try {
+    readSync(handle, last, 0, 1, size - 1);
+  } finally {
+    closeSync(handle);
+  }
+  return last[0] !== newline;
+}
+
+const newline = 0x0a;
