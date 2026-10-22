@@ -79,10 +79,10 @@ CHANGE: write a spec for the request to ${input.specPath}. Investigate the relev
 behaviour and conventions first.
 
 CONSTRAINTS:
-- Resolve ambiguities that would materially change the result before writing. The user reads this
-  conversation: ask in plain replies and wait for their answer, or use the orchestration ask command.
-  Propose a default answer with each question. Do not ask about minor details; choose a default and
-  list it under Assumptions.
+- Resolve ambiguities that would materially change the result before writing. Ask every question with
+  the orchestration ask command and wait for its answer: the user answers through Grampus and may not
+  be reading this chat, so a question written only here goes unanswered. Propose a default answer
+  with each question. Do not ask about minor details; choose a default and list it under Assumptions.
 - Do not edit repository files, commit or change branches. Write only the spec file.
 - Keep the spec proportional to the task. Criteria describe behaviour, not implementation.
 

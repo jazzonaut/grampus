@@ -1,4 +1,4 @@
-// The spec phase: a worker writes the spec (the user discusses it in the worker's own Orca chat), an
+// The spec phase: a worker writes the spec (asking the user through Orca's `ask`), an
 // optional reviewer from the other family comments on it, and the user approves an exact version or asks
 // for a revision. Revisions continue the spec writer's conversation when Orca can reuse it.
 import { readFileSync, writeFileSync } from 'node:fs';

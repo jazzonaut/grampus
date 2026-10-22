@@ -3,6 +3,7 @@ import { existsSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { standardRecipe } from '../src/domain/recipe.js';
 import { headSha } from '../src/git/git.js';
+import { renderSummary, summarise } from '../src/pipeline/status.js';
 import {
   commitAll,
   createHarness,
@@ -22,6 +23,10 @@ test('a task runs spec, approval, baseline, build, verify and review to acceptan
   assert.equal(awaiting.specs.length, 1);
   assert.equal(awaiting.specReviews.get(1)?.report?.verdict, 'approve');
   assert.ok(awaiting.gate, 'the approval gate exists in Orca');
+  // Whoever relays the approval (a chat agent or the terminal) must be able to show the spec itself.
+  const shown = renderSummary(summarise(awaiting));
+  assert.match(shown, /greet\('Ada'\) returns 'Hello, Ada!'/, 'the spec text is part of the approval request');
+  assert.match(shown, /spec review: approve/);
   harness.command({ kind: 'approve', specVersion: 1 });
 
   const ready = await harness.until(state => state.attention?.reason === 'ready:0', 'ready to accept');

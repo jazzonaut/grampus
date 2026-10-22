@@ -38,7 +38,7 @@ attention. API dollars are secondary.
 | The driver runs in its own Orca terminal | An Orca terminal can coordinate exactly one Run, and Orca resolves caller identity from the terminal. The tab also shows the task's live log. |
 | The driver is the only writer to its Run | The dashboard and CLI append commands to the task's queue; the driver applies them. No impersonated caller identities. |
 | Orca owns lifecycle, Grampus owns evidence | Orca orchestration is marked experimental and does not record check results, findings or measurements. Grampus keeps an append-only event log per task. |
-| Workers use Orca's chat or terminal, per the user's setting | The user discusses the spec with the spec worker directly in its Orca chat. No chat UI in Grampus. |
+| Workers use Orca's chat or terminal, per the user's setting | Workers ask through Orca's `ask`, so every question reaches the user's control chat; the user never has to watch worker tabs. No chat UI in Grampus. |
 | The builder commits; Grampus verifies that exact SHA | Simple and auditable. A dirty tree or a moved base fails verification. |
 | A recipe is data | Stages, agents, models and effort are configuration, so experiments are recipe changes rather than code changes. |
 | Control is chat first | Every decision is a CLI command, so a Claude or Codex chat in Orca with the Grampus skill can start tasks, relay what needs the user and queue their decisions. `grampus wait` blocks until something new needs the user, so watching costs no tokens. |
@@ -53,13 +53,14 @@ spec ─► spec review ─► [approve] ─► (tests first) ─► baseline �
                                                          ready ─► [accept]
 ```
 
-1. **Spec.** A worker investigates the repository, discusses consequential ambiguities with
-   the user in its own Orca chat (or through `ask`), and writes a spec: outcome, acceptance
+1. **Spec.** A worker investigates the repository, asks about consequential ambiguities through
+   Orca's `ask` (the user answers from their control chat or the CLI), and writes a spec: outcome, acceptance
    criteria, concrete examples, exclusions, check commands and protected paths.
 2. **Spec review.** A worker from the other model family reviews the spec for gaps and
    ambiguity. Its findings are shown beside the spec; they do not loop automatically.
 3. **Approval.** An Orca gate blocks the build until the user approves this exact spec
-   version, or asks for a revision.
+   version, or asks for a revision. The approval request carries the spec text and its review, so
+   nobody is asked to approve a spec they have not been shown.
 4. **Tests first** (optional per recipe, off by default). A worker turns the spec examples
    into failing acceptance tests and commits them. Those files become protected.
 5. **Baseline.** Grampus runs the check commands on the base commit so failures that existed

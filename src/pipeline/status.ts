@@ -1,5 +1,8 @@
 // A task's status for people and chat agents: where it is, what needs the user and the evidence so far.
-// Derived only from the folded log, so it never disagrees with what the driver acts on.
+// Derived from the folded log (plus the spec file it names), so it never disagrees with what the driver
+// acts on. An approval request carries the spec itself: nobody should be asked to approve unseen text.
+import { existsSync, readFileSync } from 'node:fs';
+import { specLimits } from '../config/limits.js';
 import type { CommandKind } from '../domain/events.js';
 import { currentDispatch, type TaskState } from './state.js';
 
@@ -18,6 +21,8 @@ export interface TaskSummary {
   lastStop: { reason: string; at: string } | null;
   /** The most recent refused command, if it came after the last applied one. */
   refused: { kind: string; reason: string; at: string } | null;
+  /** While a spec version awaits approval: its text and its review, to show before asking. */
+  approval: { version: number; text: string; review: string[] } | null;
 }
 
 export function summarise(state: TaskState): TaskSummary {
@@ -62,7 +67,32 @@ export function summarise(state: TaskState): TaskSummary {
       : null,
     lastStop: state.lastStop,
     refused: latestRefusal(state),
+    approval: approvalOf(state),
   };
+}
+
+function approvalOf(state: TaskState): TaskSummary['approval'] {
+  const latest = state.specs.at(-1);
+  if (!latest || state.attention?.reason !== `approve-spec:${latest.version}`) return null;
+  const full = existsSync(latest.path)
+    ? readFileSync(latest.path, 'utf8')
+    : `(the spec file ${latest.path} is missing)`;
+  const text =
+    Buffer.byteLength(full) > specLimits.shownBytes
+      ? `${Buffer.from(full).subarray(0, specLimits.shownBytes).toString('utf8')}\n[... cut; the full spec is ${latest.path}]`
+      : full;
+  const reviewed = state.specReviews.get(latest.version);
+  const review = !reviewed
+    ? ['no spec review']
+    : reviewed.report
+      ? [
+          `spec review: ${reviewed.report.verdict}. ${reviewed.report.summary}`,
+          ...reviewed.report.findings.map(
+            finding => `- ${finding.severity}: ${finding.title}${finding.detail ? ` (${finding.detail})` : ''}`,
+          ),
+        ]
+      : [`spec review unavailable: ${reviewed.error ?? 'unknown'}`];
+  return { version: latest.version, text, review };
 }
 
 function latestRefusal(state: TaskState): TaskSummary['refused'] {
@@ -78,7 +108,7 @@ function phaseOf(state: TaskState): string {
     const dispatch = currentDispatch(record);
     if (dispatch && !dispatch.settled && !dispatch.exited)
       return record.stage === 'spec'
-        ? `${record.key} running (discuss it in the worker's Orca chat)`
+        ? `${record.key} running (its questions come to you through Grampus)`
         : `${record.key} running`;
   }
   return 'waiting for the driver';
@@ -90,6 +120,13 @@ export function renderSummary(summary: TaskSummary): string {
   if (summary.worktree) lines.push(`  worktree: ${summary.worktree}`);
   if (summary.needsYou)
     lines.push(`  NEEDS YOU: ${summary.needsYou.detail}`, `    options: ${summary.needsYou.options.join(', ')}`);
+  if (summary.approval)
+    lines.push(
+      `  ----- spec v${summary.approval.version} (show this to the user before they decide) -----`,
+      summary.approval.text.trimEnd(),
+      '  ----- end of spec -----',
+      ...summary.approval.review.map(line => `  ${line}`),
+    );
   for (const question of summary.questions)
     lines.push(`  QUESTION ${question.messageId} (${question.stage ?? 'worker'}): ${question.text}`);
   if (summary.spec)

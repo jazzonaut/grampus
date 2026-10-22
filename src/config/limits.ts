@@ -19,6 +19,8 @@ export const specLimits = {
   checkTimeoutSeconds: 3600,
   protectedPaths: 50,
   pathLength: 400,
+  /** Spec text shown with an approval request; longer specs are cut with a pointer to the file. */
+  shownBytes: 16 * KiB,
   /** Unusable spec files the writer may correct before the user is asked. */
   automaticCorrections: 1,
 } as const;

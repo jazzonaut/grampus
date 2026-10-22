@@ -37,6 +37,6 @@ One approved spec run under several recipes from the same base commit, scored si
 ## Example dialogue
 
 User: Start a Grampus task in VectorZero to add CSV export.
-Chat agent: Created the task. The spec writer is open as its own chat; discuss the details there.
+Chat agent: Created the task. I will bring you the spec writer's questions and then the spec.
 User: The spec looks right, approve it.
 Chat agent: Approved version 2. I will tell you when it needs you again.

@@ -156,7 +156,7 @@ async function newTask(
     new OrcaCli(),
   );
   console.log(`Created ${created.taskId}.\n  worktree: ${created.worktree}\n  driver terminal: ${created.terminal}`);
-  console.log('The spec writer starts shortly; discuss the request with it in its Orca chat.');
+  console.log('The spec writer starts shortly. Its questions and the spec come to you through `grampus wait`.');
   return 0;
 }
 

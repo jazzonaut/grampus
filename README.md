@@ -34,8 +34,8 @@ In any Claude or Codex chat in Orca:
 > Start a Grampus task in D:\Code\MyApp: add CSV export to the reports page.
 
 The agent runs `grampus new`. Grampus creates an Orca worktree and a terminal tab named
-`Grampus: <title>` that runs the task's driver. The spec writer opens as its own Orca chat: discuss
-the request there. Then ask your chat agent what needs you, approve the spec, answer questions and
+`Grampus: <title>` that runs the task's driver; you can leave both alone. Stay in your chat: the spec
+writer's questions, the spec to approve and the result to accept all come to you there. Then ask your chat agent what needs you, approve the spec, answer questions and
 accept the result. The agent can block on `grampus wait` until something new needs you.
 
 ## Use it from the terminal
