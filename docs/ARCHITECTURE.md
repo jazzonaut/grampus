@@ -23,7 +23,11 @@ Current behaviour of Grampus. Intent and the reasons behind it are in [DESIGN.md
 --setup run`), and an Orca terminal in that worktree whose command is `grampus drive <task>` (by full
 path; see [Installation](#installation)). The repository is `--repo`
 or the current folder's, resolved through `git rev-parse --git-common-dir` to the main checkout, which
-is how Orca knows repositories. Orca opens a first terminal in every new worktree; Grampus closes it
+is how Orca knows repositories. Without `--title`, `agents/title.ts` asks `titleModel` (Claude Haiku
+by default, through `claude -p` with the request on standard input, no tools, in a neutral folder) for a
+short name, since the title also names the task id, worktree and branch; on any failure or after
+`titleTimeoutMs` the request's first line is used. Comparisons are named the same way. The naming
+call's tokens are not measured. Orca opens a first terminal in every new worktree; Grampus closes it
 once the driver tab exists, so a task has exactly one tab. After a clean finish the driver closes its
 own tab through `orca terminal close`, so no shell holds the worktree open; a stopped driver keeps its
 tab. The
@@ -54,6 +58,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `create.ts`, `driver.ts` | Starting a comparison; its driver: entries, shared spec, pick |
 | | `cross-check.ts`, `status.ts` | Every spec against every result; comparison status text |
 | `agents/` | `catalog.ts` | Models and effort levels per agent, read from the Claude and Codex CLIs |
+| | `title.ts` | Naming a task from its request with a small Claude model |
 | `git/` | `git.ts` | Git queries, and the reset that discards a simplify pass |
 | `measure/` | `transcripts.ts` | Reading models, effort and tokens (per model) from Claude and Codex transcripts |
 | | `cost.ts` | Estimated cost at API list prices, with the dated built-in price table |
@@ -64,7 +69,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `driver-lock.ts` | The driver lock, its heartbeat, and whether a driver went missing |
 | `dashboard/` | `server.ts`, `http.ts` | `grampus dashboard`: static web app, JSON API, request guards |
 | | `api.ts` | API routes |
-| | `actions.ts` | Starting tasks, merge, Orca tabs, recipe edits and the model catalog |
+| | `actions.ts` | Starting, merging and removing tasks, Orca tabs, recipe edits and the model catalog |
 | | `views.ts`, `timeline.ts`, `types.ts` | Task views built from the fold, and the JSON contract the web app imports |
 | | `tasks.ts` | Cached log reads and the change watcher behind live updates |
 | `web/` | `app/` | The dashboard: Vue 3, Nuxt UI, built into `dist/web` |
@@ -77,6 +82,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `prompts.ts` | Worker task specs |
 | | `state.ts`, `status.ts` | The fold from events to state, and summaries |
 | | `create-task.ts` | `grampus new` |
+| | `remove-task.ts` | `grampus remove` |
 
 ## Pipeline
 
@@ -168,7 +174,8 @@ prints the addresses it answers on.
   with guard, checks, review and simplify pass, queued commands and a plain-language timeline.
 - **Writes** queue commands with source `dashboard`, exactly like the CLI; the driver stays the only
   writer to its Run and log. The few actions the CLI takes outside a driver are offered too: starting
-  a task (`grampus new`, with Orca's repositories and recent ones to pick from), `grampus merge`, and
+  a task (`grampus new`, with Orca's repositories and recent ones to pick from), `grampus merge`,
+  `grampus remove` (its dialog sends `--force`, having said what that discards), and
   bringing the driver terminal or the changed files forward in Orca (`terminal switch`,
   `file open-changed`), which acts on the Orca window of the machine running Grampus.
 - **Recipes** can be created, copied, edited and deleted. They are written to `config.json` (other
@@ -266,7 +273,8 @@ prints the addresses it answers on.
 The data directory is `GRAMPUS_HOME`, or on Windows `%LOCALAPPDATA%\Grampus\orca` for an installed
 build and `%LOCALAPPDATA%\Grampus\orca-dev` for a checkout. `.grampus/` is
 excluded through the repository's `info/exclude`. Grampus writes no commits, branches or index entries,
-with one explicit exception, `grampus merge` (below).
+with one explicit exception, `grampus merge` (below). `grampus remove --worktree` asks Orca to remove a
+worktree, and Orca deletes its branch only when it can tell the branch is merged.
 
 ## Installation
 
@@ -307,6 +315,20 @@ records `task.merged`. It refuses when the task was not accepted, no branch is c
 has uncommitted changes, or the branch has moved on so a fast-forward is impossible (then the user
 merges or rebases the task branch). A repeat is harmless. It never pushes or opens pull requests.
 
+## Removal
+
+`grampus remove <task> [--worktree] [--force]` (`pipeline/remove-task.ts`, also the dashboard's Remove
+task) deletes the task folder: its log, specs, reviews, check logs and scorecard. Nothing is archived.
+It takes the task's driver lock first, so it is refused while a driver runs and no driver can start
+while the task goes. It refuses comparison entries, and unfinished tasks unless `--force`, which is
+meant for a task whose driver can no longer run: Grampus never calls orchestration outside a driver,
+so that task's workers are not stopped. With `--worktree` it closes the driver tab and runs `orca
+worktree rm` (with `--force` when given, which discards uncommitted changes) before touching the
+folder: a refusal or an unknown outcome leaves the task in place, and a repeat that finds the worktree
+gone carries on. `events.jsonl` is deleted before the rest, so an interrupted removal never leaves a
+half-listed task. The task's Orca Run stays, since Orca cannot delete one Run. **Planned:** removing a
+comparison with its entries.
+
 ## Orca contract
 
 Observed on Orca 1.4.237 (October 2026). Re-check after upgrades.
@@ -326,6 +348,10 @@ Observed on Orca 1.4.237 (October 2026). Re-check after upgrades.
 - `worker_done` payloads carry `taskId`, `dispatchId`, `outcome`, optional `filesModified`,
   `reportPath` and `phase`, as a JSON string.
 - There is no per-Run delete, and `orchestration reset` wipes all orchestration state.
+- `worktree rm --worktree id:<id>` refuses a worktree with uncommitted or untracked files
+  (`runtime_error`; ignored files such as `.grampus/` do not count) unless `--force`, answers
+  `selector_not_found` for an unknown id, and keeps the branch unless it can tell it is merged. It
+  answers `removing: true` and finishes deleting the folder a few seconds later.
 - Orca admits 16 long-polls at once (at most half of them `ask`). `check --wait`, `worker-start`,
   `ask`, `terminal wait` and agent launches count; every running driver holds a `check --wait` most of
   the time. Past the limit Orca answers `runtime_busy` ("long-poll capacity reached; retry with

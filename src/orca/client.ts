@@ -122,6 +122,11 @@ export interface OrcaWorkspaces {
   /** Handles of the live terminals in a worktree. */
   listTerminals(worktreeId: string): Promise<string[]>;
   closeTerminal(handle: string): Promise<void>;
+  /**
+   * Remove a worktree from Orca and Git; `force` discards uncommitted changes. Orca also deletes the
+   * worktree's branch when it can tell the branch is merged. False when Orca no longer knows the worktree.
+   */
+  removeWorktree(worktreeId: string, options: { force: boolean }): Promise<boolean>;
 }
 
 /** Calls the dashboard makes for the user: listing repositories and bringing Orca tabs forward. */
@@ -253,6 +258,18 @@ export class OrcaCli implements Orca, OrcaWorkspaces, OrcaDesk {
 
   async closeTerminal(handle: string) {
     await this.call(['terminal', 'close', '--terminal', handle]);
+  }
+
+  async removeWorktree(worktreeId: string, options: { force: boolean }) {
+    const args = ['worktree', 'rm', '--worktree', `id:${worktreeId}`];
+    if (options.force) args.push('--force');
+    try {
+      await this.call(args);
+      return true;
+    } catch (error) {
+      if (error instanceof OrcaError && error.code === 'selector_not_found') return false;
+      throw error;
+    }
   }
 
   async listRepos() {

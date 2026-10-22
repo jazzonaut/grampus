@@ -25,6 +25,8 @@ export function useTestSettings(overrides: Partial<Settings> = {}): void {
     orcaRetries: 2,
     orcaRetryDelayMs: 5,
     driverHeartbeatMs: 20,
+    // Tests never call a real model; naming tests point claudeCommand at a script.
+    titleModel: null,
     ...overrides,
   });
 }

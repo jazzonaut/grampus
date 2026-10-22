@@ -28,6 +28,7 @@ import { buildScorecard, renderScorecard } from './measure/report.js';
 import { measureDispatches } from './measure/usage.js';
 import { OrcaCli } from './orca/client.js';
 import { createTask } from './pipeline/create-task.js';
+import { removeTask, type RemoveOptions } from './pipeline/remove-task.js';
 import { drive } from './pipeline/driver.js';
 import { foldEvents } from './pipeline/state.js';
 import { renderSummary, summarise, type TaskSummary } from './pipeline/status.js';
@@ -57,6 +58,8 @@ async function main(argv: string[]): Promise<number> {
       mode: { type: 'string' },
       from: { type: 'string' },
       dirty: { type: 'boolean' },
+      worktree: { type: 'boolean' },
+      force: { type: 'boolean' },
       help: { type: 'boolean' },
     },
   });
@@ -132,7 +135,7 @@ async function otherCommand(
   dataDir: string,
   command: string,
   rest: string[],
-  values: { json?: boolean; after?: string; from?: string; dirty?: boolean },
+  values: { json?: boolean; after?: string; from?: string; dirty?: boolean; worktree?: boolean; force?: boolean },
 ): Promise<number | null> {
   switch (command) {
     case 'status':
@@ -141,6 +144,11 @@ async function otherCommand(
       return wait(dataDir, rest[0], values.after, values.json ?? false);
     case 'merge':
       return merge(dataDir, required(rest[0], 'task'));
+    case 'remove':
+      return remove(dataDir, required(rest[0], 'task'), {
+        worktree: values.worktree ?? false,
+        force: values.force ?? false,
+      });
     case 'report':
       return report(dataDir, required(rest[0], 'task'), values.json ?? false);
     case 'recipes':
@@ -165,6 +173,19 @@ async function merge(dataDir: string, taskId: string): Promise<number> {
       ? `${merged.branch} already contains ${merged.sha.slice(0, 12)}; nothing to do.`
       : `Fast-forwarded ${merged.branch} to ${merged.sha.slice(0, 12)}. Nothing was pushed.`,
   );
+  return 0;
+}
+
+/** Delete a task's folder, and its worktree when asked. Refused while its driver runs. */
+async function remove(dataDir: string, taskId: string, options: RemoveOptions): Promise<number> {
+  const removed = await removeTask(dataDir, taskId, options, new OrcaCli());
+  const worktree = {
+    removed: ` and its worktree ${removed.worktreePath}. Orca keeps the task branch unless it is merged`,
+    'already-gone': `; its worktree ${removed.worktreePath} was already gone`,
+    kept: `. Its worktree stays at ${removed.worktreePath}`,
+    none: '',
+  }[removed.worktree];
+  console.log(`Removed ${taskId}${worktree}.`);
   return 0;
 }
 

@@ -1,4 +1,4 @@
-// Runs a child process to completion and captures its output. Used for the Orca and Git CLIs; checks
+// Runs a child process to completion and captures its output. Used for the Orca, Git and agent CLIs; checks
 // have their own runner because they stream to log files and need process-tree termination.
 import { spawn, spawnSync } from 'node:child_process';
 import { processLimits } from '../config/limits.js';
@@ -69,6 +69,24 @@ export function runProcess(file: string, args: readonly string[], options: RunOp
     });
     child.stdin.end(options.input ?? '');
   });
+}
+
+/**
+ * Run a configured command line such as `["claude"]` with extra arguments. npm installs CLIs as `.cmd`
+ * shims on Windows, which Node cannot start without a shell, so those go through cmd.exe. cmd.exe
+ * interprets its arguments: pass only constants or validated values, and anything else as `input`.
+ */
+export function runCommandLine(
+  command: readonly string[],
+  args: readonly string[],
+  options: RunOptions,
+): Promise<ProcessResult> {
+  const [file, ...prefix] = command;
+  if (!file) throw new Error('No command is configured.');
+  const shim = process.platform === 'win32' && !/\.exe$/i.test(file);
+  return shim
+    ? runProcess(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', file, ...prefix, ...args], options)
+    : runProcess(file, [...prefix, ...args], options);
 }
 
 /** Terminate a process and its descendants. Windows needs taskkill because killing a shell orphans its children. */

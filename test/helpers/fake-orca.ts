@@ -199,7 +199,34 @@ export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk {
   async createWorktree(input: { repoPath: string; name: string; baseRef?: string }) {
     const path = `${input.repoPath}-${input.name}`;
     await git(input.repoPath, ['worktree', 'add', '-b', input.name, path, ...(input.baseRef ? [input.baseRef] : [])]);
+    this.worktreeRepos.set(`wt:${path}`, input.repoPath);
     return { id: `wt:${path}`, path };
+  }
+
+  /** The repository of each worktree created, by id. */
+  private readonly worktreeRepos = new Map<string, string>();
+  /** Worktrees Grampus removed, by id. */
+  readonly removedWorktrees: string[] = [];
+  /** Leave the next N worktree removals uncertain. */
+  uncertainRemovals = 0;
+
+  /** Like Orca: refuses a worktree with uncommitted changes unless forced; false for an unknown id. */
+  async removeWorktree(worktreeId: string, options: { force: boolean }) {
+    if (this.uncertainRemovals > 0) {
+      this.uncertainRemovals--;
+      throw new OrcaUncertainError('orca worktree rm did not finish.');
+    }
+    const repo = this.worktreeRepos.get(worktreeId);
+    const path = worktreeId.slice('wt:'.length);
+    if (!repo || this.removedWorktrees.includes(worktreeId)) return false;
+    try {
+      // From the main checkout: Windows cannot delete the folder a process runs in.
+      await git(repo, ['worktree', 'remove', ...(options.force ? ['--force'] : []), path]);
+    } catch (error) {
+      throw new OrcaError('runtime_error', `Failed to delete worktree at ${path}. ${(error as Error).message}`);
+    }
+    this.removedWorktrees.push(worktreeId);
+    return true;
   }
 
   /** Commands of the terminals Grampus created. */

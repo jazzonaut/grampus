@@ -28,7 +28,8 @@ verification and an append-only evidence log per task. Current behaviour is in
 - Every Orca mutation goes through `DriverCore.mutate` with a request id from `DriverCore.requestId`,
   recorded before the call. Orca replays a repeated id instead of acting twice.
 - The driver is the only writer to its task's Orca Run and event log (apart from `grampus new`, and
-  `grampus merge`, which appends `task.merged` after the task finished).
+  `grampus merge`, which appends `task.merged` after the task finished). `grampus remove` deletes a
+  task only while holding its driver lock.
   Clients queue commands in `commands.jsonl`; they never call Orca orchestration for a task.
 - Pipeline steps are idempotent: each checks the folded state before acting, so a restarted driver
   resumes at the first missing step. Decision points use stable keys with `DriverCore.decide`.

@@ -79,7 +79,7 @@ grampus dashboard
 
 Open the printed address (`http://localhost:4545/`, or this machine's network address from a phone). The
 dashboard shows every task's pipeline, spec, checks, reviews, worker questions, timeline and scorecard,
-and updates live. You can start tasks, approve, answer questions, accept, merge and edit recipes there
+and updates live. You can start tasks, approve, answer questions, accept, merge, remove tasks and edit recipes there
 too. It has no login: anyone who can reach the port can control your tasks, so only run it
 on networks you trust, or set `dashboardHost` to `127.0.0.1` (see [Configuration](docs/CONFIGURATION.md)).
 
@@ -104,7 +104,12 @@ grampus approve <task>
 grampus accept <task>
 grampus abandon <task> "reason"
 grampus report <task>
+grampus remove <task> --worktree                          # delete a finished task and its worktree
 ```
+
+Without `--title`, a small Claude model (`titleModel`, Haiku by default) names the task from your
+request; the name also becomes the task id, worktree and branch. If it is unavailable, the request's
+first line is used.
 
 Run `grampus --help` for every command. The accepted work is a verified commit on the task
 branch. `grampus merge <task>` (or "merge it" in chat) fast-forwards the branch checked out in your

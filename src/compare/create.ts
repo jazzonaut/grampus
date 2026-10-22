@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { inputLimits } from '../config/limits.js';
 import { availableRecipes, currentSettings } from '../config/settings.js';
 import type { OrcaWorkspaces } from '../orca/client.js';
-import { resolveRepository, slug } from '../pipeline/create-task.js';
+import { resolveRepository, slug, taskTitle } from '../pipeline/create-task.js';
 import { ComparisonStore, type ComparisonMode } from './comparison.js';
 
 export interface NewComparison {
@@ -34,7 +34,7 @@ export async function startComparison(
     return recipe;
   });
   const repository = await resolveRepository(input.repoPath);
-  const title = (input.title?.trim() || (request.split(/\r?\n/, 1)[0] ?? request)).slice(0, inputLimits.titleLength);
+  const title = await taskTitle(request, input.title);
   const comparisonId = `cmp-${slug(title)}-${randomBytes(3).toString('hex')}`;
   const store = ComparisonStore.create(input.dataDir, comparisonId);
   store.append({

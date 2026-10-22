@@ -34,7 +34,8 @@ repository. `new` prints the repository it used: tell the user. This creates an 
 spec writer. Tell the user they can stay in this chat: workers ask their questions through Grampus,
 and you bring those questions, the spec and the result here. Then start `wait --after` with the
 `as of` time that `new` printed. Use
-`{{grampus}} recipes` to list recipes when the user asks for a particular pipeline.
+`{{grampus}} recipes` to list recipes when the user asks for a particular pipeline. Pass `--title` only
+when the user gave one: without it Grampus names the task from the request.
 
 ## Compare recipes
 
@@ -86,6 +87,12 @@ Always pass `--source chat`.
 | Stop the task | `{{grampus}} abandon <task> --source chat "<reason>"` |
 | Keep one comparison entry | `{{grampus}} pick <comparison> <task> --source chat` |
 | Stop a whole comparison | `{{grampus}} abandon <comparison> --source chat "<reason>"` |
+| Delete a finished task (and its worktree) | `{{grampus}} remove <task> [--worktree]` |
+
+`remove` deletes the task's log and evidence for good, so run it only when the user asked to remove
+that task in this conversation, and ask whether the worktree should go too. Pass `--force` only when
+the user agrees after you explain it: it removes an unfinished task whose driver cannot run (its
+workers are not stopped) and discards uncommitted changes in the worktree.
 
 **Never ask for a decision the user cannot see.** Every decision request carries its evidence, and
 you must show it in your reply before any question or choice. If your interface asks questions in a

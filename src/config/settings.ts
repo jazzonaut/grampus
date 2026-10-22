@@ -72,6 +72,10 @@ export interface Settings {
   claudeCommand: readonly string[];
   /** The Codex CLI, asked for its model catalog by the recipe editor. */
   codexCommand: readonly string[];
+  /** The Claude model that names a task from its request when no title is given; null names it from the request's first line. */
+  titleModel: string | null;
+  /** How long naming a task may take before the request's first line is used instead. */
+  titleTimeoutMs: number;
   /** API list prices per model for estimated cost, in US dollars per million tokens. config.json entries replace single models. */
   modelPrices: Readonly<Record<string, ModelPrice>>;
   /** How many entries of a comparison run at once; the rest wait for a free place. */
@@ -143,6 +147,8 @@ export function defaultSettings(): Settings {
     dashboardDiffBytes: MiB,
     claudeCommand: ['claude'],
     codexCommand: ['codex'],
+    titleModel: 'haiku',
+    titleTimeoutMs: 30_000,
     modelPrices: defaultModelPrices,
     comparisonConcurrency: 2,
     keptVersions: 3,
@@ -189,6 +195,12 @@ const fileSchema = z
     dashboardDiffBytes: z.number().int().positive(),
     claudeCommand: z.array(z.string().min(1)).min(1),
     codexCommand: z.array(z.string().min(1)).min(1),
+    // Passed on Claude's command line, which goes through cmd.exe on Windows, so only name characters.
+    titleModel: z
+      .string()
+      .regex(/^[\w.:[\]-]+$/, 'a model name or alias')
+      .nullable(),
+    titleTimeoutMs: z.number().int().positive(),
     modelPrices: z.record(
       z.string().min(1),
       z
