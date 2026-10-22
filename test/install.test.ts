@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { install, type InstallOptions } from '../src/install/install.js';
 import { installLayout, packageVersion, selectedBuild } from '../src/install/installation.js';
+import { planUpdate } from '../src/install/update.js';
 
 const repoRoot = join(import.meta.dirname, '..', '..');
 
@@ -183,4 +184,31 @@ test('a development checkout reports itself and does not install the skill', () 
   assert.match(node(home, cli, '--version'), /development checkout/);
   assert.throws(() => node(home, cli, '--home', home, 'skill', 'install'), /npm run install:local/);
   assert.ok(!existsSync(join(home, '.claude', 'skills')));
+});
+
+test('update installs a newer commit of the source checkout and reports a current one', () => {
+  const source = checkout();
+  const root = join(temporary('root'), 'Grampus');
+  const installed = install(options(source, root)).build;
+  assert.deepEqual(planUpdate(installed, undefined, false), { kind: 'current', build: installed.build });
+
+  writeFileSync(join(source, 'notes.txt'), 'work in progress\n');
+  assert.throws(() => planUpdate(installed, undefined, false), /uncommitted changes/);
+  assert.equal(planUpdate(installed, undefined, true).kind, 'install');
+
+  commit(source, 'Newer');
+  const plan = planUpdate(installed, undefined, false);
+  assert.deepEqual(plan, { kind: 'install', checkout: source, commit: git(source, 'rev-parse', 'HEAD') });
+});
+
+test('update refuses a folder that is not a Grampus checkout', () => {
+  const source = checkout();
+  const installed = install(options(source, join(temporary('root'), 'Grampus'))).build;
+  assert.throws(() => planUpdate(installed, temporary('elsewhere'), false), /not a Grampus checkout/);
+  assert.throws(() => planUpdate({ ...installed, source: join(source, 'gone') }, undefined, false), /--from/);
+});
+
+test('a development checkout refuses to update itself', () => {
+  const home = temporary('home');
+  assert.throws(() => node(home, join(repoRoot, 'dist', 'src', 'cli.js'), 'update'), /npm run install:local/);
 });

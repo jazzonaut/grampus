@@ -16,7 +16,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import {
   buildId,
@@ -62,6 +62,14 @@ export interface InstallResult {
   /** The build selected before this install. */
   previous: string | null;
   removed: string[];
+}
+
+/** npm's own CLI script: the one running this install, or the one beside Node. */
+export function npmCli(): string {
+  const candidate =
+    process.env.npm_execpath ?? join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  if (!existsSync(candidate)) throw new Error(`npm was not found at ${candidate}.`);
+  return candidate;
 }
 
 /** Install the checkout's build and select it. Throws before changing the selection if anything fails. */

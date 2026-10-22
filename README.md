@@ -40,6 +40,20 @@ The installer refuses uncommitted changes; `npm run install:local -- --dirty` in
 with `.dirty.<time>` in the build id. Reinstalling the same commit just selects it again. Other options:
 `--dir <folder>` and `--no-path`. To release a new version number, change `version` in `package.json`.
 
+### Update
+
+Commit in the checkout, then from anywhere:
+
+```text
+grampus update
+```
+
+It builds and installs whatever is committed in the checkout Grampus was installed from, and says so
+when that commit is already running. It never fetches or pulls, so pull first if the commits are on a
+remote. `--from <checkout>` updates from another checkout (for example after removing a worktree) and
+`--dirty` includes uncommitted changes. If the update changed dependencies, run `npm ci` in the checkout
+first.
+
 Installed Grampus keeps its tasks in `%LOCALAPPDATA%\Grampus\orca`. Running from a checkout
 (`node dist/src/cli.js`) uses `%LOCALAPPDATA%\Grampus\orca-dev`, so development builds never touch
 real tasks.

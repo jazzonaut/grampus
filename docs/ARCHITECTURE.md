@@ -44,6 +44,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | `config/` | `limits.ts`, `settings.ts`, `paths.ts` | Fixed bounds, operational settings, data directory |
 | `install/` | `installation.ts` | Installation layout, build identity, launcher; whether this process is installed |
 | | `install.ts`, `main.ts` | `npm run install:local`: copy, smoke check, select, PATH, skill, prune |
+| | `update.ts` | `grampus update`: reinstall from the recorded checkout |
 | `domain/` | `recipe.ts` | Recipe schema, the built-in `standard` recipe, family checks |
 | | `spec.ts` | Spec parsing: one fenced `grampus` JSON block with checks and protected paths |
 | | `review.ts` | Review reports and the blocking rule |
@@ -208,6 +209,10 @@ version plus 12 characters of the commit; a dirty tree is refused unless `--dirt
 `.dirty.<UTC time>`. Reinstalling an installed build selects it again. Pruning keeps the selected build
 and the newest others up to `keptVersions`, and removes folders without `build.json` (interrupted
 installs). A lock file stops two installs running at once.
+
+`grampus update` (`install/update.ts`) reads the running build's `build.json` for the checkout it came
+from (or takes `--from`), does nothing when that checkout's clean `HEAD` is the running commit, and
+otherwise runs the checkout's own `npm run install:local` with npm beside Node. It never fetches.
 
 A version folder's `build.json` is how a process knows it is installed: it then uses the installed data
 directory, and driver terminals run the launcher by full path (`node "<install>in\launch.mjs" --home

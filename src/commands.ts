@@ -94,6 +94,14 @@ export const commands: readonly CommandInfo[] = [
   },
   { name: 'recipes', args: '', summary: 'List recipes', group: 'setup' },
   {
+    name: 'update',
+    args: '[--from <checkout>] [--dirty]',
+    summary: 'Install what is committed in the checkout Grampus was installed from',
+    group: 'setup',
+    detail:
+      'Builds and installs that checkout as a new version and selects it; it never fetches or pulls. Does nothing when the checkout holds the running build.',
+  },
+  {
     name: 'version',
     args: '[--json]',
     summary: 'Show the running build and where it is installed',

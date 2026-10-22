@@ -19,6 +19,7 @@ verification and an append-only evidence log per task. Current behaviour is in
 | `npm run dev:web` | Serve the dashboard with hot reload; it forwards `/api` to a running `grampus dashboard` |
 | `node dist/src/cli.js <command>` | Run the CLI from the checkout (`status`, `new`, ...) against the `orca-dev` data folder |
 | `npm run install:local` | Install this commit as a new version of `grampus` on PATH, with the chat skill |
+| `grampus update` | Install the latest commit of the checkout the running `grampus` came from |
 
 ## Rules
 

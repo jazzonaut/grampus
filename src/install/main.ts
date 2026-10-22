@@ -1,12 +1,11 @@
 // `npm run install:local`: builds this checkout (the npm script runs the build first), installs it as a new
 // version of the per-user installation and selects it. Windows only; macOS and Linux are Planned.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { installedDataDirectory } from '../config/paths.js';
 import { loadSettings } from '../config/settings.js';
-import { install } from './install.js';
+import { install, npmCli } from './install.js';
 import { defaultInstallRoot, installLayout, packageRoot } from './installation.js';
 
 const usage = `Usage: npm run install:local -- [--dirty] [--dir <folder>] [--no-path]
@@ -49,14 +48,6 @@ function main(): number {
   if (result.removed.length) console.log(`Removed old versions: ${result.removed.join(', ')}.`);
   warnAboutPath(installLayout(root).shim);
   return 0;
-}
-
-/** npm's own CLI script: the one running this install, or the one beside Node. */
-function npmCli(): string {
-  const candidate =
-    process.env.npm_execpath ?? join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
-  if (!existsSync(candidate)) throw new Error('npm was not found; run the installer with `npm run install:local`.');
-  return candidate;
 }
 
 function installDependencies(versionDir: string): void {

@@ -23,6 +23,7 @@ import {
 import { serveDashboard } from './dashboard/server.js';
 import { mergeAccepted } from './delivery/merge.js';
 import { installationOf, installedBuild, packageRoot, packageVersion } from './install/installation.js';
+import { planUpdate, runInstaller } from './install/update.js';
 import { buildScorecard, renderScorecard } from './measure/report.js';
 import { measureDispatches } from './measure/usage.js';
 import { OrcaCli } from './orca/client.js';
@@ -53,6 +54,8 @@ async function main(argv: string[]): Promise<number> {
       port: { type: 'string' },
       recipes: { type: 'string' },
       mode: { type: 'string' },
+      from: { type: 'string' },
+      dirty: { type: 'boolean' },
       help: { type: 'boolean' },
     },
   });
@@ -128,7 +131,7 @@ async function otherCommand(
   dataDir: string,
   command: string,
   rest: string[],
-  values: { json?: boolean; after?: string },
+  values: { json?: boolean; after?: string; from?: string; dirty?: boolean },
 ): Promise<number | null> {
   switch (command) {
     case 'status':
@@ -146,6 +149,8 @@ async function otherCommand(
       return skill(dataDir, rest[0] === 'install');
     case 'version':
       return version(values.json ?? false);
+    case 'update':
+      return update(values.from, values.dirty ?? false);
     default:
       return null;
   }
@@ -300,6 +305,19 @@ function skill(dataDir: string, install: boolean): number {
     );
   for (const path of installSkill(commandLine)) console.log(`Installed ${path}`);
   return 0;
+}
+
+/** Install what is committed in the running build's checkout (or `--from`), unless it is already running. */
+function update(from: string | undefined, allowDirty: boolean): number {
+  const build = installedBuild();
+  if (!build) throw new Error('This is a development checkout. Install it with `npm run install:local`.');
+  const plan = planUpdate(build, from, allowDirty);
+  if (plan.kind === 'current') {
+    console.log(`Grampus ${plan.build} is already the latest commit in ${build.source}.`);
+    return 0;
+  }
+  console.log(`Updating from ${plan.checkout} at ${plan.commit.slice(0, 12)}`);
+  return runInstaller(plan.checkout, allowDirty);
 }
 
 /** The running build: an installed version and where it is installed, or a development checkout. */
