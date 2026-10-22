@@ -57,15 +57,22 @@ driver runs inside that terminal, so Orca resolves it as the Run's coordinator w
 2. **Spec** (`spec:<n>`). A worker writes `<worktree>/.grampus/spec-<n>/spec.md`. Grampus parses it;
    an unusable file is sent back once (`specLimits.automaticCorrections`) with the error, then the user
    decides. Valid specs become versions, copied to `<task>/spec/v<version>.md`. Revisions and
-   corrections continue the previous spec conversation when Orca reports a reusable handle.
+   corrections try to continue the previous spec conversation (see reuse below) and always list the
+   questions the user already answered, so a fresh writer does not ask them again.
 3. **Spec review** (`spec-review:<version>`, optional). Shown with the approval request, never looped.
 4. **Approval.** `approve` must name the latest version. The gate is resolved and the approved spec is
    written to `<worktree>/.grampus/spec.md` for later workers.
 5. **Tests first** (`tests:0`, optional). Added files become protected.
 6. **Baseline.** Checks run at HEAD before the build, without reruns.
 7. **Rounds.** Round 0 is `build:0`; round `r` is `repair:<r>`. Repair rounds up to
-   `recipe.repair.reuseBuilderRounds` continue the previous editor's conversation when the assignment
-   is unchanged; later rounds start a fresh worker with the distilled problems.
+   `recipe.repair.reuseBuilderRounds` try to continue the previous editor's conversation when the
+   assignment is unchanged; later rounds start a fresh worker with the distilled problems.
+
+   **Reuse.** Continuing a conversation passes the settled worker's handle to `worker-start --terminal`.
+   Only terminal-mode workers accept a second dispatch. Workers started in Orca's Chat UI mode are
+   structured workers, which Orca refuses (`terminal_unsupported_for_agent_session`, nothing applied).
+   Grampus then records `stage.reuse_refused`, starts a fresh worker, and stops trying for the rest of
+   the task.
 8. **Verify.** The guard compares the round's start commit with HEAD: uncommitted or untracked files,
    no new commit, rewritten history, protected paths changed, test files deleted or renamed out of the
    test patterns. Modified tests are listed for the reviewer. Then every check runs at HEAD; a failing
@@ -126,6 +133,10 @@ Observed on Orca 1.4.237 (October 2026). Re-check after upgrades.
   same receipt. `request-show` reports `completed`, `pending` or `absent`.
 - A gate turns its task `blocked` until resolved.
 - `worker-start` exits non-zero for `failed` and `outcome_unknown` receipts but still prints them.
+- `worker-show` rows are camelCase (`assigneeHandle`, `agentTerminalHandle`); `run-create` and message
+  rows are snake_case (`coordinator_handle`, `created_at`).
+- A structured (Chat UI) worker cannot take a second dispatch; its handle is `structworker_...`.
+- `worker-read --source transcript` drops models and usage; its message ids name the provider session.
 - `worker_done` payloads carry `taskId`, `dispatchId`, `outcome`, optional `filesModified`,
   `reportPath` and `phase`, as a JSON string.
 - There is no per-Run delete, and `orchestration reset` wipes all orchestration state.

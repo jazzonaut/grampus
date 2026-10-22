@@ -148,32 +148,3 @@ test('worker-show reads the reusable handle and the fleet liveness verdict', asy
   const { client } = fakeOrca(JSON.stringify({ ok: true, result: shown }));
   assert.deepEqual(await client.showWorker('dispatch_1'), { handle: 'structworker_c1d5', liveness: 'exited' });
 });
-
-test('a chat worker is continued through the Orca session address its preamble names', async () => {
-  useTestSettings();
-  const chat = fakeOrca({
-    'worker-show': JSON.stringify({ ok: true, result: { dispatch: { assigneeHandle: 'structworker_c1d5' } } }),
-    'worker-read': JSON.stringify({
-      ok: true,
-      result: {
-        provider: 'codex',
-        transcript: {
-          messages: [
-            {
-              id: 'orca:1',
-              blocks: [
-                {
-                  type: 'text',
-                  text: 'Your task ID is: task_1\nYour Orca session ID is: orca_session_id:e025aa19-0478\n',
-                },
-              ],
-            },
-          ],
-        },
-      },
-    }),
-  });
-  assert.equal(await chat.client.conversationAddress('ctx_1'), 'orca_session_id:e025aa19-0478');
-  const terminal = fakeOrca(JSON.stringify({ ok: true, result: { dispatch: { assigneeHandle: 'term_abc' } } }));
-  assert.equal(await terminal.client.conversationAddress('ctx_2'), 'term_abc', 'a terminal worker keeps its handle');
-});

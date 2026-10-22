@@ -84,6 +84,8 @@ export interface TaskState {
   commands: UserCommand[];
   /** Commands the driver refused, with the reason, oldest first. */
   refusals: { kind: CommandKind; reason: string; at: string }[];
+  /** Orca refused to continue a worker conversation once; later stages start fresh workers. */
+  reuseUnsupported: boolean;
   /** Orca message ids already recorded, so a replayed delivery is not recorded twice. */
   messages: Set<string>;
   questions: Map<string, { key: string | null; subject: string; body: string; at: string; answered: boolean }>;
@@ -124,6 +126,7 @@ export function foldEvents(events: readonly StoredEvent[]): TaskState {
     applied: new Set(),
     commands: [],
     messages: new Set(),
+    reuseUnsupported: false,
     refusals: [],
     questions: new Map(),
     testsFirst: null,
@@ -189,13 +192,19 @@ const handlers: Handlers = {
     stage.attempts += 1;
     stage.dispatches.push({
       dispatchId: event.dispatchId,
-      requestedAt: state.requestTimes.get(`${event.key}:start:${stage.attempts}`) ?? event.at,
+      requestedAt:
+        state.requestTimes.get(`${event.key}:start:${stage.attempts}:fresh`) ??
+        state.requestTimes.get(`${event.key}:start:${stage.attempts}`) ??
+        event.at,
       startedAt: event.at,
       reusedHandle: event.reusedHandle,
       launch: event.launch,
       settled: null,
       exited: false,
     });
+  },
+  'stage.reuse_refused': state => {
+    state.reuseUnsupported = true;
   },
   'stage.start_failed': (state, event) => {
     const stage = requireStage(state, event.key);

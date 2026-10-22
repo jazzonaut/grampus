@@ -164,3 +164,37 @@ test('deleting a test fails the round even when the checks pass', async () => {
 function specTextWith(command: string): string {
   return `# Spec\n\n\`\`\`grampus\n${JSON.stringify({ checks: [{ name: 'trivial', command }] })}\n\`\`\`\n`;
 }
+
+test('when Orca refuses to continue a chat worker, repair starts a fresh worker and stops trying', async () => {
+  let builds = 0;
+  const harness = await createHarness(h =>
+    goodWorkers(h, {
+      build: async () => {
+        builds++;
+        const worktree = worktreeOf(h);
+        write(worktree, 'greet.js', "export function greet(name) {\n  return 'Hello ' + name;\n}\n");
+        await commitAll(worktree, 'Almost greet');
+        return { outcome: 'succeeded' };
+      },
+    }),
+  );
+  harness.orca.refuseReuse = true;
+  const driver = harness.run();
+  await harness.until(state => state.attention?.reason === 'approve-spec:1', 'spec approval');
+  harness.command({ kind: 'revise', feedback: 'Say which tests run.' });
+  await harness.until(state => state.attention?.reason === 'approve-spec:2', 'second approval');
+  harness.command({ kind: 'approve', specVersion: 2 });
+  const ready = await harness.until(state => state.attention?.reason === 'ready:1', 'ready after repair');
+
+  const refusals = harness.store.events().filter(event => event.type === 'stage.reuse_refused');
+  assert.equal(refusals.length, 1, 'the first refusal stops later reuse attempts');
+  const revision = harness.orca.starts.find(start => start.title.startsWith('Spec revision'));
+  assert.equal(revision?.request.assignment?.agent, 'claude', 'the revision fell back to a fresh spec writer');
+  const repair = harness.orca.starts.find(start => start.title.startsWith('Repair 1'));
+  assert.equal(repair?.request.terminal, undefined, 'repair did not try to reuse after the refusal');
+  assert.equal(repair?.request.assignment?.agent, 'codex');
+  assert.equal(ready.decisions.get(1)?.decision, 'ready');
+  assert.equal(builds, 1);
+  harness.command({ kind: 'accept' });
+  await driver;
+});

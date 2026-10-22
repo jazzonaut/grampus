@@ -19,6 +19,9 @@ import {
   type TaskState,
 } from './state.js';
 
+/** Orca's refusal to give a worker that cannot take another dispatch (a Chat UI worker) a new task. */
+const reuseRefused = 'terminal_unsupported_for_agent_session';
+
 /** The user abandoned the task. */
 export class TaskAbandoned extends Error {
   constructor(readonly reason: string | null) {
@@ -282,25 +285,20 @@ export class DriverCore {
   }
 
   private async start(record: StageRecord, request: StageRequest, retryOf: string | null): Promise<void> {
-    const requestId = this.requestId(`${record.key}:start:${record.attempts + 1}`);
+    const attempt = `${record.key}:start:${record.attempts + 1}`;
     const reuse = 'reuse' in request.launch ? await this.reusableHandle(request.launch.reuse) : null;
     const assignment = 'reuse' in request.launch ? request.launch.fallback : request.launch.assignment;
     let receipt: WorkerStartReceipt;
     try {
-      receipt = await this.mutate(() =>
-        this.orca.startWorker(
-          {
-            runId: this.runId(),
-            taskId: record.orcaTaskId,
-            worktree: 'current',
-            ...(reuse ? { terminal: reuse } : { assignment }),
-            ...(retryOf ? { retryOf } : {}),
-          },
-          requestId,
-        ),
-      );
+      receipt = await this.startWorker(record, reuse ? { terminal: reuse } : { assignment }, retryOf, attempt);
     } catch (error) {
       if (!(error instanceof OrcaError)) throw error;
+      if (reuse && error.code === reuseRefused) {
+        // Continuing a conversation is an optimisation: Orca applied nothing, so start a fresh worker.
+        this.record({ type: 'stage.reuse_refused', key: record.key, handle: reuse, error: error.message });
+        this.log(`${record.key}: Orca cannot continue that worker; starting a fresh one.`);
+        return this.start(record, { ...request, launch: { assignment } }, retryOf);
+      }
       this.record({
         type: 'stage.start_failed',
         key: record.key,
@@ -336,8 +334,23 @@ export class DriverCore {
     this.log(`${record.key} started (${reuse ? 'continuing a conversation' : assignment.agent}).`);
   }
 
+  private startWorker(
+    record: StageRecord,
+    target: { terminal: string } | { assignment: Assignment },
+    retryOf: string | null,
+    attempt: string,
+  ): Promise<WorkerStartReceipt> {
+    // A fresh start after a refused reuse is a different request from the refused one.
+    const requestId = this.requestId('terminal' in target ? attempt : `${attempt}:fresh`);
+    const request = { runId: this.runId(), taskId: record.orcaTaskId, worktree: 'current', ...target };
+    return this.mutate(() => this.orca.startWorker({ ...request, ...(retryOf ? { retryOf } : {}) }, requestId));
+  }
+
+  /** The handle that continues a settled worker's conversation, unless Orca has refused reuse in this task. */
   private async reusableHandle(previous: DispatchRecord): Promise<string | null> {
-    return this.orca.conversationAddress(previous.dispatchId).catch(() => null);
+    if (this.state.reuseUnsupported) return null;
+    const view = await this.orca.showWorker(previous.dispatchId).catch(() => null);
+    return view?.handle ?? null;
   }
 
   /** Run an Orca mutation. An uncertain result stops the driver; rerunning it replays the same request id. */

@@ -61,6 +61,8 @@ export type TaskEvent =
       reusedHandle: string | null;
       launch: LaunchRecord | null;
     }
+  /** Orca refused to continue a worker's conversation (workers in Chat UI mode cannot take a second dispatch). */
+  | { type: 'stage.reuse_refused'; key: string; handle: string; error: string }
   | { type: 'stage.start_failed'; key: string; dispatchId: string | null; state: string; error: string }
   | {
       type: 'stage.settled';

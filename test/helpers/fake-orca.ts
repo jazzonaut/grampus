@@ -55,6 +55,8 @@ export class FakeOrca implements Orca, OrcaWorkspaces {
   failNextStarts = 0;
   /** Make the next inbox check fail unexpectedly, as if the driver process died. */
   failNextCheck = false;
+  /** Refuse `--terminal` reuse, as Orca does for workers started in Chat UI mode. */
+  refuseReuse = false;
   liveness = new Map<string, string>();
   private readonly results = new Map<string, unknown>();
   private readonly tasks = new Map<string, { title: string; spec: string }>();
@@ -98,6 +100,11 @@ export class FakeOrca implements Orca, OrcaWorkspaces {
   }
 
   async startWorker(request: WorkerStartRequest, requestId: string): Promise<WorkerStartReceipt> {
+    if (this.refuseReuse && request.terminal)
+      throw new OrcaError(
+        'terminal_unsupported_for_agent_session',
+        `${request.terminal} is an agent session, not a terminal`,
+      );
     const receipt = this.once('worker-start', requestId, () => {
       const task = this.tasks.get(request.taskId);
       if (!task) throw new OrcaError('task_not_found', `No task ${request.taskId}`);
@@ -137,10 +144,6 @@ export class FakeOrca implements Orca, OrcaWorkspaces {
 
   async showWorker(dispatchId: string): Promise<WorkerView> {
     return { handle: `term_${dispatchId}`, liveness: this.liveness.get(dispatchId) ?? 'live' };
-  }
-
-  async conversationAddress(dispatchId: string) {
-    return `term_${dispatchId}`;
   }
 
   async retainWorker(dispatchId: string) {

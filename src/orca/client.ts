@@ -86,11 +86,6 @@ export interface Orca {
   check(runId: string, options: { waitMs: number; ack?: string }): Promise<Delivery>;
   reply(messageId: string, body: string, requestId: string): Promise<void>;
   showWorker(dispatchId: string): Promise<WorkerView>;
-  /**
-   * The address that continues a settled worker's conversation with `worker-start --terminal`: a terminal
-   * worker's handle, or a chat worker's Orca session (`orca_session_id:...`). Null when Orca names none.
-   */
-  conversationAddress(dispatchId: string): Promise<string | null>;
   retainWorker(dispatchId: string): Promise<void>;
   releaseWorker(dispatchId: string): Promise<void>;
   stopWorker(dispatchId: string): Promise<void>;
@@ -184,15 +179,6 @@ export class OrcaCli implements Orca, OrcaWorkspaces {
     };
   }
 
-  async conversationAddress(dispatchId: string) {
-    // Orca refuses a chat's worker handle for --terminal; a chat is addressed by the Orca session its
-    // preamble names ("Your Orca session ID is: orca_session_id:..."). Terminal workers keep their handle.
-    const args = ['orchestration', 'worker-read', '--dispatch', dispatchId, '--source', 'transcript'];
-    const read = await this.call([...args, '--limit', String(preambleMessages)]).catch(() => null);
-    const session = /Your Orca session ID is: (orca_session_id:[\w-]+)/.exec(JSON.stringify(read ?? ''))?.[1];
-    return session ?? (await this.showWorker(dispatchId)).handle;
-  }
-
   async retainWorker(dispatchId: string) {
     await this.call(['orchestration', 'worker-retain', '--dispatch', dispatchId]);
   }
@@ -254,9 +240,6 @@ export class OrcaCli implements Orca, OrcaWorkspaces {
     throw new OrcaUncertainError(`${name} printed an unrecognised envelope.`);
   }
 }
-
-/** Messages read to find a chat worker's preamble, which is its first message. */
-const preambleMessages = 3;
 
 /** Messages read to find a dispatch's provider sessions; the first page always contains provider messages. */
 const transcriptPageMessages = 50;
