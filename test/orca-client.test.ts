@@ -108,6 +108,23 @@ test('an Orca error envelope is a refusal and missing JSON is uncertain', async 
   await assert.rejects(garbled.client.createRun('objective', 'req-4'), OrcaUncertainError);
 });
 
+test('a terminal title is the one it was created with, and a closed terminal has none', async () => {
+  useTestSettings();
+  const shown = fakeOrca(
+    JSON.stringify({
+      ok: true,
+      result: { terminal: { handle: 'term_1', title: 'C:\\pwsh.exe', paneTitle: 'Grampus: Greet' } },
+    }),
+  );
+  assert.equal(await shown.client.terminalTitle('term_1'), 'Grampus: Greet', 'the shell renamed the tab, not the pane');
+  assert.deepEqual(shown.calls()[0]?.slice(0, 4), ['terminal', 'show', '--terminal', 'term_1']);
+  const gone = fakeOrca(
+    JSON.stringify({ ok: false, error: { code: 'terminal_handle_stale', message: 'terminal_handle_stale' } }),
+    1,
+  );
+  assert.equal(await gone.client.terminalTitle('term_1'), null);
+});
+
 test('a busy Orca is a call to repeat, not a refusal', async () => {
   useTestSettings();
   const busy = fakeOrca(

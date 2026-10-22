@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { parseClaudeHelp, parseCodexCatalog } from '../src/agents/catalog.js';
+import { ComparisonStore } from '../src/compare/comparison.js';
 import { currentSettings } from '../src/config/settings.js';
 import { serveDashboard, type RunningDashboard } from '../src/dashboard/server.js';
 import { standardRecipe } from '../src/domain/recipe.js';
@@ -122,6 +123,68 @@ test('open in Orca brings the driver terminal or the changed files forward', asy
   assert.equal((await send(base, 'POST', '/api/tasks/task-1/open', { target: 'changes' })).status, 200);
   assert.deepEqual(orca.opened, ['terminal:term_1', `changes:${join(home, 'wt')}`]);
   assert.equal((await send(base, 'POST', '/api/tasks/missing/open', { target: 'terminal' })).status, 404);
+});
+
+test('a stopped driver is resumed in a new terminal, and its dead tab is closed', async () => {
+  const { home, base, orca } = await start();
+  const store = taskIn(home, 'C:/code/alpha');
+  orca.titles.set('term_1', 'Grampus: T');
+  assert.equal((await send(base, 'POST', '/api/tasks/task-1/resume', {})).status, 409, 'a new task gets time to start');
+
+  store.append({ type: 'driver.stopped', reason: 'Orca stayed busy.' });
+  orca.nextTerminals = ['term_2'];
+  const response = await send(base, 'POST', '/api/tasks/task-1/resume', {});
+  assert.equal(response.status, 202, await response.clone().text());
+  assert.deepEqual(orca.terminals, ['grampus-test drive task-1']);
+  assert.deepEqual(orca.terminalPlaces, ['id:wt1'], 'in the task worktree');
+  assert.deepEqual(orca.closed, ['term_1']);
+  const again = await send(base, 'POST', '/api/tasks/task-1/resume', {});
+  assert.equal(again.status, 409, 'a second click does not start a second driver');
+  assert.match(await again.text(), /already resuming/);
+
+  // The resumed driver records its tab, which is the one shown and closed from then on.
+  store.append({ type: 'driver.started', pid: 1, orcaVersion: null, terminal: 'term_2' });
+  assert.equal((await send(base, 'POST', '/api/tasks/task-1/open', { target: 'terminal' })).status, 200);
+  assert.deepEqual(orca.opened, ['terminal:term_2']);
+});
+
+test('resuming never closes a terminal Grampus did not open', async () => {
+  const { home, base, orca } = await start();
+  const store = taskIn(home, 'C:/code/alpha');
+  // Someone ran grampus drive in their own terminal; that driver stopped.
+  orca.titles.set('term_mine', 'pwsh');
+  store.append({ type: 'driver.started', pid: 1, orcaVersion: null, terminal: 'term_mine' });
+  store.append({ type: 'driver.stopped', reason: 'Orca stayed busy.' });
+  assert.equal((await send(base, 'POST', '/api/tasks/task-1/resume', {})).status, 202);
+  assert.deepEqual(orca.closed, []);
+
+  store.append({ type: 'task.finished', outcome: 'abandoned', sha: null, override: false, reason: null });
+  assert.equal((await send(base, 'POST', '/api/tasks/task-1/resume', {})).status, 409, 'a finished task has no driver');
+});
+
+test('a stopped comparison driver is resumed in the main checkout', async () => {
+  const { home, base, orca } = await start();
+  const store = ComparisonStore.create(home, 'cmp-greet-1');
+  store.append({
+    type: 'comparison.created',
+    comparisonId: 'cmp-greet-1',
+    title: 'Greet',
+    request: 'Greet by name',
+    repoPath: 'C:/code/alpha',
+    mode: 'full',
+    recipes: [standardRecipe, { ...standardRecipe, name: 'alt' }],
+    concurrency: 2,
+  });
+  store.append({ type: 'comparison.terminal', terminal: 'term_cmp' });
+  orca.titles.set('term_cmp', 'Grampus comparison: Greet');
+  store.append({ type: 'driver.stopped', reason: 'Unexpected error.' });
+  orca.nextTerminals = ['term_cmp_2'];
+  const response = await send(base, 'POST', '/api/comparisons/cmp-greet-1/resume', {});
+  assert.equal(response.status, 202, await response.clone().text());
+  assert.deepEqual(orca.terminals, ['grampus-test drive-comparison cmp-greet-1']);
+  assert.deepEqual(orca.terminalPlaces, ['path:C:/code/alpha']);
+  assert.deepEqual(orca.closed, ['term_cmp']);
+  assert.equal((await send(base, 'POST', '/api/comparisons/missing/resume', {})).status, 404);
 });
 
 test('merge refuses a task that was not accepted', async () => {

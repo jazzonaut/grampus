@@ -14,6 +14,7 @@ import type {
 import { getJson, sendJson } from '../api/client';
 import CrossCheckMatrix from '../components/CrossCheckMatrix.vue';
 import StatusIcon from '../components/StatusIcon.vue';
+import StoppedDriverAlert from '../components/StoppedDriverAlert.vue';
 import TextPrompt from '../components/TextPrompt.vue';
 import { useLive } from '../composables/useLive';
 import { comparisonStatusLook, count, duration, money, shortSha, statusLook } from '../presentation';
@@ -199,13 +200,12 @@ const charts = computed(() => [
           >
         </div>
 
-        <UAlert
+        <StoppedDriverAlert
           v-if="detail.lastStop"
-          color="error"
-          variant="subtle"
-          icon="i-lucide-octagon-pause"
           title="The comparison driver stopped"
-          :description="`${detail.lastStop.reason.split('\n')[0]} Run grampus drive-comparison ${detail.comparisonId} in its Orca terminal to resume.`"
+          :reason="detail.lastStop.reason.split('\n')[0] ?? ''"
+          :resume-path="`/api/comparisons/${encodeURIComponent(detail.comparisonId)}/resume`"
+          :command="`grampus drive-comparison ${detail.comparisonId}`"
         />
         <UAlert
           v-if="detail.refused"

@@ -50,7 +50,8 @@ export type ComparisonEvent =
       concurrency: number;
     }
   | { type: 'comparison.terminal'; terminal: string }
-  | { type: 'driver.started'; pid: number }
+  /** `terminal` is the Orca terminal the driver runs in, when it runs in one. */
+  | { type: 'driver.started'; pid: number; terminal?: string | null }
   | { type: 'driver.stopped'; reason: string }
   /** The commit every entry starts from: the first entry's base. */
   | { type: 'base.fixed'; sha: string }
@@ -226,6 +227,8 @@ export function applyComparisonEvent(state: ComparisonState, event: StoredCompar
       return;
     case 'driver.started':
       state.lastStop = null;
+      // A driver resumed in a new tab runs there from now on.
+      if (event.terminal) state.terminal = event.terminal;
       return;
     case 'driver.stopped':
       state.lastStop = { reason: event.reason, at: event.at };

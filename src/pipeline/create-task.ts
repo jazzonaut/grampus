@@ -75,7 +75,7 @@ export async function createTask(
   try {
     terminal = await workspaces.createTerminal({
       worktree: { id: worktree.id },
-      title: `Grampus: ${title}`,
+      title: driverTabTitle(title),
       command: input.driveCommand(taskId),
     });
   } catch (error) {
@@ -94,6 +94,14 @@ export async function createTask(
   });
   if (comparison?.spec) inheritSpec(store, comparison.spec);
   return { taskId, repository: repoRoot, worktree: worktree.path, terminal };
+}
+
+/**
+ * The title of the Orca tab Grampus opens for a task's driver. Orca keeps it as the pane title, which is
+ * how the dashboard recognises a tab as Grampus's own before closing it.
+ */
+export function driverTabTitle(title: string): string {
+  return `Grampus: ${title}`;
 }
 
 /** Copy the shared spec into this entry's task folder and record it, before the driver starts. */

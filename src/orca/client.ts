@@ -20,6 +20,7 @@ import {
   taskCreateSchema,
   terminalCreateSchema,
   terminalListSchema,
+  terminalShowSchema,
   workerReadSchema,
   workerShowSchema,
   workerStartSchema,
@@ -121,6 +122,8 @@ export interface OrcaWorkspaces {
   }): Promise<string>;
   /** Handles of the live terminals in a worktree. */
   listTerminals(worktreeId: string): Promise<string[]>;
+  /** The title a live terminal was created with, or null when the terminal is gone. */
+  terminalTitle(handle: string): Promise<string | null>;
   closeTerminal(handle: string): Promise<void>;
 }
 
@@ -249,6 +252,17 @@ export class OrcaCli implements Orca, OrcaWorkspaces, OrcaDesk {
   async listTerminals(worktreeId: string) {
     const listed = await this.parse(terminalListSchema, ['terminal', 'list', '--worktree', `id:${worktreeId}`]);
     return listed.terminals.map(terminal => terminal.handle);
+  }
+
+  async terminalTitle(handle: string) {
+    try {
+      const { terminal } = await this.parse(terminalShowSchema, ['terminal', 'show', '--terminal', handle]);
+      // A shell overwrites the tab title with its own; the pane keeps the title the terminal was created with.
+      return terminal.paneTitle ?? terminal.title ?? null;
+    } catch (error) {
+      if (error instanceof OrcaError && error.code === 'terminal_handle_stale') return null;
+      throw error;
+    }
   }
 
   async closeTerminal(handle: string) {

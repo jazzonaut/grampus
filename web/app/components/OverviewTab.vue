@@ -6,12 +6,13 @@
 <script setup lang="ts">
 import type { TaskDetail } from '../../../src/dashboard/types';
 import { computed } from 'vue';
-import { duration, statusLook, stepStateLook, when, type Look } from '../presentation';
+import { duration, stepStateLook, when, type Look } from '../presentation';
 import ChangesCard from './ChangesCard.vue';
 import DecisionActions from './DecisionActions.vue';
 import DecisionPanel from './DecisionPanel.vue';
 import MarkdownView from './MarkdownView.vue';
 import StatusIcon from './StatusIcon.vue';
+import StoppedDriverAlert from './StoppedDriverAlert.vue';
 
 const props = defineProps<{ task: TaskDetail }>();
 const emit = defineEmits<{ show: [tab: string] }>();
@@ -47,13 +48,12 @@ const commandState = {
 
 <template>
   <div class="@container space-y-4">
-    <UAlert
+    <StoppedDriverAlert
       v-if="task.lastStop"
-      color="error"
-      variant="subtle"
-      :icon="statusLook.stopped.icon"
       title="The driver stopped"
-      :description="`${task.lastStop.reason} Run grampus drive ${task.taskId} in its Orca terminal to resume; it continues where it stopped.`"
+      :reason="task.lastStop.reason"
+      :resume-path="`/api/tasks/${encodeURIComponent(task.taskId)}/resume`"
+      :command="`grampus drive ${task.taskId}`"
     />
     <UAlert
       v-if="task.summary.refused"

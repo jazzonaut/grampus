@@ -168,9 +168,19 @@ prints the addresses it answers on.
   with guard, checks, review and simplify pass, queued commands and a plain-language timeline.
 - **Writes** queue commands with source `dashboard`, exactly like the CLI; the driver stays the only
   writer to its Run and log. The few actions the CLI takes outside a driver are offered too: starting
-  a task (`grampus new`, with Orca's repositories and recent ones to pick from), `grampus merge`, and
+  a task (`grampus new`, with Orca's repositories and recent ones to pick from), `grampus merge`,
   bringing the driver terminal or the changed files forward in Orca (`terminal switch`,
-  `file open-changed`), which acts on the Orca window of the machine running Grampus.
+  `file open-changed`), which acts on the Orca window of the machine running Grampus, and resuming a
+  stopped driver.
+- **Resume** (`POST /api/tasks/<id>/resume`, `/api/comparisons/<id>/resume`) does what rerunning
+  `grampus drive` does: it opens a new Orca tab where the driver ran (the task worktree, or the
+  repository's main checkout for a comparison) running `drive` or `drive-comparison`. It is refused
+  unless the driver stopped or went missing and the task is unfinished, and again for `driverStaleMs`
+  after a resume, so a second click does not open a second tab before the new driver records its start;
+  the driver lock refuses a second driver anyway. The old tab is closed only if its pane still carries
+  the title Grampus gave it (`terminal show` reports `paneTitle`; the shell overwrites the tab title),
+  so a driver someone ran in their own terminal leaves that terminal open. A driver records its
+  terminal in `driver.started`, and the fold takes it as the driver terminal from then on.
 - **Recipes** can be created, copied, edited and deleted. They are written to `config.json` (other
   settings kept), validated with the same rules as at startup, and replaced in one rename. The model
   and effort lists come from `codex debug models` (a JSON catalog) and from `claude --help` (aliases
@@ -241,7 +251,8 @@ prints the addresses it answers on.
 - A driver that ends without recording why (killed, its tab closed, the machine restarted) is shown as
   stopped by `status`, `wait` and the dashboard once its heartbeat is `driverStaleMs` old, or, without
   a lock, `driverStaleMs` after the task was created. The time it is reported from does not move, so
-  `wait --after` reports it once. Nothing restarts drivers automatically.
+  `wait --after` reports it once. Nothing restarts drivers automatically; the dashboard's Resume
+  driver button or `grampus drive` does.
 - Log and command files are JSON Lines appended one record per write. A crash can tear only the line
   being written; it never parses, so readers skip it and the next append starts a fresh line.
 

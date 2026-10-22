@@ -260,7 +260,7 @@ export async function driveComparison(options: ComparisonDriverOptions & { orca:
     const driver = new ComparisonDriver(options);
     driver.store.fenceWith(() => lock.assertHeld());
     if (driver.state.finished) return 0;
-    driver.record({ type: 'driver.started', pid: process.pid });
+    driver.record({ type: 'driver.started', pid: process.pid, terminal: process.env.ORCA_TERMINAL_HANDLE ?? null });
     options.log(`Driving comparison ${driver.state.comparisonId}: ${driver.state.title}`);
     try {
       while (!(await driver.step())) await sleep(currentSettings().waitPollMs);

@@ -93,6 +93,11 @@ export const terminalCreateSchema = z.object({ terminal: z.object({ handle: z.st
 
 export const terminalListSchema = z.object({ terminals: z.array(z.object({ handle: z.string() })) });
 
+/** `terminal show`: `title` is the tab's current title, which a shell overwrites; `paneTitle` keeps the one it was created with. */
+export const terminalShowSchema = z.object({
+  terminal: z.object({ handle: z.string(), title: z.string().optional(), paneTitle: z.string().optional() }),
+});
+
 /** `repo list`: the repositories registered in Orca. */
 export const repoListSchema = z.object({
   repos: z.array(z.object({ id: z.string(), path: z.string(), displayName: z.string().optional() })),

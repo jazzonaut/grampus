@@ -219,10 +219,21 @@ export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk {
     this.closed.push(handle);
   }
 
-  async createTerminal(input: { worktree: { id: string } | { path: string }; command: string }) {
+  /** Handles for the next terminals created, in order; `term_driver` once these run out. */
+  nextTerminals: string[] = [];
+  /** Titles of live terminals by handle, for the ones a test or Grampus opened. */
+  readonly titles = new Map<string, string>();
+
+  async createTerminal(input: { worktree: { id: string } | { path: string }; title: string; command: string }) {
     this.terminals.push(input.command);
     this.terminalPlaces.push('id' in input.worktree ? `id:${input.worktree.id}` : `path:${input.worktree.path}`);
-    return 'term_driver';
+    const handle = this.nextTerminals.shift() ?? 'term_driver';
+    this.titles.set(handle, input.title);
+    return handle;
+  }
+
+  async terminalTitle(handle: string) {
+    return this.closed.includes(handle) ? null : (this.titles.get(handle) ?? null);
   }
 
   /** Repositories Orca knows, for the dashboard's new-task form. */

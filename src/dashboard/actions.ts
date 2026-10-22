@@ -1,17 +1,19 @@
 // Dashboard actions outside a task's command queue: starting a task, merging an accepted one, bringing
-// Orca tabs forward, and editing recipes. Each does exactly what the matching CLI command does.
+// Orca tabs forward, resuming a stopped driver, and editing recipes. Each does exactly what the matching
+// CLI command does.
 import { basename } from 'node:path';
 import { z } from 'zod';
 import { agentCatalogs, type AgentCatalog } from '../agents/catalog.js';
 import { listComparisonIds } from '../compare/comparison.js';
-import { startComparison } from '../compare/create.js';
+import { comparisonTabTitle, startComparison } from '../compare/create.js';
 import { queueComparisonCommand } from '../control.js';
 import { inputLimits, recipeLimits } from '../config/limits.js';
 import { availableRecipes, currentSettings, saveRecipes, useSettings } from '../config/settings.js';
 import { mergeAccepted } from '../delivery/merge.js';
 import { recipeSchema, standardRecipe, type Recipe } from '../domain/recipe.js';
 import { OrcaError, OrcaUncertainError } from '../orca/client.js';
-import { createTask } from '../pipeline/create-task.js';
+import { createTask, driverTabTitle } from '../pipeline/create-task.js';
+import { loadComparison } from './comparisons.js';
 import { HttpError, readJson, sendJson } from './http.js';
 import type { Call, DashboardApp } from './api.js';
 
@@ -72,6 +74,89 @@ export async function openInOrca({ app, request, response, params }: Call): Prom
     throw new HttpError(409, `${reason} ${(error as Error).message}`.trim());
   }
   sendJson(response, 200, { opened: target });
+}
+
+/**
+ * Resumes asked for lately, by data directory and target, so a second click before the new driver has
+ * recorded its start does not open a second tab whose driver the lock would refuse.
+ */
+const resuming = new Map<string, number>();
+
+interface Resumable {
+  /** `task:<id>` or `comparison:<id>`. */
+  key: string;
+  /** The driver stopped, or went missing, and the task or comparison is not finished. */
+  stopped: boolean;
+  place: { id: string } | { path: string };
+  /** The tab title Grampus gives this driver. */
+  tabTitle: string;
+  command: string;
+  /** The terminal the last driver ran in. */
+  previous: string | null;
+}
+
+/**
+ * Start a stopped driver again in a new Orca tab, as rerunning `grampus drive` by hand would; it continues
+ * where it stopped. The old tab is closed only when Orca says Grampus opened it (its pane still carries
+ * the title Grampus gave it): a driver run by hand in someone's own terminal leaves that terminal alone.
+ */
+async function resume(app: DashboardApp, target: Resumable): Promise<string> {
+  if (!target.stopped) throw new HttpError(409, 'The driver is running, starting or finished: nothing to resume.');
+  const key = `${app.dataDir}|${target.key}`;
+  const since = resuming.get(key);
+  if (since !== undefined && Date.now() - since < currentSettings().driverStaleMs)
+    throw new HttpError(409, 'The driver is already resuming; give it a moment to start.');
+  resuming.set(key, Date.now());
+  let terminal: string;
+  try {
+    terminal = await app.orca.createTerminal({
+      worktree: target.place,
+      title: target.tabTitle,
+      command: target.command,
+    });
+  } catch (error) {
+    resuming.delete(key);
+    throw new HttpError(502, (error as Error).message);
+  }
+  const previous = target.previous;
+  if (previous && previous !== terminal) {
+    const title = await app.orca.terminalTitle(previous).catch(() => null);
+    if (title === target.tabTitle) await app.orca.closeTerminal(previous).catch(() => undefined);
+  }
+  return terminal;
+}
+
+/** Resume a task's stopped driver in a new tab in its worktree. */
+export async function resumeTask({ app, response, params }: Call): Promise<void> {
+  const { state } = app.reader.load(params[0] ?? '');
+  const workspace = state.workspace;
+  if (!workspace) throw new HttpError(409, 'The task has no worktree yet.');
+  const terminal = await resume(app, {
+    key: `task:${state.taskId}`,
+    stopped: !state.finished && state.lastStop !== null,
+    place: { id: workspace.worktreeId },
+    tabTitle: driverTabTitle(state.title),
+    command: `${app.selfCommand} drive ${state.taskId}`,
+    previous: workspace.driverTerminal,
+  });
+  sendJson(response, 202, { terminal });
+}
+
+/** Resume a comparison's stopped driver in a new tab in the repository's main checkout. */
+export async function resumeComparison({ app, response, params }: Call): Promise<void> {
+  const comparisonId = params[0] ?? '';
+  if (!listComparisonIds(app.dataDir).includes(comparisonId))
+    throw new HttpError(404, `Comparison ${comparisonId} was not found.`);
+  const { state } = loadComparison(app.dataDir, comparisonId);
+  const terminal = await resume(app, {
+    key: `comparison:${comparisonId}`,
+    stopped: !state.finished && state.lastStop !== null,
+    place: { path: state.repoPath },
+    tabTitle: comparisonTabTitle(state.title),
+    command: `${app.selfCommand} drive-comparison ${comparisonId}`,
+    previous: state.terminal,
+  });
+  sendJson(response, 202, { terminal });
 }
 
 /** Repositories for the new-task form: ones used by earlier tasks first, then the rest Orca knows. */

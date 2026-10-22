@@ -116,7 +116,8 @@ shows `Refused`, the decision no longer applies (for example, a newer spec versi
 uncertain through its repeats, or that the driver went missing without recording why (its process
 ended, its tab was closed or the machine restarted). Tell the user the reason. They resume it by
 running `{{grampus}} drive <task>` in the task's Grampus terminal tab in Orca (a new tab in the task's
-worktree also works); resuming replays the uncertain call safely and never starts a duplicate worker.
+worktree also works), or with Resume driver on the task's page in the dashboard; resuming replays the
+uncertain call safely and never starts a duplicate worker.
 
 A `stage-quiet:` request means a worker has not reported, asked or been answered for a long time and
 may be stuck, for example on a prompt in its Orca terminal. It keeps running while the user decides:

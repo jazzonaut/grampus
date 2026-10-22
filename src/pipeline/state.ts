@@ -79,6 +79,7 @@ export interface TaskState {
   repoPath: string;
   recipe: Recipe;
   createdAt: string;
+  /** `driverTerminal` is the Orca terminal of the latest driver: the one `grampus new` opened, until a driver starts elsewhere. */
   workspace: { worktreeId: string; path: string; baseSha: string; driverTerminal: string } | null;
   runId: string | null;
   requests: Map<string, string>;
@@ -184,8 +185,10 @@ const handlers: Handlers = {
       driverTerminal: event.driverTerminal,
     };
   },
-  'driver.started': state => {
+  'driver.started': (state, event) => {
     state.lastStop = null;
+    // A driver resumed in a new tab runs there from now on.
+    if (state.workspace && event.terminal) state.workspace.driverTerminal = event.terminal;
   },
   'driver.stopped': (state, event) => {
     state.lastStop = { reason: event.reason, at: event.at };

@@ -18,6 +18,11 @@ export interface NewComparison {
   driveCommand: (comparisonId: string) => string;
 }
 
+/** The title of the Orca tab Grampus opens for a comparison's driver; see `driverTabTitle`. */
+export function comparisonTabTitle(title: string): string {
+  return `Grampus comparison: ${title}`;
+}
+
 export async function startComparison(
   input: NewComparison,
   workspaces: OrcaWorkspaces,
@@ -49,7 +54,7 @@ export async function startComparison(
   });
   const terminal = await workspaces.createTerminal({
     worktree: { path: repository },
-    title: `Grampus comparison: ${title}`,
+    title: comparisonTabTitle(title),
     command: input.driveCommand(comparisonId),
   });
   store.append({ type: 'comparison.terminal', terminal });
