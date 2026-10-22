@@ -135,6 +135,8 @@ export interface CommandView {
   source: UserCommand['source'];
   /** Feedback, guidance, answer or reason, when the command carries one. */
   text: string | null;
+  /** The worker question a reply answers. */
+  messageId: string | null;
   state: 'queued' | 'applied' | 'refused';
   reason: string | null;
 }

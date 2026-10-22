@@ -21,6 +21,8 @@ command, or `%LOCALAPPDATA%\Grampus\orca` on Windows.
 | `codexSessionRoots` | `["<CODEX_HOME or ~/.codex>/sessions"]` | Where Codex rollouts are searched for measurement |
 | `dashboardPort` | `4545` | Port of `grampus dashboard` when `--port` is not given |
 | `dashboardHost` | `null` | Address the dashboard listens on; null is every interface (reachable from your network), `"127.0.0.1"` keeps it on this machine |
+| `claudeCommand` | `["claude"]` | The Claude Code CLI, asked for its model aliases and effort levels by the recipe editor |
+| `codexCommand` | `["codex"]` | The Codex CLI, asked for its model catalog by the recipe editor |
 | `dashboardAllowedHosts` | `[]` | Extra host names the dashboard answers to, such as a VPN name; localhost, this machine's name and its addresses are always allowed |
 
 ## Recipes

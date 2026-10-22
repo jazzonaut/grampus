@@ -8,6 +8,7 @@ import {
   OrcaUncertainError,
   type Delivery,
   type Orca,
+  type OrcaDesk,
   type OrcaWorkspaces,
   type WorkerStartRequest,
   type WorkerView,
@@ -41,7 +42,7 @@ export interface StartCall {
   spec: string;
 }
 
-export class FakeOrca implements Orca, OrcaWorkspaces {
+export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk {
   readonly starts: StartCall[] = [];
   readonly released: string[] = [];
   readonly stopped: string[] = [];
@@ -189,6 +190,23 @@ export class FakeOrca implements Orca, OrcaWorkspaces {
   async createTerminal(input: { command: string }) {
     this.terminals.push(input.command);
     return 'term_driver';
+  }
+
+  /** Repositories Orca knows, for the dashboard's new-task form. */
+  repos: { id: string; path: string; name: string }[] = [];
+  /** Tabs the dashboard brought forward: `terminal:<handle>` or `changes:<path>`. */
+  readonly opened: string[] = [];
+
+  async listRepos() {
+    return this.repos;
+  }
+
+  async switchTerminal(handle: string) {
+    this.opened.push(`terminal:${handle}`);
+  }
+
+  async openChangedFiles(worktreePath: string) {
+    this.opened.push(`changes:${worktreePath}`);
   }
 
   /** Messages delivered so far that the driver has not acknowledged. */

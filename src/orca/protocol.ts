@@ -93,6 +93,11 @@ export const terminalCreateSchema = z.object({ terminal: z.object({ handle: z.st
 
 export const terminalListSchema = z.object({ terminals: z.array(z.object({ handle: z.string() })) });
 
+/** `repo list`: the repositories registered in Orca. */
+export const repoListSchema = z.object({
+  repos: z.array(z.object({ id: z.string(), path: z.string(), displayName: z.string().optional() })),
+});
+
 export const statusSchema = z.object({
   runtime: z.object({ appVersion: z.string().optional(), reachable: z.boolean().optional() }).optional(),
 });

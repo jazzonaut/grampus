@@ -52,7 +52,8 @@ grampus dashboard
 
 Open the printed address (`http://localhost:4545/`, or this machine's network address from a phone). The
 dashboard shows every task's pipeline, spec, checks, reviews, worker questions, timeline and scorecard,
-and updates live. It has no login: anyone who can reach the port can control your tasks, so only run it
+and updates live. You can start tasks, approve, answer questions, accept, merge and edit recipes there
+too. It has no login: anyone who can reach the port can control your tasks, so only run it
 on networks you trust, or set `dashboardHost` to `127.0.0.1` (see [Configuration](docs/CONFIGURATION.md)).
 
 ## Use it from the terminal

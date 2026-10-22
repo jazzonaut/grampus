@@ -4,7 +4,7 @@
 //
 // Each entry point installs its settings once (`useSettings`). Library code reads `currentSettings()`,
 // which falls back to the built-in defaults, so tests are unaffected by a developer's own config.json.
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -48,6 +48,10 @@ export interface Settings {
    * as a VPN name. Requests for any other host are refused, which stops DNS rebinding.
    */
   dashboardAllowedHosts: readonly string[];
+  /** The Claude Code CLI, asked for its model aliases and effort levels by the recipe editor. */
+  claudeCommand: readonly string[];
+  /** The Codex CLI, asked for its model catalog by the recipe editor. */
+  codexCommand: readonly string[];
 }
 
 /** Built-in defaults. */
@@ -69,6 +73,8 @@ export function defaultSettings(): Settings {
     dashboardPort: 4545,
     dashboardHost: null,
     dashboardAllowedHosts: [],
+    claudeCommand: ['claude'],
+    codexCommand: ['codex'],
   };
 }
 
@@ -93,6 +99,8 @@ const fileSchema = z
     dashboardPort: z.number().int().min(0).max(maxPort),
     dashboardHost: z.string().min(1).nullable(),
     dashboardAllowedHosts: z.array(z.string().min(1)),
+    claudeCommand: z.array(z.string().min(1)).min(1),
+    codexCommand: z.array(z.string().min(1)).min(1),
   })
   .strict()
   .partial();
@@ -100,15 +108,39 @@ const fileSchema = z
 /** Defaults overridden by `<dataDir>/config.json` when it exists. Invalid files are refused, not ignored. */
 export function loadSettings(dataDir: string): Settings {
   const path = join(dataDir, 'config.json');
-  const defaults = defaultSettings();
-  if (!existsSync(path)) return defaults;
-  const parsed = fileSchema.safeParse(JSON.parse(readFileSync(path, 'utf8')));
+  if (!existsSync(path)) return defaultSettings();
+  return { ...defaultSettings(), ...validated(JSON.parse(readFileSync(path, 'utf8')), path) };
+}
+
+/** The overrides a config file sets, after the same checks `loadSettings` applies. */
+function validated(raw: unknown, path: string): Partial<Settings> {
+  const parsed = fileSchema.safeParse(raw);
   if (!parsed.success) throw new Error(`Invalid settings in ${path}: ${parsed.error.message}`);
   const names = [standardRecipe.name, ...(parsed.data.recipes ?? []).map(recipe => recipe.name)];
   if (new Set(names).size !== names.length)
     throw new Error(`Recipe names in ${path} must be unique and not "standard".`);
-  const overrides = Object.fromEntries(Object.entries(parsed.data).filter(([, value]) => value !== undefined));
-  return { ...defaults, ...overrides };
+  return Object.fromEntries(Object.entries(parsed.data).filter(([, value]) => value !== undefined));
+}
+
+/**
+ * Replace the saved recipes in `config.json`, keeping every other setting as written. The file is
+ * validated before it is replaced, and replaced in one rename, so a refused edit leaves it untouched.
+ * Running tasks are unaffected: each copied its recipe when it was created.
+ */
+export function saveRecipes(dataDir: string, recipes: readonly Recipe[]): Settings {
+  const path = join(dataDir, 'config.json');
+  const current: unknown = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : {};
+  const base = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
+  const next = { ...base, recipes };
+  validated(next, path);
+  const temporary = `${path}.${process.pid}.tmp`;
+  writeFileSync(
+    temporary,
+    `${JSON.stringify(next, null, 2)}
+`,
+  );
+  renameSync(temporary, path);
+  return loadSettings(dataDir);
 }
 
 let installed: Settings | null = null;

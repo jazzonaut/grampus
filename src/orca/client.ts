@@ -14,6 +14,7 @@ import {
   errorEnvelopeSchema,
   gateCreateSchema,
   okEnvelopeSchema,
+  repoListSchema,
   runCreateSchema,
   statusSchema,
   taskCreateSchema,
@@ -105,8 +106,17 @@ export interface OrcaWorkspaces {
   closeTerminal(handle: string): Promise<void>;
 }
 
+/** Calls the dashboard makes for the user: listing repositories and bringing Orca tabs forward. */
+export interface OrcaDesk {
+  listRepos(): Promise<{ id: string; path: string; name: string }[]>;
+  /** Bring a terminal tab to the front in the Orca window. */
+  switchTerminal(handle: string): Promise<void>;
+  /** Open a worktree's changed files as diff tabs in Orca and show them. */
+  openChangedFiles(worktreePath: string): Promise<void>;
+}
+
 /** The real Orca CLI. */
-export class OrcaCli implements Orca, OrcaWorkspaces {
+export class OrcaCli implements Orca, OrcaWorkspaces, OrcaDesk {
   constructor(private readonly command: readonly string[] = currentSettings().orcaCommand) {}
 
   async version(): Promise<string | null> {
@@ -223,6 +233,19 @@ export class OrcaCli implements Orca, OrcaWorkspaces {
 
   async closeTerminal(handle: string) {
     await this.call(['terminal', 'close', '--terminal', handle]);
+  }
+
+  async listRepos() {
+    const { repos } = await this.parse(repoListSchema, ['repo', 'list']);
+    return repos.map(repo => ({ id: repo.id, path: repo.path, name: repo.displayName ?? repo.path }));
+  }
+
+  async switchTerminal(handle: string) {
+    await this.call(['terminal', 'switch', '--terminal', handle]);
+  }
+
+  async openChangedFiles(worktreePath: string) {
+    await this.call(['file', 'open-changed', '--worktree', `path:${worktreePath}`, '--mode', 'diff', '--focus']);
   }
 
   private async parse<T>(schema: z.ZodType<T>, args: string[], requestId?: string): Promise<T> {

@@ -19,6 +19,8 @@ declare global {
       XDG_STATE_HOME?: string;
       /** Windows system root, used to locate `taskkill`. */
       SystemRoot?: string;
+      /** The Windows command interpreter, used to start agent CLIs installed as `.cmd` shims. */
+      ComSpec?: string;
       /** Set to `0` for Git child processes so they never prompt. */
       GIT_TERMINAL_PROMPT?: string;
     }

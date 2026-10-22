@@ -8,15 +8,25 @@ import { commandGroups, commands, globalOptions } from '../commands.js';
 import { queueCommand } from '../control.js';
 import { buildScorecard } from '../measure/report.js';
 import { measureDispatches } from '../measure/usage.js';
-import type { Orca } from '../orca/client.js';
+import type { Orca, OrcaDesk, OrcaWorkspaces } from '../orca/client.js';
 import { listTaskIds } from '../store/task-store.js';
+import {
+  deleteRecipe,
+  listModels,
+  listRecipes,
+  listRepos,
+  mergeTask,
+  openInOrca,
+  putRecipe,
+  startTask,
+} from './actions.js';
 import { HttpError, readJson, sendJson, sendText, startEvents } from './http.js';
 import type { LoadedTask, TaskReader, TaskWatcher } from './tasks.js';
 import type { HelpView, LiveChange, ScorecardView, TaskList } from './types.js';
 import { listItem, readBounded, servableFiles, taskDetail } from './views.js';
 
 /** The Orca calls the dashboard makes itself. */
-export type DashboardOrca = Pick<Orca, 'transcriptSessions'>;
+export type DashboardOrca = Pick<Orca, 'transcriptSessions'> & OrcaWorkspaces & OrcaDesk;
 
 /** What every route can use. */
 export interface DashboardApp {
@@ -28,7 +38,7 @@ export interface DashboardApp {
   orca: DashboardOrca;
 }
 
-interface Call {
+export interface Call {
   app: DashboardApp;
   request: IncomingMessage;
   response: ServerResponse;
@@ -46,11 +56,19 @@ const id = '([a-z0-9-]+)';
 
 export const routes: Route[] = [
   { method: 'GET', pattern: /^\/api\/tasks$/, handle: listTasks },
+  { method: 'POST', pattern: /^\/api\/tasks$/, handle: startTask },
   { method: 'GET', pattern: new RegExp(`^/api/tasks/${id}$`), handle: showTask },
   { method: 'GET', pattern: new RegExp(`^/api/tasks/${id}/events$`), handle: taskEvents },
   { method: 'GET', pattern: new RegExp(`^/api/tasks/${id}/file$`), handle: taskFile },
   { method: 'GET', pattern: new RegExp(`^/api/tasks/${id}/scorecard$`), handle: taskScorecard },
   { method: 'POST', pattern: new RegExp(`^/api/tasks/${id}/commands$`), handle: addCommand },
+  { method: 'POST', pattern: new RegExp(`^/api/tasks/${id}/merge$`), handle: withTask(mergeTask) },
+  { method: 'POST', pattern: new RegExp(`^/api/tasks/${id}/open$`), handle: withTask(openInOrca) },
+  { method: 'GET', pattern: /^\/api\/repos$/, handle: listRepos },
+  { method: 'GET', pattern: /^\/api\/recipes$/, handle: listRecipes },
+  { method: 'PUT', pattern: /^\/api\/recipes\/([^/]+)$/, handle: putRecipe },
+  { method: 'DELETE', pattern: /^\/api\/recipes\/([^/]+)$/, handle: deleteRecipe },
+  { method: 'GET', pattern: /^\/api\/models$/, handle: listModels },
   { method: 'GET', pattern: /^\/api\/help$/, handle: help },
   { method: 'GET', pattern: /^\/api\/live$/, handle: live },
 ];
@@ -67,6 +85,14 @@ export function sendError(response: ServerResponse, error: unknown): void {
       error: error.issues.map(issue => `${issue.path.join('.') || 'request'}: ${issue.message}`).join('; '),
     });
   sendJson(response, 500, { error: (error as Error).message });
+}
+
+/** Answer 404 for an unknown task before running a handler that needs one. */
+function withTask(handle: (call: Call) => Promise<void>): (call: Call) => Promise<void> {
+  return call => {
+    load(call.app, call.params[0]);
+    return handle(call);
+  };
 }
 
 function load(app: DashboardApp, taskId: string | undefined): LoadedTask {

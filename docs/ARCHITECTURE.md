@@ -46,6 +46,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `review.ts` | Review reports and the blocking rule |
 | | `events.ts` | The event log schema and user command schema |
 | `orca/` | `client.ts`, `protocol.ts` | The Orca CLI client and the JSON it reads |
+| `agents/` | `catalog.ts` | Models and effort levels per agent, read from the Claude and Codex CLIs |
 | `git/` | `git.ts` | Read-only Git queries |
 | `measure/` | `transcripts.ts` | Reading models, effort and tokens from Claude and Codex transcripts |
 | | `usage.ts` | Per-dispatch measurements, splitting continued conversations by request time |
@@ -54,6 +55,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | `store/` | `task-store.ts` | Task folders, `events.jsonl`, `commands.jsonl` |
 | `dashboard/` | `server.ts`, `http.ts` | `grampus dashboard`: static web app, JSON API, request guards |
 | | `api.ts` | API routes |
+| | `actions.ts` | Starting tasks, merge, Orca tabs, recipe edits and the model catalog |
 | | `views.ts`, `timeline.ts`, `types.ts` | Task views built from the fold, and the JSON contract the web app imports |
 | | `tasks.ts` | Cached log reads and the change watcher behind live updates |
 | `web/` | `app/` | The dashboard: Vue 3, Nuxt UI, built into `dist/web` |
@@ -120,7 +122,14 @@ prints the addresses it answers on.
   pipeline strip, spec versions with their text and review, worker messages with their answers, rounds
   with guard, checks and review, queued commands and a plain-language timeline.
 - **Writes** queue commands with source `dashboard`, exactly like the CLI; the driver stays the only
-  writer to its Run and log.
+  writer to its Run and log. The few actions the CLI takes outside a driver are offered too: starting
+  a task (`grampus new`, with Orca's repositories and recent ones to pick from), `grampus merge`, and
+  bringing the driver terminal or the changed files forward in Orca (`terminal switch`,
+  `file open-changed`), which acts on the Orca window of the machine running Grampus.
+- **Recipes** can be created, copied, edited and deleted. They are written to `config.json` (other
+  settings kept), validated with the same rules as at startup, and replaced in one rename. The model
+  and effort lists come from `codex debug models` (a JSON catalog) and from `claude --help` (aliases
+  and effort levels) plus Claude models seen in recipes and measurements; any model can be typed.
 - **Live updates**: `/api/live` is a server-sent event stream. A watcher polls log and queue sizes every
   `waitPollMs` and sends the ids of tasks that changed; after a reconnect the page reloads everything.
 - **Files**: only paths a task's log records (spec versions, check logs) can be fetched.

@@ -2,15 +2,18 @@
 <script setup lang="ts">
 import { computed, toRef } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import DecisionActions from '../components/DecisionActions.vue';
 import DecisionPanel from '../components/DecisionPanel.vue';
 import EventLog from '../components/EventLog.vue';
 import MessagesTab from '../components/MessagesTab.vue';
 import OverviewTab from '../components/OverviewTab.vue';
 import PipelineStrip from '../components/PipelineStrip.vue';
+import ReplyForm from '../components/ReplyForm.vue';
 import RoundsTab from '../components/RoundsTab.vue';
 import ScorecardTab from '../components/ScorecardTab.vue';
 import SpecTab from '../components/SpecTab.vue';
 import StatusIcon from '../components/StatusIcon.vue';
+import TaskMenu from '../components/TaskMenu.vue';
 import TimelineList from '../components/TimelineList.vue';
 import { useNow } from '../composables/useNow';
 import { useTask } from '../composables/useTask';
@@ -67,6 +70,7 @@ const tabs = computed(() => {
             <StatusIcon :look="statusLook[task.status]" size="size-3.5" />
             <span class="max-sm:hidden">{{ statusLook[task.status].label }}</span>
           </UBadge>
+          <TaskMenu v-if="task" :task="task" />
         </template>
       </UDashboardNavbar>
       <UDashboardToolbar v-if="task">
@@ -96,7 +100,9 @@ const tabs = computed(() => {
           </span>
         </div>
 
-        <DecisionPanel :task="task" @show="value => (tab = value)" />
+        <DecisionPanel :task="task" @show="value => (tab = value)">
+          <DecisionActions :task="task" />
+        </DecisionPanel>
 
         <UTabs
           v-model="tab"
@@ -110,7 +116,17 @@ const tabs = computed(() => {
         <OverviewTab v-if="tab === 'overview'" :task="task" />
         <SpecTab v-else-if="tab === 'spec'" :specs="task.specs" />
         <RoundsTab v-else-if="tab === 'rounds'" :task="task" />
-        <MessagesTab v-else-if="tab === 'messages'" :messages="task.messages" />
+        <MessagesTab v-else-if="tab === 'messages'" :messages="task.messages">
+          <template #reply="{ message }">
+            <ReplyForm
+              :task-id="task.taskId"
+              :message="message"
+              :queued="
+                task.commands.some(command => command.state === 'queued' && command.messageId === message.messageId)
+              "
+            />
+          </template>
+        </MessagesTab>
         <TimelineList v-else-if="tab === 'timeline'" :items="task.timeline" />
         <ScorecardTab v-else-if="tab === 'scorecard'" :task-id="task.taskId" :finished="task.finished !== null" />
         <EventLog v-else-if="tab === 'events'" :task-id="task.taskId" :updated-at="task.updatedAt" />

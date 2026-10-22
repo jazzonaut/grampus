@@ -19,6 +19,7 @@ const items = computed<NavigationMenuItem[]>(() => [
       ? { label: String(needsYou.value.length), color: 'warning', variant: 'solid' }
       : undefined,
   },
+  { label: 'Recipes', icon: 'i-lucide-chef-hat', to: '/recipes' },
   { label: 'Help', icon: 'i-lucide-circle-help', to: '/help' },
 ]);
 </script>
@@ -43,6 +44,15 @@ const items = computed<NavigationMenuItem[]>(() => [
     </template>
 
     <template #default="{ collapsed }">
+      <UButton
+        to="/new"
+        icon="i-lucide-plus"
+        :label="collapsed ? undefined : 'New task'"
+        :square="collapsed"
+        block
+        class="mb-2"
+        aria-label="New task"
+      />
       <UNavigationMenu :collapsed="collapsed" :items="items" orientation="vertical" tooltip popover />
     </template>
 

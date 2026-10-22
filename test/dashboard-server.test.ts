@@ -11,6 +11,7 @@ import { serveDashboard, type RunningDashboard } from '../src/dashboard/server.j
 import type { TaskDetail, TaskList } from '../src/dashboard/types.js';
 import { standardRecipe } from '../src/domain/recipe.js';
 import { TaskStore } from '../src/store/task-store.js';
+import { FakeOrca } from './helpers/fake-orca.js';
 import { useTestSettings } from './helpers/task-fixture.js';
 
 const running: RunningDashboard[] = [];
@@ -24,6 +25,7 @@ interface Fixture {
   base: string;
   port: number;
   specPath: string;
+  orca: FakeOrca;
 }
 
 async function start(): Promise<Fixture> {
@@ -60,15 +62,16 @@ async function start(): Promise<Fixture> {
     detail: 'Approve spec version 1',
     options: ['approve', 'revise'],
   });
+  const orca = new FakeOrca(() => 'hang');
   const server = await serveDashboard({
     dataDir: home,
     port: 0,
     selfCommand: 'grampus',
     webRoot: web,
-    orca: { transcriptSessions: () => Promise.resolve({ provider: null, sessionIds: [] }) },
+    orca,
   });
   running.push(server);
-  return { home, store, base: `http://localhost:${server.port}`, port: server.port, specPath };
+  return { home, store, base: `http://localhost:${server.port}`, port: server.port, specPath, orca };
 }
 
 /** A raw request, so tests can set the Host and Origin headers a browser would send. */

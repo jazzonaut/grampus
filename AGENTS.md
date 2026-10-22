@@ -53,7 +53,8 @@ verification and an append-only evidence log per task. Current behaviour is in
 
 - Tests run from `dist/`. Run `npm run build` (or `npm test`) after editing TypeScript.
 - The dashboard (`web/`) imports its JSON types from `src/dashboard/types.ts` as types only. Name icons
-  as `i-lucide-*` literals so the build bundles them; a test checks every name exists.
+  as `i-lucide-*` literals so the build bundles them; a test checks every name exists. `npm run dev:web`
+  refreshes `web/components.d.ts` after you use a new Nuxt UI component.
 - Worker prompts in `src/pipeline/prompts.ts` are a contract with the agents and change measured
   results. Change them deliberately and say so in the commit.
 - Orca's CLI contract moves quickly. Its JSON is parsed in `src/orca/protocol.ts`; unknown fields are

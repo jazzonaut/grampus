@@ -357,6 +357,7 @@ function commandsOf(state: TaskState, events: readonly StoredEvent[], queued: re
     at: command.at,
     source: command.source,
     text: commandText(command),
+    messageId: command.kind === 'reply' ? command.messageId : null,
     state: refused.has(command.id) ? 'refused' : state.applied.has(command.id) ? 'applied' : 'queued',
     reason: refused.get(command.id) ?? null,
   }));
