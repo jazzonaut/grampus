@@ -259,6 +259,9 @@ async function review(core: DriverCore, worktree: string, round: number): Promis
   }
 }
 
+/** Starts the decision reason that carries the builder's own report, so views can show that report apart. */
+export const builderFailed = 'the builder reported failure: ';
+
 /** Decide a round from recorded evidence: ready, another repair round, or escalation to the user. */
 function decideRound(core: DriverCore, round: number, settled: Settled): 'repair' | 'escalate' | 'ready' {
   const recorded = core.state.decisions.get(round);
@@ -270,7 +273,7 @@ function decideRound(core: DriverCore, round: number, settled: Settled): 'repair
   for (const finding of reviewed?.blocking ?? []) problems.push(`blocking finding: ${finding.title}`);
   // Problems only a person can resolve: more rounds would repeat them.
   const stoppers: string[] = [];
-  if (settled.outcome === 'failed') stoppers.push(`the builder reported failure: ${settled.body}`);
+  if (settled.outcome === 'failed') stoppers.push(`${builderFailed}${settled.body}`);
   if (reviewed?.error) stoppers.push(`review unavailable: ${reviewed.error}`);
   const allowed = core.state.recipe.repair.maxRounds + grantedRounds(core.state);
   const decision = stoppers.length ? 'escalate' : !problems.length ? 'ready' : round < allowed ? 'repair' : 'escalate';

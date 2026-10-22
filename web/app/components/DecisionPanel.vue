@@ -5,6 +5,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { TaskDetail } from '../../../src/dashboard/types';
+import { shortSha } from '../presentation';
+import RoundEvidence from './RoundEvidence.vue';
 
 const props = defineProps<{ task: TaskDetail }>();
 const emit = defineEmits<{ show: [tab: string] }>();
@@ -24,6 +26,10 @@ const heading = computed(() => {
   }
 });
 const questions = computed(() => props.task.summary.questions.length);
+/** The round awaiting accept, continue or abandon, with its evidence. */
+const round = computed(() => props.task.rounds.find(entry => entry.round === props.task.summary.result?.round));
+/** An escalation lists its reasons instead of the detail line, which repeats them in one run-on sentence. */
+const escalated = computed(() => (round.value?.decision?.decision === 'escalate' ? round.value.decision : null));
 </script>
 
 <template>
@@ -37,8 +43,17 @@ const questions = computed(() => props.task.summary.questions.length);
       <div class="flex items-start gap-3">
         <UIcon :name="heading.icon" class="size-5 text-warning shrink-0 mt-0.5" />
         <div class="min-w-0 space-y-1">
-          <h3 class="font-semibold text-highlighted">{{ heading.text }}</h3>
-          <p class="text-sm text-muted whitespace-pre-line">{{ task.needsYou.detail }}</p>
+          <h3 class="font-semibold text-highlighted flex flex-wrap items-baseline gap-x-2">
+            {{ heading.text }}
+            <span v-if="round?.checks" class="font-mono text-xs font-normal text-dimmed">
+              at {{ shortSha(round.checks.sha) }}
+            </span>
+          </h3>
+          <ul v-if="escalated" class="text-sm list-disc pl-5 space-y-0.5">
+            <li v-if="escalated.builderFailure">The builder reported failure; its report is below</li>
+            <li v-for="reason in escalated.reasons" :key="reason" class="first-letter:uppercase">{{ reason }}</li>
+          </ul>
+          <p v-else class="text-sm text-muted whitespace-pre-line">{{ task.needsYou.detail }}</p>
         </div>
       </div>
 
@@ -51,12 +66,10 @@ const questions = computed(() => props.task.summary.questions.length);
         </UButton>
       </div>
 
-      <div v-if="task.summary.result" class="pl-8 space-y-1">
-        <ul class="text-sm space-y-0.5">
-          <li v-for="line in task.summary.result.lines" :key="line" class="text-muted break-words">{{ line }}</li>
-        </ul>
+      <div v-if="round" class="pl-8 space-y-3">
+        <RoundEvidence :task="task" :round="round" />
         <UButton size="sm" variant="link" icon="i-lucide-list-checks" class="px-0" @click="emit('show', 'rounds')">
-          See the evidence
+          See every round and the baseline
         </UButton>
       </div>
     </template>

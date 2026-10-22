@@ -5,6 +5,7 @@ import { basename } from 'node:path';
 import { specLimits } from '../config/limits.js';
 import type { StoredEvent, UserCommand } from '../domain/events.js';
 import { currentDispatch, type StageRecord, type TaskState } from '../pipeline/state.js';
+import { builderFailed } from '../pipeline/pipeline.js';
 import { summarise } from '../pipeline/status.js';
 import type {
   CommandView,
@@ -327,9 +328,20 @@ function roundsOf(state: TaskState): RoundView[] {
             error: review.error,
           }
         : null,
-      decision: state.decisions.get(record.round) ?? null,
+      decision: decisionOf(state, record.round),
     };
   });
+}
+
+function decisionOf(state: TaskState, round: number): RoundView['decision'] {
+  const decided = state.decisions.get(round);
+  if (!decided) return null;
+  const report = decided.reasons.find(reason => reason.startsWith(builderFailed));
+  return {
+    decision: decided.decision,
+    reasons: decided.reasons.filter(reason => reason !== report),
+    builderFailure: report?.slice(builderFailed.length) ?? null,
+  };
 }
 
 function commandText(command: UserCommand): string | null {

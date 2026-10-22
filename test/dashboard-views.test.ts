@@ -170,3 +170,22 @@ test('task detail pairs questions with answers, rounds with evidence, and queued
   assert.equal(detail.status, 'running');
   assert.ok(detail.timeline.some(item => item.title === 'Round 0: repair' && item.tone === 'warning'));
 });
+
+test("an escalated round keeps the builder's failure report apart from the other reasons", () => {
+  const store = taskInRepair();
+  store.append({
+    type: 'round.decided',
+    round: 1,
+    decision: 'escalate',
+    reasons: ['the builder reported failure: Added X; the check exits 8.', 'check "unit" failed'],
+  });
+  const events = store.events();
+  const detail = taskDetail(foldEvents(events), events, store.commands());
+
+  assert.deepEqual(detail.rounds[1]?.decision, {
+    decision: 'escalate',
+    reasons: ['check "unit" failed'],
+    builderFailure: 'Added X; the check exits 8.',
+  });
+  assert.equal(detail.rounds[0]?.decision?.builderFailure, null);
+});

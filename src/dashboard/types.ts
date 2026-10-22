@@ -137,7 +137,13 @@ export interface RoundView {
   guard: { fromSha: string; sha: string; result: GuardResult } | null;
   checks: CheckRunView | null;
   review: ReviewView | null;
-  decision: { decision: 'repair' | 'escalate' | 'ready'; reasons: string[] } | null;
+  decision: {
+    decision: 'repair' | 'escalate' | 'ready';
+    /** Every reason except the builder's report, which is in `builderFailure`. */
+    reasons: string[];
+    /** What the builder wrote when it reported failure: long free text, shown as a report, not a reason. */
+    builderFailure: string | null;
+  } | null;
 }
 
 export interface CommandView {

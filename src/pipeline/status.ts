@@ -110,12 +110,11 @@ function resultOf(state: TaskState): TaskSummary['result'] {
   const match = /^(ready|escalate):(\d+)$/.exec(state.attention?.reason ?? '');
   if (!match) return null;
   const round = Number(match[2]);
-  const reasons = match[1] === 'escalate' ? (state.decisions.get(round)?.reasons ?? []) : [];
+  // The reasons are not repeated here: the attention detail already lists them.
   const lines = [
     ...guardLines(state.guard.get(round)?.guard),
     ...(state.verify.get(round)?.results ?? []).map(checkLine),
     ...reviewLines(state.reviews.get(round)),
-    ...(reasons.length ? [`why it needs you: ${reasons.join('; ')}`] : []),
   ];
   return { round, lines };
 }

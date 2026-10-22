@@ -43,6 +43,11 @@ const reportFormat = `Write the report as JSON:
 
 Use "unknown" when you cannot decide; it is a valid answer and better than a guess.`;
 
+// The user reads a failure report before deciding, so it is short and scannable; the dashboard renders it
+// as Markdown.
+const failureReport = `With --outcome failed, write the message as a short Markdown list, one point per
+line: what you changed, what still fails and why, what is not done, and what you need the user to decide.`;
+
 function bullets(lines: readonly string[]): string {
   return lines.map(line => `- ${line}`).join('\n');
 }
@@ -153,7 +158,8 @@ CONSTRAINTS:
   explaining why, rather than working around it.
 
 ACCEPTANCE: Grampus runs the checks itself at your final commit and an independent reviewer reads the
-diff against the spec. When you have committed, send worker_done with --outcome succeeded.`;
+diff against the spec. When you have committed, send worker_done with --outcome succeeded.
+${failureReport}`;
 }
 
 export interface RepairProblems {
@@ -192,7 +198,8 @@ Checks Grampus runs:
 ${checkList(input.checks)}
 
 ACCEPTANCE: when you have committed, send worker_done with --outcome succeeded. Use --outcome failed
-if the problems cannot be fixed within the spec, and say why.`;
+if the problems cannot be fixed within the spec, and say why.
+${failureReport}`;
 }
 
 function describeProblems(problems: RepairProblems): string {
