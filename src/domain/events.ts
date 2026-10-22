@@ -122,7 +122,9 @@ export type TaskEvent =
       override: boolean;
       reason: string | null;
     }
-  | { type: 'driver.stopped'; reason: string };
+  | { type: 'driver.stopped'; reason: string }
+  /** The user merged the accepted, verified commit into the repository's checked-out branch. */
+  | { type: 'task.merged'; branch: string; sha: string };
 
 /** An event as stored, with its time. */
 export type StoredEvent = TaskEvent & { at: string };

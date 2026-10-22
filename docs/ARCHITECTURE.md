@@ -133,8 +133,17 @@ between two calls, such as a spec review landing while an agent talked to the us
 ```
 
 The data directory is `GRAMPUS_HOME`, or `%LOCALAPPDATA%\Grampus\orca` on Windows. `.grampus/` is
-excluded through the repository's `info/exclude`, the only change Grampus makes to Git metadata; it
-never writes commits, branches or the index.
+excluded through the repository's `info/exclude`. Grampus writes no commits, branches or index entries,
+with one explicit exception, `grampus merge` (below).
+
+## Delivery
+
+An accepted task's work is the verified commit on the task branch. `grampus merge <task>`
+(`delivery/merge.ts`) is opt-in and only runs after acceptance: it fast-forwards the branch checked out
+in the repository's main checkout to that exact SHA, never to later commits on the task branch, and
+records `task.merged`. It refuses when the task was not accepted, no branch is checked out, the checkout
+has uncommitted changes, or the branch has moved on so a fast-forward is impossible (then the user
+merges or rebases the task branch). A repeat is harmless. It never pushes or opens pull requests.
 
 ## Orca contract
 

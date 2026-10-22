@@ -168,7 +168,10 @@ function latestRefusal(state: TaskState): TaskSummary['refused'] {
 }
 
 function phaseOf(state: TaskState): string {
-  if (state.finished) return `${state.finished.outcome}${state.finished.override ? ' (with unresolved problems)' : ''}`;
+  if (state.finished)
+    return `${state.finished.outcome}${state.finished.override ? ' (with unresolved problems)' : ''}${
+      state.merged ? `, merged into ${state.merged.branch}` : ''
+    }`;
   if (state.attention) return `needs you: ${state.attention.reason}`;
   for (const record of [...state.stages.values()].reverse()) {
     const dispatch = currentDispatch(record);

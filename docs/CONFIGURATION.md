@@ -42,6 +42,8 @@ that agent; an effort needs a model. `null` skips an optional stage.
 ```
 
 The built-in `standard` recipe uses Claude for spec and review, Codex for spec review and build, no
-tests-first stage, and two repair rounds of which the first continues the builder's conversation.
+tests-first stage, and two repair rounds of which the first continues the builder's conversation. The
+spec review runs `gpt-6.1-sol` at medium effort: at high effort it was the slowest stage and found
+nothing blocking in six runs (Orca accepts an effort only together with a model).
 Review from the builder's own family is allowed so it can be measured; the task records which ran.
 Model ids above are examples; use ids your Orca agents accept.

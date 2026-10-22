@@ -78,7 +78,8 @@ spec ─► spec review ─► [approve] ─► (tests first) ─► baseline �
    list of problems, because a long polluted context does worse. Grampus counts rounds
    itself; after the recipe's limit it escalates to the user.
 10. **Accept.** The user accepts the verified branch, gives guidance for another round, or
-    abandons the task. Pushing and opening a PR stay with the user.
+    abandons the task. Afterwards the user may ask Grampus to fast-forward their branch to the
+    verified commit (`merge`). Pushing and opening a PR stay with the user.
 
 The builder never argues with the reviewer. A disputed finding is settled by a check, a fresh
 review or the user, because judges flip verdicts under pushback.

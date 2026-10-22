@@ -98,6 +98,8 @@ export interface TaskState {
   attention: Attention | null;
   finished: { outcome: 'accepted' | 'abandoned'; sha: string | null; override: boolean; at: string } | null;
   released: boolean;
+  /** Set by `grampus merge` after acceptance. */
+  merged: { branch: string; sha: string } | null;
   /** Per-dispatch models, tokens and times, recorded when the task finishes. */
   measurements: DispatchMeasurement[] | null;
   lastStop: { reason: string; at: string } | null;
@@ -138,6 +140,7 @@ export function foldEvents(events: readonly StoredEvent[]): TaskState {
     attention: null,
     finished: null,
     released: false,
+    merged: null,
     measurements: null,
     lastStop: null,
   };
@@ -293,6 +296,9 @@ const handlers: Handlers = {
   },
   'workers.released': state => {
     state.released = true;
+  },
+  'task.merged': (state, event) => {
+    state.merged = { branch: event.branch, sha: event.sha };
   },
   'usage.recorded': (state, event) => {
     state.measurements = event.measurements;

@@ -8,6 +8,7 @@ import { parseArgs } from 'node:util';
 import { dataDirectory } from './config/paths.js';
 import { availableRecipes, currentSettings, loadSettings, useSettings } from './config/settings.js';
 import type { UserCommand } from './domain/events.js';
+import { mergeAccepted } from './delivery/merge.js';
 import { buildScorecard, renderScorecard } from './measure/report.js';
 import { measureDispatches } from './measure/usage.js';
 import { OrcaCli } from './orca/client.js';
@@ -31,6 +32,7 @@ const usage = `Usage: grampus <command> [options]
   retry <task>                                                        Retry a stage that failed to start or exited
   accept <task>                                                       Accept the task's verified branch
   abandon <task> [reason...]                                          Abandon the task and release its workers
+  merge <task>                                                        Fast-forward your checked-out branch to an accepted task's commit
   drive <task>                                                        Run a task's driver (Grampus starts it in Orca)
   recipes                                                             List recipes
   skill [install]                                                     Print the chat skill, or install it for Claude and Codex
@@ -70,10 +72,31 @@ async function main(argv: string[]): Promise<number> {
       return drive(TaskStore.open(dataDir, required(rest[0], 'task')), new OrcaCli(), line =>
         console.log(`[${time()}] ${line}`),
       );
+    default: {
+      const handled = await otherCommand(dataDir, command, rest, values);
+      if (handled !== null) return handled;
+      const body = controlCommand(dataDir, command, rest, values.version);
+      if (body) return queue(rest[0], body);
+      console.error(usage);
+      return 1;
+    }
+  }
+}
+
+/** Commands that read state or act outside a task's driver; null for a control verb or an unknown one. */
+async function otherCommand(
+  dataDir: string,
+  command: string,
+  rest: string[],
+  values: { json?: boolean; after?: string },
+): Promise<number | null> {
+  switch (command) {
     case 'status':
       return status(dataDir, rest[0], values.json ?? false);
     case 'wait':
       return wait(dataDir, rest[0], values.after, values.json ?? false);
+    case 'merge':
+      return merge(dataDir, required(rest[0], 'task'));
     case 'report':
       return report(dataDir, required(rest[0], 'task'), values.json ?? false);
     case 'recipes':
@@ -81,13 +104,20 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     case 'skill':
       return skill(selfCommand(dataDir), rest[0] === 'install');
-    default: {
-      const body = controlCommand(dataDir, command, rest, values.version);
-      if (body) return queue(rest[0], body);
-      console.error(usage);
-      return 1;
-    }
+    default:
+      return null;
   }
+}
+
+/** Fast-forward the user's checked-out branch to an accepted task's verified commit. Never pushes. */
+async function merge(dataDir: string, taskId: string): Promise<number> {
+  const merged = await mergeAccepted(TaskStore.open(dataDir, taskId));
+  console.log(
+    merged.alreadyMerged
+      ? `${merged.branch} already contains ${merged.sha.slice(0, 12)}; nothing to do.`
+      : `Fast-forwarded ${merged.branch} to ${merged.sha.slice(0, 12)}. Nothing was pushed.`,
+  );
+  return 0;
 }
 
 /** The command a control verb queues, or null for an unknown verb. */

@@ -15,9 +15,11 @@ judgement, and never edit a task's worktree yourself: workers do the work, Gramp
 - **Say only what has happened.** Describe a command as sent only after you ran it and saw
   `Queued ...`. While asking, say what you will do ("if you approve, I will start the build"), never
   "approving it now".
-- **Grampus ends at a verified branch.** It never merges, pushes or opens pull requests, and neither
-  do you unless the user asks for that in this conversation. After `accept`, name the branch and
-  worktree, and stop there.
+- **Grampus ends at a verified branch.** After `accept`, name the branch and worktree, and say the
+  user can ask you to merge it. Only when they ask, run `{{grampus}} merge <task>`: it fast-forwards
+  the branch checked out in their repository to the verified commit and refuses if that branch moved
+  on or has uncommitted changes (relay the refusal; do not merge by hand). Never push or open pull
+  requests unless the user asks for that in this conversation.
 
 ## Start a task
 

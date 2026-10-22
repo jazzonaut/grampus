@@ -56,5 +56,7 @@ grampus abandon <task> "reason"
 grampus report <task>
 ```
 
-Run `grampus --help` for every command. Grampus never pushes: the accepted work is a
-branch in the task worktree, ready for your review and PR.
+Run `grampus --help` for every command. The accepted work is a verified commit on the task
+branch. `grampus merge <task>` (or "merge it" in chat) fast-forwards the branch checked out in your
+repository to that commit, and refuses if the branch has moved on or has uncommitted changes. Grampus
+never pushes or opens pull requests.

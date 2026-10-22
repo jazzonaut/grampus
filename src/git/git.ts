@@ -1,5 +1,5 @@
-// Read-only Git queries against a task worktree. Grampus never writes to Git: the builder commits and
-// Grampus verifies the commit it finds.
+// Git queries against a task worktree. The builder commits and Grampus verifies the commit it finds; the
+// only Git write Grampus makes is the user's explicit `grampus merge` (delivery/merge.ts).
 import { currentSettings } from '../config/settings.js';
 import { runProcess } from '../process/run.js';
 

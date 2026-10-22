@@ -58,11 +58,15 @@ export const recipeSchema = z
   .strict();
 export type Recipe = z.infer<typeof recipeSchema>;
 
-/** The built-in recipe: Claude specifies and reviews, Codex builds, two repair rounds. */
+/**
+ * The built-in recipe: Claude specifies and reviews, Codex builds, two repair rounds. The spec review
+ * runs at medium effort: at high effort it was the slowest stage and found nothing blocking in six
+ * runs. Orca takes an effort only with a model, so it names the Codex model those runs used.
+ */
 export const standardRecipe: Recipe = {
   name: 'standard',
   spec: { agent: 'claude' },
-  specReview: { agent: 'codex' },
+  specReview: { agent: 'codex', model: 'gpt-6.1-sol', effort: 'medium' },
   testsFirst: null,
   build: { agent: 'codex' },
   review: { agent: 'claude' },
