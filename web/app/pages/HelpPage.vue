@@ -94,6 +94,35 @@ const states = Object.keys(stepStateLook) as StepState[];
           </ol>
         </section>
 
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold">Use it from an Orca chat</h2>
+          <p class="text-sm text-muted">
+            Installing Grampus also installs the Grampus skill for Claude and Codex, so any Claude or Codex chat in Orca
+            can start and control tasks. Open a chat in the repository's workspace and ask in plain words:
+          </p>
+          <ul class="space-y-1.5 text-sm">
+            <li class="rounded-lg border border-default px-3 py-2">
+              Start a Grampus task: add CSV export to the reports page.
+            </li>
+            <li class="rounded-lg border border-default px-3 py-2">
+              Compare the standard and economy-codex recipes on: add CSV export to the reports page.
+            </li>
+            <li class="rounded-lg border border-default px-3 py-2">What does Grampus need from me?</li>
+          </ul>
+          <p class="text-sm text-muted">
+            The task uses the chat's repository unless you name another. Grampus opens a worktree and a
+            <span class="font-mono">Grampus: &lt;title&gt;</span> terminal tab for the task's driver; leave both alone
+            and stay in the chat. The agent waits for Grampus and brings you the worker questions, the spec to approve
+            and the result to accept, and only queues the decisions you make. Chat and this dashboard control the same
+            tasks, so you can switch between them at any point.
+          </p>
+          <p class="text-sm text-muted">
+            If the chat cannot find <span class="font-mono">grampus</span>, restart Orca so it picks up the PATH change
+            from the install. Keep Orca open while tasks run: their drivers and workers run in it. The dashboard can be
+            stopped at any time without affecting them.
+          </p>
+        </section>
+
         <section class="grid gap-6 sm:grid-cols-2">
           <div class="space-y-2">
             <h2 class="text-lg font-semibold">Task status</h2>

@@ -86,7 +86,7 @@ on networks you trust, or set `dashboardHost` to `127.0.0.1` (see [Configuration
 ## Compare recipes
 
 ```text
-grampus compare --recipes standard,cheap-build "Add CSV export to the reports page"
+grampus compare --recipes standard,economy-codex "Add CSV export to the reports page"
 ```
 
 Each recipe runs as its own task from the same base commit. By default each writes its own spec (you
