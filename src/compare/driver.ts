@@ -7,6 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { currentSettings } from '../config/settings.js';
 import { queueCommand } from '../control.js';
 import type { OrcaWorkspaces } from '../orca/client.js';
+import { installedBuild } from '../install/installation.js';
 import { createTask, type InheritedSpec } from '../pipeline/create-task.js';
 import { closeOwnTab } from '../pipeline/driver.js';
 import { acquireDriverLock, LockLost } from '../store/driver-lock.js';
@@ -260,7 +261,13 @@ export async function driveComparison(options: ComparisonDriverOptions & { orca:
     const driver = new ComparisonDriver(options);
     driver.store.fenceWith(() => lock.assertHeld());
     if (driver.state.finished) return 0;
-    driver.record({ type: 'driver.started', pid: process.pid, terminal: process.env.ORCA_TERMINAL_HANDLE ?? null });
+    const build = installedBuild()?.build;
+    driver.record({
+      type: 'driver.started',
+      pid: process.pid,
+      terminal: process.env.ORCA_TERMINAL_HANDLE ?? null,
+      ...(build ? { build } : {}),
+    });
     options.log(`Driving comparison ${driver.state.comparisonId}: ${driver.state.title}`);
     try {
       while (!(await driver.step())) await sleep(currentSettings().waitPollMs);

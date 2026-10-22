@@ -1,7 +1,17 @@
 // The dashboard's visual language in one place: which icon and colour stands for each task status, step
 // state, pipeline step and timeline event, and how times read. Pages never pick icons ad hoc.
 import type { StoredEvent } from '../../src/domain/events';
-import type { ComparisonStatus, StepId, StepState, TaskStatus, Tone } from '../../src/dashboard/types';
+import type {
+  ComparisonStatus,
+  DriverHealth,
+  HealthLevel,
+  HiccupView,
+  StepId,
+  StepState,
+  TaskStatus,
+  Tone,
+  WorkerHealth,
+} from '../../src/dashboard/types';
 
 export type Color = 'primary' | 'secondary' | 'success' | 'info' | 'warning' | 'error' | 'neutral';
 
@@ -28,6 +38,32 @@ export const comparisonStatusLook: Record<ComparisonStatus, Look> = {
   stopped: { icon: 'i-lucide-octagon-pause', color: 'error', label: 'Driver stopped' },
   picked: { icon: 'i-lucide-trophy', color: 'success', label: 'Picked' },
   abandoned: { icon: 'i-lucide-circle-x', color: 'neutral', label: 'Abandoned' },
+};
+
+export const healthLook: Record<HealthLevel, Look> = {
+  ok: { icon: 'i-lucide-heart-pulse', color: 'success', label: 'Healthy' },
+  warning: { icon: 'i-lucide-triangle-alert', color: 'warning', label: 'Needs a look' },
+  error: { icon: 'i-lucide-circle-alert', color: 'error', label: 'Something is wrong' },
+};
+
+export const driverLook: Record<DriverHealth['state'], Look> = {
+  alive: { icon: 'i-lucide-activity', color: 'success', label: 'Running' },
+  starting: { icon: 'i-lucide-loader-circle', color: 'primary', label: 'Starting', spin: true },
+  stopped: { icon: 'i-lucide-octagon-pause', color: 'error', label: 'Stopped' },
+};
+
+export const workerLook: Record<WorkerHealth['state'], Look> = {
+  working: { icon: 'i-lucide-loader-circle', color: 'primary', label: 'Working', spin: true },
+  asking: { icon: 'i-lucide-message-circle-question', color: 'warning', label: 'Asking you' },
+  quiet: { icon: 'i-lucide-moon', color: 'warning', label: 'Quiet' },
+  exited: { icon: 'i-lucide-bot-off', color: 'error', label: 'Exited without reporting' },
+};
+
+export const hiccupLook: Record<HiccupView['kind'], Look> = {
+  busy: { icon: 'i-lucide-hourglass', color: 'warning', label: 'Orca busy' },
+  room: { icon: 'i-lucide-circle-check', color: 'success', label: 'Orca has room again' },
+  uncertain: { icon: 'i-lucide-unplug', color: 'warning', label: 'Orca call repeated' },
+  stopped: { icon: 'i-lucide-octagon-pause', color: 'error', label: 'Driver stopped' },
 };
 
 export const stepStateLook: Record<StepState, Look> = {
@@ -67,6 +103,9 @@ const eventIcons: Partial<Record<StoredEvent['type'], string>> = {
   'workspace.created': 'i-lucide-folder-git-2',
   'driver.started': 'i-lucide-play',
   'driver.stopped': 'i-lucide-octagon-pause',
+  'orca.busy': 'i-lucide-hourglass',
+  'orca.room': 'i-lucide-circle-check',
+  'orca.uncertain': 'i-lucide-unplug',
   'run.created': 'i-lucide-workflow',
   'stage.started': 'i-lucide-bot',
   'stage.settled': 'i-lucide-bot-message-square',

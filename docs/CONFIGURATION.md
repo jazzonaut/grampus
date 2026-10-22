@@ -38,6 +38,10 @@ the installed data directory.
 | `modelPrices` | built-in table (see below) | API list prices per model for estimated cost; entries replace single models |
 | `dashboardAllowedHosts` | `[]` | Extra host names the dashboard answers to, such as a VPN name; localhost, this machine's name and its addresses are always allowed |
 | `dashboardDiffBytes` | `1048576` (1 MiB) | Bytes of a task's diff the dashboard shows in View full diff; a longer diff is cut |
+| `healthProbeMs` | `30000` (30 s) | How long the System page reuses one check of Orca and its agent accounts, and how often it checks again |
+| `healthProbeTimeoutMs` | `15000` (15 s) | Deadline for one of those checks; an Orca that takes longer counts as not answering |
+| `healthHistoryMs` | `86400000` (24 h) | How far back the System page lists Orca hiccups and driver stops |
+| `providerUsageWarnPercent` | `90` | An agent provider's usage limit at or above this percentage is a warning on the System page; 100% is an error |
 | `keptVersions` | `3` | How many installed versions `npm run install:local` keeps, the selected one included |
 
 ## Model prices

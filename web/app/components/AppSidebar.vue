@@ -1,5 +1,5 @@
 <!--
-  Navigation: tasks (with how many need you), the other pages, the live connection and the colour mode.
+  Navigation: tasks (with how many need you), the other pages, system health as a coloured count of problems, the live connection and the colour mode.
   On wide screens it is an icon rail that widens over the page while hovered or focused, so the panels
   beside it never move. Narrow screens open it as a slideover from the page header instead.
 -->
@@ -9,12 +9,14 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useNotificationPermission } from '../composables/useAttention';
 import { useComparisons } from '../composables/useComparisons';
+import { useHealth } from '../composables/useHealth';
 import { useLive } from '../composables/useLive';
 import { useTasks } from '../composables/useTasks';
 
 const { needsYou } = useTasks();
 const comparisons = useComparisons();
 const { connected } = useLive();
+const { health } = useHealth();
 const notifications = useNotificationPermission();
 
 // The rail exists only from Tailwind's lg breakpoint; below it the slideover always shows labels.
@@ -65,6 +67,19 @@ const items = computed<NavigationMenuItem[]>(() => [
       : undefined,
   },
   { label: 'Recipes', icon: 'i-lucide-chef-hat', to: '/recipes' },
+  {
+    label: 'System',
+    icon: 'i-lucide-activity',
+    to: '/system',
+    badge:
+      health.value && health.value.level !== 'ok'
+        ? {
+            label: String(health.value.problems.length),
+            color: health.value.level === 'error' ? 'error' : 'warning',
+            variant: 'solid',
+          }
+        : undefined,
+  },
   { label: 'Help', icon: 'i-lucide-circle-help', to: '/help' },
 ]);
 </script>

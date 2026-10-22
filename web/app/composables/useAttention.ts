@@ -1,10 +1,11 @@
 // Telling the user something needs them while the dashboard is in a background tab: a count in the tab
 // title, a dot on the favicon, and (where the browser allows it) a desktop notification for each new
-// decision or question. Browsers allow notifications only in a secure context: localhost or HTTPS, so a
+// decision or question, and for each new system error such as a driver stopping or Orca not answering. Browsers allow notifications only in a secure context: localhost or HTTPS, so a
 // phone on plain http://<address> gets the title and favicon only.
 import { computed, ref, watch } from 'vue';
 import type { Router } from 'vue-router';
-import type { TaskListItem } from '../../../src/dashboard/types';
+import type { HealthProblem, TaskListItem } from '../../../src/dashboard/types';
+import { useHealth } from './useHealth';
 import { useTasks } from './useTasks';
 
 const iconSize = 64;
@@ -43,18 +44,21 @@ async function drawFavicon(alert: boolean): Promise<void> {
 
 export function useAttention(router: Router) {
   const { tasks, loaded } = useTasks();
+  const { health } = useHealth();
   const waiting = computed(() => tasks.value.filter(task => task.status === 'needs-you' || task.status === 'stopped'));
   const seen = new Set<string>();
   let primed = false;
 
   watch(
-    () => waiting.value.length,
-    count => {
+    () => [waiting.value.length, health.value?.level === 'error'] as const,
+    ([count, failing]) => {
       document.title = count ? `(${count}) Grampus` : 'Grampus';
-      void drawFavicon(count > 0);
+      void drawFavicon(count > 0 || failing);
     },
     { immediate: true },
   );
+
+  watchErrors(router);
 
   watch(tasks, list => {
     if (!loaded.value) return;
@@ -82,6 +86,38 @@ export function useAttention(router: Router) {
       };
     }
   });
+}
+
+/**
+ * Announce each new error-level system problem once. Problem ids stay the same while a problem lasts,
+ * and what was wrong when the page opened is shown, not announced.
+ */
+function watchErrors(router: Router): void {
+  const { health } = useHealth();
+  const seen = new Set<string>();
+  let primed = false;
+  watch(health, view => {
+    if (!view) return;
+    const fresh = view.problems.filter(problem => problem.level === 'error' && !seen.has(problem.id));
+    for (const problem of fresh) seen.add(problem.id);
+    if (!primed) {
+      primed = true;
+      return;
+    }
+    if (permission.value === 'granted') for (const problem of fresh) announce(router, problem);
+  });
+}
+
+function announce(router: Router, problem: HealthProblem): void {
+  const notification = new Notification(problem.title, {
+    body: problem.detail ?? 'See the System page.',
+    icon: '/icon-192.png',
+    tag: problem.id,
+  });
+  notification.onclick = () => {
+    window.focus();
+    void router.push(problem.link ?? '/system');
+  };
 }
 
 /** Whether desktop notifications can be offered here, and a way to ask for them. */

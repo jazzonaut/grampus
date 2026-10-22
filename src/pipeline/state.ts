@@ -25,6 +25,8 @@ export interface DispatchRecord {
   launch: LaunchRecord | null;
   settled: { outcome: 'succeeded' | 'failed'; subject: string; body: string; at: string } | null;
   exited: boolean;
+  /** Grampus stopped this worker on purpose; it also counts as exited. */
+  stopped: boolean;
 }
 
 /**
@@ -215,6 +217,9 @@ const handlers: Handlers = {
   'driver.stopped': (state, event) => {
     state.lastStop = { reason: event.reason, at: event.at };
   },
+  'orca.busy': ignore,
+  'orca.room': ignore,
+  'orca.uncertain': ignore,
   'orca.requested': (state, event) => {
     state.requests.set(event.key, event.requestId);
     state.requestTimes.set(event.key, event.at);
@@ -249,6 +254,7 @@ const handlers: Handlers = {
       launch: event.launch,
       settled: null,
       exited: false,
+      stopped: false,
     });
   },
   'stage.reuse_refused': state => {
@@ -271,7 +277,9 @@ const handlers: Handlers = {
   },
   // A stopped worker has ended like an exited one: it will not report.
   'stage.stopped': (state, event) => {
-    requireDispatch(state, event.key, event.dispatchId).exited = true;
+    const dispatch = requireDispatch(state, event.key, event.dispatchId);
+    dispatch.exited = true;
+    dispatch.stopped = true;
     closeQuestions(state, event.dispatchId);
   },
   'worker.message': (state, event) => {

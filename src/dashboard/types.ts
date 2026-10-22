@@ -316,3 +316,118 @@ export interface ComparisonMetrics {
   asOf: string;
   entries: EntryMetrics[];
 }
+
+export type HealthLevel = 'ok' | 'warning' | 'error';
+
+/** Something wrong in the system. `id` stays the same while it lasts, so it is announced once. */
+export interface HealthProblem {
+  id: string;
+  level: 'warning' | 'error';
+  title: string;
+  detail: string | null;
+  /** The dashboard page that shows it, if any. */
+  link: string | null;
+}
+
+/** Orca as `orca status` reports it, checked by the dashboard. */
+export interface OrcaHealthView {
+  /** Orca answered and reported its runtime reachable. */
+  ok: boolean;
+  version: string | null;
+  state: string | null;
+  appRunning: boolean | null;
+  /** How long `orca status` took. */
+  latencyMs: number | null;
+  error: string | null;
+  checkedAt: string;
+}
+
+/** One unfinished task's or comparison's driver. */
+export interface DriverHealth {
+  kind: 'task' | 'comparison';
+  id: string;
+  title: string;
+  link: string;
+  /** `starting`: no driver has taken the lock yet, and it is too early to call it missing. */
+  state: 'alive' | 'starting' | 'stopped';
+  pid: number | null;
+  heartbeatAt: string | null;
+  /** The installed build the driver runs, null for a development checkout or an unknown build. */
+  build: string | null;
+  /** The driver runs another build than the one installed now. */
+  outdated: boolean;
+  /** Where the task stands, or how many entries a comparison has. */
+  phase: string;
+  lastEventAt: string;
+  stop: { reason: string; at: string } | null;
+  /** Since when Orca has been turning this driver away as busy, if it is now. */
+  busySince: string | null;
+}
+
+/** A worker of an unfinished task that has not reported yet. */
+export interface WorkerHealth {
+  taskId: string;
+  title: string;
+  stageKey: string;
+  dispatchId: string;
+  agent: string | null;
+  model: string | null;
+  effort: string | null;
+  startedAt: string;
+  lastActivityAt: string;
+  /** `quiet`: nothing from it for at least `stalledWorkerMs`. `exited`: gone without reporting. */
+  state: 'working' | 'asking' | 'quiet' | 'exited';
+}
+
+/** One usage window of an agent provider. */
+export interface UsageWindowView {
+  name: string;
+  usedPercent: number;
+  /** `warning` from `providerUsageWarnPercent`, `error` once the limit is reached. */
+  level: HealthLevel;
+  resetsAt: string | null;
+  resetDescription: string | null;
+}
+
+/** An agent provider as Orca reports it. */
+export interface ProviderHealth {
+  provider: string;
+  /** Orca's status for the provider, such as `ok` or `unavailable`. */
+  status: string;
+  error: string | null;
+  /** A recipe or a running worker uses this provider. */
+  used: boolean;
+  windows: UsageWindowView[];
+  extraUsage: { spent: number; limit: number | null; currency: string | null } | null;
+}
+
+/** A recorded Orca hiccup or driver stop. */
+export interface HiccupView {
+  at: string;
+  kind: 'busy' | 'room' | 'uncertain' | 'stopped';
+  source: { kind: 'task' | 'comparison'; id: string; title: string; link: string };
+  detail: string;
+}
+
+export interface HealthView {
+  asOf: string;
+  level: HealthLevel;
+  problems: HealthProblem[];
+  orca: OrcaHealthView;
+  /** Null when Orca could not report its providers. */
+  providers: ProviderHealth[] | null;
+  providersError: string | null;
+  grampus: {
+    /** The build serving this page; null for a development checkout. */
+    dashboard: string | null;
+    /** The build installed now, which newly started drivers run; null for a development checkout. */
+    installed: string | null;
+  };
+  drivers: DriverHealth[];
+  workers: WorkerHealth[];
+  hiccups: HiccupView[];
+  /** How far back `hiccups` reaches. */
+  historyMs: number;
+  /** When to ask again; Orca is checked at most this often. */
+  refreshMs: number;
+}

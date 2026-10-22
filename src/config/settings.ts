@@ -68,6 +68,14 @@ export interface Settings {
   dashboardAllowedHosts: readonly string[];
   /** Bytes of a task's diff the dashboard shows; a longer diff is cut. */
   dashboardDiffBytes: number;
+  /** How long the System page reuses one check of Orca and its agent accounts, and how often it checks again. */
+  healthProbeMs: number;
+  /** Deadline for one of those checks; an Orca that takes longer counts as not answering. */
+  healthProbeTimeoutMs: number;
+  /** How far back the System page lists Orca hiccups and driver stops. */
+  healthHistoryMs: number;
+  /** An agent provider's usage limit at or above this percentage is shown as a warning; 100 is an error. */
+  providerUsageWarnPercent: number;
   /** The Claude Code CLI, asked for its model aliases and effort levels by the recipe editor. */
   claudeCommand: readonly string[];
   /** The Codex CLI, asked for its model catalog by the recipe editor. */
@@ -145,6 +153,10 @@ export function defaultSettings(): Settings {
     dashboardHost: null,
     dashboardAllowedHosts: [],
     dashboardDiffBytes: MiB,
+    healthProbeMs: 30_000,
+    healthProbeTimeoutMs: 15_000,
+    healthHistoryMs: 24 * 60 * 60_000,
+    providerUsageWarnPercent: 90,
     claudeCommand: ['claude'],
     codexCommand: ['codex'],
     titleModel: 'haiku',
@@ -193,6 +205,10 @@ const fileSchema = z
     dashboardHost: z.string().min(1).nullable(),
     dashboardAllowedHosts: z.array(z.string().min(1)),
     dashboardDiffBytes: z.number().int().positive(),
+    healthProbeMs: z.number().int().positive(),
+    healthProbeTimeoutMs: z.number().int().positive(),
+    healthHistoryMs: z.number().int().positive(),
+    providerUsageWarnPercent: z.number().min(0).max(100),
     claudeCommand: z.array(z.string().min(1)).min(1),
     codexCommand: z.array(z.string().min(1)).min(1),
     // Passed on Claude's command line, which goes through cmd.exe on Windows, so only name characters.

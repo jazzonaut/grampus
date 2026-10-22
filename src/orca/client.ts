@@ -10,10 +10,12 @@ import { currentSettings } from '../config/settings.js';
 import type { Assignment } from '../domain/recipe.js';
 import { runProcess } from '../process/run.js';
 import {
+  accountListSchema,
   checkSchema,
   errorEnvelopeSchema,
   gateCreateSchema,
   okEnvelopeSchema,
+  providerLimits,
   repoListSchema,
   runCreateSchema,
   statusSchema,
@@ -26,6 +28,7 @@ import {
   workerStartSchema,
   worktreeSchema,
   type OrcaMessage,
+  type ProviderLimits,
   type WorkerStartReceipt,
 } from './protocol.js';
 
@@ -141,9 +144,40 @@ export interface OrcaDesk {
   openChangedFiles(worktreePath: string): Promise<void>;
 }
 
+/** Orca's own view of whether it is up, as `orca status` reports it. Unknown fields stay null. */
+export interface OrcaStatus {
+  appRunning: boolean | null;
+  reachable: boolean | null;
+  /** The runtime's state, such as `ready`. */
+  state: string | null;
+  version: string | null;
+}
+
+/** What the dashboard asks Orca to judge system health. Both calls use the given deadline. */
+export interface OrcaHealth {
+  status(timeoutMs: number): Promise<OrcaStatus>;
+  /** Sign-in state and usage limits of each agent provider Orca knows. */
+  providerLimits(timeoutMs: number): Promise<ProviderLimits[]>;
+}
+
 /** The real Orca CLI. */
-export class OrcaCli implements Orca, OrcaWorkspaces, OrcaDesk {
+export class OrcaCli implements Orca, OrcaWorkspaces, OrcaDesk, OrcaHealth {
   constructor(private readonly command: readonly string[] = currentSettings().orcaCommand) {}
+
+  async status(timeoutMs: number): Promise<OrcaStatus> {
+    const { app, runtime } = await this.parse(statusSchema, ['status'], undefined, timeoutMs);
+    return {
+      appRunning: app?.running ?? null,
+      reachable: runtime?.reachable ?? null,
+      state: runtime?.state ?? null,
+      version: runtime?.appVersion ?? null,
+    };
+  }
+
+  async providerLimits(timeoutMs: number): Promise<ProviderLimits[]> {
+    const { rateLimits } = await this.parse(accountListSchema, ['account', 'list'], undefined, timeoutMs);
+    return providerLimits(rateLimits ?? {});
+  }
 
   async version(): Promise<string | null> {
     const result = statusSchema.safeParse(await this.call(['status']));
@@ -299,8 +333,8 @@ export class OrcaCli implements Orca, OrcaWorkspaces, OrcaDesk {
     await this.call(['file', 'open-changed', '--worktree', `path:${worktreePath}`, '--mode', 'diff', '--focus']);
   }
 
-  private async parse<T>(schema: z.ZodType<T>, args: string[], requestId?: string): Promise<T> {
-    const result = schema.safeParse(await this.call(args, requestId));
+  private async parse<T>(schema: z.ZodType<T>, args: string[], requestId?: string, timeoutMs?: number): Promise<T> {
+    const result = schema.safeParse(await this.call(args, requestId, timeoutMs));
     if (!result.success)
       throw new OrcaUncertainError(
         `orca ${args.slice(0, 2).join(' ')} returned an unexpected result: ${result.error.message}`,

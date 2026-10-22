@@ -50,8 +50,11 @@ export type ComparisonEvent =
       concurrency: number;
     }
   | { type: 'comparison.terminal'; terminal: string }
-  /** `terminal` is the Orca terminal the driver runs in, when it runs in one. */
-  | { type: 'driver.started'; pid: number; terminal?: string | null }
+  /**
+   * `terminal` is the Orca terminal the driver runs in, when it runs in one. `build` is the installed build
+   * the driver runs; absent for a development checkout.
+   */
+  | { type: 'driver.started'; pid: number; terminal?: string | null; build?: string }
   | { type: 'driver.stopped'; reason: string }
   /** The commit every entry starts from: the first entry's base. */
   | { type: 'base.fixed'; sha: string }

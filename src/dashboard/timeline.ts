@@ -16,9 +16,14 @@ const describers: Describers = {
   'workspace.created': event => ({ title: 'Worktree created', detail: `${event.path} at ${short(event.baseSha)}` }),
   'driver.started': event => ({
     title: 'Driver started',
-    detail: event.orcaVersion ? `Orca ${event.orcaVersion}` : null,
+    detail: [event.build ? `Grampus ${event.build}` : null, event.orcaVersion ? `Orca ${event.orcaVersion}` : null]
+      .filter(Boolean)
+      .join(', '),
   }),
   'driver.stopped': event => ({ title: 'Driver stopped', detail: event.reason, tone: 'error' }),
+  'orca.busy': event => ({ title: 'Orca busy, waiting for room', detail: event.detail, tone: 'warning' }),
+  'orca.room': event => ({ title: 'Orca has room again', detail: `after ${Math.round(event.waitedMs / 1000)} s` }),
+  'orca.uncertain': event => ({ title: `Orca call repeated (${event.repeat})`, detail: event.detail, tone: 'warning' }),
   'run.created': () => ({ title: 'Orca run created' }),
   'stage.created': event => ({ title: `${event.key} created` }),
   'stage.started': event => ({

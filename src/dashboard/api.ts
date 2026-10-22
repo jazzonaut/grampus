@@ -11,7 +11,7 @@ import { queueCommand } from '../control.js';
 import { headSha, lineChanges, patch } from '../git/git.js';
 import { buildScorecard } from '../measure/report.js';
 import { measureDispatches } from '../measure/usage.js';
-import type { Orca, OrcaDesk, OrcaWorkspaces } from '../orca/client.js';
+import type { Orca, OrcaDesk, OrcaHealth, OrcaWorkspaces } from '../orca/client.js';
 import { listTaskIds } from '../store/task-store.js';
 import {
   deleteRecipe,
@@ -30,13 +30,14 @@ import {
 } from './actions.js';
 import { comparisonDetail, comparisonList, comparisonMetrics } from './comparisons.js';
 import { listComparisonIds } from '../compare/comparison.js';
+import { readHealth, type OrcaProbe } from './health.js';
 import { HttpError, readJson, sendJson, sendText, startEvents } from './http.js';
 import type { LoadedTask, TaskReader, TaskWatcher } from './tasks.js';
 import type { ChangesView, DiffView, HelpView, LiveChange, ScorecardView, TaskList } from './types.js';
 import { listItem, readBounded, servableFiles, taskDetail } from './views.js';
 
 /** The Orca calls the dashboard makes itself. */
-export type DashboardOrca = Pick<Orca, 'transcriptSessions'> & OrcaWorkspaces & OrcaDesk;
+export type DashboardOrca = Pick<Orca, 'transcriptSessions'> & OrcaWorkspaces & OrcaDesk & OrcaHealth;
 
 /** What every route can use. */
 export interface DashboardApp {
@@ -46,6 +47,7 @@ export interface DashboardApp {
   reader: TaskReader;
   watcher: TaskWatcher;
   orca: DashboardOrca;
+  probe: OrcaProbe;
 }
 
 export interface Call {
@@ -90,6 +92,7 @@ export const routes: Route[] = [
   { method: 'POST', pattern: new RegExp(`^/api/comparisons/${id}/commands$`), handle: comparisonCommandRoute },
   { method: 'POST', pattern: new RegExp(`^/api/comparisons/${id}/resume$`), handle: resumeComparison },
   { method: 'GET', pattern: /^\/api\/help$/, handle: help },
+  { method: 'GET', pattern: /^\/api\/health$/, handle: health },
   { method: 'GET', pattern: /^\/api\/live$/, handle: live },
 ];
 
@@ -232,6 +235,10 @@ function help({ response }: Call): void {
     globalOptions,
   };
   sendJson(response, 200, body);
+}
+
+async function health({ app, response }: Call): Promise<void> {
+  sendJson(response, 200, await readHealth(app.dataDir, app.reader, app.probe));
 }
 
 /** Server-sent events: `hello` on connect, then `change` with the ids of tasks whose logs changed. */

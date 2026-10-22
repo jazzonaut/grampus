@@ -84,6 +84,17 @@ export function driverAlive(dir: string, now = Date.now()): boolean {
   return holder !== null && seenAlive(holder, now);
 }
 
+/** The lock's holder as readers see it, or null when no driver holds the lock in `dir`. */
+export function driverHeartbeat(
+  dir: string,
+  now = Date.now(),
+): { pid: number | null; touchedAt: string; alive: boolean } | null {
+  const holder = readHolder(join(dir, lockName));
+  return holder
+    ? { pid: holder.pid, touchedAt: new Date(holder.touchedAt).toISOString(), alive: seenAlive(holder, now) }
+    : null;
+}
+
 /**
  * The driver stop readers show: the one the driver recorded, or one observed because the driver is gone
  * without recording why (killed, its terminal closed, the machine restarted). `at` is when the absence

@@ -1,6 +1,7 @@
 // Entry point of a task driver: one process per task, normally running in the task's own Orca terminal.
 // The driver lock keeps a second driver for the same task from starting, and stops this one from writing
 // if another driver took the lock over.
+import { installedBuild } from '../install/installation.js';
 import type { Orca } from '../orca/client.js';
 import { acquireDriverLock, LockLost } from '../store/driver-lock.js';
 import type { TaskStore } from '../store/task-store.js';
@@ -18,11 +19,13 @@ export async function drive(store: TaskStore, orca: Orca, log: Log): Promise<num
       log(`Task ${core.state.taskId} is already ${core.state.finished.outcome}.`);
       return 0;
     }
+    const build = installedBuild()?.build;
     core.record({
       type: 'driver.started',
       pid: process.pid,
       orcaVersion: await orca.version().catch(() => null),
       terminal: process.env.ORCA_TERMINAL_HANDLE ?? null,
+      ...(build ? { build } : {}),
     });
     log(`Driving ${core.state.taskId}: ${core.state.title}`);
     const code = await runToEnd(core, log);

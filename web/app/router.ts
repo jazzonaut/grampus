@@ -7,6 +7,7 @@ import EmptyTask from './pages/EmptyTask.vue';
 import HelpPage from './pages/HelpPage.vue';
 import NewTaskPage from './pages/NewTaskPage.vue';
 import RecipesPage from './pages/RecipesPage.vue';
+import SystemPage from './pages/SystemPage.vue';
 import TaskPage from './pages/TaskPage.vue';
 import TasksPage from './pages/TasksPage.vue';
 
@@ -25,6 +26,7 @@ export const router = createRouter({
     { path: '/comparisons', name: 'comparisons', component: ComparisonsPage },
     { path: '/comparisons/:id', name: 'comparison', component: ComparisonPage, props: true },
     { path: '/recipes', name: 'recipes', component: RecipesPage },
+    { path: '/system', name: 'system', component: SystemPage },
     { path: '/help', name: 'help', component: HelpPage },
     { path: '/:rest(.*)*', redirect: '/' },
   ],

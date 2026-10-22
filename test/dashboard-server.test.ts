@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { usageText, commands } from '../src/commands.js';
 import { serveDashboard, type RunningDashboard } from '../src/dashboard/server.js';
-import type { ChangesView, DiffView, TaskDetail, TaskList } from '../src/dashboard/types.js';
+import type { ChangesView, DiffView, HealthView, TaskDetail, TaskList } from '../src/dashboard/types.js';
 import { standardRecipe } from '../src/domain/recipe.js';
 import { git, headSha } from '../src/git/git.js';
 import { TaskStore } from '../src/store/task-store.js';
@@ -116,6 +116,21 @@ test('lists tasks and shows one with its pipeline, pending decision and timeline
   assert.equal(detail.specs[0]?.text, '# Greet\n');
   assert.ok(detail.timeline.some(item => item.title === 'Spec v1 recorded'));
   assert.equal(detail.summary.approval?.version, 1, 'the approval request carries the spec');
+});
+
+test('system health lists each unfinished task with its driver, and Orca as checked', async () => {
+  const { base, orca } = await start();
+  const health = (await (await fetch(`${base}/api/health`)).json()) as HealthView;
+  assert.deepEqual(
+    health.drivers.map(driver => [driver.id, driver.state]),
+    [['task-1', 'starting']],
+    'no driver has taken the lock yet, and it is too early to call it missing',
+  );
+  assert.equal(health.orca.ok, true);
+  assert.equal(health.orca.version, 'fake-1.0');
+  assert.equal(health.level, 'ok');
+  await fetch(`${base}/api/health`);
+  assert.equal(orca.healthChecks, 1, 'Orca is checked once per probe interval, not per request');
 });
 
 test('an unknown task is a 404, not a crash', async () => {

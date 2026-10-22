@@ -10,11 +10,13 @@ import {
   type Delivery,
   type Orca,
   type OrcaDesk,
+  type OrcaHealth,
+  type OrcaStatus,
   type OrcaWorkspaces,
   type WorkerStartRequest,
   type WorkerView,
 } from '../../src/orca/client.js';
-import type { OrcaMessage, WorkerStartReceipt } from '../../src/orca/protocol.js';
+import type { OrcaMessage, ProviderLimits, WorkerStartReceipt } from '../../src/orca/protocol.js';
 import { git } from '../../src/git/git.js';
 
 export interface WorkerContext {
@@ -43,7 +45,7 @@ export interface StartCall {
   spec: string;
 }
 
-export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk {
+export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk, OrcaHealth {
   readonly starts: StartCall[] = [];
   readonly released: string[] = [];
   readonly stopped: string[] = [];
@@ -70,6 +72,12 @@ export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk {
   /** Refuse `--terminal` reuse, as Orca does for workers started in Chat UI mode. */
   refuseReuse = false;
   liveness = new Map<string, string>();
+  /** What `orca status` reports; null makes it fail as an unreachable Orca does. */
+  orcaStatus: OrcaStatus | null = { appRunning: true, reachable: true, state: 'ready', version: 'fake-1.0' };
+  /** What `orca account list` reports about agent providers. */
+  limits: ProviderLimits[] = [];
+  /** How many times Orca's health was checked. */
+  healthChecks = 0;
   private readonly results = new Map<string, unknown>();
   private readonly tasks = new Map<string, { title: string; spec: string }>();
   private readonly inbox: OrcaMessage[] = [];
@@ -79,6 +87,16 @@ export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk {
 
   async version() {
     return 'fake-1.0';
+  }
+
+  async status() {
+    this.healthChecks++;
+    if (!this.orcaStatus) throw new OrcaUncertainError('orca status could not reach Orca (runtime_unavailable)');
+    return this.orcaStatus;
+  }
+
+  async providerLimits() {
+    return this.limits;
   }
 
   async createRun(objective: string, requestId: string) {

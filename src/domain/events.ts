@@ -82,7 +82,20 @@ export type TaskEvent =
       comparison?: { comparisonId: string };
     }
   | { type: 'workspace.created'; worktreeId: string; path: string; baseSha: string; driverTerminal: string }
-  | { type: 'driver.started'; pid: number; orcaVersion: string | null; terminal: string | null }
+  | {
+      type: 'driver.started';
+      pid: number;
+      orcaVersion: string | null;
+      terminal: string | null;
+      /** The installed build the driver runs; absent for a development checkout. */
+      build?: string;
+    }
+  /** Orca turned a call away unapplied because its long-poll slots were full; the driver waits for room. */
+  | { type: 'orca.busy'; detail: string }
+  /** Orca took a call again after a busy spell. */
+  | { type: 'orca.room'; waitedMs: number }
+  /** An Orca call's outcome was unknown (Orca unreachable or silent); the driver repeats it by its request id. */
+  | { type: 'orca.uncertain'; detail: string; repeat: number }
   | { type: 'orca.requested'; key: string; requestId: string }
   | { type: 'run.created'; runId: string; coordinatorHandle: string | null }
   | { type: 'stage.created'; key: string; stage: Stage; round: number; orcaTaskId: string }

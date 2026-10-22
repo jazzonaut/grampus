@@ -211,9 +211,22 @@ prints the addresses it answers on.
   event log. The overview shows the pending decision (its evidence behind Show details), the request,
   the spec's Outcome section as the description and your decisions, beside the workers and the files
   changed with the full diff. The open tab is part of the address, so it can be bookmarked.
-- **Attention**: the tab title counts tasks that need the user and the favicon gets a dot. Desktop
-  notifications are offered where the browser allows them (localhost or HTTPS, so not on a phone over
-  plain HTTP). A web app manifest lets it be added to a home screen.
+- **System** (`dashboard/health.ts`, `/api/health`): every unfinished task's and comparison's driver
+  (alive by its lock heartbeat, starting, or stopped with why; the build it runs from `driver.started`;
+  whether Orca is turning it away as busy), the workers that have not reported (working, asking, quiet
+  for `stalledWorkerMs`, or exited), Orca from `orca status`, each agent provider's sign-in state and
+  usage limits from `orca account list`, and the `orca.busy`, `orca.room`, `orca.uncertain` and
+  `driver.stopped` events of the last `healthHistoryMs`. Problems come first, each with an id that stays
+  the same while it lasts: a stopped driver, an Orca that does not answer, an unavailable provider a
+  recipe uses, or a usage limit reached are errors; Orca busy, a driver or the dashboard on an older
+  build than the installed one, a quiet or exited worker, and a limit at `providerUsageWarnPercent` are
+  warnings. Orca is checked at most every `healthProbeMs` (each check runs its CLI, with a
+  `healthProbeTimeoutMs` deadline); the page asks again on that interval and whenever a log changes.
+- **Attention**: the tab title counts tasks that need the user and the favicon gets a dot, also while
+  the system has an error. The System item in the rail shows the number of problems in the colour of the
+  worst. Desktop notifications announce each new decision, question and system error, where the browser
+  allows them (localhost or HTTPS, so not on a phone over plain HTTP). A web app manifest lets it be
+  added to a home screen.
 
 ## Durability and recovery
 
@@ -223,8 +236,8 @@ prints the addresses it answers on.
 - An uncertain result is a timeout, output without a JSON envelope, or one of the codes Orca's own CLI
   treats as an unknown outcome (`runtime_unavailable`, `remote_runtime_unavailable`, `runtime_timeout`,
   `invalid_runtime_response`); any other error envelope is a refusal. The driver repeats an uncertain
-  call up to `orcaRetries` times, waiting longer each time, so a restarting Orca does not stop it. A
-  repeated inbox `check` leaves out its acknowledgement, as a restarted driver does. A call that stays
+  call up to `orcaRetries` times, waiting longer each time, so a restarting Orca does not stop it; each
+  repeat is recorded (`orca.uncertain`) for the System page. A repeated inbox `check` leaves out its acknowledgement, as a restarted driver does. A call that stays
   uncertain stops the driver (`driver.stopped`); running `grampus drive <task>` again resumes.
 - `runtime_busy` (Orca's long-poll slots are full; see [Orca contract](#orca-contract)) means Orca
   applied nothing, so a busy call never counts towards `orcaRetries`. A busy mutation (such as
@@ -232,7 +245,8 @@ prints the addresses it answers on.
   stays busy; user commands wait until it goes through. A busy inbox `check` is likewise not counted:
   the driver waits `orcaRetryDelayMs` and checks again on its next pump, applying user commands in
   between. A comparison with more running entries than Orca's long-poll limit keeps Orca busy, so
-  this waiting is routine there rather than a fault.
+  this waiting is routine there rather than a fault. Each busy spell is recorded once, when it starts
+  (`orca.busy`) and when Orca takes the call (`orca.room`, with how long it waited), not per refusal.
 - The inbox is acknowledged only on the next `check` after every message is recorded. Replayed
   messages are skipped by id.
 - A reply Orca refuses (say its worker has gone) is recorded as `command.refused` and the question

@@ -57,6 +57,11 @@ test('an unreachable Orca is waited out without stopping the driver', async () =
   assert.ok(!events.some(event => event.type === 'driver.stopped'), 'no stop was recorded');
   const released = events.find(event => event.type === 'workers.released');
   assert.deepEqual(released?.type === 'workers.released' ? released.failures : null, [], 'the release was repeated');
+  assert.equal(
+    events.filter(event => event.type === 'orca.uncertain').length,
+    currentSettings().orcaRetries + 1,
+    'every repeat is recorded for the System page',
+  );
 });
 
 test('a busy Orca is waited out, however long it stays busy', async () => {
@@ -75,6 +80,12 @@ test('a busy Orca is waited out, however long it stays busy', async () => {
   const events = harness.store.events();
   assert.ok(!events.some(event => event.type === 'driver.stopped'), 'no stop was recorded');
   assert.ok(!events.some(event => event.type === 'stage.start_failed'), 'a busy start is not a failed start');
+  const spells = events.filter(event => event.type === 'orca.busy').length;
+  assert.ok(
+    spells >= 1 && spells < currentSettings().orcaRetries * 3,
+    'a busy spell is recorded once, not per refusal',
+  );
+  assert.equal(events.filter(event => event.type === 'orca.room').length, spells, 'every spell records its end');
 });
 
 test('a reply Orca refuses is recorded as refused and the driver carries on', async () => {

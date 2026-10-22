@@ -126,6 +126,11 @@ const states = Object.keys(stepStateLook) as StepState[];
             from the install. Keep Orca open while tasks run: their drivers and workers run in it. The dashboard can be
             stopped at any time without affecting them.
           </p>
+          <p class="text-sm text-muted">
+            The <RouterLink to="/system" class="underline">System</RouterLink> page shows whether Grampus can do its
+            work: each task's driver, the workers running now, whether Orca answers, how much of each agent's usage
+            limit is left, and recent Orca hiccups. Its rail item turns amber or red when something needs a look.
+          </p>
         </section>
 
         <section class="grid gap-6 sm:grid-cols-2">

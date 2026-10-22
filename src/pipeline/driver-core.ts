@@ -61,13 +61,32 @@ export interface Settled {
 
 export type Log = (line: string) => void;
 
+/** When a dispatch last showed signs of life: its start, a message from its stage, or an answer to it. */
+export function lastActivity(
+  state: TaskState,
+  events: readonly StoredEvent[],
+  record: StageRecord,
+  dispatch: DispatchRecord,
+): number {
+  let last = Date.parse(dispatch.startedAt);
+  for (const event of events) {
+    const active =
+      (event.type === 'worker.message' && event.key === record.key) ||
+      (event.type === 'command.applied' &&
+        event.command.kind === 'reply' &&
+        state.questions.get(event.command.messageId)?.key === record.key);
+    if (active) last = Math.max(last, Date.parse(event.at));
+  }
+  return last;
+}
+
 export class DriverCore {
   readonly events: StoredEvent[];
   readonly state: TaskState;
   private pendingAck: string | null = null;
   private lastLiveness = 0;
-  /** Orca is turning inbox checks away as busy; logged once per spell. */
-  private busy = false;
+  /** When Orca began turning inbox checks away as busy, or null; each spell is logged and recorded once. */
+  private busySince: number | null = null;
 
   constructor(
     readonly store: TaskStore,
@@ -140,14 +159,22 @@ export class DriverCore {
       }
     });
     if (delivery) {
-      if (this.busy) this.log('Orca has room again.');
-      this.busy = false;
+      if (this.busySince !== null) this.roomAgain(this.busySince);
+      this.busySince = null;
       return delivery;
     }
-    if (!this.busy) this.log('Orca is busy (all its long-poll slots are taken); waiting for room.');
-    this.busy = true;
+    if (this.busySince === null) {
+      this.log('Orca is busy (all its long-poll slots are taken); waiting for room.');
+      this.record({ type: 'orca.busy', detail: 'inbox check: all long-poll slots are taken' });
+      this.busySince = Date.now();
+    }
     await sleep(currentSettings().orcaRetryDelayMs);
     return null;
+  }
+
+  private roomAgain(busySince: number): void {
+    this.log('Orca has room again.');
+    this.record({ type: 'orca.room', waitedMs: Date.now() - busySince });
   }
 
   /** Pump until the predicate holds. */
@@ -372,7 +399,7 @@ export class DriverCore {
    * `retry` replaces it, and the request is withdrawn if the worker shows signs of life first.
    */
   private async askAboutQuietWorker(record: StageRecord, request: StageRequest, dispatch: DispatchRecord) {
-    const minutes = Math.round((Date.now() - this.lastActivity(record, dispatch)) / minuteMs);
+    const minutes = Math.round((Date.now() - lastActivity(this.state, this.events, record, dispatch)) / minuteMs);
     const choice = await this.decideUnless(
       `stage-quiet:${record.key}:${record.attempts}`,
       `${record.key} has not reported, asked or been answered for ${minutes} minutes; it may be stuck, for example on a prompt in its Orca terminal. It keeps running while you decide: retry replaces it with a fresh worker.`,
@@ -391,21 +418,7 @@ export class DriverCore {
     if (dispatch.settled || dispatch.exited) return false;
     for (const question of this.state.questions.values())
       if (question.key === record.key && isOpen(question)) return false;
-    return Date.now() - this.lastActivity(record, dispatch) >= currentSettings().stalledWorkerMs;
-  }
-
-  /** When a dispatch last showed signs of life: its start, a message from its stage, or an answer to it. */
-  private lastActivity(record: StageRecord, dispatch: DispatchRecord): number {
-    let last = Date.parse(dispatch.startedAt);
-    for (const event of this.events) {
-      const active =
-        (event.type === 'worker.message' && event.key === record.key) ||
-        (event.type === 'command.applied' &&
-          event.command.kind === 'reply' &&
-          this.state.questions.get(event.command.messageId)?.key === record.key);
-      if (active) last = Math.max(last, Date.parse(event.at));
-    }
-    return last;
+    return Date.now() - lastActivity(this.state, this.events, record, dispatch) >= currentSettings().stalledWorkerMs;
   }
 
   /**
@@ -557,22 +570,26 @@ export class DriverCore {
   async repeatUncertain<T>(call: (repeat: number) => Promise<T>): Promise<T> {
     const { orcaRetries, orcaRetryDelayMs } = currentSettings();
     let uncertain = 0;
-    let busy = false;
+    let busySince: number | null = null;
     for (let repeat = 0; ; repeat++) {
       try {
         const result = await call(repeat);
-        if (busy) this.log('Orca has room again.');
+        if (busySince !== null) this.roomAgain(busySince);
         return result;
       } catch (error) {
         if (error instanceof OrcaBusyError) {
-          if (!busy) this.log(`${error.message} Waiting for room.`);
-          busy = true;
+          if (busySince === null) {
+            this.log(`${error.message} Waiting for room.`);
+            this.record({ type: 'orca.busy', detail: error.message });
+            busySince = Date.now();
+          }
           await sleep(orcaRetryDelayMs);
           continue;
         }
         if (!(error instanceof OrcaUncertainError) || uncertain >= orcaRetries) throw error;
         uncertain++;
         this.log(`${error.message} Repeating it (${uncertain} of ${orcaRetries}).`);
+        this.record({ type: 'orca.uncertain', detail: error.message, repeat: uncertain });
         await sleep(orcaRetryDelayMs * uncertain);
       }
     }

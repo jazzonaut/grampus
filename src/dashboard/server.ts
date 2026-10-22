@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { currentSettings } from '../config/settings.js';
 import { OrcaCli } from '../orca/client.js';
 import { routes, sendError, type DashboardApp, type DashboardOrca } from './api.js';
+import { OrcaProbe } from './health.js';
 import { guardHost, guardWrite, HttpError, ownHostNames, sendStatic } from './http.js';
 import { TaskReader, TaskWatcher } from './tasks.js';
 
@@ -35,12 +36,14 @@ const defaultWebRoot = join(import.meta.dirname, '..', '..', 'web');
 
 export async function serveDashboard(options: DashboardOptions): Promise<RunningDashboard> {
   const settings = currentSettings();
+  const orca = options.orca ?? new OrcaCli();
   const app: DashboardApp = {
     dataDir: options.dataDir,
     selfCommand: options.selfCommand,
     reader: new TaskReader(options.dataDir),
     watcher: new TaskWatcher(options.dataDir, settings.waitPollMs),
-    orca: options.orca ?? new OrcaCli(),
+    orca,
+    probe: new OrcaProbe(orca),
   };
   const webRoot = options.webRoot ?? defaultWebRoot;
   const server = createServer((request, response) => {

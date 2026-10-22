@@ -104,5 +104,58 @@ export const repoListSchema = z.object({
 });
 
 export const statusSchema = z.object({
-  runtime: z.object({ appVersion: z.string().optional(), reachable: z.boolean().optional() }).optional(),
+  app: z.object({ running: z.boolean().optional() }).optional(),
+  runtime: z
+    .object({
+      appVersion: z.string().optional(),
+      reachable: z.boolean().optional(),
+      state: z.string().optional(),
+    })
+    .optional(),
 });
+
+/** One usage window of an agent provider, as Orca's account list reports it. */
+const usageWindowSchema = z
+  .object({
+    usedPercent: z.number(),
+    windowMinutes: z.number().optional(),
+    resetsAt: z.number().nullable().optional(),
+    resetDescription: z.string().nullable().optional(),
+  })
+  .nullable()
+  .optional();
+
+const providerLimitsSchema = z.object({
+  provider: z.string(),
+  status: z.string(),
+  error: z.string().nullable().optional(),
+  session: usageWindowSchema,
+  weekly: usageWindowSchema,
+  fableWeekly: usageWindowSchema,
+  monthly: usageWindowSchema,
+  extraUsage: z
+    .object({
+      enabled: z.boolean().optional(),
+      spent: z.number().nullable().optional(),
+      spendLimit: z.number().nullable().optional(),
+      spentPercent: z.number().nullable().optional(),
+      currencyCode: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+});
+export type ProviderLimits = z.infer<typeof providerLimitsSchema>;
+
+/**
+ * `account list`: Orca's sign-in and usage-limit view of each agent provider. `rateLimits` also holds
+ * flags that are not providers, so entries are kept only when they parse as one.
+ */
+export const accountListSchema = z.object({ rateLimits: z.record(z.string(), z.unknown()).optional() });
+
+/** The providers in an `account list` result's `rateLimits`, skipping entries that are not providers. */
+export function providerLimits(rateLimits: Record<string, unknown>): ProviderLimits[] {
+  return Object.values(rateLimits).flatMap(value => {
+    const parsed = providerLimitsSchema.safeParse(value);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
