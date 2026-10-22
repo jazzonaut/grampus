@@ -2,11 +2,13 @@
 <script setup lang="ts">
 import type { NavigationMenuItem } from '@nuxt/ui';
 import { computed } from 'vue';
+import { useNotificationPermission } from '../composables/useAttention';
 import { useLive } from '../composables/useLive';
 import { useTasks } from '../composables/useTasks';
 
 const { needsYou } = useTasks();
 const { connected } = useLive();
+const notifications = useNotificationPermission();
 
 const items = computed<NavigationMenuItem[]>(() => [
   {
@@ -52,7 +54,27 @@ const items = computed<NavigationMenuItem[]>(() => [
             <span v-if="!collapsed">{{ connected ? 'Live' : 'Offline' }}</span>
           </span>
         </UTooltip>
-        <UColorModeButton size="sm" />
+        <div class="flex items-center" :class="{ 'flex-col': collapsed }">
+          <UTooltip
+            v-if="notifications.supported && notifications.permission.value !== 'granted'"
+            :text="
+              notifications.permission.value === 'denied'
+                ? 'Notifications are blocked in this browser'
+                : 'Notify me when something needs me'
+            "
+          >
+            <UButton
+              size="sm"
+              color="neutral"
+              variant="ghost"
+              icon="i-lucide-bell-off"
+              aria-label="Turn on notifications"
+              :disabled="notifications.permission.value === 'denied'"
+              @click="notifications.request()"
+            />
+          </UTooltip>
+          <UColorModeButton size="sm" />
+        </div>
       </div>
     </template>
   </UDashboardSidebar>

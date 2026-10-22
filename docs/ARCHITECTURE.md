@@ -130,6 +130,13 @@ prints the addresses it answers on.
   JSON body, so cross-site forms and fetches fail; pages cannot be framed; a strict Content Security
   Policy and Markdown rendered without raw HTML contain agent output.
 - Icons are bundled at build time, so the dashboard works without internet access.
+- **Pages**: a task list (needs you first) beside the selected task, with its pipeline strip, the pending
+  decision and its evidence pinned on top, and tabs for overview, spec versions with review, checks and
+  review per round (with check logs), worker questions and answers, timeline, scorecard and the raw
+  event log. The open tab is part of the address, so it can be bookmarked.
+- **Attention**: the tab title counts tasks that need the user and the favicon gets a dot. Desktop
+  notifications are offered where the browser allows them (localhost or HTTPS, so not on a phone over
+  plain HTTP). A web app manifest lets it be added to a home screen.
 
 ## Durability and recovery
 

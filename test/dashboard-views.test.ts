@@ -1,0 +1,172 @@
+// Dashboard views of a task mid-flight: the pipeline strip, rounds, worker messages with answers, and the
+// state of queued commands, all derived from the same log the driver reads.
+import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { pipelineOf, taskDetail } from '../src/dashboard/views.js';
+import type { CheckResult, UserCommand } from '../src/domain/events.js';
+import { standardRecipe } from '../src/domain/recipe.js';
+import { foldEvents } from '../src/pipeline/state.js';
+import { TaskStore } from '../src/store/task-store.js';
+
+const check = (passed: boolean): CheckResult => ({
+  name: 'unit',
+  command: 'npm test',
+  exitCode: passed ? 0 : 1,
+  timedOut: false,
+  durationMs: 1200,
+  logPath: 'unit.log',
+  flaky: false,
+  passed,
+});
+
+function taskInRepair(): TaskStore {
+  const store = TaskStore.create(mkdtempSync(join(tmpdir(), 'grampus-views-')), 'task-1');
+  store.append({
+    type: 'task.created',
+    taskId: 'task-1',
+    title: 'T',
+    request: 'R',
+    repoPath: 'C:/repo',
+    recipe: standardRecipe,
+  });
+  store.append({ type: 'stage.created', key: 'spec:1', stage: 'spec', round: 1, orcaTaskId: 'o1' });
+  store.append({
+    type: 'stage.started',
+    key: 'spec:1',
+    dispatchId: 'd1',
+    assignment: { agent: 'claude' },
+    reusedHandle: null,
+    launch: null,
+  });
+  store.append({
+    type: 'worker.message',
+    messageId: 'm1',
+    key: 'spec:1',
+    kind: 'question',
+    subject: 'Trim?',
+    body: 'Trim spaces?',
+  });
+  const reply: UserCommand = {
+    id: '7a4b4f3e-6b2a-4c3e-9d1a-2b3c4d5e6f70',
+    at: '2026-10-22T10:00:00.000Z',
+    source: 'chat',
+    kind: 'reply',
+    messageId: 'm1',
+    body: 'Yes',
+  };
+  store.addCommand(reply);
+  store.append({ type: 'command.applied', command: reply });
+  store.append({
+    type: 'stage.settled',
+    key: 'spec:1',
+    dispatchId: 'd1',
+    messageId: 'm2',
+    outcome: 'succeeded',
+    subject: 'Spec written',
+    body: '',
+  });
+  store.append({
+    type: 'spec.recorded',
+    key: 'spec:1',
+    version: 1,
+    hash: 'h',
+    path: 'missing.md',
+    checks: [{ name: 'unit', command: 'npm test' }],
+    protected: [],
+  });
+  const approve: UserCommand = {
+    id: '8a4b4f3e-6b2a-4c3e-9d1a-2b3c4d5e6f70',
+    at: '2026-10-22T10:01:00.000Z',
+    source: 'dashboard',
+    kind: 'approve',
+    specVersion: 1,
+  };
+  store.addCommand(approve);
+  store.append({ type: 'command.applied', command: approve });
+  store.append({ type: 'checks.recorded', phase: 'baseline', round: 0, sha: 'a', results: [check(false)] });
+  store.append({ type: 'stage.created', key: 'build:0', stage: 'build', round: 0, orcaTaskId: 'o2' });
+  store.append({
+    type: 'stage.started',
+    key: 'build:0',
+    dispatchId: 'd2',
+    assignment: { agent: 'codex' },
+    reusedHandle: null,
+    launch: null,
+  });
+  store.append({
+    type: 'stage.settled',
+    key: 'build:0',
+    dispatchId: 'd2',
+    messageId: 'm3',
+    outcome: 'succeeded',
+    subject: 'Built',
+    body: '',
+  });
+  store.append({
+    type: 'guard.recorded',
+    round: 0,
+    fromSha: 'a',
+    sha: 'b',
+    guard: { clean: true, commits: 1, changedFiles: ['x.js'], violations: [], modifiedTests: [] },
+  });
+  store.append({ type: 'checks.recorded', phase: 'verify', round: 0, sha: 'b', results: [check(false)] });
+  store.append({ type: 'round.decided', round: 0, decision: 'repair', reasons: ['check unit failed'] });
+  store.append({ type: 'stage.created', key: 'repair:1', stage: 'repair', round: 1, orcaTaskId: 'o3' });
+  store.append({
+    type: 'stage.started',
+    key: 'repair:1',
+    dispatchId: 'd3',
+    assignment: null,
+    reusedHandle: 'h1',
+    launch: null,
+  });
+  return store;
+}
+
+test('the pipeline strip shows where a task in repair stands', () => {
+  const state = foldEvents(taskInRepair().events());
+  const steps = Object.fromEntries(pipelineOf(state).map(step => [step.id, step]));
+  assert.equal(steps['spec']?.state, 'done');
+  assert.equal(steps['spec-review']?.state, 'pending', 'the standard recipe reviews specs; none ran here');
+  assert.equal(steps['approve']?.state, 'done');
+  assert.equal(steps['approve']?.detail, 'v1');
+  assert.equal(steps['tests']?.state, 'skipped');
+  assert.equal(steps['baseline']?.detail, '0/1 pass before the change');
+  assert.equal(steps['build']?.state, 'done');
+  assert.equal(steps['repair']?.state, 'running');
+  assert.equal(steps['accept']?.state, 'pending');
+});
+
+test('task detail pairs questions with answers, rounds with evidence, and queued commands with their state', () => {
+  const store = taskInRepair();
+  const queued: UserCommand = {
+    id: '9a4b4f3e-6b2a-4c3e-9d1a-2b3c4d5e6f70',
+    at: '2026-10-22T10:05:00.000Z',
+    source: 'dashboard',
+    kind: 'abandon',
+  };
+  store.addCommand(queued);
+  const events = store.events();
+  const detail = taskDetail(foldEvents(events), events, store.commands());
+
+  assert.equal(detail.messages[0]?.answer?.body, 'Yes');
+  assert.equal(detail.messages[0]?.answer?.source, 'chat');
+  assert.equal(detail.specs[0]?.text, null, 'a missing spec file is reported, not invented');
+  assert.equal(detail.rounds[0]?.decision?.decision, 'repair');
+  assert.equal(detail.rounds[0]?.checks?.results[0]?.passed, false);
+  assert.equal(detail.rounds[1]?.stageKey, 'repair:1');
+  assert.equal(detail.stages.find(stage => stage.key === 'repair:1')?.dispatches[0]?.reused, true);
+  assert.deepEqual(
+    detail.commands.map(command => [command.kind, command.state]),
+    [
+      ['reply', 'applied'],
+      ['approve', 'applied'],
+      ['abandon', 'queued'],
+    ],
+  );
+  assert.equal(detail.status, 'running');
+  assert.ok(detail.timeline.some(item => item.title === 'Round 0: repair' && item.tone === 'warning'));
+});
