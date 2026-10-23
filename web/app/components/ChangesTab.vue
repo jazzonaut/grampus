@@ -144,9 +144,14 @@ function changedFeedbackPath(item: string): string | null {
 
 watch(
   () => [props.task.taskId, props.task.updatedAt],
-  async () => {
+  async (_value, _previous, onCleanup) => {
+    let stale = false;
+    onCleanup(() => {
+      stale = true;
+    });
     try {
       const next = await getJson<ChangesView>(`/api/tasks/${encodeURIComponent(props.task.taskId)}/changes`);
+      if (stale) return;
       const moved = changes.value?.sha !== next.sha;
       changes.value = next;
       if (moved) {
@@ -154,30 +159,42 @@ watch(
         fileDiff.value = null;
         selectedCode.value = null;
         selectedCodeVersion.value = null;
+        highlighted.value = null;
+        groupId.value = null;
         explanationOpen.value = false;
         fullChange.value = false;
       }
       error.value = null;
     } catch (failure) {
+      if (stale) return;
       error.value = (failure as Error).message;
     }
   },
   { immediate: true },
 );
 watch(
-  () => [prior.value?.candidateSha, changes.value?.sha],
-  async () => {
+  () => [props.task.taskId, prior.value?.candidateSha, changes.value?.sha],
+  async (_value, _previous, onCleanup) => {
+    let stale = false;
+    onCleanup(() => {
+      stale = true;
+    });
+    delta.value = null;
     if (!prior.value || !changes.value) {
       delta.value = null;
       deltaError.value = null;
       return;
     }
     try {
-      delta.value = await getJson<ChangesView>(
+      const result = await getJson<ChangesView>(
         `/api/tasks/${encodeURIComponent(props.task.taskId)}/changes?from=${encodeURIComponent(prior.value.candidateSha)}`,
       );
+      if (stale) return;
+      if (result.sha !== changes.value.sha) throw new Error('The candidate changed.');
+      delta.value = result;
       deltaError.value = null;
     } catch {
+      if (stale) return;
       delta.value = null;
       deltaError.value = 'The earlier commit is unavailable for a repair comparison. The full task diff is shown.';
     }
@@ -214,19 +231,25 @@ watch(prText, value => {
   if (changes.value) localStorage.setItem(`${storageKey.value}:pr`, value);
 });
 watch(
-  () => [selectedFile.value, fromSha.value, changes.value?.sha],
-  async () => {
+  () => [props.task.taskId, selectedFile.value, fromSha.value, changes.value?.sha],
+  async (_value, _previous, onCleanup) => {
+    let stale = false;
+    onCleanup(() => {
+      stale = true;
+    });
+    fileDiff.value = null;
+    diffError.value = null;
     if (!selectedFile.value || !fromSha.value || !changes.value) return;
     const path = selectedFile.value;
     const from = fromSha.value;
     const sha = changes.value.sha;
-    fileDiff.value = null;
-    diffError.value = null;
     try {
       const result = await getJson<DiffView>(
         `/api/tasks/${encodeURIComponent(props.task.taskId)}/diff?path=${encodeURIComponent(path)}&from=${from}`,
       );
-      if (selectedFile.value !== path || fromSha.value !== from || changes.value?.sha !== sha) return;
+      if (stale) return;
+      if (result.sha !== sha || result.baseSha !== from)
+        throw new Error('The candidate changed while loading this diff. Refresh Changes before selecting code.');
       fileDiff.value = result;
       await nextTick();
       if (highlighted.value?.path === path)
@@ -234,14 +257,13 @@ watch(
           .getElementById(`code-${path}-${highlighted.value.start}`)
           ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     } catch (failure) {
-      if (selectedFile.value === path) diffError.value = (failure as Error).message;
+      if (!stale) diffError.value = (failure as Error).message;
     }
   },
   { immediate: true },
 );
 watch(visibleFiles, files => {
-  if (files.length && !files.some(file => file.path === selectedFile.value))
-    selectedFile.value = files[0]?.path ?? null;
+  if (!files.some(file => file.path === selectedFile.value)) selectedFile.value = files[0]?.path ?? null;
 });
 
 async function explain(): Promise<void> {
@@ -296,14 +318,15 @@ function chooseCode(reference: CodeReference): void {
   if (match) groupId.value = match.id;
 }
 async function jump(reference: CodeReference, candidateSha?: string): Promise<void> {
+  if (candidateSha && candidateSha !== changes.value?.sha) {
+    error.value = `This reference belongs to the earlier candidate ${shortSha(candidateSha)}. Its line numbers cannot be used in the current diff.`;
+    return;
+  }
+  error.value = null;
   highlighted.value = reference;
-  selectedCodeVersion.value = {
-    candidateSha: candidateSha ?? changes.value?.sha ?? '',
-    specVersion:
-      candidateSha && candidateSha === prior.value?.candidateSha
-        ? (prior.value?.specVersion ?? null)
-        : (changes.value?.specVersion ?? null),
-  };
+  // A purpose filter or repair-only comparison may omit the referenced file entirely.
+  filesMode.value = true;
+  fullChange.value = true;
   selectedFile.value = reference.path;
   await nextTick();
   document
@@ -329,11 +352,16 @@ function requestFromDiscussion(answer: TaskDetail['answers'][number]): void {
   selectedCodeVersion.value = { candidateSha: answer.candidateSha, specVersion: answer.specVersion };
 }
 async function submitFeedback(): Promise<void> {
-  if (!drafts.value.length || !props.task.needsYou?.options.includes('continue')) return;
+  if (busy.value || !drafts.value.length || !props.task.needsYou?.options.includes('continue')) return;
+  if (drafts.value.some(item => !item.text.trim())) {
+    error.value = 'Every change request needs text. Fill in or remove empty requests before continuing.';
+    return;
+  }
+  const sent = new Map(drafts.value.map(item => [item, item.text]));
   const guidance = drafts.value
     .map(
       (item, index) =>
-        `${index + 1}. ${item.text}${item.reference ? ` (${item.reference.path}:${item.reference.start}-${item.reference.end} at ${shortSha(item.candidateSha)}, spec v${item.specVersion ?? '?'})` : ''}${item.discussion ? ` [Discussion: ${item.discussion}]` : ''}`,
+        `${index + 1}. ${item.text.trim()}${item.reference ? ` (${item.reference.path}:${item.reference.start}-${item.reference.end} at ${shortSha(item.candidateSha)}, spec v${item.specVersion ?? '?'})` : ''}${item.discussion ? ` [Discussion: ${item.discussion}]` : ''}`,
     )
     .join('\n');
   busy.value = true;
@@ -342,7 +370,8 @@ async function submitFeedback(): Promise<void> {
       kind: 'continue',
       guidance,
     });
-    drafts.value = [];
+    // Adding or editing guidance while the request travels must not silently lose that later work.
+    drafts.value = drafts.value.filter(item => sent.get(item) !== item.text);
     error.value = null;
   } catch (failure) {
     error.value = (failure as Error).message;

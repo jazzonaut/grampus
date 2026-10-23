@@ -9,7 +9,6 @@ import { judgeCodeReview, parseReviewReport } from '../domain/review.js';
 import { repairAssignment, type Assignment } from '../domain/recipe.js';
 import type { GuardResult, TaskOutcome, UserCommand } from '../domain/events.js';
 import { changedPaths, headSha } from '../git/git.js';
-import { runReviewCommand } from './change-review.js';
 import type { DriverCore, Launch, Settled } from './driver-core.js';
 import { measureDispatches } from '../measure/usage.js';
 import { inspectCandidate } from './guard.js';
@@ -37,19 +36,21 @@ export async function runPipeline(core: DriverCore): Promise<void> {
     const decision = decideRound(core, round, settled);
     if (decision === 'repair') continue;
     if (decision === 'ready') await simplify(core, worktree, spec, round, roundStart(core, 0), protectedFiles(core));
-    if (core.state.recipe.explain.automatic) await explainFinalCandidate(core, worktree, spec.version);
-    const choice = await askUser(core, round, decision);
+    const choice = await askUser(core, round, decision, spec.version);
     if (choice.kind === 'accept') return finish(core, 'accepted', decision === 'escalate', null);
   }
 }
 
 /** An automatic explanation is tied to the final candidate after a possible simplify pass. */
-async function explainFinalCandidate(core: DriverCore, worktree: string, specVersion: number): Promise<void> {
-  const candidateSha = await headSha(worktree);
+async function explainFinalCandidate(core: DriverCore, specVersion: number): Promise<void> {
+  const round = core.state.guard.size - 1;
+  const simplified = core.state.simplify.get(round)?.decided;
+  const candidateSha = simplified?.kept ? simplified.sha : core.state.verify.get(round)?.sha;
+  if (!candidateSha) throw new Error('There is no verified candidate to explain.');
   if (core.state.explanations.has(candidateSha)) return;
   const digest = createHash('sha256').update(`${core.state.taskId}:${candidateSha}:${specVersion}`).digest('hex');
   const id = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
-  await runReviewCommand(core, {
+  await core.runReview({
     kind: 'explain',
     id,
     at: new Date().toISOString(),
@@ -313,20 +314,28 @@ function decideRound(core: DriverCore, round: number, settled: Settled): 'repair
   return decision;
 }
 
-function askUser(core: DriverCore, round: number, decision: 'escalate' | 'ready'): Promise<UserCommand> {
+function askUser(
+  core: DriverCore,
+  round: number,
+  decision: 'escalate' | 'ready',
+  specVersion: number,
+): Promise<UserCommand> {
   const sha = core.state.verify.get(round)?.sha.slice(0, 12) ?? 'unknown';
   const reasons = core.state.decisions.get(round)?.reasons ?? [];
   const verdict = core.state.reviews.get(round)?.report?.verdict;
+  const explain = core.state.recipe.explain.automatic ? () => explainFinalCandidate(core, specVersion) : undefined;
   if (decision === 'ready')
     return core.decide(
       `ready:${round}`,
       `Verified at ${sha}: every check passes${verdict ? `, review ${verdict}` : ', no review'}.${simplifyNote(core.state, round)}${baselineNote(core)}${checkConfigNote(core, round)} Accept, continue with guidance, or abandon.`,
       ['accept', 'continue', 'abandon'],
+      explain,
     );
   return core.decide(
     `escalate:${round}`,
     `Round ${round} needs you at ${sha}: ${reasons.join('; ')}.${checkConfigNote(core, round)} Continue with guidance, accept anyway, or abandon.`,
     ['continue', 'accept', 'abandon'],
+    explain,
   );
 }
 

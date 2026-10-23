@@ -251,7 +251,9 @@ export class DriverCore {
   private async applyCommands(): Promise<void> {
     for (const command of this.store.commands()) {
       if (command.kind === 'explain' || command.kind === 'ask') {
-        if (this.reviewInProgress.has(command.id)) continue;
+        // Waiting for a worker pumps commands again. Defer every other review until its report is
+        // recorded, while still allowing replies and pipeline decisions through that nested pump.
+        if (this.reviewInProgress.size) continue;
         const recorded =
           command.kind === 'explain'
             ? this.events.some(event => event.type === 'explanation.recorded' && event.commandId === command.id)
@@ -264,12 +266,7 @@ export class DriverCore {
           continue;
         }
         if (!this.state.applied.has(command.id)) this.record({ type: 'command.applied', command });
-        this.reviewInProgress.add(command.id);
-        try {
-          await runReviewCommand(this, command);
-        } finally {
-          this.reviewInProgress.delete(command.id);
-        }
+        await this.runReview(command);
         continue;
       }
       if (this.state.applied.has(command.id)) continue;
@@ -291,16 +288,26 @@ export class DriverCore {
     await this.applyCommands();
   }
 
+  /** Serialise automatic and requested reviews across the command pumps inside their workers. */
+  async runReview(command: Extract<UserCommand, { kind: 'explain' | 'ask' }>): Promise<void> {
+    this.reviewInProgress.add(command.id);
+    try {
+      await runReviewCommand(this, command);
+    } finally {
+      this.reviewInProgress.delete(command.id);
+    }
+  }
+
   private refusal(command: UserCommand): string | null {
-    if (this.state.finished) return 'the task is finished';
-    if (command.kind === 'abandon') return null;
-    if (command.kind === 'decline') return this.state.comparisonId ? null : 'only a comparison entry can be declined';
     if (command.kind === 'reply') {
       const question = this.state.questions.get(command.messageId);
       if (!question) return `no question ${command.messageId}`;
       if (question.answered) return 'that question was already answered';
       return question.closed ? 'the worker that asked it has finished' : null;
     }
+    if (this.state.finished) return 'the task is finished';
+    if (command.kind === 'abandon') return null;
+    if (command.kind === 'decline') return this.state.comparisonId ? null : 'only a comparison entry can be declined';
     const attention = this.state.attention;
     if (!attention?.options.includes(command.kind)) return `nothing is waiting for ${command.kind}`;
     if (command.kind === 'approve') {
@@ -464,14 +471,30 @@ export class DriverCore {
    * Run a stage the task can do without until its worker ends. A start failure or an exit is returned
    * as an error instead of asking the user to retry.
    */
-  async runOptionalStage(request: StageRequest): Promise<Settled | { error: string }> {
+  async runOptionalStage(request: StageRequest, cancelled?: () => boolean): Promise<Settled | { error: string }> {
     const record = await this.launchStage(request);
     const ended = () => {
       const current = this.state.stages.get(record.key);
       const dispatch = currentDispatch(current);
-      return Boolean(current?.startFailure || dispatch?.settled || dispatch?.exited);
+      return Boolean(current?.startFailure || dispatch?.settled || dispatch?.exited || dispatch?.stopped);
     };
-    await this.waitFor(ended);
+    while (!ended()) {
+      if (cancelled?.()) {
+        const dispatch = currentDispatch(record);
+        if (dispatch) {
+          // A repair must not start while the supposedly read-only worker may still be running.
+          await this.mutate(() => this.orca.stopWorker(dispatch.dispatchId));
+          this.record({
+            type: 'stage.stopped',
+            key: record.key,
+            dispatchId: dispatch.dispatchId,
+            reason: 'the user continued or accepted',
+          });
+        }
+        return { error: 'Cancelled because the user continued or accepted.' };
+      }
+      await this.pump();
+    }
     const current = this.state.stages.get(record.key) ?? record;
     const dispatch = currentDispatch(current);
     if (dispatch?.settled)
@@ -585,7 +608,9 @@ export class DriverCore {
       return await this.repeatUncertain(call);
     } catch (error) {
       if (error instanceof OrcaUncertainError)
-        throw new DriverStop(`${error.message} Run \`grampus drive ${this.state.taskId}\` again to replay it safely.`);
+        throw new DriverStop(
+          `${error.message} Run \`grampus ${this.state.finished ? 'drive-review' : 'drive'} ${this.state.taskId}\` again to replay it safely.`,
+        );
       throw error;
     }
   }

@@ -170,10 +170,27 @@ may enable automatic generation; otherwise the user requests it at the acceptanc
 worker reads the request, approved spec, relevant architecture and complete Git diff, then writes a
 validated explanation with purpose groups and candidate line references. Follow-up questions use a
 separate optional worker. `explanation.recorded` and `answer.recorded` bind results and failures to the
-base SHA, candidate SHA and spec version. Failures do not alter correctness or acceptance. The driver
+base SHA, candidate SHA and spec version. Report failures do not alter correctness or acceptance.
+Automatic explanations run while the acceptance decision is available. Accepting or continuing stops
+an unfinished explanation before the pipeline proceeds. Reviews run serially, including across inbox
+pumps, so follow-ups can only consume a recorded explanation. Purpose-group ids must be unique and
+line references must resolve to existing lines, including rejecting line one of an empty file. A report
+is usable only after its evidence file is stored successfully. The driver requires a clean candidate
+before launching a review. Pre-existing uncommitted work makes the explanation unavailable while
+leaving repair available. After a review starts, an unexpected edit, even by a failed worker, stops the
+driver until the recorded candidate is restored; it cannot inherit earlier verification. The driver
 records their stages, request ids and measurements. A completed task's driver has closed; queued review
 commands launch a short-lived `drive-review` in its worktree under the same lock, rebind its Orca Run,
-and close the tab afterwards. Previous explanations remain in the event log after repairs.
+and close the tab after success. An interrupted review records its stop and leaves its terminal open;
+`drive-review` resumes the existing dispatch. Replies to live review-worker questions remain available
+after task completion. Previous explanations remain in the event log after repairs.
+
+The Changes view drops superseded API responses and checks diff commit bindings before displaying
+selectable lines. Single-file diffs retain both rename endpoints and treat filenames as literal paths.
+Opening an earlier explanation's reference reports its stale binding rather than highlighting those
+line numbers in the current candidate or changing the binding of already selected feedback.
+Submitting feedback rejects empty requests and removes only the unchanged requests that were sent;
+requests added or edited while the submission is in flight remain as drafts.
 
 ## Dashboard
 

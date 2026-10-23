@@ -54,17 +54,30 @@ export async function driveReview(store: TaskStore, orca: Orca, log: Log): Promi
     }
   }
   store.fenceWith(() => lock.assertHeld());
+  let core: DriverCore | null = null;
+  let completed = false;
   try {
-    const core = new DriverCore(store, orca, log);
+    core = new DriverCore(store, orca, log);
     if (!core.state.finished) throw new Error('The main driver still owns this task.');
-    if (core.state.runId) await core.repeatUncertain(() => orca.useRun(core.state.runId as string));
+    core.record({
+      type: 'driver.started',
+      pid: process.pid,
+      orcaVersion: await orca.version().catch(() => null),
+      terminal: process.env.ORCA_TERMINAL_HANDLE ?? null,
+    });
+    const runId = core.state.runId;
+    if (runId) await core.repeatUncertain(() => orca.useRun(runId));
     await core.processReviewCommands();
     await core.releaseWorkers();
     core.record({ type: 'usage.recorded', measurements: await measureDispatches(core.state, orca) });
+    completed = true;
     return 0;
+  } catch (error) {
+    if (!core) throw error;
+    return recordStop(core, error, log);
   } finally {
     lock.release();
-    await closeOwnTab(orca, log);
+    if (completed) await closeOwnTab(orca, log);
   }
 }
 
@@ -91,15 +104,20 @@ async function runToEnd(core: DriverCore, log: Log): Promise<number> {
     }
     return 0;
   } catch (error) {
-    // The log belongs to the driver that took over; even the reason for stopping is not ours to record.
-    if (error instanceof LockLost) {
-      log(`Stopped: ${error.message}`);
-      return 1;
-    }
-    const reason =
-      error instanceof DriverStop ? error.message : `Unexpected error: ${(error as Error).stack ?? String(error)}`;
-    core.record({ type: 'driver.stopped', reason });
-    log(`Stopped: ${reason}`);
+    return recordStop(core, error, log);
+  }
+}
+
+/** Both driver entry points preserve the failure evidence and leave the terminal available to resume. */
+function recordStop(core: DriverCore, error: unknown, log: Log): number {
+  // The log belongs to the driver that took over; even the reason for stopping is not ours to record.
+  if (error instanceof LockLost) {
+    log(`Stopped: ${error.message}`);
     return 1;
   }
+  const reason =
+    error instanceof DriverStop ? error.message : `Unexpected error: ${(error as Error).stack ?? String(error)}`;
+  core.record({ type: 'driver.stopped', reason });
+  log(`Stopped: ${reason}`);
+  return 1;
 }

@@ -15,16 +15,21 @@ const lines = computed<Line[]>(() => {
   const result: Line[] = [];
   let old = 0;
   let current = 0;
+  let inHunk = false;
   for (const text of props.patch.replace(/\r?\n$/, '').split(/\r?\n/)) {
-    if (text.startsWith('diff --git ')) continue;
+    if (text.startsWith('diff --git ')) {
+      inHunk = false;
+      continue;
+    }
     const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(text);
     if (hunk) {
       old = Number(hunk[1]);
       current = Number(hunk[2]);
+      inHunk = true;
       result.push({ text, old: null, current: null, kind: 'meta' });
       continue;
     }
-    if (text.startsWith('+++') || text.startsWith('---') || (!old && !current)) {
+    if (!inHunk) {
       result.push({ text, old: null, current: null, kind: 'meta' });
       continue;
     }

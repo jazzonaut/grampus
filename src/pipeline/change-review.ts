@@ -35,23 +35,38 @@ export async function runReviewCommand(core: DriverCore, command: ReviewCommand)
   const worktree = core.state.workspace?.path;
   if (!worktree) throw new Error('The task has no worktree.');
   const key = `${command.kind === 'explain' ? 'explain' : 'answer'}:${command.id}`;
+  // A builder's already-dirty worktree needs repair, not a read-only explanation. Once this review
+  // has started, however, dirt may be its own edit and must still stop acceptance across restarts.
+  if (
+    !core.state.stages.has(key) &&
+    (await headSha(worktree)) === command.candidateSha &&
+    (await uncommittedPaths(worktree)).length
+  ) {
+    const error =
+      'Explanation unavailable while the candidate has uncommitted files. Continue with repair or clean the worktree before requesting it again.';
+    recordReviewResult(core, command, null, error);
+    core.log(error);
+    return;
+  }
+  await assertCandidateUnchanged(worktree, command.candidateSha);
   const reportPath = workerFile(worktree, key, 'report.json');
   const prompt = changeReviewPrompt(core, command, reportPath);
-  let result: unknown = null;
+  let result: unknown;
   let error: string | null = null;
   try {
-    const settled = await core.runOptionalStage({
-      key,
-      stage: command.kind === 'explain' ? 'explain' : 'answer',
-      round: core.state.guard.size - 1,
-      title: `${command.kind === 'explain' ? 'Explain' : 'Answer'}: ${core.state.title}`,
-      spec: () => prompt,
-      launch: { assignment: core.state.recipe.explain.assignment },
-    });
+    const settled = await core.runOptionalStage(
+      {
+        key,
+        stage: command.kind === 'explain' ? 'explain' : 'answer',
+        round: core.state.guard.size - 1,
+        title: `${command.kind === 'explain' ? 'Explain' : 'Answer'}: ${core.state.title}`,
+        spec: () => prompt,
+        launch: { assignment: core.state.recipe.explain.assignment },
+      },
+      () => !core.state.finished && !core.state.attention,
+    );
     if ('error' in settled) throw new Error(settled.error);
     if (settled.outcome !== 'succeeded') throw new Error(`The worker reported failure: ${settled.body}`);
-    if ((await headSha(worktree)) !== command.candidateSha || (await uncommittedPaths(worktree)).length)
-      throw new Error('The explanation worker changed the candidate or left uncommitted files.');
     const text = readWorkerFile(reportPath);
     if (!text) throw new Error('The worker did not write a report.');
     if (Buffer.byteLength(text) > explanationLimits.bytes) throw new Error('The report exceeds the explanation limit.');
@@ -59,14 +74,26 @@ export async function runReviewCommand(core: DriverCore, command: ReviewCommand)
     keepEvidence(reportPath, join(core.store.dir, 'explanations', `${command.id}.json`));
   } catch (failure) {
     if (failure instanceof DriverStop || failure instanceof TaskAbandoned || failure instanceof LockLost) throw failure;
+    result = null;
     error = (failure as Error).message;
   }
+  // An optional report failure is harmless; a changed candidate invalidates verification. Do not
+  // record completion, so a restarted driver checks the same binding before accepting anything.
+  await assertCandidateUnchanged(worktree, command.candidateSha);
   recordReviewResult(core, command, result, error);
   core.log(
     error
       ? `${command.kind} unavailable: ${error}`
       : `${command.kind} recorded for ${command.candidateSha.slice(0, 12)}.`,
   );
+}
+
+/** Stop rather than attributing earlier verification to work changed by a read-only worker. */
+async function assertCandidateUnchanged(worktree: string, candidateSha: string): Promise<void> {
+  if ((await headSha(worktree)) !== candidateSha || (await uncommittedPaths(worktree)).length)
+    throw new DriverStop(
+      `The review candidate changed or has uncommitted files. Restore the clean candidate ${candidateSha} before resuming.`,
+    );
 }
 
 /** Worker contract for explanations and later questions. Changes here affect measured results. */
@@ -109,7 +136,7 @@ async function validateReferences(
     let length = lengths.get(reference.path);
     if (length === undefined) {
       const source = await git(worktree, ['show', `${sha}:${reference.path}`]);
-      length = source.replace(/\r?\n$/, '').split(/\r?\n/).length;
+      length = source === '' ? 0 : source.replace(/\r?\n$/, '').split(/\r?\n/).length;
       lengths.set(reference.path, length);
     }
     if (reference.end > length)

@@ -282,6 +282,9 @@ test("the task's changes so far are counted per file and served as a diff, cut a
   assert.deepEqual(byPath.get('docs/notes.md'), { path: 'docs/notes.md', oldPath: null, added: 2, deleted: 0 });
   assert.equal(byPath.get('package.json.bak')?.oldPath, 'package.json', 'a rename names the old path');
 
+  const renamed = (await (await fetch(`${base}/api/tasks/task-2/diff?path=package.json.bak`)).json()) as DiffView;
+  assert.match(renamed.patch, /rename from package.json\nrename to package.json.bak/);
+
   const diff = (await (await fetch(`${base}/api/tasks/task-2/diff`)).json()) as DiffView;
   assert.equal(diff.truncated, false);
   assert.match(diff.patch, /^\+ {2}return `Hello, \$\{name\}!`;$/m);

@@ -118,7 +118,21 @@ export async function resetWorktree(cwd: string, sha: string): Promise<void> {
 
 /** The unified diff between two commits, with rename detection. */
 export async function patch(cwd: string, from: string, to: string, path?: string): Promise<string> {
-  return git(cwd, ['diff', '-M', '--no-color', from, to, ...(path ? ['--', path] : [])]);
+  const file = path
+    ? (await lineChanges(cwd, from, to)).find(file => file.path === path || file.oldPath === path)
+    : null;
+  const paths = file ? [file.path, ...(file.oldPath ? [file.oldPath] : [])] : path ? [path] : [];
+  // Both rename endpoints must participate in detection. Literal pathspecs also keep names containing
+  // brackets, asterisks or Git pathspec prefixes from selecting unrelated files.
+  return git(cwd, [
+    '--literal-pathspecs',
+    'diff',
+    '-M',
+    '--no-color',
+    from,
+    to,
+    ...(paths.length ? ['--', ...paths] : []),
+  ]);
 }
 
 /** Web URL of origin when it is a GitHub or GitLab remote; unknown hosts stay unknown. */

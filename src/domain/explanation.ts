@@ -40,7 +40,8 @@ export const explanationSchema = z.object({
       }),
     )
     .min(1)
-    .max(explanationLimits.groups),
+    .max(explanationLimits.groups)
+    .refine(groups => new Set(groups.map(group => group.id)).size === groups.length, 'group ids must be unique'),
 });
 export type Explanation = z.infer<typeof explanationSchema>;
 
