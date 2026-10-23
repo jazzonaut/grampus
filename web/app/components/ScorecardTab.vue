@@ -90,80 +90,90 @@ const tiles = computed(() => {
         }}; totals cover the rest.
       </p>
 
-      <div class="overflow-x-auto rounded-lg border border-default">
-        <table class="w-full text-sm">
-          <thead class="bg-elevated/50 text-xs text-muted">
-            <tr>
-              <th class="px-3 py-2 text-left font-medium">Stage</th>
-              <th class="px-3 py-2 text-left font-medium">Agent</th>
-              <th class="px-3 py-2 text-left font-medium">Model</th>
-              <th class="px-3 py-2 text-left font-medium">Effort</th>
-              <th class="px-3 py-2 text-right font-medium">Working</th>
-              <th class="px-3 py-2 text-right font-medium">Waited</th>
-              <th class="px-3 py-2 text-right font-medium">Input</th>
-              <th class="px-3 py-2 text-right font-medium">Cached</th>
-              <th class="px-3 py-2 text-right font-medium">Output</th>
-              <th class="px-3 py-2 text-right font-medium">Est. cost</th>
-              <th class="px-3 py-2 text-left font-medium">Outcome</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-default">
-            <tr v-for="item in card.dispatches" :key="item.dispatchId">
-              <td class="px-3 py-2 font-mono text-xs">{{ item.key }}</td>
-              <td class="px-3 py-2">{{ item.provider ?? item.agent ?? '?' }}</td>
-              <td class="px-3 py-2 font-mono text-xs">{{ item.models.join(', ') || '?' }}</td>
-              <td class="px-3 py-2">{{ item.effort ?? '-' }}</td>
-              <td class="px-3 py-2 text-right tabular-nums">{{ duration(item.agentMs ?? item.durationMs) }}</td>
-              <td class="px-3 py-2 text-right tabular-nums">{{ item.waitingMs ? duration(item.waitingMs) : '-' }}</td>
-              <td class="px-3 py-2 text-right tabular-nums">{{ count(item.usage?.input) }}</td>
-              <td class="px-3 py-2 text-right tabular-nums">{{ count(item.usage?.cachedInput) }}</td>
-              <td class="px-3 py-2 text-right tabular-nums">{{ count(item.usage?.output) }}</td>
-              <td class="px-3 py-2 text-right tabular-nums">
-                <UTooltip v-if="item.costNote" :text="item.costNote">
-                  <span class="underline decoration-dotted">?</span>
-                </UTooltip>
-                <span v-else>{{ money(item.costUsd) }}</span>
-              </td>
-              <td class="px-3 py-2">
-                <UTooltip v-if="item.note" :text="item.note">
-                  <span class="underline decoration-dotted">{{ item.outcome ?? 'unsettled' }}</span>
-                </UTooltip>
-                <span v-else>{{ item.outcome ?? 'unsettled' }}</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <table class="w-full text-sm">
-        <caption class="text-left font-medium">
-          Work by phase (summed work, not elapsed time)
-        </caption>
-        <thead>
-          <tr>
-            <th class="text-left">Phase</th>
-            <th>Agent time</th>
-            <th>Check time</th>
-            <th>Estimated cost</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="phase in card.phases" :key="phase.phase">
-            <td>{{ phase.phase }}</td>
-            <td class="text-center">{{ duration(phase.agentMs) }}{{ phase.unknownTime ? ' + unknown' : '' }}</td>
-            <td class="text-center">{{ duration(phase.checkMs) }}</td>
-            <td class="text-center">{{ money(phase.costUsd) }}{{ phase.unknownCost ? ' + unknown' : '' }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <p class="text-sm text-muted">
-        Corrections: {{ card.interventions.implementation }} implementation, {{ card.interventions.workflow }} workflow,
-        {{ card.interventions.unknown }} unclassified.
-      </p>
-      <p class="text-xs text-muted">
-        Human cost: {{ card.human.decisions }} decisions and {{ card.human.answers }} answers,
-        {{ card.human.fromChat }} from chat. Input counts uncached tokens; cached input is listed separately. Cost is
-        estimated at API list prices (modelPrices in config.json); subscription use is not billed per token.
-      </p>
+      <details class="rounded-lg border border-default p-3">
+        <summary class="cursor-pointer text-sm font-medium">
+          Worker breakdown · {{ card.dispatches.length }} dispatches
+        </summary>
+        <div class="overflow-x-auto mt-3">
+          <table class="w-full text-sm">
+            <thead class="bg-elevated/50 text-xs text-muted">
+              <tr>
+                <th class="px-3 py-2 text-left font-medium">Stage</th>
+                <th class="px-3 py-2 text-left font-medium">Agent</th>
+                <th class="px-3 py-2 text-left font-medium">Model</th>
+                <th class="px-3 py-2 text-left font-medium">Effort</th>
+                <th class="px-3 py-2 text-right font-medium">Working</th>
+                <th class="px-3 py-2 text-right font-medium">Waited</th>
+                <th class="px-3 py-2 text-right font-medium">Input</th>
+                <th class="px-3 py-2 text-right font-medium">Cached</th>
+                <th class="px-3 py-2 text-right font-medium">Output</th>
+                <th class="px-3 py-2 text-right font-medium">Est. cost</th>
+                <th class="px-3 py-2 text-left font-medium">Outcome</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-default">
+              <tr v-for="item in card.dispatches" :key="item.dispatchId">
+                <td class="px-3 py-2 font-mono text-xs">{{ item.key }}</td>
+                <td class="px-3 py-2">{{ item.provider ?? item.agent ?? '?' }}</td>
+                <td class="px-3 py-2 font-mono text-xs">{{ item.models.join(', ') || '?' }}</td>
+                <td class="px-3 py-2">{{ item.effort ?? '-' }}</td>
+                <td class="px-3 py-2 text-right tabular-nums">{{ duration(item.agentMs ?? item.durationMs) }}</td>
+                <td class="px-3 py-2 text-right tabular-nums">{{ item.waitingMs ? duration(item.waitingMs) : '-' }}</td>
+                <td class="px-3 py-2 text-right tabular-nums">{{ count(item.usage?.input) }}</td>
+                <td class="px-3 py-2 text-right tabular-nums">{{ count(item.usage?.cachedInput) }}</td>
+                <td class="px-3 py-2 text-right tabular-nums">{{ count(item.usage?.output) }}</td>
+                <td class="px-3 py-2 text-right tabular-nums">
+                  <UTooltip v-if="item.costNote" :text="item.costNote">
+                    <span class="underline decoration-dotted">?</span>
+                  </UTooltip>
+                  <span v-else>{{ money(item.costUsd) }}</span>
+                </td>
+                <td class="px-3 py-2">
+                  <UTooltip v-if="item.note" :text="item.note">
+                    <span class="underline decoration-dotted">{{ item.outcome ?? 'unsettled' }}</span>
+                  </UTooltip>
+                  <span v-else>{{ item.outcome ?? 'unsettled' }}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+      <details class="rounded-lg border border-default p-3">
+        <summary class="cursor-pointer text-sm font-medium">Work by phase and measurement notes</summary>
+        <div class="space-y-3 mt-3 overflow-x-auto">
+          <table class="w-full text-sm">
+            <caption class="text-left font-medium">
+              Work by phase (summed work, not elapsed time)
+            </caption>
+            <thead>
+              <tr>
+                <th class="text-left">Phase</th>
+                <th>Agent time</th>
+                <th>Check time</th>
+                <th>Estimated cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="phase in card.phases" :key="phase.phase">
+                <td>{{ phase.phase }}</td>
+                <td class="text-center">{{ duration(phase.agentMs) }}{{ phase.unknownTime ? ' + unknown' : '' }}</td>
+                <td class="text-center">{{ duration(phase.checkMs) }}</td>
+                <td class="text-center">{{ money(phase.costUsd) }}{{ phase.unknownCost ? ' + unknown' : '' }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="text-sm text-muted">
+            Corrections: {{ card.interventions.implementation }} implementation,
+            {{ card.interventions.workflow }} workflow, {{ card.interventions.unknown }} unclassified.
+          </p>
+          <p class="text-xs text-muted">
+            Human cost: {{ card.human.decisions }} decisions and {{ card.human.answers }} answers,
+            {{ card.human.fromChat }} from chat. Input counts uncached tokens; cached input is listed separately. Cost
+            is estimated at API list prices (modelPrices in config.json); subscription use is not billed per token.
+          </p>
+        </div>
+      </details>
     </template>
   </div>
 </template>

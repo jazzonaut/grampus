@@ -286,9 +286,14 @@ prints the addresses it answers on.
   file diff at a time. The legacy whole-diff response is capped by `dashboardDiffBytes` and identifies
   truncation. Uncommitted work is excluded. The Changes tab navigates by purpose or file, with all files
   accessible, code-linked explanation and answers, and editable guidance submitted through the existing
-  `continue` command. The explanation opens above the diff at a readable line length, with individually
-  expandable sections and Before and after open initially. It uses the page scroll and leaves file
-  navigation unchanged. Review markers and an editable PR draft are stored in this browser per candidate;
+  `continue` command. The explanation opens by default with a summary, labelled before/after comparison,
+  file-linked key changes and caveats. It sits beside the diff when the content area has enough room,
+  and stacks above it on smaller screens. Long notes expand on demand; rationale and validation sit
+  under More detail. Unlabelled comparisons remain intact rather than guessing a split. The explanation
+  worker targets 250 words, with a 25-word summary, 35 words per comparison side and short purpose groups;
+  these are writing targets, not rejection limits, and material caveats take priority. Follow-up answers
+  target 120 words unless more detail is requested. The report schema and candidate binding are unchanged.
+  Review markers and an editable PR draft are stored in this browser per candidate;
   they do not gate acceptance or publish anything.
 - **No login.** Anyone who can reach the port can control tasks. The guards stop other web pages from
   using a visitor's browser: requests must name one of this machine's host names or addresses (or
@@ -296,6 +301,19 @@ prints the addresses it answers on.
   JSON body, so cross-site forms and fetches fail; pages cannot be framed; a strict Content Security
   Policy and Markdown rendered without raw HTML contain agent output.
 - Icons are bundled at build time, so the dashboard works without internet access.
+- Task pages show conclusions before supporting prose. Checks and review keep the latest round open,
+  show check and review status separately, and collapse earlier rounds and baseline evidence. Review
+  coverage lists unverified outcomes first and keeps them expanded; verified evidence is opened per
+  outcome. Repeated caveats share one entry with all affected ids, and caveat counts remain visible.
+  Blocking findings stay open. The Spec overview uses recorded acceptance scenarios without rewriting
+  their conditions; the complete specification remains available and is still what approval binds.
+  Worker prompts request concise outcomes, labels and review summaries while preserving necessary
+  conditions and evidence. These writing targets do not change report validation or event schemas.
+  Questions needing answers come first; answered and closed threads collapse. Overview keeps active
+  or failed workers and pending or refused commands visible, with completed history on demand.
+  Timeline defaults to milestones plus all warnings and errors, with an all-activity switch. Scorecard
+  breakdowns collapse beneath totals and unknown-usage notices. Events remain searchable across the
+  entire log while displaying 50 matches at a time.
 - **Pages**: a navigation rail that widens over the page on hover or focus, and a task list (needs you
   first) beside the selected task. The task header holds its title, repository and base commit, the
   pipeline strip (wrapping when narrow) and tabs for overview, spec versions with review, checks and

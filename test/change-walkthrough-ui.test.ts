@@ -119,6 +119,40 @@ async function feedbackSetup(t: TestContext) {
   return component;
 }
 
+test('the explanation compares labelled behaviour without guessing a split in unlabelled prose', async t => {
+  installStorage(t);
+  t.mock.method(globalThis, 'fetch', () =>
+    Promise.resolve(Response.json({ baseSha: 'base', sha: 'new', specVersion: 1, files: [] })),
+  );
+  const report = reactive({
+    beforeAfter: 'Before: A reconnect reset the score.\nAfter: The player keeps their score.',
+    groups: [],
+  });
+  const component = await componentSetup('web/app/components/ChangesTab.vue', {
+    task: {
+      taskId: 'comparison',
+      updatedAt: '1',
+      worktree: { baseSha: 'base' },
+      explanations: [
+        { candidateSha: 'new', baseSha: 'base', specVersion: 1, commandId: 'explain', explanation: report },
+      ],
+      answers: [],
+      stages: [],
+      commands: [],
+    },
+  });
+  t.after(component.stop);
+  await setImmediate();
+  assert.equal(component.state['explanationOpen'], true);
+  assert.deepEqual(component.state['comparison'], {
+    before: 'A reconnect reset the score.',
+    after: 'The player keeps their score.',
+  });
+  report.beforeAfter = 'Before reconnecting, save the score. The previous behaviour is not described.';
+  assert.equal(component.state['comparison'], null);
+  assert.equal(component.state['explanation'].beforeAfter, report.beforeAfter);
+});
+
 function installStorage(t: TestContext): void {
   const storage = new Map<string, string>();
   const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');

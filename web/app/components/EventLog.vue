@@ -11,6 +11,14 @@ const events = ref<StoredEvent[]>([]);
 const error = ref<string | null>(null);
 const types = ref<StoredEvent['type'][]>([]);
 const search = ref('');
+const pageSize = 50;
+const visibleCount = ref(pageSize);
+watch(
+  () => [props.taskId, search.value, ...types.value],
+  () => {
+    visibleCount.value = pageSize;
+  },
+);
 
 async function load(): Promise<void> {
   try {
@@ -50,7 +58,11 @@ const shown = computed(() => {
     <p class="text-xs text-muted">
       {{ shown.length }} of {{ events.length }} events, newest first. This is the task's append-only evidence log.
     </p>
-    <UCollapsible v-for="{ event, index, text } in shown" :key="index" class="rounded-md border border-default">
+    <UCollapsible
+      v-for="{ event, index, text } in shown.slice(0, visibleCount)"
+      :key="index"
+      class="rounded-md border border-default"
+    >
       <button type="button" class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-elevated/50">
         <span class="font-mono text-xs text-dimmed w-8 text-right">{{ index }}</span>
         <UBadge variant="subtle" color="neutral" class="font-mono">{{ event.type }}</UBadge>
@@ -61,5 +73,8 @@ const shown = computed(() => {
         <pre class="overflow-x-auto border-t border-default px-3 py-2 text-xs">{{ text }}</pre>
       </template>
     </UCollapsible>
+    <UButton v-if="shown.length > visibleCount" color="neutral" variant="outline" @click="visibleCount += pageSize"
+      >Show {{ Math.min(pageSize, shown.length - visibleCount) }} more events</UButton
+    >
   </div>
 </template>

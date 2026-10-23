@@ -42,14 +42,17 @@ const look = {
         </UTooltip>
         <p class="font-medium text-sm">{{ finding.title }}</p>
       </div>
-      <p v-if="finding.file" class="font-mono text-xs text-muted pl-6 break-all">
-        {{ finding.file }}{{ finding.line ? `:${finding.line}` : '' }}
-      </p>
-      <p v-if="finding.criterion" class="text-sm text-muted pl-6 italic">"{{ finding.criterion }}"</p>
-      <p v-if="finding.scenario" class="text-sm pl-6">
-        <span class="text-muted">Fails when:</span> {{ finding.scenario }}
-      </p>
-      <p v-if="finding.detail" class="text-sm text-muted pl-6 whitespace-pre-line">{{ finding.detail }}</p>
+      <details :open="kind === 'blocking'" class="pl-6 text-sm">
+        <summary class="cursor-pointer text-xs text-muted">{{ look[kind].label }} · evidence</summary>
+        <p v-if="finding.file" class="font-mono text-xs text-muted break-all mt-2">
+          {{ finding.file }}{{ finding.line ? `:${finding.line}` : '' }}
+        </p>
+        <p v-if="finding.criterion" class="text-sm text-muted pl-6 italic">"{{ finding.criterion }}"</p>
+        <p v-if="finding.scenario" class="text-sm pl-6">
+          <span class="text-muted">Fails when:</span> {{ finding.scenario }}
+        </p>
+        <p v-if="finding.detail" class="text-sm text-muted pl-6 whitespace-pre-line">{{ finding.detail }}</p>
+      </details>
     </li>
   </ul>
 </template>

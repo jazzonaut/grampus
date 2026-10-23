@@ -14,7 +14,7 @@ import type {
 } from '../domain/events.js';
 import type { Recipe } from '../domain/recipe.js';
 import type { Finding, ReviewReport } from '../domain/review.js';
-import type { CheckDefinition } from '../domain/spec.js';
+import type { AcceptanceScenario, CheckDefinition } from '../domain/spec.js';
 import type { Scorecard } from '../measure/report.js';
 import type { PolishRecord, TaskState } from '../pipeline/state.js';
 import type { TaskSummary } from '../pipeline/status.js';
@@ -96,6 +96,10 @@ export interface SpecView {
   text: string | null;
   /** The spec's Outcome section: what changes, for whom and why. Null when the spec has none. */
   outcome: string | null;
+  /** Exact recorded acceptance scenarios, grouped by their stable ids. */
+  acceptance: AcceptanceScenario[];
+  /** The spec's explicit scope exclusions, without rewriting its wording. */
+  outOfScope: string | null;
   review: SpecReviewView;
   approved: boolean;
 }

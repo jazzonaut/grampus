@@ -316,6 +316,8 @@ function specsOf(state: TaskState): SpecView[] {
       protected: spec.protected,
       text,
       outcome: text === null ? null : specSection(text, 'Outcome'),
+      acceptance: spec.acceptance,
+      outOfScope: text === null ? null : specSection(text, 'Out of scope'),
       review: { state: reviewState, report: reviewed?.report ?? null, error: reviewed?.error ?? null },
       approved: approved === spec.version,
     };

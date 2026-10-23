@@ -2,7 +2,7 @@
 // `worker_done` and `ask` commands); these texts say what to do. Each follows Orca's task-spec contract:
 // target, change, constraints, ownership and observable acceptance. Prompt text is a contract with the
 // agents: change it deliberately, and expect measured results to move when it does.
-import { polishLimits } from '../config/limits.js';
+import { polishLimits, reviewLimits, specLimits } from '../config/limits.js';
 import type { CheckResult } from '../domain/events.js';
 import type { Finding } from '../domain/review.js';
 import type { CheckDefinition } from '../domain/spec.js';
@@ -11,9 +11,9 @@ const specFormat = `Spec format (Markdown):
 
 # <short title>
 ## Outcome
-Two to five sentences: what changes, for whom, and why.
+At most two sentences, targeting ${specLimits.outcomeWords} words: what changes, for whom, and why. Keep implementation detail out of this overview.
 ## Acceptance criteria
-A numbered list. Each criterion is observable and testable.
+A numbered list, grouped by behaviour. Start each criterion with a short descriptive label, then state its exact observable conditions. Avoid repeating the outcome or examples. Keep every necessary condition; brevity must not weaken acceptance.
 ## Examples
 Concrete inputs and expected outputs, including edge cases and missing or invalid values.
 ## Out of scope
@@ -42,7 +42,8 @@ Then exactly one fenced code block whose info string is \`grampus\`, containing 
   reviewed with the spec; without it, a cross-check failure has unknown behavioural meaning.
 - "protected": repository globs the builder must not change (usually empty).
 - "acceptance": map every requested outcome to at least one executable scenario. Use unique stable ids
-  and declared check names. Name the real components exercised, mocked components and known limitations.
+  that read as short descriptive labels when hyphens are replaced with spaces. Target ${specLimits.acceptanceLabelWords} words for each "request" field; put precise conditions in "scenario" rather than duplicating them across fields.
+  Use declared check names. Name the real components exercised, mocked components and known limitations.
   Trace the user's action through the relevant production boundaries before choosing a test seam.
   Manually injecting the state that should result from a journey does not prove the journey works.
   Keep this proportional: a pure function can need one direct test; a reconnect request needs evidence
@@ -52,12 +53,13 @@ Then exactly one fenced code block whose info string is \`grampus\`, containing 
 const reportFormat = `Write the report as JSON:
 
 {"verdict": "approve" | "changes" | "unknown",
- "summary": "<two or three sentences>",
+ "summary": "<direct conclusion and most important unresolved issue, at most two sentences>",
  "findings": [{"severity": "blocking" | "note", "title": "...", "file": "path", "line": 12,
                "criterion": "<quoted criterion, if any>", "scenario": "<inputs or steps that go wrong>",
                "detail": "..."}]}
 
-Use "unknown" when you cannot decide; it is a valid answer and better than a guess.`;
+Use "unknown" when you cannot decide; it is a valid answer and better than a guess.
+Write for a developer scanning a dashboard. Target ${reviewLimits.summaryWords} words for summary and ${reviewLimits.evidenceWords} words per evidence, rationale or finding detail field. Keep finding titles short and concrete. Put specific tests, assertions and boundaries in evidence fields, not in the summary. Do not narrate your investigation or repeat the spec. State a shared caveat with identical wording wherever it applies so the UI can group it. These are writing targets, not permission to omit evidence, failing scenarios or material uncertainty.`;
 
 // The user reads a failure report before deciding, so it is short and scannable; the dashboard renders it
 // as Markdown.

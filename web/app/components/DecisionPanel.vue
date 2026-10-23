@@ -8,6 +8,7 @@ import type { TaskDetail } from '../../../src/dashboard/types';
 import { shortSha } from '../presentation';
 import CheckRun from './CheckRun.vue';
 import RoundEvidence from './RoundEvidence.vue';
+import ChangeNote from './ChangeNote.vue';
 
 const props = defineProps<{ task: TaskDetail }>();
 const emit = defineEmits<{ show: [tab: string] }>();
@@ -65,7 +66,7 @@ const specChecks = computed(() => {
             <li v-if="escalated.builderFailure">The builder reported failure; its report is below</li>
             <li v-for="reason in escalated.reasons" :key="reason" class="first-letter:uppercase">{{ reason }}</li>
           </ul>
-          <p v-else class="text-sm text-muted whitespace-pre-line">{{ task.needsYou.detail }}</p>
+          <ChangeNote v-else class="text-muted" :source="task.needsYou.detail" />
         </div>
       </div>
 

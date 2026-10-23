@@ -10,6 +10,9 @@ export const MiB = 1024 * KiB;
 
 /** Bounds on an approved spec and its machine-readable block. */
 export const specLimits = {
+  /** Writing targets retain precise conditions even when a longer explanation is necessary. */
+  outcomeWords: 50,
+  acceptanceLabelWords: 12,
   /** Size of the spec file a worker writes. */
   bytes: 128 * KiB,
   checks: 12,
@@ -29,6 +32,8 @@ export const specLimits = {
 
 /** Bounds on a review report. Findings beyond the limit are refused rather than truncated. */
 export const reviewLimits = {
+  summaryWords: 40,
+  evidenceWords: 60,
   bytes: 256 * KiB,
   findings: 40,
   textLength: 4000,
@@ -67,6 +72,12 @@ export const inputLimits = {
 
 /** Bounds on an explanation and its code references, which are recorded as review evidence. */
 export const explanationLimits = {
+  targetWords: 250,
+  summaryWords: 25,
+  comparisonWords: 35,
+  groupWords: 20,
+  targetGroups: 5,
+  answerWords: 120,
   bytes: 256 * KiB,
   textLength: 20_000,
   titleLength: 160,

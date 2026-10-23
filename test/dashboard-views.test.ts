@@ -189,6 +189,8 @@ test('task detail pairs questions with answers, rounds with evidence, and queued
   store.addCommand(queued);
   const events = store.events();
   const detail = taskDetail(foldEvents(events), events, store.commands());
+  assert.deepEqual(detail.specs[0]?.acceptance, acceptanceScenarios());
+  assert.equal(detail.specs[0]?.outOfScope, null);
 
   assert.equal(detail.messages[0]?.answer?.body, 'Yes');
   assert.equal(detail.messages[0]?.answer?.source, 'chat');

@@ -3,12 +3,17 @@
 import { computed, ref, watch } from 'vue';
 import type { SpecView } from '../../../src/dashboard/types';
 import { when } from '../presentation';
-import FindingList from './FindingList.vue';
+import ReviewBrief from './ReviewBrief.vue';
+import ChangeNote from './ChangeNote.vue';
 import MarkdownView from './MarkdownView.vue';
 
 const props = defineProps<{ specs: SpecView[] }>();
 
 const version = ref<number | undefined>(undefined);
+const fullSpec = ref(false);
+watch(version, () => {
+  fullSpec.value = false;
+});
 let previousLatest: number | undefined;
 watch(
   () => props.specs.at(-1)?.version,
@@ -39,12 +44,63 @@ const verdictColor = { approve: 'success', changes: 'warning', unknown: 'neutral
       <UBadge v-if="spec.approved" color="success" variant="subtle" icon="i-lucide-stamp">Approved</UBadge>
       <span class="text-sm text-muted">Version {{ spec.version }}, {{ when(spec.at) }}</span>
       <span class="font-mono text-xs text-dimmed">sha256 {{ spec.hash.slice(0, 12) }}</span>
+      <UButton color="neutral" variant="outline" size="sm" :aria-expanded="fullSpec" @click="fullSpec = !fullSpec">{{
+        fullSpec ? 'Show overview' : 'Read full spec'
+      }}</UButton>
     </div>
 
-    <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
-      <UCard>
-        <MarkdownView v-if="spec.text !== null" :source="spec.text" />
-        <UAlert v-else color="warning" variant="subtle" :title="`The spec file ${spec.path} is missing.`" />
+    <p class="text-xs text-muted">
+      Approval applies to the complete spec. Expand requirements for exact conditions, or read the full spec before
+      deciding.
+    </p>
+    <div class="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <UCard class="min-w-0">
+        <UAlert
+          v-if="spec.text === null"
+          color="warning"
+          variant="subtle"
+          :title="`The spec file ${spec.path} is missing.`"
+        />
+        <MarkdownView v-else-if="fullSpec" :source="spec.text" />
+        <div v-else class="space-y-5">
+          <section>
+            <h3 class="font-semibold mb-2">Outcome</h3>
+            <ChangeNote v-if="spec.outcome" :source="spec.outcome" />
+            <p v-else class="text-sm text-muted">No outcome section. Read the full spec.</p>
+          </section>
+          <section v-if="spec.outOfScope">
+            <h3 class="font-semibold mb-2">Out of scope</h3>
+            <ChangeNote :source="spec.outOfScope" />
+          </section>
+          <section class="space-y-2">
+            <h3 class="font-semibold">
+              Requirements <span class="font-normal text-muted">{{ spec.acceptance.length }}</span>
+            </h3>
+            <details v-for="item in spec.acceptance" :key="item.id" class="rounded-lg border border-default p-3">
+              <summary class="cursor-pointer text-sm font-medium">
+                {{ item.id.replaceAll('-', ' ')
+                }}<span v-if="item.limitations.length" class="ml-2 text-xs text-warning"
+                  >{{ item.limitations.length }} caveat{{ item.limitations.length === 1 ? '' : 's' }}</span
+                >
+              </summary>
+              <div class="mt-3 space-y-3 text-sm break-words">
+                <p>{{ item.request }}</p>
+                <p><strong>Expected behaviour:</strong> {{ item.scenario }}</p>
+                <p><strong>Checks:</strong> {{ item.checks.join(', ') }}</p>
+                <p><strong>Real components:</strong> {{ item.realComponents.join(', ') }}</p>
+                <p v-if="item.mockedComponents.length">
+                  <strong>Mocked:</strong> {{ item.mockedComponents.join(', ') }}
+                </p>
+                <ul v-if="item.limitations.length" class="space-y-1 text-warning">
+                  <li v-for="limitation in item.limitations" :key="limitation">{{ limitation }}</li>
+                </ul>
+              </div>
+            </details>
+          </section>
+          <UButton color="neutral" variant="link" class="px-0" @click="fullSpec = true"
+            >Read full spec, examples and implementation guidance</UButton
+          >
+        </div>
       </UCard>
 
       <div class="space-y-4">
@@ -57,7 +113,10 @@ const verdictColor = { approve: 'success', changes: 'warning', unknown: 'neutral
           <ul class="space-y-2">
             <li v-for="check in spec.checks" :key="check.name">
               <p class="text-sm font-medium">{{ check.name }}</p>
-              <code class="block font-mono text-xs text-muted break-all">{{ check.command }}</code>
+              <details class="text-xs text-muted">
+                <summary class="cursor-pointer">Command</summary>
+                <code class="block font-mono break-all mt-1">{{ check.command }}</code>
+              </details>
             </li>
           </ul>
           <template v-if="spec.protected.length">
@@ -93,12 +152,7 @@ const verdictColor = { approve: 'success', changes: 'warning', unknown: 'neutral
                 spec.review.report.verdict
               }}</UBadge>
             </div>
-            <p class="text-sm">{{ spec.review.report.summary }}</p>
-            <p v-if="spec.review.report.requestCoverage" class="text-sm">
-              Original request: {{ spec.review.report.requestCoverage.verdict }}.
-              {{ spec.review.report.requestCoverage.rationale }}
-            </p>
-            <FindingList :findings="spec.review.report.findings" />
+            <ReviewBrief :report="spec.review.report" />
           </div>
         </UCard>
       </div>

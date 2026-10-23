@@ -5,18 +5,31 @@
 -->
 <script setup lang="ts">
 import type { TaskDetail } from '../../../src/dashboard/types';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { duration, stepStateLook, when, type Look } from '../presentation';
 import CheckRun from './CheckRun.vue';
 import ChangesCard from './ChangesCard.vue';
 import DecisionActions from './DecisionActions.vue';
 import DecisionPanel from './DecisionPanel.vue';
-import MarkdownView from './MarkdownView.vue';
+import ChangeNote from './ChangeNote.vue';
 import StatusIcon from './StatusIcon.vue';
 import StoppedDriverAlert from './StoppedDriverAlert.vue';
 
 const props = defineProps<{ task: TaskDetail }>();
 const emit = defineEmits<{ show: [tab: string] }>();
+const allWorkers = ref(false);
+const allDecisions = ref(false);
+const visibleStages = computed(() =>
+  props.task.stages.filter(
+    stage =>
+      allWorkers.value ||
+      stage.startFailure ||
+      stage.dispatches.some(dispatch => !dispatch.settled || dispatch.settled.outcome === 'failed'),
+  ),
+);
+const visibleCommands = computed(() =>
+  props.task.commands.filter(command => allDecisions.value || command.state !== 'applied'),
+);
 
 /** The approved spec, or the latest version while none is. */
 const spec = computed(() => props.task.specs.find(entry => entry.approved) ?? props.task.specs.at(-1));
@@ -108,7 +121,7 @@ const commandState = {
               <UIcon name="i-lucide-message-square-quote" class="size-4" /> Request
             </h3>
           </template>
-          <MarkdownView :source="task.request" />
+          <ChangeNote :source="task.request" />
         </UCard>
 
         <UCard v-if="spec?.outcome">
@@ -129,7 +142,7 @@ const commandState = {
               </UButton>
             </div>
           </template>
-          <MarkdownView :source="spec.outcome" />
+          <ChangeNote :source="spec.outcome" />
         </UCard>
 
         <UCard v-if="task.commands.length">
@@ -138,17 +151,18 @@ const commandState = {
               <UIcon name="i-lucide-user-check" class="size-4" /> Your decisions
             </h3>
           </template>
-          <ul class="space-y-2">
-            <li v-for="command in task.commands" :key="command.id" class="flex items-start gap-3">
+          <UButton size="xs" color="neutral" variant="link" @click="allDecisions = !allDecisions">{{
+            allDecisions ? 'Hide applied decisions' : `Show all ${task.commands.length} decisions`
+          }}</UButton>
+          <ul class="space-y-2 mt-3">
+            <li v-for="command in visibleCommands" :key="command.id" class="flex items-start gap-3">
               <UIcon :name="commandIcon[command.kind]" class="size-4 mt-0.5 text-muted shrink-0" />
               <div class="min-w-0 flex-1">
                 <p class="text-sm">
                   <span class="font-medium">{{ command.kind }}</span>
                   <span class="text-muted"> from {{ command.source }}, {{ when(command.at) }}</span>
                 </p>
-                <p v-if="command.text" class="text-sm text-muted line-clamp-3 whitespace-pre-line">
-                  {{ command.text }}
-                </p>
+                <ChangeNote v-if="command.text" class="text-muted" :source="command.text" />
                 <p v-if="command.reason" class="text-sm text-error">{{ command.reason }}</p>
               </div>
               <UTooltip :text="commandState[command.state].label">
@@ -164,8 +178,12 @@ const commandState = {
           <template #header>
             <h3 class="font-semibold flex items-center gap-2"><UIcon name="i-lucide-bot" class="size-4" /> Workers</h3>
           </template>
-          <ul class="divide-y divide-default -my-2">
-            <template v-for="stage in task.stages" :key="stage.key">
+          <UButton size="xs" color="neutral" variant="link" @click="allWorkers = !allWorkers">{{
+            allWorkers ? 'Hide completed workers' : 'Show completed workers'
+          }}</UButton>
+          <p v-if="!visibleStages.length" class="text-sm text-muted">No active or failed workers.</p>
+          <ul class="divide-y divide-default">
+            <template v-for="stage in visibleStages" :key="stage.key">
               <li v-if="stage.startFailure" class="flex items-center gap-3 py-2">
                 <StatusIcon :look="stepStateLook.failed" size="size-4" />
                 <span class="font-mono text-sm">{{ stage.key }}</span>
@@ -186,9 +204,11 @@ const commandState = {
                       [dispatch.agent, dispatch.model, dispatch.effort].filter(Boolean).join(' · ') || 'default agent'
                     }}
                   </p>
-                  <p v-if="dispatch.settled?.subject" class="mt-0.5 text-sm text-muted">
-                    {{ dispatch.settled.subject }}
-                  </p>
+                  <ChangeNote
+                    v-if="dispatch.settled?.subject"
+                    class="mt-0.5 text-muted"
+                    :source="dispatch.settled.subject"
+                  />
                 </div>
               </li>
             </template>

@@ -1,4 +1,4 @@
-<!-- Explanations use a readable overview above the diff; review actions stay beside the code. -->
+<!-- A concise explanation sits beside the code when the workspace has enough room. -->
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import type { CodeReference } from '../../../src/domain/explanation';
@@ -7,6 +7,7 @@ import { getJson, sendJson } from '../api/client';
 import { shortSha } from '../presentation';
 import DiffFile from './DiffFile.vue';
 import MarkdownView from './MarkdownView.vue';
+import ChangeNote from './ChangeNote.vue';
 
 const props = defineProps<{ task: TaskDetail }>();
 const changes = ref<ChangesView | null>(null);
@@ -20,7 +21,7 @@ const selectedCode = ref<CodeReference | null>(null);
 const selectedCodeVersion = ref<{ candidateSha: string; specVersion: number | null } | null>(null);
 const highlighted = ref<CodeReference | null>(null);
 const groupId = ref<string | null>(null);
-const explanationOpen = ref(false);
+const explanationOpen = ref(true);
 const question = ref('');
 const busy = ref(false);
 const drafts = ref<
@@ -53,6 +54,11 @@ const prior = computed(() =>
   [...props.task.explanations].reverse().find(entry => entry.candidateSha !== changes.value?.sha && entry.explanation),
 );
 const explanation = computed(() => current.value?.explanation ?? prior.value?.explanation ?? null);
+// Unlabelled prose stays intact rather than guessing which claims describe the old behaviour.
+const comparison = computed(() => {
+  const match = /^\s*Before:\s*([\s\S]+?)\s+After:\s*([\s\S]+)$/i.exec(explanation.value?.beforeAfter ?? '');
+  return match?.[1] && match[2] ? { before: match[1], after: match[2] } : null;
+});
 const groups = computed(() => explanation.value?.groups ?? []);
 const activeGroup = computed(() => groups.value.find(group => group.id === groupId.value) ?? null);
 const currentAnswers = computed(() =>
@@ -161,7 +167,7 @@ watch(
         selectedCodeVersion.value = null;
         highlighted.value = null;
         groupId.value = null;
-        explanationOpen.value = false;
+        explanationOpen.value = true;
         fullChange.value = false;
       }
       error.value = null;
@@ -406,7 +412,7 @@ async function copyPr(): Promise<void> {
 </script>
 
 <template>
-  <div class="space-y-4 min-w-0">
+  <div class="changes-tab space-y-4 min-w-0">
     <UAlert v-if="error" color="error" variant="subtle" :title="error" />
     <div v-if="changes" class="flex flex-wrap items-center gap-2">
       <span class="text-sm text-muted"
@@ -436,267 +442,355 @@ async function copyPr(): Promise<void> {
       <span v-if="current?.error" class="text-xs text-warning">{{ current.error }}</span>
     </div>
     <div v-else class="space-y-2"><USkeleton class="h-5 w-1/2" /><USkeleton class="h-64" /></div>
-    <UCard v-if="explanationOpen && explanation" id="change-explanation">
-      <template #header><h3 class="font-semibold">Why this changed</h3></template>
-      <div class="mx-auto max-w-prose space-y-4 text-sm">
-        <UAlert
-          v-if="!current?.explanation"
-          color="warning"
-          variant="subtle"
-          title="Earlier candidate"
-          description="This explanation refers to a previous commit. Its references may have moved."
-        />
-        <details
-          v-for="item in [
-            ['Problem', explanation.problem],
-            ['Before and after', explanation.beforeAfter],
-            ['Architecture', explanation.architecture],
-            ['Approach', explanation.approach],
-            ['Decisions', explanation.decisions],
-            ['Validation', explanation.validation],
-            ['Limitations', explanation.limitations],
-          ]"
-          :key="item[0]"
-          class="rounded-lg border border-default px-4"
-          :open="item[0] === 'Before and after'"
+    <div class="changes-workspace" :class="{ 'with-explanation': explanationOpen && explanation }">
+      <UCard v-if="explanationOpen && explanation" id="change-explanation" class="min-w-0">
+        <template #header
+          ><h3 class="font-semibold flex items-center gap-2">
+            <UIcon name="i-lucide-file-diff" class="size-4 text-muted" />What the agent changed
+          </h3></template
         >
-          <summary class="cursor-pointer py-3 font-semibold focus-visible:outline-primary">{{ item[0] }}</summary>
-          <MarkdownView class="pb-4" :source="item[1] ?? ''" />
-        </details>
-        <section v-if="activeGroup" class="rounded-lg border border-primary/30 p-3">
-          <div class="flex justify-between gap-2">
-            <h4 class="font-semibold">{{ activeGroup.title }}</h4>
-            <UButton size="xs" color="neutral" variant="outline" @click="mark(activeGroup.id)">{{
-              markers.includes(activeGroup.id) ? 'Reviewed ✓' : 'Mark reviewed'
+        <div class="space-y-5 text-sm min-w-0">
+          <UAlert
+            v-if="!current?.explanation"
+            color="warning"
+            variant="subtle"
+            title="Earlier candidate"
+            description="This explanation refers to a previous commit. Its references may have moved."
+          />
+          <div class="rounded-lg bg-elevated p-3 border-l-2 border-primary/50">
+            <ChangeNote :source="explanation.approach" />
+          </div>
+          <section aria-label="Before and after">
+            <div v-if="comparison" class="grid grid-cols-1 gap-3 @min-[24rem]:grid-cols-2">
+              <div class="rounded-lg border border-default p-3 min-w-0">
+                <h4 class="text-xs font-semibold text-muted mb-2">Before</h4>
+                <ChangeNote :source="comparison.before" />
+              </div>
+              <div class="rounded-lg border border-default bg-elevated/50 p-3 min-w-0">
+                <h4 class="text-xs font-semibold mb-2">After</h4>
+                <ChangeNote :source="comparison.after" />
+              </div>
+            </div>
+            <template v-else
+              ><h4 class="font-semibold mb-2">Before and after</h4>
+              <ChangeNote :source="explanation.beforeAfter"
+            /></template>
+          </section>
+          <section>
+            <h4 class="font-semibold mb-2">Key changes</h4>
+            <ul class="divide-y divide-default">
+              <li v-for="group in groups" :key="group.id" class="py-3 first:pt-0 min-w-0">
+                <button
+                  type="button"
+                  class="text-left font-medium hover:text-primary focus-visible:outline-primary"
+                  @click="
+                    groupId = group.id;
+                    selectedFile = group.references[0]?.path ?? null;
+                    filesMode = false;
+                  "
+                >
+                  {{ group.title }}<span v-if="markers.includes(group.id)" class="ml-1">✓</span>
+                </button>
+                <span v-if="needsAnotherLook.has(group.id)" class="block text-xs text-warning">Needs another look</span>
+                <ChangeNote class="mt-1 text-muted" :source="group.purpose" />
+                <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                  <button
+                    v-for="reference in group.references"
+                    :key="`${reference.path}:${reference.start}`"
+                    type="button"
+                    class="text-xs font-mono text-primary text-left break-all underline underline-offset-2 focus-visible:outline-primary"
+                    @click="jump(reference, current?.explanation ? changes?.sha : prior?.candidateSha)"
+                  >
+                    {{ reference.path }}:{{ reference.start }}
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </section>
+          <section v-if="explanation.limitations" class="border-l-2 border-default pl-3">
+            <h4 class="text-xs font-semibold text-muted mb-1">Caveats</h4>
+            <ChangeNote :source="explanation.limitations" />
+          </section>
+          <details class="border-y border-default">
+            <summary class="cursor-pointer py-3 font-medium focus-visible:outline-primary">
+              More detail <span class="text-xs text-muted font-normal">· rationale and evidence</span>
+            </summary>
+            <section
+              v-for="item in [
+                ['Problem', explanation.problem],
+                ['Architecture', explanation.architecture],
+                ['Decisions', explanation.decisions],
+                ['Validation', explanation.validation],
+              ].filter(item => item[1])"
+              :key="item[0]"
+              class="pb-4"
+            >
+              <h4 class="font-medium mb-1">{{ item[0] }}</h4>
+              <MarkdownView :source="item[1] ?? ''" />
+            </section>
+          </details>
+          <section v-if="activeGroup" class="rounded-lg border border-primary/30 p-3">
+            <div class="flex justify-between gap-2">
+              <h4 class="font-semibold">{{ activeGroup.title }}</h4>
+              <UButton size="xs" color="neutral" variant="outline" @click="mark(activeGroup.id)">{{
+                markers.includes(activeGroup.id) ? 'Reviewed ✓' : 'Mark reviewed'
+              }}</UButton>
+            </div>
+            <div class="flex flex-wrap gap-1 mt-2">
+              <UButton
+                v-for="reference in activeGroup.references"
+                :key="`${reference.path}:${reference.start}`"
+                size="xs"
+                color="neutral"
+                variant="link"
+                class="px-0"
+                @click="jump(reference, current?.explanation ? changes?.sha : prior?.candidateSha)"
+                >{{ reference.path }}:{{ reference.start }}</UButton
+              >
+            </div>
+          </section>
+          <p v-if="selectedCode" class="text-xs text-primary">
+            Selected code: {{ selectedCode.path }}:{{ selectedCode.start
+            }}<template v-if="selectedCode.end !== selectedCode.start">-{{ selectedCode.end }}</template>
+          </p>
+          <form v-if="current?.explanation" class="space-y-2" @submit.prevent="ask">
+            <UFormField label="Ask about this change"
+              ><UTextarea
+                v-model="question"
+                class="w-full"
+                placeholder="What would you like to understand?" /></UFormField
+            ><UButton type="submit" size="sm" :disabled="!question.trim()" :loading="busy">Ask question</UButton>
+          </form>
+          <div v-for="answer in currentAnswers" :key="answer.commandId" class="border-t border-default pt-3 space-y-1">
+            <p class="font-medium">{{ answer.question }}</p>
+            <p v-if="answer.error" class="text-warning">{{ answer.error }}</p>
+            <ChangeNote v-else-if="answer.answer" :source="answer.answer.answer" />
+            <div class="flex flex-wrap gap-1">
+              <UButton
+                v-for="reference in answer.answer?.references ?? []"
+                :key="`${reference.path}:${reference.start}`"
+                size="xs"
+                variant="link"
+                color="neutral"
+                class="px-0"
+                @click="jump(reference, answer.candidateSha)"
+                >{{ reference.path }}:{{ reference.start }}</UButton
+              >
+            </div>
+            <UButton
+              v-if="answer.answer"
+              size="xs"
+              color="neutral"
+              variant="link"
+              class="px-0"
+              @click="requestFromDiscussion(answer)"
+              >Draft a change request from this answer</UButton
+            >
+          </div>
+        </div>
+      </UCard>
+      <div v-if="changes" class="min-w-0 space-y-4">
+        <div class="min-w-0 space-y-3">
+          <div
+            v-if="prior"
+            class="flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/5 p-3 text-sm"
+          >
+            <span class="flex-1">{{
+              fullChange || !delta ? 'Full task change' : `Since the previous review at ${shortSha(prior.candidateSha)}`
+            }}</span>
+            <UButton size="xs" color="neutral" variant="outline" :disabled="!delta" @click="fullChange = !fullChange">{{
+              fullChange ? 'Show latest repair' : 'Show full task diff'
             }}</UButton>
           </div>
-          <MarkdownView :source="activeGroup.purpose" />
-          <div class="flex flex-wrap gap-1 mt-2">
-            <UButton
-              v-for="reference in activeGroup.references"
-              :key="`${reference.path}:${reference.start}`"
-              size="xs"
-              color="neutral"
-              variant="link"
-              class="px-0"
-              @click="jump(reference, current?.explanation ? changes?.sha : prior?.candidateSha)"
-              >{{ reference.path }}:{{ reference.start }}</UButton
-            >
-          </div>
-        </section>
-        <p v-if="selectedCode" class="text-xs text-primary">
-          Selected code: {{ selectedCode.path }}:{{ selectedCode.start
-          }}<template v-if="selectedCode.end !== selectedCode.start">-{{ selectedCode.end }}</template>
-        </p>
-        <form v-if="current?.explanation" class="space-y-2" @submit.prevent="ask">
-          <UFormField label="Ask about this change"
-            ><UTextarea
-              v-model="question"
-              class="w-full"
-              placeholder="What would you like to understand?" /></UFormField
-          ><UButton type="submit" size="sm" :disabled="!question.trim()" :loading="busy">Ask question</UButton>
-        </form>
-        <div v-for="answer in currentAnswers" :key="answer.commandId" class="border-t border-default pt-3 space-y-1">
-          <p class="font-medium">{{ answer.question }}</p>
-          <p v-if="answer.error" class="text-warning">{{ answer.error }}</p>
-          <MarkdownView v-else-if="answer.answer" :source="answer.answer.answer" />
-          <div class="flex flex-wrap gap-1">
-            <UButton
-              v-for="reference in answer.answer?.references ?? []"
-              :key="`${reference.path}:${reference.start}`"
-              size="xs"
-              variant="link"
-              color="neutral"
-              class="px-0"
-              @click="jump(reference, answer.candidateSha)"
-              >{{ reference.path }}:{{ reference.start }}</UButton
-            >
-          </div>
-          <UButton
-            v-if="answer.answer"
-            size="xs"
-            color="neutral"
-            variant="link"
-            class="px-0"
-            @click="requestFromDiscussion(answer)"
-            >Draft a change request from this answer</UButton
+          <UAlert v-if="deltaError" color="warning" variant="subtle" :title="deltaError" />
+          <UAlert
+            v-if="prior && lastContinue?.text"
+            color="info"
+            variant="subtle"
+            title="Guidance sent for the repair"
+            description="Compare each request with the changed lines below. No request is marked addressed automatically."
+          />
+          <ul
+            v-if="prior && feedbackItems.length"
+            class="rounded-lg border border-default divide-y divide-default text-sm"
           >
-        </div>
-      </div>
-    </UCard>
-    <div v-if="changes" class="grid gap-4 items-start xl:grid-cols-[minmax(0,1fr)_minmax(19rem,25rem)]">
-      <div class="min-w-0 space-y-3">
-        <div
-          v-if="prior"
-          class="flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/5 p-3 text-sm"
-        >
-          <span class="flex-1">{{
-            fullChange || !delta ? 'Full task change' : `Since the previous review at ${shortSha(prior.candidateSha)}`
-          }}</span>
-          <UButton size="xs" color="neutral" variant="outline" :disabled="!delta" @click="fullChange = !fullChange">{{
-            fullChange ? 'Show latest repair' : 'Show full task diff'
-          }}</UButton>
-        </div>
-        <UAlert v-if="deltaError" color="warning" variant="subtle" :title="deltaError" />
-        <UAlert
-          v-if="prior && lastContinue?.text"
-          color="info"
-          variant="subtle"
-          title="Guidance sent for the repair"
-          description="Compare each request with the changed lines below. No request is marked addressed automatically."
-        />
-        <ul
-          v-if="prior && feedbackItems.length"
-          class="rounded-lg border border-default divide-y divide-default text-sm"
-        >
-          <li v-for="(item, index) in feedbackItems" :key="index" class="p-2 flex flex-wrap items-center gap-2">
-            <span class="flex-1">{{ item }}</span
-            ><UButton
-              v-if="changedFeedbackPath(item)"
-              size="xs"
-              color="neutral"
-              variant="link"
-              @click="selectedFile = changedFeedbackPath(item)"
-              >Open changed file</UButton
-            >
-          </li>
-        </ul>
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div class="flex gap-1" role="group" aria-label="Change navigation">
-            <UButton
-              size="xs"
-              :variant="filesMode ? 'outline' : 'solid'"
-              color="neutral"
-              :disabled="!groups.length"
-              @click="filesMode = false"
-              >Purposes</UButton
-            >
-            <UButton size="xs" :variant="filesMode ? 'solid' : 'outline'" color="neutral" @click="filesMode = true"
-              >Files</UButton
-            >
-          </div>
-          <span class="text-xs text-muted"
-            >{{ visibleChanges?.files.length ?? 0 }} files · choose a file to read its complete diff</span
-          >
-        </div>
-        <div v-if="!filesMode && groups.length" class="flex flex-wrap gap-1.5" role="group" aria-label="Purpose groups">
-          <UButton
-            v-for="group in groups"
-            :key="group.id"
-            size="xs"
-            color="neutral"
-            :variant="groupId === group.id ? 'solid' : 'outline'"
-            @click="
-              groupId = group.id;
-              selectedFile = group.references[0]?.path ?? null;
-            "
-            >{{ group.title }} <span v-if="markers.includes(group.id)" class="ml-1">✓</span
-            ><span v-else-if="needsAnotherLook.has(group.id)" class="ml-1 text-warning"
-              >Needs another look</span
-            ></UButton
-          >
-          <UButton size="xs" color="neutral" :variant="groupId === null ? 'solid' : 'outline'" @click="groupId = null"
-            >All</UButton
-          >
-        </div>
-        <div class="grid gap-3 items-start md:grid-cols-[minmax(11rem,15rem)_minmax(0,1fr)]">
-          <nav
-            class="rounded-lg border border-default overflow-auto max-h-80 md:sticky md:top-2"
-            aria-label="Changed files"
-          >
-            <button
-              v-for="file in visibleFiles"
-              :key="file.path"
-              type="button"
-              class="w-full text-left px-3 py-2 border-b border-default text-xs hover:bg-elevated"
-              :class="selectedFile === file.path ? 'bg-primary/10 font-semibold' : ''"
-              :title="file.oldPath ? `Renamed from ${file.oldPath}` : file.path"
-              @click="selectedFile = file.path"
-            >
-              <span class="block truncate">{{ file.path }}</span
-              ><span class="font-mono text-dimmed">{{
-                file.added === null ? 'binary' : `+${file.added} -${file.deleted}`
-              }}</span>
-            </button>
-            <p v-if="!visibleFiles.length" class="p-3 text-xs text-muted">
-              No files in this view. Choose Files or show the full task diff.
-            </p>
-          </nav>
-          <div class="rounded-lg border border-default min-w-0 overflow-hidden">
-            <div class="px-3 py-2 bg-elevated border-b border-default font-mono text-xs break-all">
-              {{ selectedFile ?? 'Choose a file' }}
+            <li v-for="(item, index) in feedbackItems" :key="index" class="p-2 flex flex-wrap items-center gap-2">
+              <span class="flex-1">{{ item }}</span
+              ><UButton
+                v-if="changedFeedbackPath(item)"
+                size="xs"
+                color="neutral"
+                variant="link"
+                @click="selectedFile = changedFeedbackPath(item)"
+                >Open changed file</UButton
+              >
+            </li>
+          </ul>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex gap-1" role="group" aria-label="Change navigation">
+              <UButton
+                size="xs"
+                :variant="filesMode ? 'outline' : 'solid'"
+                color="neutral"
+                :disabled="!groups.length"
+                @click="filesMode = false"
+                >Purposes</UButton
+              >
+              <UButton size="xs" :variant="filesMode ? 'solid' : 'outline'" color="neutral" @click="filesMode = true"
+                >Files</UButton
+              >
             </div>
-            <UAlert v-if="diffError" color="warning" variant="subtle" :title="diffError" class="m-3" />
-            <USkeleton v-else-if="selectedFile && !fileDiff" class="h-48 m-3" />
-            <DiffFile
-              v-else-if="fileDiff?.patch"
-              :path="selectedFile ?? ''"
-              :patch="fileDiff.patch"
-              :selected="selectedCode"
-              :highlighted="highlighted"
-              @select="chooseCode"
-            />
-            <p v-else class="p-3 text-sm text-muted">No changed lines in this comparison.</p>
+            <span class="text-xs text-muted"
+              >{{ visibleChanges?.files.length ?? 0 }} files · choose a file to read its complete diff</span
+            >
+          </div>
+          <div
+            v-if="!filesMode && groups.length"
+            class="flex flex-wrap gap-1.5"
+            role="group"
+            aria-label="Purpose groups"
+          >
+            <UButton
+              v-for="group in groups"
+              :key="group.id"
+              size="xs"
+              color="neutral"
+              :variant="groupId === group.id ? 'solid' : 'outline'"
+              @click="
+                groupId = group.id;
+                selectedFile = group.references[0]?.path ?? null;
+              "
+              >{{ group.title }} <span v-if="markers.includes(group.id)" class="ml-1">✓</span
+              ><span v-else-if="needsAnotherLook.has(group.id)" class="ml-1 text-warning"
+                >Needs another look</span
+              ></UButton
+            >
+            <UButton size="xs" color="neutral" :variant="groupId === null ? 'solid' : 'outline'" @click="groupId = null"
+              >All</UButton
+            >
+          </div>
+          <div class="diff-workspace grid gap-3 items-start">
+            <nav class="rounded-lg border border-default overflow-auto max-h-80" aria-label="Changed files">
+              <button
+                v-for="file in visibleFiles"
+                :key="file.path"
+                type="button"
+                class="w-full text-left px-3 py-2 border-b border-default text-xs hover:bg-elevated"
+                :class="selectedFile === file.path ? 'bg-primary/10 font-semibold' : ''"
+                :title="file.oldPath ? `Renamed from ${file.oldPath}` : file.path"
+                @click="selectedFile = file.path"
+              >
+                <span class="block truncate">{{ file.path }}</span
+                ><span class="font-mono text-dimmed">{{
+                  file.added === null ? 'binary' : `+${file.added} -${file.deleted}`
+                }}</span>
+              </button>
+              <p v-if="!visibleFiles.length" class="p-3 text-xs text-muted">
+                No files in this view. Choose Files or show the full task diff.
+              </p>
+            </nav>
+            <div class="rounded-lg border border-default min-w-0 overflow-hidden">
+              <div class="px-3 py-2 bg-elevated border-b border-default font-mono text-xs break-all">
+                {{ selectedFile ?? 'Choose a file' }}
+              </div>
+              <UAlert v-if="diffError" color="warning" variant="subtle" :title="diffError" class="m-3" />
+              <USkeleton v-else-if="selectedFile && !fileDiff" class="h-48 m-3" />
+              <DiffFile
+                v-else-if="fileDiff?.patch"
+                :path="selectedFile ?? ''"
+                :patch="fileDiff.patch"
+                :selected="selectedCode"
+                :highlighted="highlighted"
+                @select="chooseCode"
+              />
+              <p v-else class="p-3 text-sm text-muted">No changed lines in this comparison.</p>
+            </div>
           </div>
         </div>
+        <aside class="min-w-0 grid gap-3" aria-label="Review actions">
+          <UCard v-if="prior && !current"
+            ><template #header><h3 class="font-semibold">Earlier explanation</h3></template>
+            <p class="text-sm text-muted">
+              The explanation at {{ shortSha(prior.candidateSha) }} remains available for review and PR preparation. The
+              candidate changed, so references need another look.
+            </p>
+            <UButton size="xs" variant="link" class="px-0 mt-2" @click="explanationOpen = true"
+              >View earlier notes</UButton
+            ></UCard
+          >
+          <UCard
+            ><template #header><h3 class="font-semibold">Change requests</h3></template>
+            <p class="text-xs text-muted mb-2">
+              Questions do not request changes. Collect explicit guidance here, then send it in one repair round.
+            </p>
+            <UTextarea v-model="draftText" class="w-full" placeholder="Describe the change you want" />
+            <p v-if="discussionContext" class="text-xs text-muted mt-1">From discussion: {{ discussionContext }}</p>
+            <div class="flex gap-2 mt-2">
+              <UButton size="xs" color="neutral" variant="outline" :disabled="!draftText.trim()" @click="addDraft"
+                >Add request</UButton
+              ><span v-if="selectedCode" class="text-xs text-muted self-center">With selected code</span>
+            </div>
+            <div v-for="(draft, index) in drafts" :key="index" class="mt-2 border border-default rounded p-2">
+              <UTextarea v-model="draft.text" class="w-full" /><span v-if="draft.reference" class="text-xs text-muted"
+                >{{ draft.reference.path }}:{{ draft.reference.start }}</span
+              ><span v-if="draft.discussion" class="block text-xs text-muted"
+                >From discussion: {{ draft.discussion }}</span
+              ><UButton size="xs" color="error" variant="ghost" @click="drafts.splice(index, 1)">Remove</UButton>
+            </div>
+            <UButton
+              v-if="drafts.length && task.needsYou?.options.includes('continue')"
+              size="sm"
+              class="mt-3"
+              :loading="busy"
+              @click="submitFeedback"
+              >Continue with {{ drafts.length }} request{{ drafts.length === 1 ? '' : 's' }}</UButton
+            ></UCard
+          >
+          <UCard v-if="current?.explanation"
+            ><template #header><h3 class="font-semibold">PR description</h3></template>
+            <div class="flex flex-wrap gap-2 mb-2">
+              <UButton size="xs" color="neutral" variant="outline" @click="preparePr"
+                >Prepare from current explanation</UButton
+              ><UButton v-if="prText" size="xs" color="neutral" variant="outline" @click="prPreview = !prPreview">{{
+                prPreview ? 'Edit' : 'Preview'
+              }}</UButton
+              ><UButton v-if="prText" size="xs" color="neutral" variant="outline" @click="copyPr"
+                >Copy Markdown</UButton
+              >
+            </div>
+            <MarkdownView v-if="prPreview" :source="prText" /><UTextarea
+              v-else
+              v-model="prText"
+              class="w-full"
+              :rows="12"
+              placeholder="Prepare a description, then edit it here."
+          /></UCard>
+        </aside>
       </div>
-      <aside class="min-w-0 space-y-3 xl:sticky xl:top-2" aria-label="Review actions">
-        <UCard v-if="prior && !current"
-          ><template #header><h3 class="font-semibold">Earlier explanation</h3></template>
-          <p class="text-sm text-muted">
-            The explanation at {{ shortSha(prior.candidateSha) }} remains available for review and PR preparation. The
-            candidate changed, so references need another look.
-          </p>
-          <UButton size="xs" variant="link" class="px-0 mt-2" @click="explanationOpen = true"
-            >View earlier notes</UButton
-          ></UCard
-        >
-        <UCard
-          ><template #header><h3 class="font-semibold">Change requests</h3></template>
-          <p class="text-xs text-muted mb-2">
-            Questions do not request changes. Collect explicit guidance here, then send it in one repair round.
-          </p>
-          <UTextarea v-model="draftText" class="w-full" placeholder="Describe the change you want" />
-          <p v-if="discussionContext" class="text-xs text-muted mt-1">From discussion: {{ discussionContext }}</p>
-          <div class="flex gap-2 mt-2">
-            <UButton size="xs" color="neutral" variant="outline" :disabled="!draftText.trim()" @click="addDraft"
-              >Add request</UButton
-            ><span v-if="selectedCode" class="text-xs text-muted self-center">With selected code</span>
-          </div>
-          <div v-for="(draft, index) in drafts" :key="index" class="mt-2 border border-default rounded p-2">
-            <UTextarea v-model="draft.text" class="w-full" /><span v-if="draft.reference" class="text-xs text-muted"
-              >{{ draft.reference.path }}:{{ draft.reference.start }}</span
-            ><span v-if="draft.discussion" class="block text-xs text-muted"
-              >From discussion: {{ draft.discussion }}</span
-            ><UButton size="xs" color="error" variant="ghost" @click="drafts.splice(index, 1)">Remove</UButton>
-          </div>
-          <UButton
-            v-if="drafts.length && task.needsYou?.options.includes('continue')"
-            size="sm"
-            class="mt-3"
-            :loading="busy"
-            @click="submitFeedback"
-            >Continue with {{ drafts.length }} request{{ drafts.length === 1 ? '' : 's' }}</UButton
-          ></UCard
-        >
-        <UCard v-if="current?.explanation"
-          ><template #header><h3 class="font-semibold">PR description</h3></template>
-          <div class="flex flex-wrap gap-2 mb-2">
-            <UButton size="xs" color="neutral" variant="outline" @click="preparePr"
-              >Prepare from current explanation</UButton
-            ><UButton v-if="prText" size="xs" color="neutral" variant="outline" @click="prPreview = !prPreview">{{
-              prPreview ? 'Edit' : 'Preview'
-            }}</UButton
-            ><UButton v-if="prText" size="xs" color="neutral" variant="outline" @click="copyPr">Copy Markdown</UButton>
-          </div>
-          <MarkdownView v-if="prPreview" :source="prText" /><UTextarea
-            v-else
-            v-model="prText"
-            class="w-full"
-            :rows="12"
-            placeholder="Prepare a description, then edit it here."
-        /></UCard>
-      </aside>
     </div>
   </div>
 </template>
+
+<style scoped>
+.changes-tab {
+  container-type: inline-size;
+}
+.changes-workspace {
+  display: grid;
+  gap: 1rem;
+  align-items: start;
+}
+#change-explanation {
+  container-type: inline-size;
+}
+@container (min-width: 70rem) {
+  .changes-workspace.with-explanation {
+    grid-template-columns: minmax(20rem, 0.8fr) minmax(0, 1.6fr);
+  }
+}
+@container (min-width: 90rem) {
+  .diff-workspace {
+    grid-template-columns: minmax(11rem, 14rem) minmax(0, 1fr);
+  }
+}
+</style>
