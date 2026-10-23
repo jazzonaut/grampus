@@ -11,7 +11,7 @@ import { z } from 'zod';
 export const packageRoot = join(import.meta.dirname, '..', '..', '..');
 
 /**
- * A build id: the package version, then semver build metadata (`0.9.0+a1daeb8c3f21`, with
+ * A build id: the package version, then semver build metadata (`0.10.0+a1daeb8c3f21`, with
  * `.dirty.<time>` for an uncommitted tree). It names a folder, so it starts with a digit and has no
  * separators: `..` or a path can never be selected.
  */

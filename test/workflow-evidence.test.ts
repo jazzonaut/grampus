@@ -17,6 +17,34 @@ import {
   specText,
 } from './helpers/task-fixture.js';
 
+test('the root verification command cannot be omitted by a spec or hidden by passing acceptance tests', async () => {
+  const harness = await createHarness(
+    h => goodWorkers(h),
+    { ...pipelineRecipe, repair: { ...pipelineRecipe.repair, maxRounds: 0 } },
+    async repo => {
+      write(repo, 'package.json', JSON.stringify({ type: 'module', scripts: { verify: 'node verify.js' } }));
+      write(repo, 'verify.js', 'console.error("repository gate failed"); process.exit(1);');
+      await commitAll(repo, 'Declare repository verification');
+    },
+  );
+  const driver = harness.run();
+  try {
+    const awaiting = await harness.until(s => s.attention?.reason === 'approve-spec:1', 'approval');
+    assert.ok(
+      awaiting.specs[0]?.checks.some(check => check.command === 'npm run verify'),
+      'the driver must add the baseline even when the worker only declared greet',
+    );
+    assert.match(readText(awaiting.specs[0]?.path ?? ''), /npm run verify/);
+    harness.command({ kind: 'approve', specVersion: 1 });
+    const result = await harness.until(s => s.attention?.reason === 'escalate:0', 'baseline failure');
+    assert.equal(result.verify.get(0)?.results.find(check => check.command === 'npm run verify')?.passed, false);
+    assert.equal(result.verify.get(0)?.results.find(check => check.name === 'greet')?.passed, true);
+  } finally {
+    harness.command({ kind: 'abandon' });
+    await driver;
+  }
+});
+
 test('tests first recognises and protects cases added to existing test files', async () => {
   const harness = await createHarness(
     h =>
@@ -85,6 +113,17 @@ test('cross-checks use the retained polish and its own check evidence', async ()
     assert.equal(external.error, null);
     assert.equal(external.sha, sha);
     assert.ok(external.results?.every(check => check.passed));
+    const earlierLog = external.results?.[0]?.logPath ?? '';
+    const earlierText = readText(earlierLog);
+    const repeat = await crossCheckCell(
+      store,
+      { ...state, taskId: 'other' },
+      state,
+      state.workspace?.baseSha ?? '',
+      () => {},
+    );
+    assert.notEqual(repeat.results?.[0]?.logPath, earlierLog, 'even identical evidence must get fresh execution logs');
+    assert.equal(readText(earlierLog), earlierText);
   } finally {
     harness.command({ kind: 'abandon' });
     await driver;

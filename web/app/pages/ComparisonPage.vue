@@ -30,7 +30,10 @@ const abandoning = ref(false);
 
 async function load(): Promise<void> {
   try {
-    detail.value = await getJson<ComparisonDetail>(`/api/comparisons/${encodeURIComponent(props.id)}`);
+    const next = await getJson<ComparisonDetail>(`/api/comparisons/${encodeURIComponent(props.id)}`);
+    if (next.needsYou?.since !== detail.value?.needsYou?.since || next.stale !== detail.value?.stale)
+      metrics.value = null;
+    detail.value = next;
     error.value = null;
   } catch (failure) {
     error.value = (failure as Error).message;
@@ -39,8 +42,11 @@ async function load(): Promise<void> {
 
 async function measure(): Promise<void> {
   measuring.value = true;
+  const requestAt = detail.value?.needsYou?.since;
+  const stale = detail.value?.stale;
   try {
-    metrics.value = await getJson<ComparisonMetrics>(`/api/comparisons/${encodeURIComponent(props.id)}/metrics`);
+    const measured = await getJson<ComparisonMetrics>(`/api/comparisons/${encodeURIComponent(props.id)}/metrics`);
+    if (requestAt === detail.value?.needsYou?.since && stale === detail.value?.stale) metrics.value = measured;
   } catch (failure) {
     toast.add({ title: 'Could not measure', description: (failure as Error).message, color: 'error' });
   } finally {
@@ -65,13 +71,22 @@ const stop = useLive().onChange(changed => {
 });
 onScopeDispose(stop);
 watch(
-  () => detail.value?.entryViews.filter(entry => entry.done).length,
+  () =>
+    `${detail.value?.entryViews.filter(entry => entry.done).length}:${detail.value?.needsYou?.since}:${detail.value?.stale}`,
   (now, before) => {
     if (before !== undefined && now !== before) void measure();
   },
 );
 
-const metricsOf = computed(() => new Map((metrics.value?.entries ?? []).map(entry => [entry.taskId, entry])));
+const metricsOf = computed(
+  () =>
+    new Map(
+      (metrics.value?.entries ?? []).map(entry => [
+        entry.taskId,
+        detail.value?.stale || detail.value?.crossCheckProgress ? { ...entry, crossCheck: null } : entry,
+      ]),
+    ),
+);
 
 /** An entry that is ready passed its own checks and review; an escalated one did not. */
 function passedEverything(entry: ComparisonEntryView): boolean {
@@ -80,6 +95,7 @@ function passedEverything(entry: ComparisonEntryView): boolean {
 
 /** The entry waiting for confirmation because it did not pass everything. */
 const confirmKeep = ref<ComparisonEntryView | null>(null);
+const confirmRequestAt = ref<string | null>(null);
 const confirmOpen = computed({
   get: () => confirmKeep.value !== null,
   set: value => {
@@ -88,12 +104,19 @@ const confirmOpen = computed({
 });
 
 function keep(entry: ComparisonEntryView, confirmed = false): void {
+  if (
+    !detail.value?.needsYou ||
+    !detail.value.entryViews.find(item => item.task.taskId === entry.task.taskId)?.pickable
+  )
+    return;
   if (!passedEverything(entry) && !confirmed) {
     confirmKeep.value = entry;
+    confirmRequestAt.value = detail.value.needsYou.since;
     return;
   }
+  const requestAt = confirmed ? confirmRequestAt.value : detail.value.needsYou.since;
   confirmKeep.value = null;
-  void send({ kind: 'pick', taskId: entry.task.taskId }, `Keeping ${entry.recipe}`);
+  void send({ kind: 'pick', taskId: entry.task.taskId, requestAt }, `Keeping ${entry.recipe}`);
 }
 
 async function send(body: unknown, success: string): Promise<void> {
@@ -214,6 +237,13 @@ const charts = computed(() => [
           icon="i-lucide-ban"
           :title="`Your ${detail.refused.kind} was refused`"
           :description="detail.refused.reason"
+        />
+        <UAlert
+          v-if="detail.stale"
+          color="warning"
+          variant="subtle"
+          title="Comparison evidence is stale"
+          :description="detail.stale"
         />
         <div v-if="detail.needsYou" class="rounded-xl border border-warning/50 bg-warning/5 p-4 flex gap-3">
           <UIcon name="i-lucide-trophy" class="size-5 text-warning shrink-0 mt-0.5" />

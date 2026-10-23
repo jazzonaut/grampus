@@ -95,6 +95,12 @@ A successful setup is not repeated on restart. A failed or interrupted attempt r
 retry; an uncertain attempt is never silently replayed. Setup must leave HEAD and tracked files
 unchanged. See [repository setup](CONFIGURATION.md#repository-setup).
 
+The same configuration snapshot includes mandatory repository verification: explicit `checks` in
+`grampus.json`, or the root Node `verify`/`check` script. These checks are merged ahead of acceptance
+checks into the exact spec bytes before approval, so baseline, build, repair and polish all use the
+same commands. Recipes cannot narrow the baseline. `pipeline/repository-config.ts` owns discovery;
+repositories without an explicit or conventional gate remain explicitly without an inferred baseline.
+
 
 1. **Run and gate.** The driver creates its Run and an approval gate on a placeholder Orca task, so
    the pending decision is visible in Orca.
@@ -374,7 +380,7 @@ prints the addresses it answers on.
 
 ```text
 <data>/config.json                       optional settings
-<data>/tasks/<task>/events.jsonl          append-only event log (schema 2)
+<data>/tasks/<task>/events.jsonl          append-only event log (schema 5)
 <data>/tasks/<task>/commands.jsonl        queued user commands
 <data>/tasks/<task>/driver.lock          the running driver's process id, token and heartbeat
 <data>/tasks/<task>/spec/v<n>.md          spec versions and their reviews
@@ -382,7 +388,7 @@ prints the addresses it answers on.
 <data>/tasks/<task>/reviews/polish-<r>.json
 <data>/tasks/<task>/explanations/<command-id>.json
 <data>/tasks/<task>/checks/<phase>-<r>/   check logs
-<data>/comparisons/<id>/events.jsonl      comparison log (schema 1)
+<data>/comparisons/<id>/events.jsonl      comparison log (schema 3)
 <data>/comparisons/<id>/commands.jsonl    queued picks and abandons
 <data>/comparisons/<id>/driver.lock      the comparison driver's lock, as for a task
 <data>/comparisons/<id>/cross-check/      cross-check logs
@@ -553,6 +559,25 @@ specs' checks each result passed, rounds, time to result, agent time, tokens, es
 user's decisions), bar charts of the same, and the cross-check matrix, filling in while it runs. `status` and `wait` include
 comparisons, so a chat agent hears when a pick is needed.
 
+Cells bind both the candidate commit and the test-source commit to their spec versions and hashes.
+Continuing, revising or retrying an entry withdraws the pick request and invalidates affected rows and
+columns, including a later result at the same SHA. The driver records `evidence.invalidated`, retains
+unaffected cells and resumes the missing cells across restarts. Each execution gets its own log directory
+so refreshed checks cannot overwrite earlier evidence. A cell completed during an entry change is
+revalidated on the next driver pass before it can authorise a pick.
+
+CLI and dashboard project freshness from current entry logs and pending mutation commands, even
+before the comparison driver notices or when it has stopped. They hide the old pick and stale cells,
+show the refresh notice and suppress obsolete cross-check totals. Pick commands name the request they
+were made against; an old dashboard choice is refused even after a fresh pick request has appeared.
+Shared comparisons apply the same decision invalidation without running a cross-check. Completed
+comparisons retain their historical evidence. Status says how many entries passed their own checks
+with review approved; incompatible, unmeasured and behavioural cross-check outcomes remain separate.
+
+The code-review prompt explicitly requires reconciling shared-code changes with requirements to keep
+other behaviour unchanged, citing preservation evidence. Demonstrated contradictions are findings;
+missing evidence stays unverified. This changes the measured reviewer contract without adding a stage.
+
 
 ## Final candidate and experiment evidence
 
@@ -585,5 +610,5 @@ For builder comparisons, use shared mode with tests first in the first recipe, t
 interfaces, and compare repeated runs over several tasks. Full mode includes spec quality and test
 compatibility differences and is not an interchangeable behavioural benchmark.
 
-Task schema 4 and comparison schema 2 describe this workflow. Earlier logs are refused, not migrated
+Task schema 5 and comparison schema 3 describe this workflow. Earlier logs are refused, not migrated
 or rewritten. Recipe configuration now uses `polish`; `simplify` is not a supported alias.

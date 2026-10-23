@@ -19,7 +19,7 @@ const heading = computed(() => {
     case 'approve-spec':
       return { icon: 'i-lucide-stamp', text: `Approve spec v${value}` };
     case 'ready':
-      return { icon: 'i-lucide-circle-check', text: `Round ${value} passed everything` };
+      return { icon: 'i-lucide-circle-check', text: `Round ${value}: checks passed; review approved` };
     case 'escalate':
       return { icon: 'i-lucide-hand', text: `Round ${value} needs your judgement` };
     default:

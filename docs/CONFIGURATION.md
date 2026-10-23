@@ -23,7 +23,7 @@ the installed data directory.
 | `defaultCheckTimeoutSeconds` | `900` | Check timeout when the spec sets none (at most 3600) |
 | `checkShell` | `null` | Shell for check commands; null uses cmd.exe on Windows and /bin/sh elsewhere |
 | `testFilePatterns` | `**/*.test.*`, `**/*.spec.*`, `**/test/**`, `**/tests/**`, `**/__tests__/**` | Paths the guard treats as tests |
-| `checkConfigPatterns` | `**/Directory.Build.props`, `**/Directory.Build.targets`, `**/*Tests.csproj`, `**/*Test.csproj`, `**/test/**/*.csproj`, `**/tests/**/*.csproj`, `**/*.runsettings`, `**/testconfig.json`, `**/global.json`, `**/package.json`, `**/tsconfig*.json`, `**/vitest.config.*`, `**/vitest.workspace.*`, `**/jest.config.*`, `**/playwright.config.*`, `**/eslint.config.*`, `**/.eslintrc*`, `**/eslint-suppressions.json`, `**/pyproject.toml`, `**/pytest.ini`, `**/setup.cfg`, `**/tox.ini`, `**/conftest.py`, `**/Makefile` | Paths outside the tests that configure how checks run; the guard names changes to them, and to files a check command names, for the reviewer and the user |
+| `checkConfigPatterns` | `**/grampus.json`, `**/Directory.Build.props`, `**/Directory.Build.targets`, `**/*Tests.csproj`, `**/*Test.csproj`, `**/test/**/*.csproj`, `**/tests/**/*.csproj`, `**/*.runsettings`, `**/testconfig.json`, `**/global.json`, `**/package.json`, `**/tsconfig*.json`, `**/vitest.config.*`, `**/vitest.workspace.*`, `**/jest.config.*`, `**/playwright.config.*`, `**/eslint.config.*`, `**/.eslintrc*`, `**/eslint-suppressions.json`, `**/pyproject.toml`, `**/pytest.ini`, `**/setup.cfg`, `**/tox.ini`, `**/conftest.py`, `**/Makefile` | Paths outside the tests that configure how checks run; the guard names changes to them, and to files a check command names, for the reviewer and the user |
 | `crossCheckIncompatiblePatterns` | C# and TypeScript compiler errors, missing modules and exports, Python import errors, Java `cannot find symbol`, Rust `error[E…]` | Regular expressions that mark a failed cross-check as incompatible: the copied tests did not compile or load against that entry |
 | `checkInfrastructurePatterns` | Missing command/module, no-tests and `ENOENT` signatures | Case-insensitive regular expressions for execution failures; these never count as behaviour evidence |
 | `checkAssertionPatterns` | `AssertionError`, `ERR_ASSERTION`, expected/received and `Assert.` signatures | Recognised assertions; cross-check behavioural attribution additionally requires a portable check |
@@ -134,18 +134,45 @@ Commit `grampus.json` at the repository root to declare preparation independentl
     "name": "Install dependencies",
     "command": "pnpm install --frozen-lockfile",
     "timeoutSeconds": 900
-  }
+  },
+  "checks": [
+    { "name": "Repository verification", "command": "pnpm run verify", "timeoutSeconds": 900 }
+  ]
 }
 ```
 
 Grampus snapshots this configuration from the task's base commit and runs it once per fresh worktree
-before spec writing. Use `{"setup": null}` to disable preparation. Without the file, a root
+before spec writing. Use `{"setup": null}` to disable preparation. When `setup` is omitted, a root
 `pnpm-lock.yaml` selects `pnpm install --frozen-lockfile`, otherwise a root `package-lock.json` selects
 `npm ci`; other repositories have no inferred setup. Use an explicit command for other package
 managers, nested projects or extra prerequisites. Commands use `checkShell` and the normal check
 timeout settings. Generated dependencies must be ignored by Git; tracked changes or moving HEAD
 make setup fail. Failures have their own logs and retry decision, not a failed behavioural baseline.
 After interruption, stop any previous setup process before confirming a retry.
+
+### Repository verification baseline
+
+`checks` declares the mandatory repository verification baseline, independent of the recipe. The
+driver snapshots it from the base commit alongside setup and includes it in the spec before approval.
+Acceptance checks are added after it. The spec writer cannot omit or narrow these commands; their
+timeouts and portability declarations also come from the snapshot. An identical command already in
+the spec runs once, retaining its name so acceptance references remain valid. Conflicting check names
+are rejected. The combined spec still has the normal limit of 12 checks.
+
+Without explicit `checks`, Grampus selects the root `package.json` script `verify`, otherwise `check`.
+It uses the declared npm, pnpm, Yarn or Bun `packageManager`, otherwise infers the manager from a root
+lockfile, defaulting to npm. For example, PlayBeam's baseline is `pnpm run verify`; Grampus's own is
+`npm run check`. Inference reads the base commit, never the worker's edited package scripts.
+
+For other languages, nested projects or differently named commands, declare `checks` explicitly in
+`grampus.json`. An explicit list must be non-empty and use unique names and commands. When neither
+configuration nor a conventional script exists, no common baseline is inferred; the spec prompt names
+that limitation and asks for the repository's standard checks. Grampus does not invent a successful gate.
+
+The approved baseline runs before implementation, during every verification round and after polish.
+Failed polish checks prevent launching its review. Shared comparisons inherit the same approved
+baseline; full comparisons resolve it from their common base commit. Editing `grampus.json` later
+does not change the recorded commands, and changes to it or package scripts are flagged for review.
 
 Approved checks should contain verification only. A check may include `"portable": true` when it
 uses stable existing public interfaces and can be run unchanged against independent implementations.
@@ -174,5 +201,5 @@ justify a hypothetical future edit. The independent reviewer assesses whether th
 the code and preserves behaviour. Reports live in the worktree's private Git metadata so they cannot
 enter source commits.
 
-The old `simplify` recipe key is rejected by the strict recipe schema. Task logs use schema 4 and
-comparison logs schema 2; old evidence remains on disk but is not migrated by this version.
+The old `simplify` recipe key is rejected by the strict recipe schema. Task logs use schema 5 and
+comparison logs schema 3; old evidence remains on disk but is not migrated by this version.

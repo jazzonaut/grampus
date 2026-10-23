@@ -15,6 +15,7 @@ import type { TaskState } from '../pipeline/state.js';
 import { finalCandidate } from '../pipeline/candidate.js';
 import { assessCheck } from '../checks/failure.js';
 import { matchesAny } from '../util/glob.js';
+import { entryEvidence } from './freshness.js';
 import type { ComparisonStore, CrossCheckCell } from './comparison.js';
 
 /** An entry's final candidate: the commit its last verified round checked, and the checks of its spec. */
@@ -36,7 +37,8 @@ export async function crossCheckCell(
   log: (line: string) => void,
 ): Promise<CrossCheckCell> {
   // Only a run with copied tests can be incompatible; every other cell says so with an empty list.
-  const base = { specOf: owner.taskId, candidate: candidate.taskId, incompatible: [] as string[] };
+  const binding = { owner: entryEvidence(owner), candidate: entryEvidence(candidate) };
+  const base = { specOf: owner.taskId, candidate: candidate.taskId, binding, incompatible: [] as string[] };
   const target = candidateOf(candidate);
   const spec = owner.specs.at(-1);
   const ownerCandidate = candidateOf(owner);
@@ -59,7 +61,7 @@ export async function crossCheckCell(
     if ((await uncommittedPaths(worktree)).length) throw new Error('worktree has uncommitted changes');
     log(`Cross-check: ${owner.taskId}'s checks on ${candidate.taskId}.`);
     const results = await withOverlay(worktree, target.sha, baseSha, ownerCandidate.sha, () =>
-      runChecks(worktree, spec.checks, store.crossCheckDir(owner.taskId, candidate.taskId), { rerunFailures: true }),
+      runChecks(worktree, spec.checks, store.crossCheckDir(), { rerunFailures: true }),
     );
     return {
       ...base,

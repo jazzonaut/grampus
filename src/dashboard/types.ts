@@ -303,6 +303,8 @@ export interface ComparisonEntryView {
 }
 
 export interface ComparisonDetail extends ComparisonListItem {
+  /** Evidence invalidated by an entry change; no pick is available while it refreshes. */
+  stale: string | null;
   request: string;
   repository: { path: string; name: string };
   baseSha: string | null;

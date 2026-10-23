@@ -81,6 +81,7 @@ function checkList(checks: readonly CheckDefinition[]): string {
 
 export function specPrompt(input: {
   setup?: string | null;
+  repositoryChecks?: readonly CheckDefinition[];
   request: string;
   specPath: string;
   previousSpecPath: string | null;
@@ -102,6 +103,8 @@ export function specPrompt(input: {
   return `ROLE: spec writer.
 
 Repository preparation: ${input.setup ? `Grampus already ran ${input.setup} successfully. Do not repeat dependency installation in each check.` : 'No setup command was configured. If prerequisites are missing, report the environment problem explicitly; do not call it a behavioural failure.'}
+
+Repository verification baseline: ${input.repositoryChecks?.length ? `Grampus requires these commands from the base commit in every spec, in addition to acceptance checks. They cannot be omitted or narrowed:\n${checkList(input.repositoryChecks)}` : 'No standard verification command was detected. Identify the repository conventions and include its standard checks alongside acceptance checks; do not claim a common baseline was established.'}
 
 TARGET: this repository, read-only. The request:
 ${input.request}
@@ -349,6 +352,11 @@ CONSTRAINTS:
 - Evaluate implementation against the spec AND whether the spec and tests fulfil the original request.
   Follow the requested action through production wiring. An injected roster, mocked transport or unused
   helper does not prove the corresponding real journey. Use the smallest appropriate executable seam.
+- Reconcile shared-code changes with every explicit requirement to leave other behaviour unchanged.
+  Trace affected callers and cite concrete preservation evidence. A global change cannot be marked
+  verified against an unchanged-behaviour requirement merely because it seems beneficial or existing
+  tests pass. Report a demonstrated contradiction as a finding; mark missing preservation evidence
+  unverified and explain the boundary rather than inventing a regression.
 - A finding is "blocking" only if the change is incorrect or misses a requested outcome or spec criterion, and only with a
   file, a line and a concrete failing scenario. Grampus downgrades blocking findings without them to notes.
 - Style, naming, polish and speculative risks are notes. Do not invent gaps to have something

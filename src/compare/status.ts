@@ -6,6 +6,7 @@ import { withObservedStop } from '../store/driver-lock.js';
 import { TaskStore } from '../store/task-store.js';
 import { ComparisonStore, foldComparison, type ComparisonMode, type ComparisonState } from './comparison.js';
 import { crossCheckCounts } from './outcomes.js';
+import { observedComparison } from './freshness.js';
 
 export interface ComparisonSummary {
   comparisonId: string;
@@ -17,6 +18,7 @@ export interface ComparisonSummary {
   /** While the cross-check runs: cells measured of all of them. */
   crossCheck: { done: number; total: number } | null;
   crossCheckOutcomes?: ReturnType<typeof crossCheckCounts>;
+  stale?: string | null;
   needsYou: { detail: string; since: string } | null;
   /** The latest refused pick or abandon, with why. */
   refused: { kind: string; reason: string; at: string } | null;
@@ -27,7 +29,7 @@ export interface ComparisonSummary {
 export function summariseComparison(dataDir: string, comparisonId: string): ComparisonSummary {
   const store = ComparisonStore.open(dataDir, comparisonId);
   const events = store.events();
-  const state = withObservedStop(foldComparison(events), store.dir, events);
+  const state = observedComparison(dataDir, withObservedStop(foldComparison(events), store.dir, events));
   const entries = state.entries.map(entry => {
     let phase: string;
     try {
@@ -44,6 +46,7 @@ export function summariseComparison(dataDir: string, comparisonId: string): Comp
     entries,
     waiting: state.recipes.slice(state.entries.length).map(recipe => recipe.name),
     crossCheck: crossCheckProgress(state),
+    stale: state.stale,
     crossCheckOutcomes: crossCheckCounts(state.crossCheck ?? state.crossCheckCells),
     needsYou: state.attention ? { detail: state.attention.detail, since: state.attention.since } : null,
     refused: state.refused,
@@ -67,6 +70,7 @@ export function renderComparison(summary: ComparisonSummary): string {
       `  NEEDS YOU: ${summary.needsYou.detail}`,
       `    pick with \`grampus pick ${summary.comparisonId} <task>\` after comparing the entries`,
     );
+  if (summary.stale) lines.push(`  STALE: ${summary.stale}`);
   if (summary.crossCheck)
     lines.push(
       `  cross-check running: ${summary.crossCheck.done} of ${summary.crossCheck.total} cells; the pick comes after it`,

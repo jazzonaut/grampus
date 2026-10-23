@@ -54,7 +54,14 @@ test('cross-check failures distinguish portability, infrastructure and API compa
 });
 
 test('cross-check execution errors remain in the comparison denominator', () => {
-  const base = { specOf: 'spec', candidate: 'result', sha: 'sha', error: null };
+  const evidence = { taskId: 'spec', sha: 'sha', round: 0, specVersion: 1, specHash: 'hash', revision: null };
+  const base = {
+    specOf: 'spec',
+    candidate: 'result',
+    sha: 'sha',
+    error: null,
+    binding: { owner: evidence, candidate: { ...evidence, taskId: 'result' } },
+  };
   const counts = crossCheckCounts([
     { ...base, results: [{ ...result, passed: true }] },
     { ...base, results: null, error: 'Unclean candidate' },

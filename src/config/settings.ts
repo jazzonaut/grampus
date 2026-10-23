@@ -125,6 +125,7 @@ export function defaultSettings(): Settings {
     checkAssertionPatterns: ['AssertionError', 'ERR_ASSERTION', 'Expected:.*Received:', 'Assert\\.'],
     testFilePatterns: ['**/*.test.*', '**/*.spec.*', '**/test/**', '**/tests/**', '**/__tests__/**'],
     checkConfigPatterns: [
+      '**/grampus.json',
       '**/Directory.Build.props',
       '**/Directory.Build.targets',
       '**/*Tests.csproj',

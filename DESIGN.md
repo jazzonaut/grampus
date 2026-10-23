@@ -168,6 +168,13 @@ Shared comparisons distribute the same approved spec and acceptance-test commit 
 Full comparisons preserve API incompatibility, execution errors and unknown results as distinct
 outcomes; a failed copied test needs an approved portable interface to count as behavioural evidence.
 
+Repository verification is a common baseline across recipes, snapshotted from the base commit and
+included in each approved spec ahead of task-specific acceptance checks. Full comparisons bind each
+cell to both the test-source and candidate commits and specifications. An entry change withdraws the
+pick and refreshes affected evidence; a decision against an earlier comparison is refused. Shared
+comparisons apply the same decision freshness rule. Passing an entry's own checks and review is
+reported separately from cross-check outcomes.
+
 The optional polish pass improves readability, maintainability, consistency, simplicity and naming.
 Standalone improvements are welcome; no hypothetical future edit is needed to justify them. The worker
 explains the issue and benefit, and independent review assesses both safety and whether the change is

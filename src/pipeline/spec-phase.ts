@@ -12,7 +12,7 @@ import { specLimits } from '../config/limits.js';
 import type { CheckResult, UserCommand } from '../domain/events.js';
 import { parseReviewReport, validateCoverage } from '../domain/review.js';
 import { headSha } from '../git/git.js';
-import { parseSpec } from '../domain/spec.js';
+import { withRepositoryChecks } from '../domain/spec.js';
 import { specPrompt, specReviewPrompt } from './prompts.js';
 import type { DriverCore, Settled } from './driver-core.js';
 import { currentDispatch, stageKey, type SpecVersion } from './state.js';
@@ -114,6 +114,7 @@ function writeSpec(core: DriverCore, worktree: string, number: number, attempt: 
         rejection: attempt.rejection,
         answered: answeredQuestions(core),
         setup: core.state.setup.configuration?.command?.command ?? null,
+        repositoryChecks: core.state.setup.configuration?.verification.checks ?? [],
       }),
     launch: previous ? { reuse: previous, fallback: recipe.spec } : { assignment: recipe.spec },
   });
@@ -139,10 +140,11 @@ function recordSpec(core: DriverCore, worktree: string, key: string): SpecVersio
   const text = readWorkerFile(source);
   try {
     if (text === null) throw new Error(`No spec file was written at ${source}.`);
-    const spec = parseSpec(text);
+    const spec = withRepositoryChecks(text, core.state.setup.configuration?.verification.checks ?? []);
     const version = core.state.specs.length + 1;
     const path = join(core.store.dir, 'spec', `v${version}.md`);
     keepEvidence(source, path);
+    writeFileSync(path, spec.markdown);
     core.record({
       type: 'spec.recorded',
       key,

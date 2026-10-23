@@ -1,7 +1,12 @@
 // Queueing user decisions for a task's (or a comparison's) driver. The CLI, a chat agent and the dashboard all go through
 // here, so every client controls a task the same way: by appending to its command queue.
 import { randomUUID } from 'node:crypto';
-import { ComparisonStore, comparisonCommandSchema, type ComparisonCommand } from './compare/comparison.js';
+import {
+  ComparisonStore,
+  comparisonCommandSchema,
+  foldComparison,
+  type ComparisonCommand,
+} from './compare/comparison.js';
 import { defaultDataDirectory } from './config/paths.js';
 import { userCommandSchema, type UserCommand } from './domain/events.js';
 import { entryScript } from './install/installation.js';
@@ -60,7 +65,13 @@ export function queueComparisonCommand(
 ): ComparisonCommand {
   const store = ComparisonStore.open(dataDir, comparisonId);
   const fields = typeof body === 'object' && body !== null ? body : {};
-  const command = comparisonCommandSchema.parse({ ...fields, id: randomUUID(), at: new Date().toISOString(), source });
+  const command = comparisonCommandSchema.parse({
+    requestAt: foldComparison(store.events()).attention?.since ?? null,
+    ...fields,
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    source,
+  });
   store.addCommand(command);
   return command;
 }

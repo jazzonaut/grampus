@@ -7,6 +7,7 @@
 // the build stages; `full` runs every recipe end to end, so spec quality counts too, and then runs every
 // entry's checks against every entry's result, so a lax spec cannot make its own recipe look good.
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { inputLimits } from '../config/limits.js';
@@ -16,7 +17,17 @@ import type { Recipe } from '../domain/recipe.js';
 import { appendRecord, readRecords } from '../store/task-store.js';
 
 /** The comparison log schema. Logs written with another schema are refused; there are no migrations. */
-export const comparisonSchemaVersion = 2;
+export const comparisonSchemaVersion = 3;
+
+/** Exact candidate and approved specification behind one entry's comparison evidence. */
+export interface EntryEvidence {
+  taskId: string;
+  sha: string | null;
+  round: number | null;
+  specVersion: number | null;
+  specHash: string | null;
+  revision: string | null;
+}
 
 export type ComparisonMode = 'shared' | 'full';
 
@@ -26,6 +37,7 @@ export interface CrossCheckCell {
   specOf: string;
   /** The entry whose commit was checked. */
   candidate: string;
+  binding: { owner: EntryEvidence; candidate: EntryEvidence };
   sha: string | null;
   results: CheckResult[] | null;
   /** Why the cell could not be measured. */
@@ -68,7 +80,8 @@ export type ComparisonEvent =
   | { type: 'cross_check.cell'; cell: CrossCheckCell }
   /** Every cell is in. */
   | { type: 'cross_check.recorded'; cells: CrossCheckCell[] }
-  | { type: 'attention.needed'; reason: string; detail: string }
+  | { type: 'evidence.invalidated'; cells: CrossCheckCell[]; reason: string }
+  | { type: 'attention.needed'; reason: string; detail: string; evidence: EntryEvidence[] }
   | { type: 'command.applied'; command: ComparisonCommand }
   | { type: 'command.refused'; command: ComparisonCommand; reason: string }
   | { type: 'comparison.finished'; outcome: 'picked' | 'abandoned'; winner: string | null };
@@ -79,7 +92,11 @@ export const comparisonCommandSchema = z.intersection(
   z.object({ id: z.uuid(), at: z.string(), source: z.enum(['cli', 'chat', 'dashboard']) }),
   z.discriminatedUnion('kind', [
     /** Accept this entry as the result; every other entry ends as not selected. */
-    z.object({ kind: z.literal('pick'), taskId: z.string().min(1).max(inputLimits.titleLength) }),
+    z.object({
+      kind: z.literal('pick'),
+      taskId: z.string().min(1).max(inputLimits.titleLength),
+      requestAt: z.string().nullable(),
+    }),
     z.object({ kind: z.literal('abandon'), reason: z.string().max(inputLimits.feedbackLength).optional() }),
   ]),
 );
@@ -140,9 +157,9 @@ export class ComparisonStore {
     return readRecords(this.commandsPath).map(record => comparisonCommandSchema.parse(record));
   }
 
-  /** Folder for one cross-check cell's logs. */
-  crossCheckDir(specOf: string, candidate: string): string {
-    const dir = join(this.dir, 'cross-check', `${specOf}--${candidate}`);
+  /** Fresh logs even when a refused entry command caused identical evidence to be checked again. */
+  crossCheckDir(): string {
+    const dir = join(this.dir, 'cross-check', randomUUID());
     mkdirSync(dir, { recursive: true });
     return dir;
   }
@@ -181,7 +198,8 @@ export interface ComparisonState {
   /** Cells measured so far, and how many there will be once the cross-check has started. */
   crossCheckCells: CrossCheckCell[];
   crossCheckTotal: number | null;
-  attention: { reason: string; detail: string; since: string } | null;
+  attention: { reason: string; detail: string; since: string; evidence: EntryEvidence[] } | null;
+  stale: string | null;
   /** The latest refused command, until a command is applied. */
   refused: { kind: ComparisonCommand['kind']; reason: string; at: string } | null;
   applied: Set<string>;
@@ -212,6 +230,7 @@ export function foldComparison(events: readonly StoredComparisonEvent[]): Compar
     crossCheckCells: [],
     crossCheckTotal: null,
     attention: null,
+    stale: null,
     refused: null,
     applied: new Set(),
     decision: null,
@@ -251,13 +270,23 @@ export function applyComparisonEvent(state: ComparisonState, event: StoredCompar
       state.crossCheckTotal = event.total;
       return;
     case 'cross_check.cell':
+      state.crossCheckCells = state.crossCheckCells.filter(
+        cell => cell.specOf !== event.cell.specOf || cell.candidate !== event.cell.candidate,
+      );
       state.crossCheckCells.push(event.cell);
       return;
     case 'cross_check.recorded':
       state.crossCheck = event.cells;
       return;
     case 'attention.needed':
-      state.attention = { reason: event.reason, detail: event.detail, since: event.at };
+      state.attention = { reason: event.reason, detail: event.detail, since: event.at, evidence: event.evidence };
+      state.stale = null;
+      return;
+    case 'evidence.invalidated':
+      state.crossCheckCells = event.cells;
+      state.crossCheck = null;
+      state.attention = null;
+      state.stale = event.reason;
       return;
     case 'command.applied':
       state.applied.add(event.command.id);

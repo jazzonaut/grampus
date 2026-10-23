@@ -54,6 +54,32 @@ export interface Spec {
 
 const blockPattern = /^```grampus[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/gm;
 
+/** Include the snapshotted repository gate in the exact bytes the user approves, ahead of acceptance checks. */
+export function withRepositoryChecks(markdown: string, required: readonly CheckDefinition[]): Spec {
+  const spec = parseSpec(markdown);
+  if (!required.length) return spec;
+  const checks = required.map(check => {
+    const existing = spec.block.checks.find(item => item.command.trim() === check.command.trim());
+    if (existing) return { ...check, name: existing.name };
+    if (spec.block.checks.some(item => item.name === check.name))
+      throw new Error(
+        `Check name "${check.name}" is reserved for repository command "${check.command}". Rename the acceptance check.`,
+      );
+    return check;
+  });
+  checks.push(
+    ...spec.block.checks.filter(check => !required.some(item => item.command.trim() === check.command.trim())),
+  );
+  const block = { ...spec.block, checks };
+  const newline = markdown.includes('\r\n') ? '\r\n' : '\n';
+  return parseSpec(
+    markdown.replace(
+      blockPattern,
+      () => '```grampus' + newline + JSON.stringify(block, null, 2).replaceAll('\n', newline) + newline + '```',
+    ),
+  );
+}
+
 /** Parse a spec file. Throws with a message a worker can act on when the file is unusable. */
 export function parseSpec(markdown: string): Spec {
   if (Buffer.byteLength(markdown) > specLimits.bytes)

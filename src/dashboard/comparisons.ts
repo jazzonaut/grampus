@@ -16,6 +16,7 @@ import { measureDispatches } from '../measure/usage.js';
 import type { TaskState } from '../pipeline/state.js';
 import { finalCandidate } from '../pipeline/candidate.js';
 import { crossCheckCounts } from '../compare/outcomes.js';
+import { observedComparison } from '../compare/freshness.js';
 import { withObservedStop } from '../store/driver-lock.js';
 import type { DashboardOrca } from './api.js';
 import type { TaskReader } from './tasks.js';
@@ -37,7 +38,7 @@ interface Loaded {
 export function loadComparison(dataDir: string, comparisonId: string): Loaded {
   const store = ComparisonStore.open(dataDir, comparisonId);
   const events = store.events();
-  return { state: withObservedStop(foldComparison(events), store.dir, events), events };
+  return { state: observedComparison(dataDir, withObservedStop(foldComparison(events), store.dir, events)), events };
 }
 
 /** Every readable comparison, newest activity first. */
@@ -96,6 +97,7 @@ export function comparisonDetail(dataDir: string, reader: TaskReader, comparison
     waiting: state.recipes.slice(state.entries.length).map(recipe => recipe.name),
     sharedSpec: state.sharedSpec,
     needsYou: state.attention ? { detail: state.attention.detail, since: state.attention.since } : null,
+    stale: state.stale,
     lastStop: state.finished ? null : state.lastStop,
     entryViews: entries(reader, state).map(({ recipe, task, events: taskEvents }) => {
       const checks = finalCandidate(task);

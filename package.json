@@ -1,6 +1,6 @@
 {
   "name": "grampus",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
   "description": "Coding-agent pipeline on Orca orchestration: spec, build, verify, review, repair, measured",

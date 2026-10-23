@@ -11,6 +11,9 @@ import { startComparison } from '../src/compare/create.js';
 import { incompatibleChecks } from '../src/compare/cross-check.js';
 import { renderComparison, summariseComparison } from '../src/compare/status.js';
 import { driveComparison } from '../src/compare/driver.js';
+import { currentComparison } from '../src/compare/freshness.js';
+import { comparisonDetail } from '../src/dashboard/comparisons.js';
+import { TaskReader } from '../src/dashboard/tasks.js';
 import { queueCommand, queueComparisonCommand } from '../src/control.js';
 import type { Recipe } from '../src/domain/recipe.js';
 import { pipelineRecipe } from './helpers/recipe-fixture.js';
@@ -43,7 +46,7 @@ function worktreeIn(prompt: string): string {
 }
 
 /** Good workers. The `alt` entry's spec also requires an acceptance test its builder adds. */
-function workers(): Behaviour {
+function workers(beforeRepair?: () => Promise<void>): Behaviour {
   return async context => {
     const isAlt = context.title.includes('[alt]');
     switch (roleOf(context.title)) {
@@ -72,8 +75,10 @@ function workers(): Behaviour {
       }
       case 'build':
       case 'repair': {
+        if (roleOf(context.title) === 'repair') await beforeRepair?.();
         const worktree = worktreeIn(context.spec);
         write(worktree, 'greet.js', 'export function greet(name) {\n  return `Hello, ${name}!`;\n}\n');
+        if (roleOf(context.title) === 'repair') write(worktree, 'repair.txt', context.title);
         if (isAlt)
           write(
             worktree,
@@ -101,7 +106,12 @@ interface Run {
   entryDrivers: Promise<number>[];
 }
 
-async function startRun(mode: 'shared' | 'full', concurrency: number, sharedTests = false): Promise<Run> {
+async function startRun(
+  mode: 'shared' | 'full',
+  concurrency: number,
+  sharedTests = false,
+  beforeRepair?: () => Promise<void>,
+): Promise<Run> {
   const leader: Recipe = { ...pipelineRecipe, name: 'with-tests', testsFirst: { agent: 'codex' } };
   useTestSettings({
     recipes: sharedTests ? [alt, leader] : [pipelineRecipe, alt],
@@ -156,7 +166,9 @@ async function startRun(mode: 'shared' | 'full', concurrency: number, sharedTest
         for (const entry of comparison().entries)
           if (!started.has(entry.taskId)) {
             started.add(entry.taskId);
-            entryDrivers.push(drive(TaskStore.open(dataDir, entry.taskId), new FakeOrca(workers()), () => undefined));
+            entryDrivers.push(
+              drive(TaskStore.open(dataDir, entry.taskId), new FakeOrca(workers(beforeRepair)), () => undefined),
+            );
           }
         const value = read();
         if (value) return value;
@@ -170,6 +182,85 @@ async function startRun(mode: 'shared' | 'full', concurrency: number, sharedTest
 }
 
 const tryEntry = (run: Run, index: number) => (run.comparison().entries[index] ? run.entry(index) : null);
+
+function assertRefreshedCells(before: ComparisonState, after: ComparisonState, changed: string, sha: string): void {
+  assert.ok(after.crossCheck?.filter(cell => cell.candidate === changed).every(cell => cell.sha === sha));
+  assert.ok(after.crossCheck?.filter(cell => cell.specOf === changed).every(cell => cell.binding.owner.sha === sha));
+  const oldPaths = before.crossCheck?.flatMap(cell => cell.results?.map(result => result.logPath) ?? []) ?? [];
+  const newCell = after.crossCheck?.find(cell => cell.specOf === changed && cell.candidate !== changed);
+  assert.ok(
+    newCell?.results?.every(result => !oldPaths.includes(result.logPath)),
+    'new cross-check logs preserve earlier evidence',
+  );
+}
+
+for (const mode of ['full', 'shared'] as const)
+  test(`${mode}: continuing an entry withdraws the pick and refreshes its candidate and test-source cells`, async () => {
+    let releaseRepair = () => {};
+    const repair = new Promise<void>(resolve => {
+      releaseRepair = resolve;
+    });
+    const run = await startRun(mode, 2, false, () => repair);
+    try {
+      for (const index of mode === 'full' ? [0, 1] : [0]) {
+        await run.until(() => tryEntry(run, index)?.attention?.reason === 'approve-spec:1', `spec ${index}`);
+        queueCommand(run.dataDir, run.entry(index).taskId, 'cli', { kind: 'approve', specVersion: 1 });
+      }
+      await run.until(() => run.comparison().attention?.reason === 'pick', 'initial pick');
+      const before = run.comparison();
+      const entries = [run.entry(0), run.entry(1)];
+      const altered = { ...run.entry(1), specs: run.entry(1).specs.map(spec => ({ ...spec, hash: 'revised-spec' })) };
+      const revised = currentComparison(before, [run.entry(0), altered]);
+      assert.equal(revised.attention, null, 'a spec edit invalidates the pick even with the same version and SHA');
+      assert.equal(revised.crossCheckCells.length, mode === 'full' ? 1 : 0);
+      const changed = run.entry(1).taskId;
+      queueCommand(run.dataDir, changed, 'cli', { kind: 'continue', guidance: 'Refine the implementation.' });
+      const summary = summariseComparison(run.dataDir, run.comparisonId);
+      assert.equal(summary.needsYou, null, 'CLI hides the old pick before either driver handles the continue');
+      assert.match(summary.stale ?? '', /stale/);
+      const detail = comparisonDetail(run.dataDir, new TaskReader(run.dataDir), run.comparisonId);
+      assert.equal(detail.needsYou, null);
+      assert.ok(
+        detail.entryViews.every(entry => !entry.pickable),
+        'dashboard cannot pick an unaffected sibling either',
+      );
+      assert.equal(detail.crossCheck?.length ?? 0, mode === 'full' ? 1 : 0);
+      await run.until(() => run.entry(1).commands.some(command => command.kind === 'continue'), 'continue applied');
+      await run.until(() => run.comparison().stale, 'comparison invalidation');
+      assert.equal(run.comparison().attention, null, 'the old pick must be withdrawn during repair');
+      queueComparisonCommand(run.dataDir, run.comparisonId, 'cli', { kind: 'pick', taskId: entries[0]!.taskId });
+      await run.until(() => run.comparison().refused, 'stale pick refusal');
+      assert.equal(run.comparison().decision, null);
+      releaseRepair();
+      await run.until(() => run.entry(1).attention?.reason === 'ready:1', 'repaired result');
+      await run.until(() => run.comparison().attention?.reason === 'pick', 'fresh pick');
+      const after = run.comparison();
+      const sha = run.entry(1).verify.get(1)?.sha;
+      assert.ok(sha);
+      assert.notEqual(after.attention?.since, before.attention?.since);
+      const oldRefusal = after.refused?.at;
+      queueComparisonCommand(run.dataDir, run.comparisonId, 'dashboard', {
+        kind: 'pick',
+        taskId: changed,
+        requestAt: before.attention?.since,
+      });
+      await run.until(() => run.comparison().refused?.at !== oldRefusal, 'old dashboard choice refused');
+      assert.match(run.comparison().refused?.reason ?? '', /superseded evidence/);
+      assert.equal(run.comparison().decision, null);
+      if (mode === 'full') assertRefreshedCells(before, after, changed, sha);
+      const recorded = ComparisonStore.open(run.dataDir, run.comparisonId).events();
+      assert.equal(
+        recorded.filter(event => event.type === 'cross_check.cell').length,
+        mode === 'full' ? 7 : 0,
+        'refresh both the changed candidate column and the changed test-source row, keeping the unaffected cell',
+      );
+    } finally {
+      releaseRepair();
+      queueComparisonCommand(run.dataDir, run.comparisonId, 'cli', { kind: 'abandon' });
+      await run.driver;
+      await Promise.all(run.entryDrivers);
+    }
+  });
 
 test('a full comparison runs every recipe end to end, cross-checks the results and keeps the pick', async () => {
   const run = await startRun('full', 2);

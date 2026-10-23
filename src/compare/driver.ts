@@ -11,8 +11,9 @@ import { installedBuild } from '../install/installation.js';
 import { createTask, type InheritedSpec } from '../pipeline/create-task.js';
 import { closeOwnTab } from '../pipeline/driver.js';
 import { acquireDriverLock, LockLost } from '../store/driver-lock.js';
-import { foldEvents, type TaskState } from '../pipeline/state.js';
-import { listTaskIds, TaskStore } from '../store/task-store.js';
+import type { TaskState } from '../pipeline/state.js';
+import { finalCandidate } from '../pipeline/candidate.js';
+import { listTaskIds } from '../store/task-store.js';
 import {
   applyComparisonEvent,
   ComparisonStore,
@@ -22,6 +23,8 @@ import {
   type ComparisonState,
 } from './comparison.js';
 import { crossCheckCell, crossCheckPairs } from './cross-check.js';
+import { comparisonEntry, currentComparison, entryDone, entryEvidence, entryPickable } from './freshness.js';
+export { entryDone, entryPickable } from './freshness.js';
 
 export interface ComparisonDriverOptions {
   dataDir: string;
@@ -30,16 +33,6 @@ export interface ComparisonDriverOptions {
   /** The command line that runs this CLI, for the entries' driver terminals. */
   selfCommand: string;
   log: (line: string) => void;
-}
-
-/** Whether an entry has gone as far as it can without the user: finished, or waiting to be accepted. */
-export function entryDone(state: TaskState): boolean {
-  return state.finished !== null || /^(ready|escalate):/.test(state.attention?.reason ?? '');
-}
-
-/** Whether an entry can be picked now: it waits for acceptance. */
-export function entryPickable(state: TaskState): boolean {
-  return state.finished === null && (state.attention?.options.includes('accept') ?? false);
 }
 
 class ComparisonDriver {
@@ -56,7 +49,7 @@ class ComparisonDriver {
   }
 
   entry(taskId: string): TaskState {
-    return foldEvents(TaskStore.open(this.options.dataDir, taskId).events());
+    return comparisonEntry(this.options.dataDir, taskId);
   }
 
   entries(): TaskState[] {
@@ -65,11 +58,18 @@ class ComparisonDriver {
 
   /** One pass: commands, new entries, the cross-check and the pick. Returns true when the comparison is over. */
   async step(): Promise<boolean> {
+    this.refreshEvidence();
     this.applyCommands();
     if (this.state.decision) return this.finishWhenEntriesEnd();
     await this.createEntries();
     await this.askForPick();
     return this.state.finished !== null;
+  }
+
+  private refreshEvidence(): void {
+    const current = currentComparison(this.state, this.entries());
+    if (current !== this.state)
+      this.record({ type: 'evidence.invalidated', cells: current.crossCheckCells, reason: current.stale ?? '' });
   }
 
   private applyCommands(): void {
@@ -97,6 +97,7 @@ class ComparisonDriver {
   private refusal(command: ComparisonCommand): string | null {
     if (this.state.decision || this.state.finished) return 'the comparison is already decided';
     if (command.kind === 'abandon') return null;
+    this.refreshEvidence();
     if (!this.state.entries.some(entry => entry.taskId === command.taskId))
       return `${command.taskId} is not an entry of this comparison`;
     // A pick sent before the comparison asked was made without the finished entries and cross-check in
@@ -104,6 +105,8 @@ class ComparisonDriver {
     const asked = this.state.attention?.reason === 'pick' ? Date.parse(this.state.attention.since) : null;
     if (asked === null || Date.parse(command.at) < asked)
       return 'the comparison has not asked for a pick yet; pick once every entry has finished and the cross-check is in';
+    if (command.requestAt !== this.state.attention?.since)
+      return 'the pick refers to superseded evidence; review the refreshed comparison before picking';
     return entryPickable(this.entry(command.taskId)) ? null : `${command.taskId} is not waiting for acceptance`;
   }
 
@@ -226,11 +229,15 @@ class ComparisonDriver {
     if (this.state.mode === 'full' && !this.state.crossCheck && this.state.baseSha) {
       if (!(await this.crossCheckOneCell(entries, this.state.baseSha))) return;
     }
-    const ready = entries.filter(entry => entry.attention?.reason.startsWith('ready:')).length;
+    const ready = entries.filter(entry => {
+      const candidate = finalCandidate(entry);
+      return candidate?.results.every(result => result.passed) && candidate.review?.report?.verdict === 'approve';
+    }).length;
     this.record({
       type: 'attention.needed',
       reason: 'pick',
-      detail: `Every entry has finished its rounds (${ready} of ${entries.length} passed everything). Pick the one to keep; the others end as not selected.`,
+      detail: `Every entry has reached a result (${ready} of ${entries.length} passed its own checks with review approved). Cross-check outcomes are reported separately. Pick the one to keep; the others end as not selected.`,
+      evidence: entries.map(entryEvidence),
     });
     this.options.log('Needs you: pick an entry.');
   }

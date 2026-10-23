@@ -19,7 +19,7 @@ function cellOf(specOf: string, candidate: string): CrossCheckCell | undefined {
 }
 
 function summary(cell: CrossCheckCell | undefined): { text: string; tone: string; title: string } {
-  if (!cell) return { text: '-', tone: 'text-dimmed', title: 'Not measured' };
+  if (!cell) return { text: 'Not measured', tone: 'text-dimmed', title: 'No current measurement for these entries' };
   if (cell.error || !cell.results?.length) return { text: '?', tone: 'text-warning', title: cell.error ?? 'Unknown' };
   const passed = cell.results.filter(result => result.passed).length;
   const assessments =

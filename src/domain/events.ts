@@ -15,7 +15,7 @@ import { codeReferenceSchema, type CodeReference, type Explanation, type Explana
 export type TaskOutcome = 'accepted' | 'abandoned' | 'not-selected';
 
 /** The event log schema. Logs written with another schema are refused; there are no migrations. */
-export const eventSchemaVersion = 4;
+export const eventSchemaVersion = 5;
 
 /** Pipeline stages that run as Orca workers. */
 export type Stage =
@@ -86,7 +86,13 @@ export type TaskEvent =
       comparison?: { comparisonId: string };
     }
   | { type: 'workspace.created'; worktreeId: string; path: string; baseSha: string; driverTerminal: string }
-  | { type: 'setup.configured'; sha: string; command: CheckDefinition | null; source: string }
+  | {
+      type: 'setup.configured';
+      sha: string;
+      command: CheckDefinition | null;
+      source: string;
+      verification: { checks: CheckDefinition[]; source: string };
+    }
   | { type: 'setup.started'; attempt: number }
   | { type: 'setup.recorded'; attempt: number; sha: string; result: CheckResult; problems: string[] }
   | {
