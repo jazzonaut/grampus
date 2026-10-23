@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue';
 import type { ChangesView } from '../../../src/dashboard/types';
 import { getJson } from '../api/client';
 import { shortSha } from '../presentation';
+import ChangedFileTree from './ChangedFileTree.vue';
 
 const props = defineProps<{ taskId: string; updatedAt: string }>();
 const emit = defineEmits<{ show: [tab: string] }>();
@@ -45,9 +46,7 @@ const totals = computed(() => ({
       <p class="font-mono text-sm">
         <span class="text-success">+{{ totals.added }}</span> <span class="text-error">-{{ totals.deleted }}</span>
       </p>
-      <ul class="mt-2 text-sm text-muted space-y-1 max-h-40 overflow-auto">
-        <li v-for="file in changes.files" :key="file.path" class="truncate">{{ file.path }}</li>
-      </ul>
+      <ChangedFileTree :files="changes.files" class="mt-2 max-h-80 overflow-auto" />
     </template>
     <template #footer
       ><UButton variant="link" trailing-icon="i-lucide-arrow-right" class="px-0" @click="emit('show', 'changes')"

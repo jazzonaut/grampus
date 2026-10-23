@@ -6,6 +6,7 @@ import type { ChangesView, DiffView, TaskDetail } from '../../../src/dashboard/t
 import { getJson, sendJson } from '../api/client';
 import { shortSha } from '../presentation';
 import DiffFile from './DiffFile.vue';
+import ChangedFileTree from './ChangedFileTree.vue';
 import MarkdownView from './MarkdownView.vue';
 import ChangeNote from './ChangeNote.vue';
 
@@ -14,7 +15,6 @@ const changes = ref<ChangesView | null>(null);
 const delta = ref<ChangesView | null>(null);
 const deltaError = ref<string | null>(null);
 const error = ref<string | null>(null);
-const filesMode = ref(false);
 const fullChange = ref(false);
 const selectedFile = ref<string | null>(null);
 const selectedCode = ref<CodeReference | null>(null);
@@ -84,12 +84,7 @@ const fromSha = computed(() =>
   !fullChange.value && prior.value && delta.value ? prior.value.candidateSha : (changes.value?.baseSha ?? null),
 );
 const visibleChanges = computed(() => (!fullChange.value && prior.value && delta.value ? delta.value : changes.value));
-const visibleFiles = computed(() => {
-  const files = visibleChanges.value?.files ?? [];
-  if (filesMode.value || !activeGroup.value) return files;
-  const paths = new Set(activeGroup.value.references.map(reference => reference.path));
-  return files.filter(file => paths.has(file.path));
-});
+const visibleFiles = computed(() => visibleChanges.value?.files ?? []);
 const storageKey = computed(
   () =>
     `grampus-review:${props.task.taskId}:${changes.value?.baseSha ?? ''}:${changes.value?.sha ?? ''}:v${changes.value?.specVersion ?? ''}`,
@@ -330,8 +325,7 @@ async function jump(reference: CodeReference, candidateSha?: string): Promise<vo
   }
   error.value = null;
   highlighted.value = reference;
-  // A purpose filter or repair-only comparison may omit the referenced file entirely.
-  filesMode.value = true;
+  // A repair-only comparison may omit the referenced file entirely.
   fullChange.value = true;
   selectedFile.value = reference.path;
   await nextTick();
@@ -485,8 +479,8 @@ async function copyPr(): Promise<void> {
                   class="text-left font-medium hover:text-primary focus-visible:outline-primary"
                   @click="
                     groupId = group.id;
-                    selectedFile = group.references[0]?.path ?? null;
-                    filesMode = false;
+                    if (group.references[0])
+                      jump(group.references[0], current?.explanation ? changes?.sha : prior?.candidateSha);
                   "
                 >
                   {{ group.title }}<span v-if="markers.includes(group.id)" class="ml-1">✓</span>
@@ -589,7 +583,7 @@ async function copyPr(): Promise<void> {
           </div>
         </div>
       </UCard>
-      <div v-if="changes" class="min-w-0 space-y-4">
+      <div v-if="changes" class="code-workspace min-w-0 space-y-4">
         <div class="min-w-0 space-y-3">
           <div
             v-if="prior"
@@ -626,67 +620,26 @@ async function copyPr(): Promise<void> {
               >
             </li>
           </ul>
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div class="flex gap-1" role="group" aria-label="Change navigation">
-              <UButton
-                size="xs"
-                :variant="filesMode ? 'outline' : 'solid'"
-                color="neutral"
-                :disabled="!groups.length"
-                @click="filesMode = false"
-                >Purposes</UButton
-              >
-              <UButton size="xs" :variant="filesMode ? 'solid' : 'outline'" color="neutral" @click="filesMode = true"
-                >Files</UButton
-              >
-            </div>
-            <span class="text-xs text-muted"
-              >{{ visibleChanges?.files.length ?? 0 }} files · choose a file to read its complete diff</span
-            >
-          </div>
-          <div
-            v-if="!filesMode && groups.length"
-            class="flex flex-wrap gap-1.5"
-            role="group"
-            aria-label="Purpose groups"
-          >
-            <UButton
-              v-for="group in groups"
-              :key="group.id"
-              size="xs"
-              color="neutral"
-              :variant="groupId === group.id ? 'solid' : 'outline'"
-              @click="
-                groupId = group.id;
-                selectedFile = group.references[0]?.path ?? null;
-              "
-              >{{ group.title }} <span v-if="markers.includes(group.id)" class="ml-1">✓</span
-              ><span v-else-if="needsAnotherLook.has(group.id)" class="ml-1 text-warning"
-                >Needs another look</span
-              ></UButton
-            >
-            <UButton size="xs" color="neutral" :variant="groupId === null ? 'solid' : 'outline'" @click="groupId = null"
-              >All</UButton
-            >
-          </div>
+          <p class="text-xs text-muted">
+            {{ visibleFiles.length }} files &middot; choose a file to read its complete diff
+          </p>
           <div class="diff-workspace grid gap-3 items-start">
-            <nav class="rounded-lg border border-default overflow-auto max-h-80" aria-label="Changed files">
-              <button
-                v-for="file in visibleFiles"
-                :key="file.path"
-                type="button"
-                class="w-full text-left px-3 py-2 border-b border-default text-xs hover:bg-elevated"
-                :class="selectedFile === file.path ? 'bg-primary/10 font-semibold' : ''"
-                :title="file.oldPath ? `Renamed from ${file.oldPath}` : file.path"
-                @click="selectedFile = file.path"
-              >
-                <span class="block truncate">{{ file.path }}</span
-                ><span class="font-mono text-dimmed">{{
-                  file.added === null ? 'binary' : `+${file.added} -${file.deleted}`
-                }}</span>
-              </button>
+            <nav
+              class="rounded-lg border border-default min-w-0 overflow-auto max-h-[32rem]"
+              aria-label="Changed files"
+            >
+              <ChangedFileTree
+                :files="visibleFiles"
+                :selected="selectedFile"
+                interactive
+                @select="selectedFile = $event"
+              />
               <p v-if="!visibleFiles.length" class="p-3 text-xs text-muted">
-                No files in this view. Choose Files or show the full task diff.
+                {{
+                  prior && !fullChange
+                    ? 'No files changed since the previous review.'
+                    : 'Nothing committed on the task branch yet.'
+                }}
               </p>
             </nav>
             <div class="rounded-lg border border-default min-w-0 overflow-hidden">
@@ -708,7 +661,7 @@ async function copyPr(): Promise<void> {
           </div>
         </div>
         <aside class="min-w-0 grid gap-3" aria-label="Review actions">
-          <UCard v-if="prior && !current"
+          <UCard v-if="prior && !current?.explanation && !explanationOpen"
             ><template #header><h3 class="font-semibold">Earlier explanation</h3></template>
             <p class="text-sm text-muted">
               The explanation at {{ shortSha(prior.candidateSha) }} remains available for review and PR preparation. The
@@ -780,6 +733,7 @@ async function copyPr(): Promise<void> {
   gap: 1rem;
   align-items: start;
 }
+.code-workspace,
 #change-explanation {
   container-type: inline-size;
 }
@@ -788,7 +742,7 @@ async function copyPr(): Promise<void> {
     grid-template-columns: minmax(20rem, 0.8fr) minmax(0, 1.6fr);
   }
 }
-@container (min-width: 90rem) {
+@container (min-width: 44rem) {
   .diff-workspace {
     grid-template-columns: minmax(11rem, 14rem) minmax(0, 1fr);
   }

@@ -113,7 +113,7 @@ const tabs = computed(() => {
             :items="tabs"
             variant="link"
             :content="false"
-            class="overflow-x-auto -mx-4 sm:-mx-6 px-4 sm:px-6"
+            class="overflow-x-auto overflow-y-hidden -mx-4 sm:-mx-6 px-4 sm:px-6"
             :ui="{ trigger: 'grow-0 shrink-0', label: 'overflow-visible' }"
           />
         </template>
