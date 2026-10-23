@@ -35,7 +35,7 @@ export const commands: readonly CommandInfo[] = [
     summary: 'Run one request under several recipes from the same base commit',
     group: 'tasks',
     detail:
-      'Full mode (default) runs each recipe end to end and cross-checks every result against every spec; shared mode writes one spec in the first entry and builds every recipe from it.',
+      'Shared mode (default) writes one spec in the first entry and builds every recipe from it. Enable tests first in the lead recipe for common acceptance tests. Full mode compares complete workflows and cross-checks their independently authored tests.',
   },
   { name: 'status', args: '[task] [--json]', summary: 'Show tasks, or one task in detail', group: 'tasks' },
   {

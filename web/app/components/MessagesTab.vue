@@ -7,7 +7,7 @@ import { computed } from 'vue';
 
 const props = defineProps<{ messages: MessageView[] }>();
 function pending(message: MessageView): boolean {
-  return message.kind === 'question' && !message.answered && !message.closed;
+  return message.kind === 'question' && !message.answered && !message.closed && !message.resolvingAutomatically;
 }
 const ordered = computed(() => [...props.messages].sort((a, b) => Number(pending(b)) - Number(pending(a))));
 
@@ -15,6 +15,7 @@ const sourceIcon = {
   cli: 'i-lucide-terminal',
   chat: 'i-lucide-message-circle',
   dashboard: 'i-lucide-layout-dashboard',
+  policy: 'i-lucide-bot',
 } as const;
 </script>
 
@@ -36,7 +37,9 @@ const sourceIcon = {
                 ? 'Answered'
                 : message.closed
                   ? 'Closed'
-                  : message.kind
+                  : message.resolvingAutomatically
+                    ? 'Grampus is resolving this'
+                    : message.kind
           }}</span>
           · {{ message.subject || message.stage || 'Worker message' }}
         </summary>
@@ -84,7 +87,10 @@ const sourceIcon = {
           >
             <UIcon name="i-lucide-circle-slash" class="size-4" /> Closed without an answer: the worker finished first
           </p>
-          <slot v-else-if="message.kind === 'question'" name="reply" :message="message">
+          <p v-else-if="message.resolvingAutomatically" class="text-sm text-muted pl-10">
+            Grampus is checking the repository before asking you.
+          </p>
+          <slot v-else-if="pending(message)" name="reply" :message="message">
             <p class="text-sm text-warning pl-10 flex items-center gap-1.5">
               <UIcon name="i-lucide-hand" class="size-4" /> Waiting for your answer
             </p>

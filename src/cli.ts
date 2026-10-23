@@ -283,7 +283,7 @@ async function compare(
   words: string[],
   values: { repo?: string; recipes?: string; mode?: string; title?: string },
 ): Promise<number> {
-  const mode = values.mode ?? 'full';
+  const mode = values.mode ?? 'shared';
   if (mode !== 'shared' && mode !== 'full') throw new Error(`--mode must be shared or full, not "${mode}".`);
   const created = await startComparison(
     {
@@ -304,8 +304,8 @@ async function compare(
   );
   console.log(
     mode === 'shared'
-      ? 'The first entry writes the spec; after you approve it, the other entries build from it.'
-      : 'Each entry writes its own spec, so you approve one per recipe. When all are done, pick the one to keep.',
+      ? 'The first entry writes the common spec. Each recipe follows its recorded approval policy. Pick a result when comparison finishes.'
+      : 'Each entry writes its own spec and follows its recorded approval policy. When all are done, pick the one to keep.',
   );
   return 0;
 }
@@ -353,7 +353,9 @@ async function newTask(
   console.log(
     `Created ${created.taskId}.\n  repository: ${created.repository}\n  worktree: ${created.worktree}\n  driver terminal: ${created.terminal}`,
   );
-  console.log('The spec writer starts shortly. Its questions and the spec come to you through `grampus wait`.');
+  console.log(
+    'The task follows its recipe delivery policy. Use `grampus wait` for consequential questions and the result.',
+  );
   console.log(`as of ${asOf}`);
   return 0;
 }

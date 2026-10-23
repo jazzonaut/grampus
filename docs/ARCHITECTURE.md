@@ -1,5 +1,62 @@
 # Architecture
 
+## Bounded unattended delivery
+
+Recipes may carry a `delivery` mandate, copied into `task.created`. The built-in standard and adaptive
+recipes use unattended delivery; saved recipes without a mandate retain supervised approval.
+`pipeline/delivery.ts` owns authority records, dispatch admission budgets and progress-based fallback.
+Automatic actions use `policy.decided` with stable keys and commit/spec bindings, never fabricated
+`command.applied` events. Task schema 7 records these distinctions; earlier logs are refused without
+migration. Existing installations and historical evidence are not rewritten by editing this checkout.
+
+The specification's baseline checks and independent review finish before automatic approval. A
+supported specification revision is bounded; invalid reports are corrected at the same version.
+Code-review report correction also stays at the same candidate, with separate attempt files and
+append-only events. Uncertain coverage receives a bounded investigation before escalation. A concrete
+correctness scenario cannot be dismissed as a note for unattended readiness: a disproval must cite
+a retained executable regression. Demonstrated failures and missing regressions use the existing
+bounded repair machinery. Failed builder reports with concrete check or review evidence can enter
+repair instead of stopping solely because the builder reported failure.
+
+`pipeline/review-workspace.ts` prepares a separate Git repository at the exact candidate and base SHAs,
+with its own dependency setup and immutable setup logs. An interrupted setup is unknown and is not
+automatically replayed. Reviewers can write new test fixtures there, but cannot alter tracked files,
+move the commit or edit the original candidate. The driver executes declared probes and retains their
+source and results. Probes cannot overwrite tracked tests or traverse symbolic links. A named
+committed regression that fails makes review unavailable. This is workspace isolation, not an OS
+sandbox. Candidate and approved-spec snapshots still surround verification and review.
+
+For delivery-policy recipes, independent review and mandatory checks overlap after the builder has
+settled and the guard has bound the commit. Review explicitly sees checks as pending when they are
+not yet recorded. Both operations settle before any repair or acceptance; readiness still requires
+the complete mandatory checks at that SHA. There is no unsafe cross-commit or environment-blind check
+cache. Existing exact baseline reuse and duplicate-command removal remain in place.
+
+`pipeline/question-resolution.ts` can resolve a bounded number of implementation questions from the
+request and existing tracked repository references. It is read-only, cannot approve product choices,
+and records assessment and reply separately. The reply uses a recorded Orca request id; replay cannot
+send it twice. Resolver questions do not recursively spawn more resolvers. Product questions and
+unsupported answers remain visible to the user. Automatic answers do not count as human commands.
+
+Elapsed-time budgets survive restart and abort check processes. Worker waits and new launches check
+the deadline. Estimated-cost caps are checked before dispatch; unavailable usage or prices prevent
+another launch. In-flight Orca calls must reconcile before cleanup, and a running dispatch may exceed
+an estimated spending cap. Exhaustion records an `incomplete` task, releases workers and retains the
+branch and evidence. It never authorises an override. Already verified comparison entries can await
+selection without consuming new worker budget. Merge, push and deployment remain explicit actions.
+
+`adaptive-codex` and `adaptive-claude` use cheaper initial editors with standard-strength specification
+and independent review. A configured fallback is selected once when unresolved failure counts fail
+to decrease across the configured number of rounds. The choice survives restart and consumes the
+same budgets. Neither standard nor adaptive defaults run polish. Optional polish remains available
+for separate maintenance experiments.
+
+Scorecards expose first/latest readiness, selection wait, launch time, all external interventions,
+automatic recovery/answers/investigations, fallback and reopened ready results. Comparison result
+time uses latest verification rather than the eventual pick time. CLI and dashboard comparisons
+default to shared specifications; shared executable tests still require tests-first in the lead recipe
+or a committed common harness. See [benchmark protocol](BENCHMARKS.md) for quality and cost evaluation.
+
 Current behaviour of Grampus. Intent and the reasons behind it are in [DESIGN.md](../DESIGN.md).
 
 ## Overview
@@ -418,7 +475,7 @@ prints the addresses it answers on.
 
 ```text
 <data>/config.json                       optional settings
-<data>/tasks/<task>/events.jsonl          append-only event log (schema 6)
+<data>/tasks/<task>/events.jsonl          append-only event log (schema 7)
 <data>/tasks/<task>/commands.jsonl        queued user commands
 <data>/tasks/<task>/driver.lock          the running driver's process id, token and heartbeat
 <data>/tasks/<task>/spec/v<n>.md          spec versions and their reviews
@@ -648,5 +705,5 @@ For builder comparisons, use shared mode with tests first in the first recipe, t
 interfaces, and compare repeated runs over several tasks. Full mode includes spec quality and test
 compatibility differences and is not an interchangeable behavioural benchmark.
 
-Task schema 6 and comparison schema 4 describe this workflow. Earlier logs are refused, not migrated
+Task schema 7 and comparison schema 4 describe this workflow. Earlier logs are refused, not migrated
 or rewritten. Recipe configuration now uses `polish`; `simplify` is not a supported alias.

@@ -5,6 +5,8 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { currentSettings } from '../config/settings.js';
+import { checkDeadline, checkDispatchBudget, deliveryPolicy, mandatePrompt, policyDecision } from './delivery.js';
+import { resolveImplementationQuestions } from './question-resolution.js';
 import type { Assignment } from '../domain/recipe.js';
 import type { CommandKind, Stage, StoredEvent, TaskEvent, UserCommand } from '../domain/events.js';
 import { OrcaBusyError, OrcaError, OrcaUncertainError, type Delivery, type Orca } from '../orca/client.js';
@@ -62,6 +64,11 @@ export interface Settled {
 
 export type Log = (line: string) => void;
 
+function stageFailureDescription(record: StageRecord): string {
+  const failed = record.startFailure;
+  return failed ? `could not start (${failed.state}): ${failed.error}` : 'exited without reporting';
+}
+
 /** When a dispatch last showed signs of life: its start, a message from its stage, or an answer to it. */
 export function lastActivity(
   state: TaskState,
@@ -89,6 +96,7 @@ export class DriverCore {
   /** When Orca began turning inbox checks away as busy, or null; each spell is logged and recorded once. */
   private busySince: number | null = null;
   private reviewInProgress = new Set<string>();
+  private resolvingQuestion = false;
 
   constructor(
     readonly store: TaskStore,
@@ -123,6 +131,7 @@ export class DriverCore {
 
   /** Process user commands and one round of Orca messages. Throws `TaskAbandoned` when the user abandons. */
   async pump(): Promise<void> {
+    if (!(this.state.comparisonId && this.state.attention?.reason.startsWith('ready:'))) checkDeadline(this);
     await this.applyCommands();
     const runId = this.state.runId;
     if (!runId) {
@@ -138,6 +147,14 @@ export class DriverCore {
     this.pendingAck = delivery.deliveryId;
     await this.checkLiveness();
     await this.applyCommands();
+    if (!this.resolvingQuestion) {
+      this.resolvingQuestion = true;
+      try {
+        await resolveImplementationQuestions(this);
+      } finally {
+        this.resolvingQuestion = false;
+      }
+    }
   }
 
   /**
@@ -181,7 +198,10 @@ export class DriverCore {
 
   /** Pump until the predicate holds. */
   async waitFor(predicate: () => boolean): Promise<void> {
-    while (!predicate()) await this.pump();
+    while (!predicate()) {
+      checkDeadline(this);
+      await this.pump();
+    }
   }
 
   /**
@@ -405,14 +425,15 @@ export class DriverCore {
       }
       const failed = record.startFailure;
       if (failed || dispatch?.exited) {
-        const what = failed ? `could not start (${failed.state}): ${failed.error}` : 'exited without reporting';
+        const what = stageFailureDescription(record);
+        if (await this.recoverStage(record, request, what)) continue;
         const choice = await this.decide(`stage-failed:${record.key}:${record.attempts}`, `${record.key} ${what}`, [
           'retry',
           'abandon',
         ]);
         if (choice.kind !== 'retry') continue;
         const previous = failed?.dispatchId ?? dispatch?.dispatchId ?? null;
-        if (failed?.state === 'outcome_unknown' && previous)
+        if (failed && failed.state === 'outcome_unknown' && previous)
           await this.repeatUncertain(() => this.orca.stopWorker(previous)).catch((error: unknown) =>
             this.log(`Stop failed: ${(error as Error).message}`),
           );
@@ -425,9 +446,28 @@ export class DriverCore {
       }
       await this.waitFor(() => {
         const current = currentDispatch(record);
-        return Boolean(current?.settled || current?.exited || (current && this.quiet(record, current)));
+        return current ? Boolean(current.settled || current.exited || this.quiet(record, current)) : false;
       });
     }
+  }
+
+  /** Only positively ended or refused starts are replaceable without a user decision. */
+  private async recoverStage(record: StageRecord, request: StageRequest, reason: string): Promise<boolean> {
+    if (
+      !this.state.recipe.delivery ||
+      record.attempts > deliveryPolicy(this).stageRetries ||
+      record.startFailure?.state === 'outcome_unknown'
+    )
+      return false;
+    policyDecision(this, {
+      key: `recover:${record.key}:${record.attempts}`,
+      action: 'recover',
+      reason,
+      sha: null,
+      specVersion: this.state.specs.at(-1)?.version ?? null,
+    });
+    await this.start(record, request, record.startFailure?.dispatchId ?? currentDispatch(record)?.dispatchId ?? null);
+    return true;
   }
 
   /**
@@ -520,7 +560,7 @@ export class DriverCore {
     if (existing) return existing;
     const orcaTaskId = await this.mutate(() =>
       this.orca.createTask(
-        { runId: this.runId(), title: request.title, spec: request.spec() },
+        { runId: this.runId(), title: request.title, spec: request.spec() + mandatePrompt(this) },
         this.requestId(`${request.key}:task`),
       ),
     );
@@ -532,6 +572,10 @@ export class DriverCore {
 
   private async start(record: StageRecord, request: StageRequest, retryOf: string | null): Promise<void> {
     const attempt = `${record.key}:start:${record.attempts + 1}`;
+    // A crash may have lost the receipt of an already authorised launch. Reconcile that same id
+    // before enforcing the next budget stop, so an untracked worker cannot be left running.
+    if (!this.state.requests.has(attempt) && !this.state.requests.has(`${attempt}:fresh`))
+      await checkDispatchBudget(this, attempt);
     const reuse = 'reuse' in request.launch ? await this.reusableHandle(request.launch.reuse) : null;
     const assignment = 'reuse' in request.launch ? request.launch.fallback : request.launch.assignment;
     let receipt: WorkerStartReceipt;

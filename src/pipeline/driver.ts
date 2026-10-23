@@ -10,6 +10,7 @@ import type { TaskStore } from '../store/task-store.js';
 import { DriverCore, DriverStop, TaskAbandoned, type Log } from './driver-core.js';
 import { finish, runPipeline } from './pipeline.js';
 import { measureDispatches } from '../measure/usage.js';
+import { BudgetExhausted } from './delivery.js';
 
 /** Run a task's driver until the task finishes or the driver must stop. Returns the process exit code. */
 export async function drive(store: TaskStore, orca: Orca, log: Log): Promise<number> {
@@ -104,6 +105,11 @@ async function runToEnd(core: DriverCore, log: Log): Promise<number> {
     }
     return 0;
   } catch (error) {
+    if (error instanceof BudgetExhausted) {
+      await finish(core, 'incomplete', false, error.message);
+      log(error.message);
+      return 0;
+    }
     return recordStop(core, error, log);
   }
 }

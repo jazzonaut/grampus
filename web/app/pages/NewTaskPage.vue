@@ -29,7 +29,7 @@ const title = ref('');
 const recipe = ref('');
 const comparing = ref(route.query['compare'] === '1');
 const compared = ref<string[]>([]);
-const mode = ref<'full' | 'shared'>('full');
+const mode = ref<'full' | 'shared'>('shared');
 const modes = [
   {
     label: 'Full',

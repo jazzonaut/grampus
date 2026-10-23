@@ -5,8 +5,16 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { runChecks, logExcerpt } from '../checks/run-checks.js';
 import { currentSettings } from '../config/settings.js';
-import { judgeCodeReview, parseReviewReport, validateCoverage, coverageProblems } from '../domain/review.js';
-import { repairAssignment, type Assignment } from '../domain/recipe.js';
+import { checkDeadline, deliverySignal, deliveryPolicy, policyDecision, selectedRepairAssignment } from './delivery.js';
+import { executeReviewProbes, reviewWorkspace } from './review-workspace.js';
+import {
+  judgeCodeReview,
+  parseReviewReport,
+  validateCoverage,
+  coverageProblems,
+  unresolvedConcerns,
+} from '../domain/review.js';
+import type { Assignment } from '../domain/recipe.js';
 import type { GuardResult, TaskOutcome, UserCommand } from '../domain/events.js';
 import { changedPaths, headSha, git, uncommittedPaths } from '../git/git.js';
 import { matchesAny } from '../util/glob.js';
@@ -40,8 +48,8 @@ export async function runPipeline(core: DriverCore): Promise<void> {
   recordTestBaseline(core, worktree);
   for (let round = 0; ; round++) {
     const settled = await buildRound(core, worktree, spec, round);
-    await verify(core, worktree, spec, round);
-    await review(core, worktree, round);
+    await verifyAndReview(core, worktree, spec, round);
+    if (!core.state.decisions.has(round)) checkDeadline(core);
     const decision = decideRound(core, round, settled);
     if (decision === 'repair') continue;
     if (decision === 'ready')
@@ -53,6 +61,17 @@ export async function runPipeline(core: DriverCore): Promise<void> {
         core.state.workspace?.baseSha ?? roundStart(core, 0),
         protectedFiles(core),
       );
+    if (decision === 'ready' && deliveryPolicy(core).mode === 'unattended' && !core.state.comparisonId) {
+      policyDecision(core, {
+        key: `complete:${round}`,
+        action: 'complete',
+        reason: 'All required checks, integrity and independent review passed under the recorded mandate.',
+        sha: finalCandidate(core.state)?.sha ?? null,
+        specVersion: spec.version,
+      });
+      if (core.state.recipe.explain.automatic) await explainFinalCandidate(core, spec.version);
+      return finish(core, 'accepted', false, null);
+    }
     const choice = await askUser(core, round, decision, spec.version);
     if (choice.kind === 'accept') return finish(core, 'accepted', decision === 'escalate', null);
   }
@@ -167,7 +186,11 @@ async function baseline(core: DriverCore, worktree: string, spec: SpecVersion): 
     return;
   }
   core.log('Running baseline checks.');
-  const results = await runChecks(worktree, spec.checks, core.store.checksDir('baseline', 0), { rerunFailures: false });
+  const results = await runChecks(worktree, spec.checks, core.store.checksDir('baseline', 0), {
+    rerunFailures: false,
+    signal: deliverySignal(core),
+  });
+  checkDeadline(core);
   core.record({ type: 'checks.recorded', specVersion: spec.version, phase: 'baseline', round: 0, sha, results });
   core.log(
     `Baseline: ${results.filter(result => result.passed).length}/${results.length} checks pass before the change.`,
@@ -224,7 +247,7 @@ function buildRound(core: DriverCore, worktree: string, spec: SpecVersion, round
 /** Early repair rounds continue the builder's conversation; later ones start fresh with distilled problems. */
 function repairLaunch(core: DriverCore, round: number): Launch {
   const recipe = core.state.recipe;
-  const assignment = repairAssignment(recipe);
+  const assignment = selectedRepairAssignment(core, round);
   const previousKey = round === 1 ? stageKey('build', 0) : stageKey('repair', round - 1);
   const previous = currentDispatch(core.state.stages.get(previousKey));
   const sameModel = sameAssignment(assignment, recipe.build);
@@ -259,7 +282,7 @@ function problemsOf(core: DriverCore, round: number): RepairProblems {
   };
 }
 
-async function verify(core: DriverCore, worktree: string, spec: SpecVersion, round: number): Promise<void> {
+async function guardRound(core: DriverCore, worktree: string, spec: SpecVersion, round: number): Promise<void> {
   if (!core.state.guard.has(round)) {
     const fromSha = roundStart(core, round);
     const sha = await headSha(worktree);
@@ -276,29 +299,102 @@ async function verify(core: DriverCore, worktree: string, spec: SpecVersion, rou
     core.record({ type: 'guard.recorded', specVersion: spec.version, round, fromSha, sha, guard });
     if (guard.violations.length) core.log(`Guard: ${guard.violations.join('; ')}`);
   }
+}
+
+/** Isolated review can overlap checks; both settle before any repair or acceptance can mutate the branch. */
+async function verifyAndReview(core: DriverCore, worktree: string, spec: SpecVersion, round: number): Promise<void> {
+  await guardRound(core, worktree, spec, round);
+  if (!core.state.recipe.delivery) {
+    await verify(core, worktree, spec, round);
+    await review(core, worktree, round);
+    return;
+  }
+  const results = await Promise.allSettled([verify(core, worktree, spec, round), review(core, worktree, round)]);
+  for (const result of results) if (result.status === 'rejected') throw result.reason;
+}
+
+async function verify(core: DriverCore, worktree: string, spec: SpecVersion, round: number): Promise<void> {
   if (core.state.verify.has(round)) return;
   const sha = core.state.guard.get(round)?.sha ?? (await headSha(worktree));
   const before = await evidenceSnapshot(worktree, sha, spec);
   core.log(`Running checks at ${sha.slice(0, 12)}.`);
   const results = await runChecks(worktree, spec.checks, core.store.checksDir('verify', round), {
     rerunFailures: true,
+    signal: deliverySignal(core),
   });
+  checkDeadline(core);
   await assertEvidenceUnchanged(worktree, sha, spec, before);
   core.record({ type: 'checks.recorded', specVersion: spec.version, phase: 'verify', round, sha, results });
   core.log(`Checks: ${results.filter(result => result.passed).length}/${results.length} pass.`);
 }
 
 async function review(core: DriverCore, worktree: string, round: number): Promise<void> {
+  if (!core.state.recipe.review || core.state.decisions.has(round)) return;
+  const policy = core.state.recipe.delivery;
+  const corrections = policy?.reportRetries ?? 0;
+  const investigations = policy?.investigations ?? 0;
+  let corrected = 0;
+  let investigated = 0;
+  let guidance = '';
+  for (let attempt = 0; ; attempt++) {
+    const recorded = core.events.find(
+      event => event.type === 'review.recorded' && event.round === round && (event.attempt ?? 0) === attempt,
+    );
+    if (!recorded) await reviewOnce(core, worktree, round, attempt, guidance);
+    const result = core.state.reviews.get(round);
+    const report = result?.report;
+    if (result?.error && corrected < corrections) {
+      corrected++;
+      guidance = `Correct the report at the SAME candidate, without rebuilding. Validation error: ${result.error}. Reassess only if needed to produce honest evidence. Return the exact report schema.`;
+      policyDecision(core, {
+        key: `review-correction:${round}:${attempt}`,
+        action: 'recover',
+        reason: guidance,
+        sha: result.sha,
+        specVersion: result.specVersion,
+      });
+      continue;
+    }
+    const uncertain =
+      report &&
+      (report.verdict === 'unknown' ||
+        (coverageProblems(report).length && !actionableCoverage(result)) ||
+        unresolvedConcerns(report).length);
+    if (uncertain && investigated < investigations) {
+      investigated++;
+      guidance = `Investigate these unresolved claims with focused executable reproductions. Do not dismiss a concrete correctness concern as speculative without testing it. Resolve or retain it as unknown. Do not change production code. Prior report: ${JSON.stringify(report)}`;
+      policyDecision(core, {
+        key: `review-investigation:${round}:${attempt}`,
+        action: 'investigate',
+        reason: 'Gather evidence before requesting a user decision.',
+        sha: result.sha,
+        specVersion: result.specVersion,
+      });
+      continue;
+    }
+    return;
+  }
+}
+
+async function reviewOnce(
+  core: DriverCore,
+  worktree: string,
+  round: number,
+  attempt: number,
+  guidance: string,
+): Promise<void> {
   const assignment = core.state.recipe.review;
-  if (!assignment || core.state.reviews.has(round)) return;
-  const key = stageKey('review', round);
+  if (!assignment) return;
+  const key = attempt ? `review:${round}:attempt:${attempt}` : stageKey('review', round);
   const reportPath = workerFile(worktree, key, 'report.json');
-  const candidate = core.state.verify.get(round);
   const guard = core.state.guard.get(round);
+  const candidate =
+    core.state.verify.get(round) ?? (guard ? { sha: guard.sha, specVersion: guard.specVersion, results: [] } : null);
   if (!candidate || !guard) throw new Error(`Round ${round} has no verified candidate to review.`);
   const spec = core.state.specs.find(item => item.version === candidate.specVersion);
   if (!spec) throw new DriverStop('The checked specification is unavailable.');
   const before = await evidenceSnapshot(worktree, candidate.sha, spec);
+  const workspace = await reviewWorkspace(core, worktree, candidate.sha, spec);
   const settled = await core.runStage({
     key,
     stage: 'review',
@@ -308,6 +404,17 @@ async function review(core: DriverCore, worktree: string, round: number): Promis
       reviewPrompt({
         request: core.state.request,
         guidance: [
+          guidance,
+          ...(candidate.results.length
+            ? []
+            : [
+                'Driver checks are running concurrently. Do not claim they passed; establish behavioural coverage independently. Readiness requires the driver to record every required check successfully at this exact commit.',
+              ]),
+          ...(workspace !== worktree
+            ? [
+                `ISOLATED REVIEW WORKSPACE: ${workspace}. Change directory there before running commands. Read the original request and form your own boundary-risk assessment before reading the builder's tests. Reproduce high-risk state transitions with executable probes. You may create new test fixtures here, but do not change production files or the original candidate. Include complete runnable probe source and commands in the report; Grampus executes them independently. A passing suite alone does not disprove an untested race.`,
+              ]
+            : []),
           ...core.state.commands.flatMap(command => (command.kind === 'continue' ? [command.guidance] : [])),
           `Reassess prior review probes and report their committed regressions: ${JSON.stringify(core.state.reviews.get(round - 1)?.report?.probes ?? [])}`,
         ],
@@ -342,10 +449,18 @@ async function review(core: DriverCore, worktree: string, round: number): Promis
       report,
       [...core.state.reviews.values()].reverse().flatMap(item => item.report ?? []),
     );
+    await executeReviewProbes(
+      core,
+      workspace,
+      { sha: candidate.sha, specVersion: spec.version, round, attempt },
+      report,
+    );
+    await assertEvidenceUnchanged(worktree, candidate.sha, spec, before);
     const outcome = judgeCodeReview(report);
-    keepEvidence(reportPath, join(core.store.dir, 'reviews', `round-${round}.json`));
+    keepEvidence(reportPath, join(core.store.dir, 'reviews', `round-${round}-attempt-${attempt}.json`));
     core.record({
       type: 'review.recorded',
+      attempt,
       specVersion: candidate.specVersion,
       round,
       sha: candidate.sha,
@@ -360,6 +475,7 @@ async function review(core: DriverCore, worktree: string, round: number): Promis
   } catch (error) {
     core.record({
       type: 'review.recorded',
+      attempt,
       specVersion: candidate.specVersion,
       round,
       sha: candidate.sha,
@@ -445,7 +561,7 @@ function repairBudget(core: DriverCore, round: number, coverage: boolean): { use
 function roundStoppers(core: DriverCore, round: number, settled: Settled): string[] {
   const reviewed = core.state.reviews.get(round);
   const stoppers: string[] = [];
-  if (settled.outcome === 'failed') stoppers.push(`${builderFailed}${settled.body}`);
+  if (builderNeedsDecision(core, round, settled)) stoppers.push(`${builderFailed}${settled.body}`);
   if (reviewed?.error) stoppers.push(`review unavailable: ${reviewed.error}`);
   if (core.state.recipe.review && !reviewed?.report) stoppers.push('review unavailable');
   // A concrete failing scenario can drive repair; uncertainty alone cannot justify autonomous edits.
@@ -454,8 +570,18 @@ function roundStoppers(core: DriverCore, round: number, settled: Settled): strin
   if (reviewed?.report?.verdict === 'unknown') stoppers.push('review verdict unknown');
   if (reviewed?.report?.verdict === 'changes' && !reviewed.blocking.length)
     stoppers.push('review requests changes without a supported finding');
+  if (hasUnresolvedConcerns(core, reviewed))
+    stoppers.push('concrete correctness concerns remain unresolved after investigation');
   if (!finalCandidate(core.state)) stoppers.push('candidate evidence does not match the current commit and spec');
   return stoppers;
+}
+
+function builderNeedsDecision(core: DriverCore, round: number, settled: Settled): boolean {
+  return settled.outcome === 'failed' && (!core.state.recipe.delivery || !roundProblems(core, round).problems.length);
+}
+
+function hasUnresolvedConcerns(core: DriverCore, reviewed: ReviewRecord | undefined): boolean {
+  return Boolean(core.state.recipe.delivery && reviewed?.report && unresolvedConcerns(reviewed.report).length);
 }
 
 /** Unknown evidence cannot authorise edits; a supported failing scenario can. */

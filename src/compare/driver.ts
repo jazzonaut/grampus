@@ -11,7 +11,7 @@ import { installedBuild } from '../install/installation.js';
 import { createTask, type InheritedSpec } from '../pipeline/create-task.js';
 import { closeOwnTab } from '../pipeline/driver.js';
 import { acquireDriverLock, LockLost } from '../store/driver-lock.js';
-import type { TaskState } from '../pipeline/state.js';
+import { approvedSpecVersion, type TaskState } from '../pipeline/state.js';
 import { finalCandidate } from '../pipeline/candidate.js';
 import { listTaskIds } from '../store/task-store.js';
 import {
@@ -161,18 +161,18 @@ class ComparisonDriver {
     const first = this.state.entries[0];
     if (!first) return false;
     const lead = this.entry(first.taskId);
-    const approval = lead.commands.findLast(command => command.kind === 'approve');
+    const approval = approvedSpecVersion(lead);
     // A shared comparison uses one acceptance-test commit, not independently authored suites.
     if (lead.recipe.testsFirst && !lead.testBaseline && !lead.finished) return false;
-    if (approval?.kind !== 'approve') {
+    if (approval === null) {
       if (lead.finished) {
         this.record({ type: 'comparison.finished', outcome: 'abandoned', winner: null });
         this.options.log(`${lead.taskId} ended without an approved spec, so the comparison ends.`);
       }
       return false;
     }
-    this.record({ type: 'spec.shared', fromTask: lead.taskId, version: approval.specVersion });
-    this.options.log(`Spec v${approval.specVersion} of ${lead.taskId} is shared with the other entries.`);
+    this.record({ type: 'spec.shared', fromTask: lead.taskId, version: approval });
+    this.options.log(`Spec v${approval} of ${lead.taskId} is shared with the other entries.`);
     return true;
   }
 

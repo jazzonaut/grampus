@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { useToast } from '@nuxt/ui/composables';
 import { ref } from 'vue';
-import type { Assignment, Recipe } from '../../../src/domain/recipe';
+import type { Assignment, DeliveryPolicy, Recipe } from '../../../src/domain/recipe';
 import { getJson, sendJson } from '../api/client';
 import RecipeEditor from '../components/RecipeEditor.vue';
 
@@ -11,6 +11,7 @@ const recipes = ref<Recipe[]>([]);
 const builtIn = ref<string[]>([]);
 const defaultRecipe = ref('');
 const maxRounds = ref(0);
+const deliveryDefaults = ref<DeliveryPolicy | null>(null);
 const error = ref<string | null>(null);
 const editing = ref<{ recipe: Recipe; originalName: string | null } | null>(null);
 const editorOpen = ref(false);
@@ -23,11 +24,13 @@ async function load(): Promise<void> {
       builtIn: string[];
       defaultRecipe: string;
       maxRepairRounds: number;
+      deliveryDefaults: DeliveryPolicy;
     }>('/api/recipes');
     recipes.value = value.recipes;
     builtIn.value = value.builtIn;
     defaultRecipe.value = value.defaultRecipe;
     maxRounds.value = value.maxRepairRounds;
+    deliveryDefaults.value = value.deliveryDefaults;
     error.value = null;
   } catch (failure) {
     error.value = (failure as Error).message;
@@ -85,6 +88,12 @@ function stages(recipe: Recipe): { label: string; icon: string; value: string }[
     },
     { label: 'Coverage', icon: 'i-lucide-wrench', value: `${recipe.repair.coverageGapRounds} automatic repairs` },
     { label: 'Polish', icon: 'i-lucide-scissors', value: describe(recipe.polish) },
+    {
+      label: 'Delivery',
+      icon: 'i-lucide-clock',
+      value: recipe.delivery ? `${recipe.delivery.mode}, ${recipe.delivery.maxSeconds}s budget` : 'supervised',
+    },
+    { label: 'Fallback', icon: 'i-lucide-wrench', value: describe(recipe.repair.fallback) },
   ];
 }
 </script>
@@ -168,6 +177,7 @@ function stages(recipe: Recipe): { label: string; icon: string; value: string }[
         :recipe="editing?.recipe ?? null"
         :original-name="editing?.originalName ?? null"
         :max-rounds="maxRounds"
+        :delivery-defaults="deliveryDefaults"
         @saved="load"
       />
 

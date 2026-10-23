@@ -50,6 +50,20 @@ export const recipeLimits = {
   nameLength: 80,
 } as const;
 
+/** Recorded delivery mandates bound recovery and spending without weakening verification. */
+export const deliveryLimits = {
+  defaultSeconds: 1800,
+  maxSeconds: 86_400,
+  maxRecoveries: 3,
+  reportRetries: 1,
+  investigations: 1,
+  stageRetries: 1,
+  questionResolutions: 2,
+  stagnantRounds: 2,
+  maxCostUsd: 1000,
+  millisecondsPerSecond: 1000,
+} as const;
+
 /** Bounds on recorded command output. */
 export const checkLimits = {
   /** Named failures shown alongside the complete command log. */

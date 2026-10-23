@@ -95,7 +95,13 @@ function timing(
   for (const [messageId, question] of state.questions) {
     const asked = Date.parse(question.at);
     if (question.key !== key || asked < from || asked > to) continue;
-    waits.push([asked, Math.max(asked, Math.min(answers.get(messageId) ?? to, to))]);
+    waits.push([
+      asked,
+      Math.max(
+        asked,
+        Math.min(question.answeredAt ? Date.parse(question.answeredAt) : (answers.get(messageId) ?? to), to),
+      ),
+    ]);
   }
   // Questions open at the same time are one wait: summing them once made working time negative.
   let waitingMs = 0;

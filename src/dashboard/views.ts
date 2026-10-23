@@ -4,7 +4,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { specLimits } from '../config/limits.js';
 import type { StoredEvent, UserCommand } from '../domain/events.js';
-import { currentDispatch, isOpen, type StageRecord, type TaskState } from '../pipeline/state.js';
+import {
+  approvedSpecVersion,
+  currentDispatch,
+  userQuestions,
+  type StageRecord,
+  type TaskState,
+} from '../pipeline/state.js';
 import { builderFailed } from '../pipeline/pipeline.js';
 import { summarise } from '../pipeline/status.js';
 import type {
@@ -33,7 +39,7 @@ export function listItem(state: TaskState, events: readonly StoredEvent[]): Task
     status: statusOf(state),
     phase: summarise(state).phase,
     needsYou: state.attention,
-    openQuestions: [...state.questions.values()].filter(isOpen).length,
+    openQuestions: userQuestions(state).length,
     round: rounds.length ? Math.max(...rounds) : null,
     createdAt: state.createdAt,
     updatedAt: events.at(-1)?.at ?? state.createdAt,
@@ -114,7 +120,7 @@ function latestSpecChecks(state: TaskState): TaskDetail['specChecks'] {
 
 function statusOf(state: TaskState): TaskStatus {
   if (state.finished) return state.finished.outcome;
-  if (state.attention || [...state.questions.values()].some(isOpen)) return 'needs-you';
+  if (state.attention || userQuestions(state).length) return 'needs-you';
   if (state.lastStop) return 'stopped';
   return 'running';
 }
@@ -135,9 +141,7 @@ function stageState(record: StageRecord | undefined): StepState {
 }
 
 function approvedSpec(state: TaskState): number | null {
-  if (state.inherited) return 1;
-  const approval = state.commands.findLast(command => command.kind === 'approve');
-  return approval?.kind === 'approve' ? approval.specVersion : null;
+  return approvedSpecVersion(state);
 }
 
 function latestRound(state: TaskState): number | null {
@@ -350,13 +354,17 @@ export function readBounded(path: string, bytes: number): string | null {
 }
 
 function messagesOf(state: TaskState, events: readonly StoredEvent[]): MessageView[] {
-  const answers = new Map(
+  const answers = new Map<string, NonNullable<MessageView['answer']>>(
     state.commands.flatMap(command =>
       command.kind === 'reply'
         ? [[command.messageId, { body: command.body, at: command.at, source: command.source }] as const]
         : [],
     ),
   );
+  for (const event of events)
+    if (event.type === 'question.answered')
+      answers.set(event.messageId, { body: event.body, at: event.at, source: 'policy' });
+  const userQuestionIds = new Set(userQuestions(state).map(([id]) => id));
   return events.flatMap(event =>
     event.type === 'worker.message'
       ? [
@@ -369,6 +377,11 @@ function messagesOf(state: TaskState, events: readonly StoredEvent[]): MessageVi
             at: event.at,
             answered: state.questions.get(event.messageId)?.answered ?? false,
             closed: state.questions.get(event.messageId)?.closed ?? false,
+            resolvingAutomatically:
+              event.kind === 'question' &&
+              !userQuestionIds.has(event.messageId) &&
+              !state.questions.get(event.messageId)?.answered &&
+              !state.questions.get(event.messageId)?.closed,
             answer: answers.get(event.messageId) ?? null,
           },
         ]

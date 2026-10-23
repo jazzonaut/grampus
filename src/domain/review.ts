@@ -32,6 +32,11 @@ export const findingSchema = z
     /** Inputs or steps that produce the wrong behaviour. Required for a blocking code finding. */
     scenario: text.optional(),
     detail: text.optional(),
+    /** Concrete correctness concerns need an executable disposition before unattended readiness. */
+    assessment: z
+      .object({ verdict: z.enum(['disproved', 'unresolved']), probeScenario: evidenceText })
+      .strict()
+      .optional(),
   })
   .strict();
 export type Finding = z.infer<typeof findingSchema>;
@@ -119,6 +124,18 @@ export function coverageProblems(report: ReviewReport): string[] {
         `Preserve review probe as a committed regression test: ${probe.scenario}. Suggested file: ${probe.suggestedPath}. Run: ${probe.command}\n${probe.source}`,
       );
   return problems;
+}
+
+/** A plausible failure is unresolved until a retained executable regression disproves it. */
+export function unresolvedConcerns(report: ReviewReport): Finding[] {
+  return report.findings.filter(finding => {
+    if (finding.severity !== 'note' || !finding.file || !finding.scenario?.trim()) return false;
+    const assessment = finding.assessment;
+    return (
+      assessment?.verdict !== 'disproved' ||
+      !report.probes?.some(probe => probe.scenario === assessment.probeScenario && probe.regressionTest)
+    );
+  });
 }
 
 /** Apply the blocking rule to a code review: a blocker needs a file, a line and a failing scenario. */

@@ -24,6 +24,7 @@ const stagePhase: Record<Stage, Phase> = {
   'polish-review': 'polish',
   explain: 'explanation',
   answer: 'explanation',
+  question: 'verification',
 };
 
 /** Sum recorded work, not elapsed wall time: concurrent workers and checks can overlap. */
@@ -49,6 +50,9 @@ export function measurePhases(
     const counted = new Set<string>();
     for (const event of events) {
       if (event.type === 'setup.recorded' && phase === 'setup') checkMs += event.result.durationMs;
+      if (event.type === 'review.workspace' && phase === 'verification')
+        checkMs += event.results.reduce((sum, result) => sum + result.durationMs, 0);
+      if (event.type === 'review.probe' && phase === 'verification') checkMs += event.result.durationMs;
       if (event.type === 'checks.recorded' && phase === 'verification')
         for (const result of event.results) {
           // The baseline may reuse the spec check's immutable log rather than execute again.

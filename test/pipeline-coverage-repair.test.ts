@@ -58,6 +58,9 @@ test('coverage allowance survives a restart and manual continuation does not rep
     h.command({ kind: 'approve', specVersion: 1 });
     const state = await h.until(s => s.decisions.has(0), 'round decision');
     assert.equal(state.decisions.get(0)?.decision, 'repair');
+    // Each round performs real Git operations; bound individual progress under parallel test load.
+    await h.until(s => s.decisions.has(1), 'first coverage repair decision');
+    await h.until(s => s.decisions.has(2), 'second coverage repair decision');
     await h.until(s => s.attention?.reason === 'escalate:3', 'coverage allowance exhausted');
     assert.equal(h.orca.starts.filter(start => start.title.startsWith('Repair')).length, 3);
     h.orca.failNextCheck = true;

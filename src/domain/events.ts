@@ -12,14 +12,24 @@ import type { DispatchMeasurement } from '../measure/usage.js';
 import { codeReferenceSchema, type CodeReference, type Explanation, type ExplanationAnswer } from './explanation.js';
 
 /** How a task ended. `not-selected` is a comparison entry the user did not pick; its evidence still counts. */
-export type TaskOutcome = 'accepted' | 'abandoned' | 'not-selected';
+export type TaskOutcome = 'accepted' | 'abandoned' | 'not-selected' | 'incomplete';
 
 /** The event log schema. Logs written with another schema are refused; there are no migrations. */
-export const eventSchemaVersion = 6;
+export const eventSchemaVersion = 7;
 
 /** Pipeline stages that run as Orca workers. */
 export type Stage =
-  'spec' | 'spec-review' | 'tests' | 'build' | 'review' | 'repair' | 'polish' | 'polish-review' | 'explain' | 'answer';
+  | 'spec'
+  | 'spec-review'
+  | 'tests'
+  | 'build'
+  | 'review'
+  | 'repair'
+  | 'polish'
+  | 'polish-review'
+  | 'explain'
+  | 'answer'
+  | 'question';
 
 /** The result of one check command at one commit. */
 export interface CheckResult {
@@ -75,6 +85,43 @@ export interface LaunchRecord {
 
 export type TaskEvent =
   | { type: 'log.header'; schema: number }
+  | {
+      type: 'policy.decided';
+      key: string;
+      action: 'approve-spec' | 'complete' | 'recover' | 'investigate' | 'fallback';
+      reason: string;
+      sha: string | null;
+      specVersion: number | null;
+    }
+  | {
+      type: 'budget.checked';
+      key: string;
+      elapsedMs: number;
+      costUsd: number | null;
+      unknownCosts: number;
+      reason: string | null;
+    }
+  | { type: 'review.workspace'; sha: string; specVersion: number; path: string; results: CheckResult[] }
+  | { type: 'review.preparing'; sha: string; specVersion: number; path: string }
+  | {
+      type: 'review.probe';
+      key: string;
+      sha: string;
+      specVersion: number;
+      scenario: string;
+      source: string;
+      result: CheckResult;
+    }
+  | {
+      type: 'question.assessed';
+      messageId: string;
+      sha: string | null;
+      specVersion: number | null;
+      disposition: 'answer' | 'user';
+      body: string;
+      references: string[];
+    }
+  | { type: 'question.answered'; messageId: string; body: string }
   | {
       type: 'task.created';
       taskId: string;
@@ -165,7 +212,13 @@ export type TaskEvent =
       acceptance: AcceptanceScenario[];
       protected: string[];
     }
-  | { type: 'spec_review.recorded'; specVersion: number; report: ReviewReport | null; error: string | null }
+  | {
+      type: 'spec_review.recorded';
+      attempt?: number;
+      specVersion: number;
+      report: ReviewReport | null;
+      error: string | null;
+    }
   | { type: 'gate.created'; gateId: string; orcaTaskId: string }
   | { type: 'gate.resolved'; gateId: string; resolution: string }
   | { type: 'command.applied'; command: UserCommand }
@@ -185,6 +238,7 @@ export type TaskEvent =
   | { type: 'guard.recorded'; specVersion: number; round: number; fromSha: string; sha: string; guard: GuardResult }
   | {
       type: 'review.recorded';
+      attempt?: number;
       specVersion: number;
       round: number;
       sha: string;

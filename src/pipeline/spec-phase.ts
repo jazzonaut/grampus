@@ -9,14 +9,17 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { logExcerpt, runChecks } from '../checks/run-checks.js';
 import { specLimits } from '../config/limits.js';
+import { checkDeadline, deliverySignal, deliveryPolicy, policyDecision } from './delivery.js';
 import type { CheckResult, UserCommand } from '../domain/events.js';
-import { parseReviewReport, validateCoverage } from '../domain/review.js';
+import { parseReviewReport, validateCoverage, type ReviewReport } from '../domain/review.js';
 import { headSha } from '../git/git.js';
 import { withRepositoryChecks } from '../domain/spec.js';
 import { specPrompt, specReviewPrompt } from './prompts.js';
 import type { DriverCore, Settled } from './driver-core.js';
 import { currentDispatch, stageKey, type SpecVersion } from './state.js';
 import { approvedSpecPath, keepEvidence, readWorkerFile, workerFile } from './workspace-files.js';
+import { evidenceSnapshot, assertEvidenceUnchanged } from './evidence.js';
+import { assessCheck } from '../checks/failure.js';
 
 interface Attempt {
   feedback: string | null;
@@ -49,6 +52,12 @@ export async function approveSpec(core: DriverCore, worktree: string): Promise<S
       continue;
     }
     const checks = await startSpecChecks(core, worktree, recorded);
+    if (deliveryPolicy(core).mode === 'unattended') {
+      const automatic = await approveAutomatically(core, worktree, recorded, checks);
+      if (automatic === null) return recorded;
+      attempt = { feedback: automatic, rejection: null };
+      continue;
+    }
     const decision = `approve-spec:${recorded.version}`;
     let choice: UserCommand;
     try {
@@ -198,6 +207,125 @@ interface SpecChecks {
   controller: AbortController;
 }
 
+/** The mandate approves only a reviewed spec; unresolved ambiguity remains a product decision. */
+async function approveAutomatically(
+  core: DriverCore,
+  worktree: string,
+  spec: SpecVersion,
+  checks: SpecChecks | null,
+): Promise<string | null> {
+  const key = `approve-spec:${spec.version}`;
+  if (!core.state.policyDecisions.has(key)) {
+    await checks?.done;
+    checkDeadline(core);
+    landSpecChecks(core, spec, checks);
+    if (checks?.failure) throw new Error(checks.failure);
+    await automaticSpecReview(core, worktree, spec);
+    const { approved, detail, canRevise } = specReadiness(core, spec);
+    if (!approved) {
+      if (spec.version <= deliveryPolicy(core).reportRetries && canRevise) {
+        policyDecision(core, {
+          key: `revise-spec:${spec.version}`,
+          action: 'recover',
+          reason: detail,
+          sha: core.state.specChecks.get(spec.version)?.sha ?? null,
+          specVersion: spec.version,
+        });
+        return detail;
+      }
+      const choice = await core.decide(`spec-product:${spec.version}`, `Specification needs a decision: ${detail}`, [
+        'revise',
+        'abandon',
+      ]);
+      return choice.kind === 'revise' ? choice.feedback : detail;
+    }
+    policyDecision(core, {
+      key,
+      action: 'approve-spec',
+      reason:
+        'Independent spec review confirms request coverage and executable checks under the recorded delivery mandate.',
+      sha: core.state.specChecks.get(spec.version)?.sha ?? null,
+      specVersion: spec.version,
+    });
+  }
+  await resolveGate(core);
+  writeFileSync(approvedSpecPath(worktree), readFileSync(spec.path));
+  return null;
+}
+
+function specReadiness(core: DriverCore, spec: SpecVersion) {
+  const review = core.state.specReviews.get(spec.version);
+  const invalidChecks = (core.state.specChecks.get(spec.version)?.results ?? [])
+    .map(result => assessCheck(result, false))
+    .filter(check => check.outcome === 'execution-error');
+  return {
+    approved: specApproved(review?.report) && invalidChecks.length === 0,
+    canRevise: review?.report?.verdict === 'changes' || invalidChecks.length > 0,
+    detail: invalidChecks.length
+      ? `Baseline checks cannot execute: ${JSON.stringify(invalidChecks)}. Correct the check definitions or prerequisite problem without dropping mandatory repository checks.`
+      : (review?.error ?? JSON.stringify(review?.report) ?? 'No spec review was recorded.'),
+  };
+}
+
+function specApproved(report: ReviewReport | null | undefined): boolean {
+  return (
+    report?.verdict === 'approve' &&
+    report.requestCoverage?.verdict === 'covered' &&
+    !report.findings.some(finding => finding.severity === 'blocking')
+  );
+}
+
+/** Report formatting recovery stays on the same spec and base commit rather than rewriting the spec. */
+async function automaticSpecReview(core: DriverCore, worktree: string, spec: SpecVersion): Promise<void> {
+  const assignment = core.state.recipe.specReview;
+  if (!assignment) throw new Error('Unattended specification requires an independent reviewer.');
+  const before = core.state.specChecks.get(spec.version);
+  if (!before) throw new Error('Unattended specification requires recorded baseline checks.');
+  writeFileSync(approvedSpecPath(worktree), readFileSync(spec.path));
+  const snapshot = await evidenceSnapshot(worktree, before.sha, spec);
+  let error = '';
+  for (let attempt = 0; attempt <= deliveryPolicy(core).reportRetries; attempt++) {
+    const key = attempt ? `spec-review:${spec.version}:attempt:${attempt}` : stageKey('spec-review', spec.version);
+    const prior = core.events.find(
+      event =>
+        event.type === 'spec_review.recorded' && event.specVersion === spec.version && (event.attempt ?? 0) === attempt,
+    );
+    if (!prior) {
+      const reportPath = workerFile(worktree, key, 'report.json');
+      const settled = await core.runStage({
+        key,
+        stage: 'spec-review',
+        round: spec.version,
+        title: `Spec review v${spec.version}: ${core.state.title}`,
+        launch: { assignment },
+        spec: () =>
+          specReviewPrompt({
+            request: core.state.request,
+            specPath: spec.path,
+            reportPath,
+            checksBefore: before.results.map(result => ({
+              result,
+              excerpt: result.passed ? null : logExcerpt(result.logPath),
+            })),
+          }) + (error ? `\nCorrect the previous report's format without changing the spec: ${error}` : ''),
+      });
+      await assertEvidenceUnchanged(worktree, before.sha, spec, snapshot);
+      recordSpecReview(core, spec, reportPath, settled, null, attempt);
+    }
+    const recorded = core.state.specReviews.get(spec.version);
+    if (!recorded?.error) return;
+    error = recorded.error;
+    if (attempt < deliveryPolicy(core).reportRetries)
+      policyDecision(core, {
+        key: `spec-report:${spec.version}:${attempt}`,
+        action: 'recover',
+        reason: error,
+        sha: before.sha,
+        specVersion: spec.version,
+      });
+  }
+}
+
 /**
  * Start the spec's checks at the base commit unless they are recorded. A check that already fails here for
  * a reason other than the missing behaviour (no tests ran, a missing tool) can never show the behaviour,
@@ -207,11 +335,12 @@ async function startSpecChecks(core: DriverCore, worktree: string, spec: SpecVer
   if (core.state.specChecks.has(spec.version)) return null;
   const sha = await headSha(worktree);
   const controller = new AbortController();
+  const deadline = deliverySignal(core);
   core.log(`Running the checks of spec version ${spec.version} at ${sha.slice(0, 12)}.`);
   const checks: SpecChecks = { sha, results: null, failure: null, done: Promise.resolve(), controller };
   checks.done = runChecks(worktree, spec.checks, core.store.checksDir('spec', spec.version), {
     rerunFailures: false,
-    signal: controller.signal,
+    signal: deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal,
   }).then(
     results => {
       checks.results = results;
@@ -300,6 +429,7 @@ function recordSpecReview(
   reportPath: string,
   settled: { outcome: 'succeeded' | 'failed'; body: string } | null,
   startError: string | null,
+  attempt = 0,
 ): void {
   const text = readWorkerFile(reportPath);
   try {
@@ -310,10 +440,11 @@ function recordSpecReview(
     const report = parseReviewReport(text);
     validateCoverage(report);
     keepEvidence(reportPath, join(core.store.dir, 'spec', `v${spec.version}-review.json`));
-    core.record({ type: 'spec_review.recorded', specVersion: spec.version, report, error: null });
+    core.record({ type: 'spec_review.recorded', attempt, specVersion: spec.version, report, error: null });
   } catch (error) {
     core.record({
       type: 'spec_review.recorded',
+      attempt,
       specVersion: spec.version,
       report: null,
       error: (error as Error).message,

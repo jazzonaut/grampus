@@ -1,10 +1,18 @@
 # Grampus
 
 Grampus turns a plain-language coding request into a verified result. It runs a fixed pipeline of
-Claude and Codex workers on [Orca](https://www.onorca.dev/docs/orchestration): a spec you approve, a
+Claude and Codex workers on [Orca](https://www.onorca.dev/docs/orchestration): an independently reviewed spec, a
 build, checks that Grampus runs itself against the exact commit, an independent review by the other
 model family and bounded repair. It asks you only for decisions, and records every stage so different
 recipes (models, stages, repair budgets) can be compared.
+
+The standard recipes run unattended within a recorded 30-minute delivery budget, with bounded
+report recovery, investigation and repository-grounded answers to implementation questions. They
+finish at a verified branch, or report an incomplete result when the budget runs out. Product decisions
+still come to you. `adaptive-codex` and `adaptive-claude` start with cheaper builders and use a configured
+stronger editor only when repairs stop making measurable progress. All retain the same verification bar.
+Copy a recipe to tune budgets or enable supervised approval. [Benchmarking](docs/BENCHMARKS.md) describes
+how to compare total cost and quality fairly.
 
 - [How it works](docs/ARCHITECTURE.md)
 - [Design and decisions](DESIGN.md)

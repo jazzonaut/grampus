@@ -4,12 +4,17 @@
 -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { Recipe } from '../../../src/domain/recipe';
+import type { Recipe, DeliveryPolicy } from '../../../src/domain/recipe';
 import { sendJson } from '../api/client';
 import { useModels } from '../composables/useModels';
 import AssignmentField from './AssignmentField.vue';
 
-const props = defineProps<{ recipe: Recipe | null; originalName: string | null; maxRounds: number }>();
+const props = defineProps<{
+  recipe: Recipe | null;
+  originalName: string | null;
+  maxRounds: number;
+  deliveryDefaults: DeliveryPolicy | null;
+}>();
 const open = defineModel<boolean>('open', { required: true });
 const emit = defineEmits<{ saved: [] }>();
 const { catalogs, loading, refresh } = useModels();
@@ -41,6 +46,28 @@ const repairAssignment = computed({
   },
 });
 const notes = computed(() => catalogs.value.flatMap(catalog => (catalog.note ? [catalog.note] : [])));
+const boundedDelivery = computed({
+  get: () => Boolean(draft.value?.delivery),
+  set: enabled => {
+    if (!draft.value) return;
+    if (enabled && props.deliveryDefaults) draft.value.delivery = { ...props.deliveryDefaults };
+    else delete draft.value.delivery;
+  },
+});
+const unattended = computed({
+  get: () => draft.value?.delivery?.mode === 'unattended',
+  set: enabled => {
+    if (draft.value?.delivery) draft.value.delivery.mode = enabled ? 'unattended' : 'supervised';
+  },
+});
+const fallbackAssignment = computed({
+  get: () => draft.value?.repair.fallback ?? null,
+  set: value => {
+    if (!draft.value) return;
+    if (value) draft.value.repair.fallback = value;
+    else delete draft.value.repair.fallback;
+  },
+});
 
 async function save(): Promise<void> {
   if (!draft.value) return;
@@ -71,6 +98,44 @@ async function save(): Promise<void> {
         <UFormField label="Name" required>
           <UInput v-model="draft.name" class="w-full" />
         </UFormField>
+
+        <div class="rounded-lg border border-default p-3 space-y-3">
+          <USwitch
+            v-model="boundedDelivery"
+            label="Use a delivery budget and automatic recovery"
+            :disabled="!deliveryDefaults"
+          />
+          <template v-if="draft.delivery">
+            <USwitch
+              v-model="unattended"
+              label="Finish without routine approvals"
+              description="Requires independent spec and code review. Product decisions still come to you. Never merges or deploys."
+            />
+            <UFormField
+              label="Time budget in seconds"
+              help="Measured from task creation. Exhaustion produces an incomplete result."
+            >
+              <UInputNumber v-model="draft.delivery.maxSeconds" />
+            </UFormField>
+            <UFormField
+              label="Estimated cost budget in USD"
+              help="Optional. Checked before launching another worker; unknown usage stops further spending. A running worker can exceed the estimate."
+            >
+              <UInputNumber
+                :model-value="draft.delivery.maxCostUsd ?? undefined"
+                @update:model-value="draft.delivery.maxCostUsd = $event ?? null"
+              />
+            </UFormField>
+            <UFormField label="Report corrections"><UInputNumber v-model="draft.delivery.reportRetries" /></UFormField>
+            <UFormField label="Investigations per review"
+              ><UInputNumber v-model="draft.delivery.investigations"
+            /></UFormField>
+            <UFormField label="Worker start retries"><UInputNumber v-model="draft.delivery.stageRetries" /></UFormField>
+            <UFormField label="Implementation questions resolved automatically"
+              ><UInputNumber v-model="draft.delivery.questionResolutions"
+            /></UFormField>
+          </template>
+        </div>
 
         <div class="flex items-center justify-between gap-2">
           <p class="text-xs text-muted">
@@ -134,6 +199,18 @@ async function save(): Promise<void> {
           </UFormField>
           <USwitch v-model="ownRepair" label="Use a different agent for repair than for the build" />
           <AssignmentField v-if="ownRepair" v-model="repairAssignment" label="Repair agent" />
+          <AssignmentField
+            v-model="fallbackAssignment"
+            label="Fallback editor"
+            help="Used after repeated failure without a decrease in unresolved findings. Verification stays unchanged."
+            optional
+          />
+          <UFormField v-if="draft.repair.fallback" label="Stagnant rounds before fallback">
+            <UInputNumber
+              :model-value="draft.repair.stagnantRounds"
+              @update:model-value="draft.repair.stagnantRounds = $event ?? undefined"
+            />
+          </UFormField>
         </div>
 
         <AssignmentField

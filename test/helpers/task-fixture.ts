@@ -203,6 +203,7 @@ export function goodWorkers(harness: Harness, overrides: Partial<Record<string, 
 
 /** The pipeline role of an Orca task, from the title Grampus gives it. */
 export function roleOf(title: string): string {
+  if (title.startsWith('Question triage')) return 'question';
   if (title.startsWith('Spec review')) return 'spec-review';
   if (title.startsWith('Spec')) return 'spec';
   if (title.startsWith('Acceptance tests')) return 'tests';

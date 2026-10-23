@@ -28,6 +28,7 @@ export const statusLook: Record<TaskStatus, Look> = {
   running: { icon: 'i-lucide-loader-circle', color: 'primary', label: 'Running', spin: true },
   stopped: { icon: 'i-lucide-octagon-pause', color: 'error', label: 'Driver stopped' },
   accepted: { icon: 'i-lucide-circle-check', color: 'success', label: 'Accepted' },
+  incomplete: { icon: 'i-lucide-circle-x', color: 'warning', label: 'Incomplete' },
   abandoned: { icon: 'i-lucide-circle-x', color: 'neutral', label: 'Abandoned' },
   'not-selected': { icon: 'i-lucide-circle-slash', color: 'neutral', label: 'Not selected' },
 };

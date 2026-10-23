@@ -8,7 +8,7 @@ import type { CheckResult, CommandKind, GuardResult } from '../domain/events.js'
 import type { Finding } from '../domain/review.js';
 import { polishNote } from './polish.js';
 import { finalCandidate } from './candidate.js';
-import { currentDispatch, isOpen, type ReviewRecord, type TaskState } from './state.js';
+import { approvedSpecVersion, currentDispatch, userQuestions, type ReviewRecord, type TaskState } from './state.js';
 
 export interface TaskSummary {
   taskId: string;
@@ -49,14 +49,12 @@ export function summarise(state: TaskState): TaskSummary {
     worktree: state.workspace?.path ?? null,
     phase: phaseOf(state),
     needsYou: state.attention,
-    questions: [...state.questions]
-      .filter(([, question]) => isOpen(question))
-      .map(([messageId, question]) => ({
-        messageId,
-        stage: question.key,
-        text: question.body || question.subject,
-        at: question.at,
-      })),
+    questions: userQuestions(state).map(([messageId, question]) => ({
+      messageId,
+      stage: question.key,
+      text: question.body || question.subject,
+      at: question.at,
+    })),
     spec: latest
       ? {
           version: latest.version,
@@ -279,7 +277,7 @@ function phaseOf(state: TaskState): string {
         : `${record.key} running`;
   }
   // Checks are not stages: between workers the driver may be running them for minutes.
-  const approved = state.inherited || state.commands.some(command => command.kind === 'approve');
+  const approved = approvedSpecVersion(state);
   if (approved && !state.baseline) return 'running the checks before the build';
   const round = latestBuiltRound(state);
   if (round === null) return 'waiting for the driver';

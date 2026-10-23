@@ -9,7 +9,7 @@ import { parseClaudeHelp, parseCodexCatalog } from '../src/agents/catalog.js';
 import { ComparisonStore } from '../src/compare/comparison.js';
 import { currentSettings } from '../src/config/settings.js';
 import { serveDashboard, type RunningDashboard } from '../src/dashboard/server.js';
-import { standardRecipe } from '../src/domain/recipe.js';
+import { standardRecipe, standardClaudeRecipe } from '../src/domain/recipe.js';
 import { foldEvents } from '../src/pipeline/state.js';
 import { TaskStore } from '../src/store/task-store.js';
 import { FakeOrca } from './helpers/fake-orca.js';
@@ -102,7 +102,7 @@ test('saved recipes preserve other settings and cannot replace either built-in r
     defaultRecipe: string;
     recipes: { name: string }[];
   };
-  assert.deepEqual(catalog.builtIn, ['standard-codex', 'standard-claude']);
+  assert.deepEqual(catalog.builtIn, ['standard-codex', 'standard-claude', 'adaptive-codex', 'adaptive-claude']);
   assert.equal(catalog.defaultRecipe, 'standard-codex');
   assert.deepEqual(
     catalog.recipes.map(recipe => recipe.name),
@@ -263,7 +263,7 @@ test("Claude's aliases and effort levels are read from its help, and an unexpect
 test('a comparison started from the dashboard gets its log and a driver terminal in the main checkout', async () => {
   const { base, orca } = await start();
   const repo = await createRepository();
-  const alt = { ...standardRecipe, name: 'alt', build: { agent: 'claude' } };
+  const alt = { ...standardClaudeRecipe, name: 'alt' };
   assert.equal((await send(base, 'PUT', '/api/recipes/alt', alt)).status, 201);
   const tooFew = await send(base, 'POST', '/api/comparisons', {
     repo,

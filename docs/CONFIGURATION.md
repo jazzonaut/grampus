@@ -103,27 +103,90 @@ The dashboard recipe editor exposes it as **Automatic coverage repairs**.
 Coverage repairs receive the original request, coverage evidence and limitations, and blocking
 findings. They may fix requested behaviour omitted by the spec but cannot change the approved spec
 or expand the request. Every attempt runs the checks and independent review again; remaining
-coverage problems prevent readiness. Unknown request coverage or review verdicts, unavailable or
-incomplete reviews, unsupported findings and worker failures still escalate immediately. Exhausting
+coverage problems prevent readiness. Without a delivery policy, unknown request coverage or review verdicts, unavailable or
+incomplete reviews, unsupported findings and worker failures escalate immediately. Delivery policies
+first use their bounded report correction and investigation allowances. Exhausting
 an allowance also escalates; a manual continuation grants one attempt without replenishing either
 automatic allowance. Tasks retain the recipe copied at creation, so changes apply to new tasks.
 
-The built-in `standard-codex` recipe is the default and uses the settings promoted from
-`economy-codex-4-polish`. `standard-claude` mirrors it with the agent families swapped:
+The built-in `standard-codex` recipe is the default. `standard-claude` mirrors it with the agent
+families swapped. Both use unattended delivery, independent specification review and no polish:
 
 | Stage | `standard-codex` | `standard-claude` |
 | --- | --- | --- |
-| Spec, build, polish | Codex `gpt-6.1-sol`, medium | Claude `claude-sonnet-5-5`, medium |
-| Review, including polish review | Claude `claude-sonnet-5-5`, medium | Codex `gpt-6.1-sol`, medium |
+| Spec, build | Codex `gpt-6.1-sol`, medium | Claude `claude-sonnet-5-5`, medium |
+| Spec and code review | Claude `claude-sonnet-5-5`, medium | Codex `gpt-6.1-sol`, medium |
 | Repair | Codex `gpt-6.1-sol`, high | Claude `claude-sonnet-5-5`, high |
 | On-demand explanation | Claude, Orca default model | Codex, Orca default model |
 
-Both disable spec review, tests-first and automatic explanation. They allow two repair rounds,
+Both disable polish, tests-first and automatic explanation. They allow two repair rounds,
 plus three automatic coverage repair rounds, with the first repair eligible to continue the builder
 conversation when its assignment matches.
-Both names are reserved: copy a built-in recipe to customise it. The old `standard` name is removed.
-Review from the builder's own family is allowed so it can be measured; the task records which ran.
+The names are reserved: copy a built-in recipe to customise it. The old `standard` name is removed.
+Same-family review is allowed only for supervised experiments; unattended recipes require independent review.
 Model ids above are examples; use ids your Orca agents accept.
+
+### Delivery authority and budgets
+
+The standard recipes and new `adaptive-codex` and `adaptive-claude` recipes include:
+
+```json
+{
+  "delivery": {
+    "mode": "unattended",
+    "maxSeconds": 1800,
+    "maxCostUsd": null,
+    "reportRetries": 1,
+    "investigations": 1,
+    "stageRetries": 1,
+    "questionResolutions": 2
+  }
+}
+```
+
+The driver records automatic decisions under this mandate, never as user commands. An independently
+reviewed specification with complete request coverage proceeds without an approval prompt. A ready
+standalone task finishes as accepted without a final prompt. Comparisons still wait for an explicit pick.
+Neither mode authorises merging, pushing, deploying, weakening checks or choosing new product behaviour.
+The recipe editor exposes the policy and budgets. Omit `delivery` for the original supervised workflow,
+or set its mode to `supervised` to retain approval gates while using bounded recovery and budgets.
+
+`maxSeconds` is a positive elapsed-time budget from task creation, at most 86,400 seconds. It includes
+recovery and product-decision waits. Selection of an already verified comparison entry is exempt while
+the driver waits. Checks receive an abort signal; worker waits and new dispatches check the deadline.
+An in-flight Orca call must resolve safely before its worker can be stopped, so this is not a hard
+real-time termination guarantee. Exhaustion ends the task as **incomplete**, preserving its branch and
+evidence. Restarting does not replenish the budget. Start a new task with a revised mandate if needed.
+
+`maxCostUsd` is an optional positive estimated-dollar budget, at most 1,000. Before dispatch, Grampus
+reads usage and current configured model prices. Unknown usage or pricing prevents another launch
+under a spending cap. A running dispatch can overshoot: this is a dispatch admission budget, not a
+provider billing limit. Without a cost cap, missing measurements remain explicitly unknown in reports.
+
+Recovery allowances accept 0 to 3. Report correction retries the same spec or candidate, without a
+rebuild. Investigations gather evidence for uncertain coverage and concrete correctness concerns.
+Known failed starts and positively exited workers can be retried; uncertain launches retain the same
+request id and must be reconciled. A bounded question resolver may answer implementation questions
+with existing repository references. Product decisions, unsupported answers and exhausted recovery
+allowances still reach the user. Interrupted setup is never blindly replayed.
+
+### Cheap-first delivery
+
+`adaptive-codex` uses `gpt-6-luna` at low effort for build and initial repairs; `adaptive-claude` uses
+`claude-haiku-5-5` at low effort. They retain the standard recipes' specification and independent
+review models, mandatory repository checks and acceptance criteria. Both omit polish.
+
+Set `repair.fallback` to a stronger assignment and `repair.stagnantRounds` to the number of consecutive
+rounds without a decrease in unresolved failure count (default 2, range 1 to 5). The driver switches
+once, records why, and retains that choice across restarts. This count is a progress heuristic, not
+proof that individual defects are identical. Fallback consumes the existing time, cost and repair
+budgets, and cannot share the reviewer's family in unattended mode. Omit fallback for a pure-model
+experiment. Report mixed-model runs as adaptive, not as cheap-only successes.
+
+Use [the benchmark protocol](BENCHMARKS.md) to compare cost per verified result, success rate, latency
+and interventions. Strong guardrails do not establish that cheap models have equal quality; tests
+and independent review can themselves miss behaviour.
+
 ## Repository setup
 
 Commit `grampus.json` at the repository root to declare preparation independently of acceptance checks:
@@ -224,7 +287,12 @@ uses the bounded coverage-repair allowance. Later reviews must retain the scenar
 and cite its committed test file and test name. The driver checks that the file and
 named text exist at the reviewed commit; the reviewer remains responsible for
 confirming the test asserts the outcome and runs through approved checks. Omitting
-a previous probe cannot silently drop the requirement. Reviewers remain read-only.
+a previous probe cannot silently drop the requirement. Reviewers cannot edit the candidate. With a
+delivery policy, a separate Git copy of the exact commit permits new probe tests, with its own recorded
+dependency setup. Grampus executes declared probes there and records their actual exit status and
+source. Tracked edits, moved commits, traversal and symlink probe paths are refused. A failed claimed
+committed regression makes the review unavailable. New useful probes require committed regressions
+before readiness. The isolated workspace is not an operating-system security sandbox.
 
 Cross-check assessments retain named assertion failures separately from command
 verdicts, including when an infrastructure footer or incompatible test prevents
@@ -255,5 +323,5 @@ justify a hypothetical future edit. The independent reviewer assesses whether th
 the code and preserves behaviour. Reports live in the worktree's private Git metadata so they cannot
 enter source commits.
 
-The old `simplify` recipe key is rejected by the strict recipe schema. Task logs use schema 6 and
+The old `simplify` recipe key is rejected by the strict recipe schema. Task logs use schema 7 and
 comparison logs schema 4; old evidence remains on disk but is not migrated by this version.

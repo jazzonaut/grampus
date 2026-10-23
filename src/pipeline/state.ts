@@ -43,6 +43,7 @@ export interface QuestionRecord {
   body: string;
   at: string;
   answered: boolean;
+  answeredAt?: string;
   /** The asking dispatch has ended, so Orca refuses any answer. */
   closed: boolean;
 }
@@ -50,6 +51,28 @@ export interface QuestionRecord {
 /** Whether a question still waits for the user. */
 export function isOpen(question: QuestionRecord): boolean {
   return !question.answered && !question.closed;
+}
+
+/** Questions under automatic investigation are not user interruptions; escalation gets a fresh time. */
+export function userQuestions(state: TaskState): [string, QuestionRecord][] {
+  if (state.finished) return [];
+  const policy = state.recipe.delivery;
+  return [...state.questions].flatMap(([id, question]) => {
+    if (!isOpen(question)) return [];
+    const assessed = state.questionAssessments.get(id);
+    const automatic = policy?.mode === 'unattended' && !question.key?.startsWith('question:');
+    if (automatic && !assessed && state.questionAssessments.size < policy.questionResolutions) return [];
+    if (automatic && assessed?.disposition === 'answer') return [];
+    return [[id, { ...question, at: assessed?.at ?? question.at }] as [string, QuestionRecord]];
+  });
+}
+
+/** Both explicit approval and recorded mandate approval bind the same exact spec version. */
+export function approvedSpecVersion(state: TaskState): number | null {
+  if (state.inherited) return 1;
+  const manual = state.commands.findLast(command => command.kind === 'approve');
+  const automatic = [...state.policyDecisions.values()].filter(item => item.action === 'approve-spec').at(-1);
+  return Math.max(manual?.kind === 'approve' ? manual.specVersion : 0, automatic?.specVersion ?? 0) || null;
 }
 
 export interface StageRecord {
@@ -106,6 +129,7 @@ export interface TaskState {
   request: string;
   repoPath: string;
   recipe: Recipe;
+  policyDecisions: Map<string, Extract<TaskEvent, { type: 'policy.decided' }>>;
   createdAt: string;
   /** `driverTerminal` is the Orca terminal of the latest driver: the one `grampus new` opened, until a driver starts elsewhere. */
   workspace: { worktreeId: string; path: string; baseSha: string; driverTerminal: string } | null;
@@ -127,6 +151,7 @@ export interface TaskState {
   /** Orca message ids already recorded, so a replayed delivery is not recorded twice. */
   messages: Set<string>;
   questions: Map<string, QuestionRecord>;
+  questionAssessments: Map<string, Extract<StoredEvent, { type: 'question.assessed' }>>;
   testsFirst: { sha: string; files: string[] } | null;
   testBaseline: Extract<TaskEvent, { type: 'tests.baseline' }> | null;
   inheritedTests: Extract<TaskEvent, { type: 'tests.inherited' }> | null;
@@ -195,6 +220,7 @@ export function foldEvents(events: readonly StoredEvent[]): TaskState {
     request: created.request,
     repoPath: created.repoPath,
     recipe: created.recipe,
+    policyDecisions: new Map(),
     createdAt: created.at,
     workspace: null,
     runId: null,
@@ -211,6 +237,7 @@ export function foldEvents(events: readonly StoredEvent[]): TaskState {
     reuseUnsupported: false,
     refusals: [],
     questions: new Map(),
+    questionAssessments: new Map(),
     testsFirst: null,
     testBaseline: null,
     inheritedTests: null,
@@ -244,6 +271,23 @@ const ignore = () => undefined;
 
 /** One handler per event type; the mapped type makes a missing event type a compile error. */
 const handlers: Handlers = {
+  'policy.decided': (state, event) => {
+    state.policyDecisions.set(event.key, event);
+  },
+  'budget.checked': ignore,
+  'review.workspace': ignore,
+  'review.preparing': ignore,
+  'review.probe': ignore,
+  'question.assessed': (state, event) => {
+    state.questionAssessments.set(event.messageId, event);
+  },
+  'question.answered': (state, event) => {
+    const question = state.questions.get(event.messageId);
+    if (question) {
+      question.answered = true;
+      question.answeredAt = event.at;
+    }
+  },
   'tests.inherited': (state, event) => {
     state.inheritedTests = event;
   },
@@ -445,7 +489,10 @@ const handlers: Handlers = {
     if (event.command.kind === 'reply' || event.command.kind === 'explain' || event.command.kind === 'ask') {
       if (event.command.kind === 'reply') {
         const question = state.questions.get(event.command.messageId);
-        if (question) question.answered = true;
+        if (question) {
+          question.answered = true;
+          question.answeredAt = event.at;
+        }
       }
       return;
     }

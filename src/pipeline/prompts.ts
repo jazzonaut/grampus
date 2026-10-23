@@ -370,6 +370,13 @@ CONSTRAINTS:
   file, a line and a concrete failing scenario. Grampus downgrades blocking findings without them to notes.
 - Style, naming, polish and speculative risks are notes. Do not invent gaps to have something
   to report; "approve" with no findings is a good review when the change is right.
+- A note describing a concrete correctness scenario is not a safe dismissal. Test that scenario.
+  If disproved, add assessment: {"verdict":"disproved","probeScenario":"matching probes scenario"}
+  to the finding and retain the executable regression in probes. Otherwise use verdict "unknown"
+  and mark the affected coverage unverified. Style notes need no fabricated scenario or probe.
+- Batch all demonstrated defects into this review. Investigate ordering, ownership, persistence,
+  retries and production wiring where the requested change crosses those boundaries. Choose risks
+  from the request and actual code; do not manufacture a fixed quota of findings.
 
 ${reportFormat}
 Also include both:

@@ -9,6 +9,7 @@ import type { Usage } from './transcripts.js';
 import type { DispatchMeasurement } from './usage.js';
 import { measurePhases, interventionCounts, type PhaseMeasurement } from './phases.js';
 import { finalCandidate, type Candidate } from '../pipeline/candidate.js';
+import { measureDelivery, type DeliveryMeasurement } from './delivery.js';
 
 export interface Scorecard {
   taskId: string;
@@ -21,6 +22,7 @@ export interface Scorecard {
   candidate: Candidate | null;
   phases: PhaseMeasurement[];
   interventions: Record<'implementation' | 'workflow' | 'unknown', number>;
+  delivery: DeliveryMeasurement;
   totals: {
     agentMs: number | null;
     dispatchesWithUnknownTime: number;
@@ -69,6 +71,7 @@ export function buildScorecard(
     candidate: finalCandidate(state),
     phases: measurePhases(events, dispatches),
     interventions: interventionCounts(events),
+    delivery: measureDelivery(state, events, now),
     totals: {
       agentMs: !dispatches.length
         ? 0
@@ -193,6 +196,7 @@ export function renderScorecard(card: Scorecard): string {
         `${phase.phase}: agent ${seconds(phase.agentMs)}, checks ${seconds(phase.checkMs)}, ${dollars(phase.costUsd)}${phase.unknownTime || phase.unknownCost ? ` (unknown: ${phase.unknownTime} times, ${phase.unknownCost} costs)` : ''}`,
     ),
     `Interventions: ${card.interventions.implementation} implementation, ${card.interventions.workflow} workflow, ${card.interventions.unknown} unknown.`,
+    `Delivery (${card.delivery.mode}): first verified ${seconds(card.delivery.firstVerifiedMs)}, latest verified ${seconds(card.delivery.latestVerifiedMs)}, selection wait ${seconds(card.delivery.selectionWaitMs)}; ${card.delivery.externalInterventions} external interventions, ${card.delivery.automaticRecoveries} automatic recoveries, ${card.delivery.automaticAnswers} automatic answers, ${card.delivery.investigations} investigations, ${card.delivery.modelEscalations} model escalations; reopened after ready ${card.delivery.reopenedAfterReady}.`,
     `rounds ${card.rounds}; wall time ${seconds(card.wallMs)}${card.outcome === 'running' ? ' so far' : ''}; human: ${card.human.decisions} decisions and ${card.human.answers} answers (${card.human.fromChat} from chat), tasks waited ${seconds(card.human.waitingMs)} for them`,
     ...(card.totals.dispatchesWithUnknownUsage
       ? [`usage unknown for ${card.totals.dispatchesWithUnknownUsage} dispatches:`, ...notes]

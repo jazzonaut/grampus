@@ -202,6 +202,7 @@ export function listRecipes({ response }: Call): void {
     builtIn: builtInRecipes.map(recipe => recipe.name),
     defaultRecipe: standardRecipe.name,
     maxRepairRounds: recipeLimits.maxRepairRounds,
+    deliveryDefaults: standardRecipe.delivery,
   });
 }
 

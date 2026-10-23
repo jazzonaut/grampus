@@ -17,10 +17,10 @@ const filter = ref<Filter>('all');
 const search = ref('');
 
 const groups: Record<Filter, readonly TaskStatus[]> = {
-  all: ['needs-you', 'running', 'stopped', 'accepted', 'abandoned', 'not-selected'],
+  all: ['needs-you', 'running', 'stopped', 'accepted', 'abandoned', 'not-selected', 'incomplete'],
   'needs-you': ['needs-you', 'stopped'],
   running: ['running'],
-  finished: ['accepted', 'abandoned', 'not-selected'],
+  finished: ['accepted', 'abandoned', 'not-selected', 'incomplete'],
 };
 
 const filters = computed(() => [
@@ -37,6 +37,7 @@ const order: Record<TaskStatus, number> = {
   running: 2,
   accepted: 3,
   abandoned: 3,
+  incomplete: 3,
   'not-selected': 3,
 };
 

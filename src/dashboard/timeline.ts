@@ -10,6 +10,22 @@ const hidden = () => null;
 const short = (sha: string | null) => (sha ? sha.slice(0, 12) : '?');
 
 const describers: Describers = {
+  'policy.decided': event => ({ title: `Automatic ${event.action}`, detail: event.reason }),
+  'budget.checked': event => ({
+    title: 'Delivery budget checked',
+    detail: event.reason ?? `Estimated spend ${event.costUsd ?? 'unknown'}`,
+  }),
+  'review.workspace': event => ({ title: 'Isolated review checkout prepared', detail: event.path }),
+  'review.preparing': hidden,
+  'review.probe': event => ({
+    title: event.result.passed ? 'Review probe passed' : 'Review probe failed',
+    detail: event.scenario,
+  }),
+  'question.assessed': event => ({
+    title: event.disposition === 'answer' ? 'Implementation question resolved' : 'Product decision needed',
+    detail: event.body,
+  }),
+  'question.answered': event => ({ title: 'Worker answered by delivery policy', detail: event.body }),
   'polish.restored': event => ({ title: 'Verified commit restored', detail: short(event.sha) }),
   'tests.inherited': event => ({
     title: 'Acceptance tests shared',

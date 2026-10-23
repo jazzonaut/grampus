@@ -114,7 +114,8 @@ export interface MessageView {
   answered: boolean;
   /** The asking worker finished before an answer, so none can be sent. */
   closed: boolean;
-  answer: { body: string; at: string; source: UserCommand['source'] } | null;
+  resolvingAutomatically: boolean;
+  answer: { body: string; at: string; source: UserCommand['source'] | 'policy' } | null;
 }
 
 export interface DispatchView {

@@ -27,7 +27,7 @@ export async function runChecks(
   cwd: string,
   checks: readonly CheckDefinition[],
   logDir: string,
-  options: { rerunFailures: boolean; signal?: AbortSignal },
+  options: { rerunFailures: boolean; signal?: AbortSignal | undefined },
 ): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
   for (const check of checks) {

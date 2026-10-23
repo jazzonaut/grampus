@@ -144,7 +144,7 @@ export async function comparisonMetrics(
     measured.push({
       taskId: task.taskId,
       recipe,
-      resultMs: resultMs(task),
+      resultMs: card.delivery.latestVerifiedMs ?? resultMs(task),
       agentMs: card.totals.agentMs,
       usage: card.totals.usage,
       costUsd: card.totals.costUsd,

@@ -4,6 +4,7 @@ import type { CheckDefinition } from '../domain/spec.js';
 import { headSha, uncommittedPaths } from '../git/git.js';
 import type { DriverCore } from './driver-core.js';
 import { DriverStop } from './driver-core.js';
+import { checkDeadline, deliverySignal } from './delivery.js';
 
 import { repositoryConfiguration } from './repository-config.js';
 import { prepareCheckout } from '../git/checkout.js';
@@ -55,15 +56,17 @@ export async function prepareWorkspace(core: DriverCore, cwd: string): Promise<v
 
 async function runSetup(core: DriverCore, cwd: string, command: CheckDefinition, attempt: number) {
   const controller = new AbortController();
+  const deadline = deliverySignal(core);
   let done = false;
   const work = runChecks(cwd, [command], core.store.checksDir('setup', attempt), {
     rerunFailures: false,
-    signal: controller.signal,
+    signal: deadline ? AbortSignal.any([controller.signal, deadline]) : controller.signal,
   }).finally(() => {
     done = true;
   });
   try {
     while (!done) await core.pump();
+    checkDeadline(core);
     return (await work)[0];
   } finally {
     controller.abort();
