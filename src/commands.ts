@@ -150,7 +150,8 @@ export const commands: readonly CommandInfo[] = [
 ];
 
 /** Options every command accepts. */
-export const globalOptions = '--home <dir> (data directory), --source cli|chat|dashboard (who is acting; default cli)';
+export const globalOptions =
+  '--home <dir> (data directory), --source cli|chat|dashboard (who is acting; default cli), --purpose implementation|workflow (correction attribution)';
 
 /** The CLI's usage text. */
 export function usageText(): string {

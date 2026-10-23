@@ -1,6 +1,6 @@
 // Git queries against a task worktree. The builder commits and Grampus verifies the commit it finds. The
-// only Git writes Grampus makes are the user's explicit `grampus merge` (delivery/merge.ts) and
-// `resetWorktree`, which discards a simplify pass that did not hold.
+// Git writes are explicit delivery, fast-forwarding shared acceptance tests, and `resetWorktree`,
+// which discards a polish pass that did not hold.
 import { currentSettings } from '../config/settings.js';
 import type { DiffSize } from '../domain/events.js';
 import { runProcess } from '../process/run.js';

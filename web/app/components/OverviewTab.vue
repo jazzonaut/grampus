@@ -7,6 +7,7 @@
 import type { TaskDetail } from '../../../src/dashboard/types';
 import { computed } from 'vue';
 import { duration, stepStateLook, when, type Look } from '../presentation';
+import CheckRun from './CheckRun.vue';
 import ChangesCard from './ChangesCard.vue';
 import DecisionActions from './DecisionActions.vue';
 import DecisionPanel from './DecisionPanel.vue';
@@ -82,6 +83,19 @@ const commandState = {
       :description="`Fast-forwarded to ${task.merged.sha.slice(0, 12)}. Nothing was pushed.`"
     />
 
+    <section v-if="task.setup.configuration?.command" class="space-y-2">
+      <h3 class="font-medium">Repository setup</h3>
+      <p class="text-sm text-muted">
+        {{ task.setup.configuration.source }}: {{ task.setup.configuration.command.command }}
+      </p>
+      <CheckRun
+        v-for="attempt in task.setup.results"
+        :key="attempt.attempt"
+        :task-id="task.taskId"
+        :title="`Setup attempt ${attempt.attempt}`"
+        :run="{ sha: attempt.sha, results: [attempt.result] }"
+      />
+    </section>
     <div class="grid gap-4 items-start @4xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
       <div class="space-y-4 min-w-0">
         <DecisionPanel :task="task" @show="value => emit('show', value)">

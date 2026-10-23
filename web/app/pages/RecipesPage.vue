@@ -76,7 +76,7 @@ function stages(recipe: Recipe): { label: string; icon: string; value: string }[
         recipe.repair.assignment ? `, ${describe(recipe.repair.assignment)}` : ''
       }`,
     },
-    { label: 'Simplify', icon: 'i-lucide-scissors', value: describe(recipe.simplify) },
+    { label: 'Polish', icon: 'i-lucide-scissors', value: describe(recipe.polish) },
   ];
 }
 </script>

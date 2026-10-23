@@ -73,12 +73,12 @@ test('the standard recipe is valid and its review is cross-family', () => {
   assert.equal(crossFamilyReview({ ...standardRecipe, review: { agent: 'codex' } }), false);
   assert.equal(crossFamilyReview({ ...standardRecipe, review: null }), null);
   assert.equal(
-    crossFamilyReview({ ...standardRecipe, simplify: { agent: 'claude' } }),
+    crossFamilyReview({ ...standardRecipe, polish: { agent: 'claude' } }),
     false,
-    'the simplifier edits code, so a same-family simplifier makes review same-family',
+    'the polisher edits code, so a same-family polisher makes review same-family',
   );
-  const { simplify: _simplify, ...saved } = standardRecipe;
-  assert.equal(recipeSchema.parse(saved).simplify, null, 'a recipe saved before simplify existed means off');
+  const { polish: _polish, ...saved } = standardRecipe;
+  assert.equal(recipeSchema.parse(saved).polish, null, 'a recipe saved before polish existed means off');
   assert.throws(
     () => recipeSchema.parse({ ...standardRecipe, build: { agent: 'codex', effort: 'high' } }),
     /effort needs a model/,

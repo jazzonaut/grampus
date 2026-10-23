@@ -29,6 +29,8 @@ export interface NewTask {
 
 /** A spec approved in one comparison entry and given to its siblings. */
 export interface InheritedSpec {
+  /** Immutable acceptance-test commit shared before any implementation. */
+  tests?: { sha: string; files: string[] };
   fromTask: string;
   fromVersion: number;
   path: string;
@@ -109,6 +111,7 @@ export function driverTabTitle(title: string): string {
 function inheritSpec(store: TaskStore, spec: InheritedSpec): void {
   const path = join(store.dir, 'spec', 'v1.md');
   keepEvidence(spec.path, path);
+  if (spec.tests) store.append({ type: 'tests.inherited', fromTask: spec.fromTask, ...spec.tests });
   store.append({
     type: 'spec.inherited',
     fromTask: spec.fromTask,

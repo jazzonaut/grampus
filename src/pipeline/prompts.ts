@@ -2,6 +2,7 @@
 // `worker_done` and `ask` commands); these texts say what to do. Each follows Orca's task-spec contract:
 // target, change, constraints, ownership and observable acceptance. Prompt text is a contract with the
 // agents: change it deliberately, and expect measured results to move when it does.
+import { polishLimits } from '../config/limits.js';
 import type { CheckResult } from '../domain/events.js';
 import type { Finding } from '../domain/review.js';
 import type { CheckDefinition } from '../domain/spec.js';
@@ -34,6 +35,9 @@ Then exactly one fenced code block whose info string is \`grampus\`, containing 
 - A check must exit 0 whenever the tests it targets pass. Narrow by test project or package, not by a
   filter over a whole solution or workspace: some runners fail when a project runs no tests. Grampus
   runs every check on the current commit before approval and shows the user any that fail.
+- A check may declare "portable": true only when its tests use stable, existing public interfaces
+  and observable behaviour rather than implementation-specific helpers. This is an explicit claim
+  reviewed with the spec; without it, a cross-check failure has unknown behavioural meaning.
 - "protected": repository globs the builder must not change (usually empty).`;
 
 const reportFormat = `Write the report as JSON:
@@ -67,6 +71,7 @@ function checkList(checks: readonly CheckDefinition[]): string {
 }
 
 export function specPrompt(input: {
+  setup?: string | null;
   request: string;
   specPath: string;
   previousSpecPath: string | null;
@@ -86,6 +91,8 @@ export function specPrompt(input: {
       }${input.rejection ? `\nThe previous file could not be used: ${input.rejection}\n` : ''}${answered}`
     : '';
   return `ROLE: spec writer.
+
+Repository preparation: ${input.setup ? `Grampus already ran ${input.setup} successfully. Do not repeat dependency installation in each check.` : 'No setup command was configured. If prerequisites are missing, report the environment problem explicitly; do not call it a behavioural failure.'}
 
 TARGET: this repository, read-only. The request:
 ${input.request}
@@ -140,7 +147,11 @@ ACCEPTANCE: the report file exists as valid JSON. Then send worker_done with --o
 --report-path ${input.reportPath}.`;
 }
 
-export function testsFirstPrompt(input: { specPath: string; checks: readonly CheckDefinition[] }): string {
+export function testsFirstPrompt(input: {
+  specPath: string;
+  checks: readonly CheckDefinition[];
+  reportPath?: string;
+}): string {
   return `ROLE: acceptance test writer.
 
 TARGET: this repository and the approved spec at ${input.specPath}.
@@ -154,7 +165,10 @@ CONSTRAINTS:
 - The tests must fail now, for the reason that the feature is missing, and pass once it exists.
 - Follow the project's test conventions. Commit the tests on the current branch, leave no
   uncommitted files, and do not push, change branches or rewrite history.
+- Prefer existing public interfaces and observable behaviour, avoiding assumptions about new internal
+  methods or data structures. This lets different builders implement the same acceptance tests.
 - Once you commit them, these files are protected: the builder cannot change them.
+${input.reportPath ? `\nWrite a report to ${input.reportPath}, with JSON {"failures":[{"check":"approved check name","criterion":"criterion this failure demonstrates","expectedOutput":"exact short assertion output"}]}. Run the checks and quote actual failure output. Missing tools, failed imports and broken test harnesses are not behavioural failures. Grampus independently reruns the checks and matches your explanation against their logs.` : ''}
 
 ACCEPTANCE: one or more commits that add the tests. Then send worker_done with --outcome succeeded
 and --files-modified listing the test files.`;
@@ -259,6 +273,9 @@ export function reviewPrompt(input: {
   modifiedTests: readonly string[];
   modifiedCheckConfig: readonly string[];
   previousFindings: readonly Finding[];
+  roundFromSha?: string;
+  acceptanceTests?: readonly string[];
+  testBaseline?: readonly string[];
 }): string {
   const results = bullets(
     input.results.map(
@@ -275,6 +292,9 @@ export function reviewPrompt(input: {
 
 TARGET: the change ${input.baseSha.slice(0, 12)}..${input.sha.slice(0, 12)} in this repository
 (\`git diff ${input.baseSha} ${input.sha}\`), against the approved spec at ${input.specPath}.
+${input.roundFromSha ? `\nThe current round alone is \`git diff ${input.roundFromSha} ${input.sha}\`. Judge coverage using the complete task diff above, including tests committed before the builder started.` : ''}
+${input.acceptanceTests?.length ? `\nAcceptance tests committed before implementation and protected afterwards:\n${bullets(input.acceptanceTests)}` : ''}
+${input.testBaseline?.length ? `\nPre-implementation test evidence:\n${bullets(input.testBaseline)}\nConfirm the claimed missing behaviour caused the failure; unknown evidence does not establish a red phase.` : ''}
 
 Check results at ${input.sha.slice(0, 12)}, run by Grampus:
 ${results}${
@@ -295,7 +315,7 @@ CONSTRAINTS:
 - Read-only: do not edit, commit or check out anything except writing the report.
 - A finding is "blocking" only if the change is incorrect or misses a spec criterion, and only with a
   file, a line and a concrete failing scenario. Grampus downgrades blocking findings without them to notes.
-- Style, naming, simplification and speculative risks are notes. Do not invent gaps to have something
+- Style, naming, polish and speculative risks are notes. Do not invent gaps to have something
   to report; "approve" with no findings is a good review when the change is right.
 
 ${reportFormat}
@@ -304,78 +324,100 @@ ACCEPTANCE: the report file exists as valid JSON. Then send worker_done with --o
 --report-path ${input.reportPath}.`;
 }
 
-export function simplifyPrompt(input: {
+export function polishPrompt(input: {
   specPath: string;
   baseSha: string;
   sha: string;
   checks: readonly CheckDefinition[];
   protectedPaths: readonly string[];
   reviewed: boolean;
+  reportPath: string;
 }): string {
-  return `ROLE: simplifier.
+  return `ROLE: polisher.
 
 TARGET: the change ${input.baseSha.slice(0, 12)}..${input.sha.slice(0, 12)} in this repository
 (\`git diff ${input.baseSha} ${input.sha}\`), which implements the approved spec at ${input.specPath}.
 Its checks pass${input.reviewed ? ' and a reviewer approved it' : ''}.
 
-CHANGE: make the change smaller and plainer without changing what it does. Look for:
+CHANGE: make the completed change easier to understand and maintain without changing behaviour. Look for:
+- names that can express domain meaning or responsibilities more clearly;
 - code that does what the repository already has a helper for: use the helper;
 - duplication within the change;
 - abstractions, options, parameters, configuration or error handling the spec does not need;
 - dead code, unused exports, leftover debugging and comments that restate the code.
+- confusing control flow, redundant state, and local inconsistencies with repository conventions.
+Extract shared code only when it represents the same rule or responsibility and reduces maintenance
+effort. Similar-looking code alone is not enough. Do not introduce generic helpers speculatively.
 
 CONSTRAINTS:
 - Keep behaviour exactly as it is: every acceptance criterion still holds and these checks still pass:
 ${checkList(input.checks)}
-- Change only what this change added or modified; leave the code around it alone.
-- Do not simplify tests. Change a test only where code you simplified requires it, such as an import,
+- Focus on the task's change. At most ${polishLimits.adjacentFiles} adjacent files may be edited, only when necessary to complete a
+  specific improvement. Explain each in the report. Leave broader architectural cleanup for another task.
+- Do not polish tests. Change a test only where code you polished requires it, such as an import,
   a renamed function or a signature, and keep every assertion and case.
 - Do not change how checks run: runner, build or lint settings, or scripts a check names.${
     input.protectedPaths.length ? `\n- Do not change these protected paths:\n${bullets(input.protectedPaths)}` : ''
   }
-- A small, sure simplification beats a large, risky one. If nothing is worth simplifying, commit
+- A small, sure polish beats a large, risky one. If nothing is worth polishing, commit
   nothing.
 - Commit your work on the current branch and leave no uncommitted or untracked files. Do not push,
   change branches, amend or rebase commits you did not make.
 
+Write a report to ${input.reportPath}. Use this JSON shape:
+{"summary":"What improved, or why no worthwhile change was found","improvements":[{"category":"naming|duplication|structure|cleanup|consistency","files":["repo-relative/path"],"benefit":"Concrete maintenance benefit","adjacentReason":null}]}
+Use exactly one category per item. Set adjacentReason to an explanation for edits outside the original
+change. Cover every edited file. For a successful no-op, improvements is empty. More edits or fewer
+lines are not a goal. Inspect affected callers and run relevant checks beyond the approved checks when
+adjacent edits require them; explain any verification limitation in the report.
+
 ACCEPTANCE: Grampus runs the checks at your final commit${input.reviewed ? ' and a reviewer reads your diff' : ''}.
 If anything fails, your commits are discarded and the change stays as it was. When you have committed,
-or decided nothing needs simplifying, send worker_done with --outcome succeeded.`;
+or decided nothing needs polishing, send worker_done with --outcome succeeded.`;
 }
 
-export function simplifyReviewPrompt(input: {
+export function polishReviewPrompt(input: {
   specPath: string;
   fromSha: string;
   sha: string;
   reportPath: string;
   results: readonly CheckResult[];
   modifiedTests: readonly string[];
+  polishReportPath: string;
 }): string {
-  return `ROLE: code reviewer, independent of the simplifier.
+  return `ROLE: code reviewer, independent of the polisher.
 
-TARGET: the simplification ${input.fromSha.slice(0, 12)}..${input.sha.slice(0, 12)} in this repository
-(\`git diff ${input.fromSha} ${input.sha}\`). It simplifies a change that was already verified against
+TARGET: the polish ${input.fromSha.slice(0, 12)}..${input.sha.slice(0, 12)} in this repository
+(\`git diff ${input.fromSha} ${input.sha}\`). It polishes a change that was already verified against
 the approved spec at ${input.specPath}, and must not change behaviour.
 
 Check results at ${input.sha.slice(0, 12)}, run by Grampus:
 ${bullets(input.results.map(result => `${result.name}: ${result.passed ? 'passed' : 'FAILED'}`))}${
     input.modifiedTests.length
-      ? `\nTests the simplification modified. A test may change only to follow the simplified code (an import,
+      ? `\nTests the polish modified. A test may change only to follow the polished code (an import,
 a name, a signature); a removed or weakened assertion or case is blocking:\n${bullets(input.modifiedTests)}`
       : ''
   }
 
 CHANGE: write a review report to ${input.reportPath}.
+Read the worker's claimed improvements at ${input.polishReportPath}, then assess the code independently.
 
 CONSTRAINTS:
 - Read-only: do not edit, commit or check out anything except writing the report.
-- A finding is "blocking" only if the simplification changes behaviour, breaks a spec criterion or
+- A finding is "blocking" only if the polish changes behaviour, breaks a spec criterion or
   weakens a test, and only with a file, a line and a concrete failing scenario.
-- Whether the result is simpler is a note, not a blocker.
+- Independently assess maintenance value: clearer domain names, fewer representations of a rule,
+  simpler control flow, justified reuse or removal of unused code. Reject cosmetic churn, speculative
+  abstractions and unrelated cleanup. Check that every adjacent edit is necessary and bounded, and
+  inspect affected callers. Preserving behaviour alone is not enough to retain the pass.
 - Use "approve" only when you are confident behaviour is unchanged. Any other verdict discards the
-  simplification and keeps the change as it was, which is safe.
+  polish and keeps the change as it was, which is safe.
 
 ${reportFormat}
+Add a required "maintenance" field alongside verdict, summary and findings:
+{"verdict":"worth-keeping|no-benefit|unknown","rationale":"Specific benefit or reason to discard"}.
+Choose one maintenance verdict. Grampus keeps the pass only with behaviour verdict approve AND
+maintenance verdict worth-keeping. If verification of affected code is insufficient, use unknown.
 
 ACCEPTANCE: the report file exists as valid JSON. Then send worker_done with --outcome succeeded and
 --report-path ${input.reportPath}.`;

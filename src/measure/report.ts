@@ -7,6 +7,8 @@ import type { TaskState } from '../pipeline/state.js';
 import { estimateCost, type ModelPrice } from './cost.js';
 import type { Usage } from './transcripts.js';
 import type { DispatchMeasurement } from './usage.js';
+import { measurePhases, interventionCounts, type PhaseMeasurement } from './phases.js';
+import { finalCandidate, type Candidate } from '../pipeline/candidate.js';
 
 export interface Scorecard {
   taskId: string;
@@ -16,8 +18,12 @@ export interface Scorecard {
   /** False while the task runs: later turns may still add to the figures. */
   final: boolean;
   dispatches: ScoredDispatch[];
+  candidate: Candidate | null;
+  phases: PhaseMeasurement[];
+  interventions: Record<'implementation' | 'workflow' | 'unknown', number>;
   totals: {
-    agentMs: number;
+    agentMs: number | null;
+    dispatchesWithUnknownTime: number;
     usage: Usage | null;
     dispatchesWithUnknownUsage: number;
     /** Estimated US dollars at list prices for the dispatches whose cost is known. */
@@ -60,8 +66,16 @@ export function buildScorecard(
     outcome: state.finished ? `${state.finished.outcome}${state.finished.override ? ' (override)' : ''}` : 'running',
     final: Boolean(state.finished && state.measurements),
     dispatches,
+    candidate: finalCandidate(state),
+    phases: measurePhases(events, dispatches),
+    interventions: interventionCounts(events),
     totals: {
-      agentMs: dispatches.reduce((total, item) => total + (item.agentMs ?? item.durationMs ?? 0), 0),
+      agentMs: !dispatches.length
+        ? 0
+        : dispatches.some(item => item.agentMs !== null)
+          ? dispatches.reduce((total, item) => total + (item.agentMs ?? 0), 0)
+          : null,
+      dispatchesWithUnknownTime: dispatches.filter(item => item.agentMs === null).length,
       // Partial totals are still shown, with the count of dispatches they miss.
       usage: known.length
         ? {
@@ -174,6 +188,11 @@ export function renderScorecard(card: Scorecard): string {
     `${card.taskId}  ${card.title}  (${card.outcome}, recipe ${card.recipe}${card.final ? '' : ', provisional'})`,
     line(header),
     ...rows.map(line),
+    ...card.phases.map(
+      phase =>
+        `${phase.phase}: agent ${seconds(phase.agentMs)}, checks ${seconds(phase.checkMs)}, ${dollars(phase.costUsd)}${phase.unknownTime || phase.unknownCost ? ` (unknown: ${phase.unknownTime} times, ${phase.unknownCost} costs)` : ''}`,
+    ),
+    `Interventions: ${card.interventions.implementation} implementation, ${card.interventions.workflow} workflow, ${card.interventions.unknown} unknown.`,
     `rounds ${card.rounds}; wall time ${seconds(card.wallMs)}${card.outcome === 'running' ? ' so far' : ''}; human: ${card.human.decisions} decisions and ${card.human.answers} answers (${card.human.fromChat} from chat), tasks waited ${seconds(card.human.waitingMs)} for them`,
     ...(card.totals.dispatchesWithUnknownUsage
       ? [`usage unknown for ${card.totals.dispatchesWithUnknownUsage} dispatches:`, ...notes]

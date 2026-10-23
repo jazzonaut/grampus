@@ -131,9 +131,9 @@ async function save(): Promise<void> {
         </div>
 
         <AssignmentField
-          v-model="draft.simplify"
-          label="Simplify"
-          help="Makes a ready change smaller without changing behaviour. Kept only if the checks and the code reviewer agree."
+          v-model="draft.polish"
+          label="Polish"
+          help="Improves names, duplication, structure and cleanup. Edits need passing checks and independent approval of safety and maintenance benefit."
           optional
         />
 
@@ -141,7 +141,7 @@ async function save(): Promise<void> {
           <USwitch
             v-model="draft.explain.automatic"
             label="Explain the final candidate automatically"
-            description="Runs after verification and a kept simplification; explanations do not affect correctness."
+            description="Runs after verification and a kept polish; explanations do not affect correctness."
           />
           <AssignmentField
             v-model="draft.explain.assignment"

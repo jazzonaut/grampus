@@ -9,7 +9,7 @@ import vueParser from 'vue-eslint-parser';
 export default tseslint.config(
   {
     ignores: [
-      'dist/',
+      '**/dist/',
       'node_modules/',
       '.claude/',
       '.grampus/',

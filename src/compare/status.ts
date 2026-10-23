@@ -5,6 +5,7 @@ import { summarise } from '../pipeline/status.js';
 import { withObservedStop } from '../store/driver-lock.js';
 import { TaskStore } from '../store/task-store.js';
 import { ComparisonStore, foldComparison, type ComparisonMode, type ComparisonState } from './comparison.js';
+import { crossCheckCounts } from './outcomes.js';
 
 export interface ComparisonSummary {
   comparisonId: string;
@@ -15,6 +16,7 @@ export interface ComparisonSummary {
   waiting: string[];
   /** While the cross-check runs: cells measured of all of them. */
   crossCheck: { done: number; total: number } | null;
+  crossCheckOutcomes?: ReturnType<typeof crossCheckCounts>;
   needsYou: { detail: string; since: string } | null;
   /** The latest refused pick or abandon, with why. */
   refused: { kind: string; reason: string; at: string } | null;
@@ -42,6 +44,7 @@ export function summariseComparison(dataDir: string, comparisonId: string): Comp
     entries,
     waiting: state.recipes.slice(state.entries.length).map(recipe => recipe.name),
     crossCheck: crossCheckProgress(state),
+    crossCheckOutcomes: crossCheckCounts(state.crossCheck ?? state.crossCheckCells),
     needsYou: state.attention ? { detail: state.attention.detail, since: state.attention.since } : null,
     refused: state.refused,
     finished: state.finished,
@@ -67,6 +70,11 @@ export function renderComparison(summary: ComparisonSummary): string {
   if (summary.crossCheck)
     lines.push(
       `  cross-check running: ${summary.crossCheck.done} of ${summary.crossCheck.total} cells; the pick comes after it`,
+    );
+  const counts = summary.crossCheckOutcomes;
+  if (counts?.total)
+    lines.push(
+      `  cross-check cells: ${counts.passed} passed, ${counts.failed} behavioural failures, ${counts.incompatible} incompatible, ${counts.errors} execution errors, ${counts.unknown} unknown (${counts.total} total)`,
     );
   if (summary.refused) lines.push(`  Refused ${summary.refused.kind}: ${summary.refused.reason}`);
   for (const entry of summary.entries) lines.push(`  ${entry.recipe}: ${entry.taskId}  ${entry.phase}`);

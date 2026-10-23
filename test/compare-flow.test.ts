@@ -1,7 +1,7 @@
 // Comparisons end to end with fake Orcas and real Git repositories: entries from one base commit, the
 // concurrency limit, the shared spec, the cross-check overlay and the pick.
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -56,6 +56,19 @@ function workers(): Behaviour {
       case 'review':
         writeFileSync(outputPath(context.spec), reviewJson('approve'));
         return { outcome: 'succeeded' };
+      case 'tests': {
+        const worktree = worktreeIn(context.spec);
+        const path = join(worktree, 'test/greet.test.js');
+        writeFileSync(path, readFileSync(path, 'utf8') + "if (greet('Bo') !== 'Hello, Bo!') process.exit(1);\n");
+        await commitAll(worktree, 'Extend shared acceptance tests');
+        writeFileSync(
+          outputPath(context.spec),
+          JSON.stringify({
+            failures: [{ check: 'greet', criterion: 'Greet by name', expectedOutput: 'greet failed: Hi' }],
+          }),
+        );
+        return { outcome: 'succeeded' };
+      }
       case 'build':
       case 'repair': {
         const worktree = worktreeIn(context.spec);
@@ -87,8 +100,9 @@ interface Run {
   entryDrivers: Promise<number>[];
 }
 
-async function startRun(mode: 'shared' | 'full', concurrency: number): Promise<Run> {
-  useTestSettings({ recipes: [alt], comparisonConcurrency: concurrency, waitPollMs: 20 });
+async function startRun(mode: 'shared' | 'full', concurrency: number, sharedTests = false): Promise<Run> {
+  const leader: Recipe = { ...standardRecipe, name: 'with-tests', testsFirst: { agent: 'codex' } };
+  useTestSettings({ recipes: sharedTests ? [alt, leader] : [alt], comparisonConcurrency: concurrency, waitPollMs: 20 });
   const repo = await createRepository();
   const dataDir = mkdtempSync(join(tmpdir(), 'grampus-compare-'));
   const desk = new FakeOrca(() => 'hang');
@@ -98,7 +112,7 @@ async function startRun(mode: 'shared' | 'full', concurrency: number): Promise<R
       repoPath: repo,
       request: 'Make greet say hello by name.',
       title: 'Greet',
-      recipeNames: ['standard', 'alt'],
+      recipeNames: [sharedTests ? 'with-tests' : 'standard', 'alt'],
       mode,
       driveCommand: id => `compare ${id}`,
     },
@@ -337,4 +351,22 @@ test('estimated cost prices each model, and stays unknown without a price or a p
   assert.match(estimateCost({ models: ['a', 'b'], usage }, prices).note ?? '', /cannot be split/);
   const split = { a: usage, b: usage };
   assert.match(estimateCost({ models: ['a', 'b'], usage, usageByModel: split }, prices).note ?? '', /no price for b/);
+});
+
+test('shared mode distributes the same protected acceptance-test commit', async () => {
+  const run = await startRun('shared', 2, true);
+  try {
+    await run.until(() => tryEntry(run, 0)?.attention?.reason === 'approve-spec:1', 'first spec');
+    queueCommand(run.dataDir, run.entry(0).taskId, 'cli', { kind: 'approve', specVersion: 1 });
+    await run.until(() => tryEntry(run, 1)?.attention?.reason === 'ready:0', 'shared tests built');
+    assert.deepEqual(run.entry(1).testsFirst, run.entry(0).testsFirst);
+    assert.deepEqual(run.entry(1).testsFirst?.files, ['test/greet.test.js']);
+    assert.equal(run.entry(1).stages.has('tests:0'), false);
+    assert.equal(run.entry(1).baseline?.results[0]?.passed, false);
+    assert.equal(run.entry(1).verify.get(0)?.results[0]?.passed, true);
+  } finally {
+    queueComparisonCommand(run.dataDir, run.comparisonId, 'cli', { kind: 'abandon' });
+    await run.driver;
+    await Promise.all(run.entryDrivers);
+  }
 });

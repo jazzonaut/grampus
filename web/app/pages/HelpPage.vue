@@ -59,9 +59,9 @@ const steps: { id: StepId; label: string; text: string }[] = [
     text: 'Failures go back to a repair worker, for a bounded number of rounds, then to you.',
   },
   {
-    id: 'simplify',
-    label: 'Simplify',
-    text: 'Optional: once a round is ready, a worker makes the change smaller without changing behaviour. Grampus keeps it only if the guard, the checks and a review of its diff all hold; otherwise the verified commit stays.',
+    id: 'polish',
+    label: 'Polish',
+    text: 'Optional: once a round is ready, a worker improves names, duplication, structure, cleanup and consistency. Edits need passing checks and independent approval of safety and maintenance benefit. No worthwhile change is a successful no-op.',
   },
   {
     id: 'accept',

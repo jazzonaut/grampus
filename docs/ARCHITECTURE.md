@@ -15,7 +15,7 @@ Current behaviour of Grampus. Intent and the reasons behind it are in [DESIGN.md
   Orca  ── Run, tasks, dispatches, gate, inbox, liveness
      │   worker-start --agent claude|codex  (chat or terminal, per the user's setting)
      ▼
-  workers  ── spec, spec review, tests, build, review, repair, simplify, explain, answer
+  workers  ── spec, spec review, tests, build, review, repair, polish, explain, answer
              write files under <worktree>/.grampus/, commit on the task branch
 ```
 
@@ -60,7 +60,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `cross-check.ts`, `status.ts` | Every spec against every result; comparison status text |
 | `agents/` | `catalog.ts` | Models and effort levels per agent, read from the Claude and Codex CLIs |
 | | `title.ts` | Naming a task from its request with a small Claude model |
-| `git/` | `git.ts` | Git queries, and the reset that discards a simplify pass |
+| `git/` | `git.ts` | Git queries, and the reset that discards a polish pass |
 | `measure/` | `transcripts.ts` | Reading models, effort and tokens (per model) from Claude and Codex transcripts |
 | | `cost.ts` | Estimated cost at API list prices, with the dated built-in price table |
 | | `usage.ts` | Per-dispatch measurements, splitting continued conversations by request time |
@@ -79,7 +79,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `driver-core.ts` | Recording, request ids, inbox pump, commands, decisions, running a stage |
 | | `pipeline.ts` | Stage order: run, gate, spec, tests first, baseline, rounds, finish |
 | | `spec-phase.ts` | Spec writing, automatic correction, checks on the original commit, spec review, approval |
-| | `simplify.ts` | The optional simplify pass after a ready round |
+| | `polish.ts` | The optional polish pass after a ready round |
 | | `guard.ts` | The deterministic integrity guard |
 | | `prompts.ts` | Worker task specs |
 | | `state.ts`, `status.ts` | The fold from events to state, and summaries |
@@ -87,6 +87,14 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `remove-task.ts` | `grampus remove` |
 
 ## Pipeline
+
+Before any spec or baseline checks, the driver prepares the worktree. `setup.configured` snapshots
+`grampus.json` from the base commit, or the conventional root lockfile command. `setup.started` is
+recorded before execution and `setup.recorded` stores its result and log separately from checks.
+A successful setup is not repeated on restart. A failed or interrupted attempt requires an explicit
+retry; an uncertain attempt is never silently replayed. Setup must leave HEAD and tracked files
+unchanged. See [repository setup](CONFIGURATION.md#repository-setup).
+
 
 1. **Run and gate.** The driver creates its Run and an approval gate on a placeholder Orca task, so
    the pending decision is visible in Orca.
@@ -113,11 +121,18 @@ between two calls, such as a spec review landing while an agent talked to the us
    (commits, changed files, checks, integrity problems, review findings, reasons), so a chat agent can
    show it before asking. The gate is resolved and the approved spec is
    written to `<worktree>/.grampus/spec.md` for later workers.
-6. **Tests first** (`tests:0`, optional). Added files become protected. If the worker fails or adds no
-   files, the `tests-failed` decision asks the user to build without tests (`continue`, which the
-   dashboard labels "Build without tests") or abandon.
-7. **Baseline.** The checks on the original commit, when HEAD has not moved since; otherwise (after
-   tests first) checks run at HEAD before the build, without reruns.
+6. **Tests first** (`tests:0`, optional). Both added and modified files matching `testFilePatterns`
+   become protected. Test helpers in those paths count too. Production edits, deletions, renames and
+   check-configuration edits stop the driver. A failed worker or no test changes asks whether to
+   continue without tests. The reviewer sees the complete task diff, the current round's diff and
+   the list of tests committed before implementation; tests do not disappear from the evidence when
+   the builder leaves them unchanged.
+7. **Baseline.** Reuse the checks on the original commit if HEAD has not moved; otherwise run checks
+   at the tests-first commit without reruns. The test writer reports the criterion and exact expected
+   failure output in `tests:0/report.json`. `tests.baseline` matches those claims against independent
+   check logs and distinguishes missing prerequisites, incompatible tests, passing checks and unknown
+   failures. A matched explanation is attributed to the writer, not proof of causation; the code
+   reviewer must confirm it. Unknown evidence never establishes a red phase.
 8. **Rounds.** Round 0 is `build:0`; round `r` is `repair:<r>`. Repair rounds up to
    `recipe.repair.reuseBuilderRounds` try to continue the previous editor's conversation when the
    assignment is unchanged; later rounds start a fresh worker with the distilled problems.
@@ -143,29 +158,34 @@ between two calls, such as a spec review landing while an agent talked to the us
     request to the user names any check configuration changed since the build started. A
     builder that reported failure, or an unavailable review, escalates immediately. Otherwise repair
     while `round < maxRounds + continues`, then escalate.
-12. **Simplify** (`simplify:<r>`, optional, every ready round). Reviewers block only incorrect code,
-    so bloat passes; this pass removes it. A worker gets the change since the baseline and makes it
-    smaller without changing behaviour: existing helpers instead of new code, no duplication, no
-    options or abstractions the spec does not need, no dead code. It may change a test only to follow
-    code it simplified. The guard then compares the ready commit with HEAD, with two extra rules:
-    changed check configuration discards the pass, and so do modified tests when the recipe has no
-    reviewer to confirm they were only adapted. The checks run at the new commit (`simplify.checked`)
-    and the recipe's reviewer reads only the simplification's diff (`simplify-review:<r>`), with the
-    modified tests named. The pass is kept only when the worker succeeded, committed something, the
-    guard and every check pass and the review approves with no blocking finding; an unknown verdict
-    or an unavailable review discards it. `simplify.decided` records the outcome, the reasons and the
-    change's size since the baseline (files, lines added and deleted) before and after. A discarded
-    pass is recorded first and then reset: `git reset --hard` to the ready commit and `git clean -fd`
-    in the task worktree, the only Git write besides `grampus merge`. A start failure or an exit
-    discards the pass instead of asking the user; nothing is repaired. The acceptance request says
-    whether the change was simplified, and a later round starts from the simplified commit.
+12. **Polish** (`polish:<r>`, optional, once per ready round). One worker improves names, reuse,
+    control flow, redundant state, dead code and local consistency while preserving behaviour.
+    Extraction must consolidate the same rule or responsibility, not merely similar-looking code.
+    Up to `polishLimits.adjacentFiles` adjacent files may be changed to complete a specific improvement;
+    each needs a recorded explanation. Broader cleanup is outside this stage. Protected acceptance
+    tests stay protected, and other tests may only be adapted without weakening cases or assertions.
+    Check configuration must not change.
+
+    The worker writes a bounded structured report with concrete benefits and affected files. A clean
+    unchanged commit and an empty improvement list is a successful `noop`, not a rejection. Otherwise
+    Grampus guards and checks the new commit, and an independent reviewer assesses both behavioural
+    safety and maintenance value. Retention requires an approving review and `worth-keeping`
+    maintenance verdict. Missing evidence, uncertainty, insufficient benefit, failed checks or scope
+    violations discard the pass. A recipe without a reviewer cannot retain polish edits.
+
+    `polish.decided` records `kept`, `noop` or `discarded`, the report, maintenance assessment, original
+    verified commit, attempted commit and before/after diff sizes. Line counts are context, not a
+    success criterion. The decision is recorded before resetting a discarded pass; restart completes
+    an interrupted reset. `polish.restored` records completion so a later restart cannot reset subsequent
+    rounds. There is no repair loop and no extra human gate. The verified implementation remains
+    the fallback. A subsequent user-requested implementation round may receive its own polish pass.
 13. **The user** accepts (recorded as an override after escalation), continues with guidance (one more
     round) or abandons. Every repair prompt carries all the guidance given so far, oldest first, so an
     automatic round after a continue still follows it. Finishing releases every worker: settled ones with `worker-release`, unsettled
     ones with `worker-stop`. When every check already passed at the baseline, the acceptance request
     says so: those checks show no regression but do not demonstrate the new behaviour.
 
-Change understanding runs as optional evidence after verification and any kept simplification. A recipe
+Change understanding runs as optional evidence after verification and any kept polish. A recipe
 may enable automatic generation; otherwise the user requests it at the acceptance point. An optional
 worker reads the request, approved spec, relevant architecture and complete Git diff, then writes a
 validated explanation with purpose groups and candidate line references. Follow-up questions use a
@@ -200,7 +220,7 @@ prints the addresses it answers on.
 
 - **Reads** come from the same fold the driver uses (`TaskReader` caches folds by log size). Views add the
   pipeline strip, spec versions with their text and review, worker messages with their answers, rounds
-  with guard, checks, review and simplify pass, queued commands and a plain-language timeline.
+  with guard, checks, review and polish pass, queued commands and a plain-language timeline.
 - **Writes** queue commands with source `dashboard`, exactly like the CLI; the driver stays the only
   writer to its Run and log. The few actions the CLI takes outside a driver are offered too: starting
   a task (`grampus new`, with Orca's repositories and recent ones to pick from), `grampus merge`,
@@ -300,8 +320,8 @@ prints the addresses it answers on.
   alongside a decision (the spec review) are not watched.
 - Decisions are keyed (`approve-spec:2`, `ready:1`, `escalate:0`, `stage-failed:build:0:1`), so a
   restarted driver finds a decision already made instead of asking again.
-- A simplify pass resumes at its first unrecorded step: its worker and review are stages, its checks
-  are `simplify.checked`, and a discarded pass whose reset did not happen is reset on restart.
+- A polish pass resumes at its first unrecorded step: its worker and review are stages, its checks
+  are `polish.checked`, and a discarded pass whose reset did not happen is reset on restart.
 - A driver started in a different terminal rebinds the Run with `run-use`.
 - `driver.lock` in the task folder holds the driver's process id and a random token, and the driver
   touches it every `driverHeartbeatMs`. A second driver is refused while the owner's process runs and
@@ -326,7 +346,7 @@ prints the addresses it answers on.
 <data>/tasks/<task>/driver.lock          the running driver's process id, token and heartbeat
 <data>/tasks/<task>/spec/v<n>.md          spec versions and their reviews
 <data>/tasks/<task>/reviews/round-<r>.json
-<data>/tasks/<task>/reviews/simplify-<r>.json
+<data>/tasks/<task>/reviews/polish-<r>.json
 <data>/tasks/<task>/explanations/<command-id>.json
 <data>/tasks/<task>/checks/<phase>-<r>/   check logs
 <data>/comparisons/<id>/events.jsonl      comparison log (schema 1)
@@ -338,8 +358,9 @@ prints the addresses it answers on.
 
 The data directory is `GRAMPUS_HOME`, or on Windows `%LOCALAPPDATA%\Grampus\orca` for an installed
 build and `%LOCALAPPDATA%\Grampus\orca-dev` for a checkout. `.grampus/` is
-excluded through the repository's `info/exclude`. Grampus writes no commits, branches or index entries,
-with one explicit exception, `grampus merge` (below). `grampus remove --worktree` asks Orca to remove a
+excluded through the repository's `info/exclude`. Workers author commits. Grampus fast-forwards shared
+acceptance tests, restores discarded polish passes, and delivers accepted changes with `grampus merge`
+(below). `grampus remove --worktree` asks Orca to remove a
 worktree, and Orca deletes its branch only when it can tell the branch is merged.
 
 ## Installation
@@ -467,18 +488,25 @@ comparison log; it never writes an entry's log, it queues commands for entries l
    which `createTask` verifies. At most `comparisonConcurrency` entries run at once; an entry stops
    counting once it has finished or waits for acceptance. An entry created just before a crash is
    adopted on restart.
-2. **Shared mode.** Only the first entry starts until the user approves its spec. The others then
-   start with `spec.inherited`: the approved spec copied into their task folder, no spec stages and
-   no approval gate. The spec phase's cost is counted in the first entry.
+2. **Shared mode.** The first entry writes the spec. If its recipe enables tests first, the others
+   also wait for its test commit and baseline evidence. They inherit the same approved spec and
+   acceptance-test SHA, fast-forward their clean base worktrees to that immutable test commit and
+   protect the same files. They do not run their own spec or tests-first workers. The test commit is
+   checked for changes outside its recorded test files before application, and a restart at that SHA
+   records completion without repeating the fast-forward. When the first recipe has no tests-first
+   stage, all entries start with the existing tests at the common base. Spec and test-authoring cost
+   belongs to the first entry; compare implementation phases separately.
 3. **Full mode.** Every entry runs the whole pipeline. When all have reached their result, the
    cross-check (`compare/cross-check.ts`) runs each entry's spec checks against every other entry's
    verified commit, in the candidate's worktree with the spec owner's added or changed test files
    overlaid, then restores those files and refuses to record a cell unless the worktree is clean. It
    runs one cell per driver pass (`cross_check.started`, then `cross_check.cell` for each), so commands
    still apply, `status` and the dashboard show progress, and a restarted driver skips measured cells;
-   `cross_check.recorded` marks it complete. A failed check whose log matches
-   `crossCheckIncompatiblePatterns` (the copied tests did not compile or load) is listed as
-   incompatible: the entries chose different APIs, which says nothing about behaviour.
+   `cross_check.recorded` marks it complete. Each check has an assessment: passed, behavioural failure, incompatible, execution error or
+   unknown. A failing copied test counts as behavioural evidence only when its approved check declares
+   `portable: true` and its log contains a recognised assertion failure. Missing prerequisites and API
+   errors take precedence. Otherwise compatibility remains unknown, even when execution reaches an
+   assertion. Cell totals include execution errors rather than dropping them from the denominator.
 4. **Pick.** The comparison asks the user to pick once every entry has its result and the cross-check
    is in. A pick sent before that is refused, never held until then. `grampus pick <comparison> <task>`
    queues `accept` for the winner and `decline` for every other unfinished entry; a declined entry
@@ -491,3 +519,30 @@ The dashboard's comparison page shows the entries side by side (checks, review, 
 specs' checks each result passed, rounds, time to result, agent time, tokens, estimated cost and the
 user's decisions), bar charts of the same, and the cross-check matrix, filling in while it runs. `status` and `wait` include
 comparisons, so a chat agent hears when a pick is needed.
+
+
+## Final candidate and experiment evidence
+
+`pipeline/candidate.ts` is the common resolver for commit, spec version, checks, guard and review.
+A retained polish uses its checked commit and evidence, including on the comparison diagonal.
+Status, comparison, acceptance, delivery, explanation validation and scorecards resolve that same
+candidate. Acceptance refuses a moved or dirty worktree; delivery verifies that the accepted SHA
+matches the recorded candidate. Failed checks remain failures even when a candidate exists.
+
+Scorecards separate setup, specification, tests, implementation, repair, polish, verification and
+explanation. Check duration includes both attempts when a failed check is rerun. Phase time sums
+work and is not elapsed wall time. Missing agent time and cost remain unknown; partial totals name
+missing measurements. Human waiting is separate. Interventions carry an optional explicit
+`purpose` of `implementation` or `workflow`; setup and worker-failure gates identify workflow
+interventions automatically. Unclassified interventions stay unknown, without guessing from prose.
+
+For a controlled polish experiment, use each pass's recorded `fromSha` as the unpolished control
+and its attempted SHA as treatment. The same implementation and spec are used for both. Compare
+its maintenance assessment, incremental polish and review cost, check time and retained/no-op/rejected
+outcome. Comparing independently generated recipes with and without polish does not isolate polish.
+For builder comparisons, use shared mode with tests first in the first recipe, target stable public
+interfaces, and compare repeated runs over several tasks. Full mode includes spec quality and test
+compatibility differences and is not an interchangeable behavioural benchmark.
+
+Task schema 3 and comparison schema 2 describe this workflow. Earlier logs are refused, not migrated
+or rewritten. Recipe configuration now uses `polish`; `simplify` is not a supported alias.

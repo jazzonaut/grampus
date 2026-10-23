@@ -273,7 +273,7 @@ function workersOf(state: TaskState, events: readonly StoredEvent[], now: number
 
 /** The agents a recipe assigns. */
 function recipeAgents(recipe: Recipe): string[] {
-  return [recipe.spec, recipe.specReview, recipe.testsFirst, recipe.build, recipe.review, recipe.simplify]
+  return [recipe.spec, recipe.specReview, recipe.testsFirst, recipe.build, recipe.review, recipe.polish]
     .concat(recipe.repair.assignment ?? null)
     .flatMap(assignment => (assignment ? [assignment.agent] : []));
 }

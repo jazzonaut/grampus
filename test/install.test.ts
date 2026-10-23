@@ -1,5 +1,5 @@
 // The installer against a real temporary checkout of this build: versions, selection, the launcher on
-// PATH, the chat skill, pruning and refusals. A temporary home keeps the skill out of the user's agents.
+// PATH, the chat skill, pruning and refusals. Temporary homes isolate both skills and runtime settings.
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -43,9 +43,18 @@ function commit(root: string, message: string): void {
 
 /** Run a script as the user would, with agent skills going to a temporary home. */
 function node(home: string, script: string, ...args: string[]): string {
+  const env = { ...process.env };
+  delete env.GRAMPUS_HOME;
   const result = spawnSync(process.execPath, [script, ...args], {
     encoding: 'utf8',
-    env: { ...process.env, USERPROFILE: home, HOME: home, CODEX_HOME: join(home, '.codex') },
+    env: {
+      ...env,
+      USERPROFILE: home,
+      HOME: home,
+      CODEX_HOME: join(home, '.codex'),
+      LOCALAPPDATA: join(home, 'AppData', 'Local'),
+      XDG_STATE_HOME: join(home, '.local', 'state'),
+    },
   });
   if (result.status !== 0) throw new Error(result.stderr);
   return result.stdout;

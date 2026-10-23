@@ -10,6 +10,8 @@ export const checkDefinitionSchema = z
     name: z.string().min(1).max(specLimits.checkNameLength),
     command: z.string().min(1).max(specLimits.checkCommandLength),
     timeoutSeconds: z.number().int().positive().max(specLimits.checkTimeoutSeconds).optional(),
+    /** Explicitly approved stable interface for transferring this check between implementations. */
+    portable: z.boolean().optional(),
   })
   .strict();
 export type CheckDefinition = z.infer<typeof checkDefinitionSchema>;

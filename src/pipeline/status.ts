@@ -6,7 +6,8 @@ import { logExcerpt } from '../checks/run-checks.js';
 import { specLimits } from '../config/limits.js';
 import type { CheckResult, CommandKind, GuardResult } from '../domain/events.js';
 import type { Finding } from '../domain/review.js';
-import { simplifyNote } from './simplify.js';
+import { polishNote } from './polish.js';
+import { finalCandidate } from './candidate.js';
 import { currentDispatch, isOpen, type ReviewRecord, type TaskState } from './state.js';
 
 export interface TaskSummary {
@@ -19,7 +20,7 @@ export interface TaskSummary {
   needsYou: { reason: string; detail: string; options: CommandKind[]; since: string } | null;
   questions: { messageId: string; stage: string | null; text: string; at: string }[];
   spec: { version: number; path: string; checks: string[] } | null;
-  rounds: { round: number; checks: string; review: string; decision: string | null; simplify: string | null }[];
+  rounds: { round: number; checks: string; review: string; decision: string | null; polish: string | null }[];
   finished: { outcome: string; sha: string | null; override: boolean; at: string } | null;
   lastStop: { reason: string; at: string } | null;
   /** The most recent refused command, if it came after the last applied one. */
@@ -64,17 +65,20 @@ export function summarise(state: TaskState): TaskSummary {
         }
       : null,
     rounds: [...state.verify.entries()].map(([round, verify]) => {
-      const review = state.reviews.get(round);
+      const final = finalCandidate(state);
+      const candidate = final?.round === round ? final : null;
+      const checks = candidate ?? verify;
+      const review = candidate?.review ?? state.reviews.get(round);
       return {
         round,
-        checks: `${verify.results.filter(result => result.passed).length}/${verify.results.length} pass at ${verify.sha.slice(0, 12)}`,
+        checks: `${checks.results.filter(result => result.passed).length}/${checks.results.length} pass at ${checks.sha.slice(0, 12)}`,
         review: review
           ? review.report
             ? `${review.report.verdict}, ${review.blocking.length} blocking`
             : `unavailable: ${review.error}`
           : 'none',
         decision: state.decisions.get(round)?.decision ?? null,
-        simplify: simplifyNote(state, round).trim() || null,
+        polish: polishNote(state, round).trim() || null,
       };
     }),
     finished: state.finished
@@ -154,10 +158,13 @@ function resultOf(state: TaskState): TaskSummary['result'] {
   const round = Number(match[2]);
   // The reasons are not repeated here: the attention detail already lists them.
   const lines = [
+    ...(state.testsFirst?.files.length
+      ? [`Acceptance tests committed before implementation: ${state.testsFirst.files.join(', ')}`]
+      : []),
     ...guardLines(state.guard.get(round)?.guard),
     ...(state.verify.get(round)?.results ?? []).map(checkLine),
     ...reviewLines(state.reviews.get(round)),
-    ...simplifyLines(state, round),
+    ...polishLines(state, round),
   ];
   return { round, lines };
 }
@@ -203,15 +210,15 @@ function reviewLines(review: ReviewRecord | undefined): string[] {
   ];
 }
 
-function simplifyLines(state: TaskState, round: number): string[] {
-  const simplified = state.simplify.get(round);
-  if (!simplified?.decided) return [];
-  const changed = simplified.decided.kept ? (simplified.checked?.guard.changedFiles ?? []) : [];
+function polishLines(state: TaskState, round: number): string[] {
+  const polished = state.polish.get(round);
+  if (!polished?.decided) return [];
+  const changed = polished.decided.kept ? (polished.checked?.guard.changedFiles ?? []) : [];
   return [
-    simplifyNote(state, round).trim(),
-    ...(changed.length ? [`simplification changed: ${changed.slice(0, shownFiles).join(', ')}`] : []),
-    ...(simplified.decided.kept && simplified.checked?.guard.modifiedTests.length
-      ? [`tests adapted by the simplification: ${simplified.checked.guard.modifiedTests.join(', ')}`]
+    polishNote(state, round).trim(),
+    ...(changed.length ? [`polish changed: ${changed.slice(0, shownFiles).join(', ')}`] : []),
+    ...(polished.decided.kept && polished.checked?.guard.modifiedTests.length
+      ? [`tests adapted by the polish: ${polished.checked.guard.modifiedTests.join(', ')}`]
       : []),
   ];
 }
@@ -258,15 +265,13 @@ function phaseOf(state: TaskState): string {
   const round = latestBuiltRound(state);
   if (round === null) return 'waiting for the driver';
   if (!state.verify.has(round)) return `running the checks of round ${round}`;
-  return checkingSimplification(state, round)
-    ? `checking the simplification of round ${round}`
-    : 'waiting for the driver';
+  return checkingPolish(state, round) ? `checking the polish of round ${round}` : 'waiting for the driver';
 }
 
-/** Whether a round's simplifier has ended and the driver is guarding and checking its commit. */
-function checkingSimplification(state: TaskState, round: number): boolean {
-  const simplified = state.simplify.get(round);
-  return state.stages.has(`simplify:${round}`) && !simplified?.checked && !simplified?.decided;
+/** Whether a round's polisher has ended and the driver is guarding and checking its commit. */
+function checkingPolish(state: TaskState, round: number): boolean {
+  const polished = state.polish.get(round);
+  return state.stages.has(`polish:${round}`) && !polished?.checked && !polished?.decided;
 }
 
 /** Plain-text rendering for the terminal and chat agents. */
@@ -299,7 +304,7 @@ export function renderSummary(summary: TaskSummary): string {
   for (const round of summary.rounds)
     lines.push(
       `  round ${round.round}: checks ${round.checks}; review ${round.review}${round.decision ? `; ${round.decision}` : ''}`,
-      ...(round.simplify ? [`    ${round.simplify}`] : []),
+      ...(round.polish ? [`    ${round.polish}`] : []),
     );
   if (summary.refused) lines.push(`  Refused ${summary.refused.kind}: ${summary.refused.reason}`);
   if (summary.lastStop && !summary.finished)

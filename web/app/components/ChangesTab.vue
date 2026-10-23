@@ -70,7 +70,7 @@ const reviewReady = computed(
   () =>
     (!!props.task.finished &&
       props.task.rounds.some(
-        round => round.checks?.sha === changes.value?.sha || round.simplify?.decided?.sha === changes.value?.sha,
+        round => round.checks?.sha === changes.value?.sha || round.polish?.decided?.sha === changes.value?.sha,
       )) ||
     ['ready:', 'escalate:'].some(prefix => props.task.needsYou?.reason.startsWith(prefix)),
 );

@@ -10,6 +10,25 @@ const hidden = () => null;
 const short = (sha: string | null) => (sha ? sha.slice(0, 12) : '?');
 
 const describers: Describers = {
+  'polish.restored': event => ({ title: 'Verified commit restored', detail: short(event.sha) }),
+  'tests.inherited': event => ({
+    title: 'Acceptance tests shared',
+    detail: `${event.files.length} files from ${event.fromTask} at ${short(event.sha)}`,
+  }),
+  'tests.baseline': event => ({
+    title: 'Tests-first failure evidence',
+    detail: event.assessments.map(item => `${item.name}: ${item.outcome}`).join('; '),
+  }),
+  'setup.configured': event => ({
+    title: 'Repository setup configured',
+    detail: event.command?.command ?? 'No setup required',
+  }),
+  'setup.started': event => ({ title: `Repository setup attempt ${event.attempt}`, detail: null }),
+  'setup.recorded': event => ({
+    title: event.result.passed && !event.problems.length ? 'Repository setup passed' : 'Repository setup failed',
+    detail: event.problems.join('; ') || event.result.logPath,
+    tone: event.result.passed && !event.problems.length ? 'success' : 'error',
+  }),
   'log.header': hidden,
   'explanation.recorded': event => ({
     title: event.explanation ? 'Change explanation ready' : 'Change explanation unavailable',
@@ -131,21 +150,21 @@ const describers: Describers = {
   }),
   'attention.needed': event => ({ title: 'Needs you', detail: event.detail, tone: 'warning' }),
   'attention.withdrawn': event => ({ title: 'No longer needs you', detail: event.why }),
-  'simplify.checked': event => {
+  'polish.checked': event => {
     const passed = event.results.filter(result => result.passed).length;
     return {
-      title: `Round ${event.round} simplification checked`,
+      title: `Round ${event.round} polish checked`,
       detail: event.guard.violations.length
         ? event.guard.violations.join('; ')
         : `${passed}/${event.results.length} checks pass at ${short(event.sha)}`,
       tone: 'neutral',
     };
   },
-  'simplify.decided': event => ({
-    title: `Round ${event.round} simplification ${event.kept ? 'kept' : 'discarded'}`,
+  'polish.decided': event => ({
+    title: `Round ${event.round} polish ${event.outcome === 'noop' ? 'found no worthwhile change' : event.outcome}`,
     detail: event.kept
-      ? `+${event.before.added} -${event.before.deleted} became +${event.after.added} -${event.after.deleted} at ${short(event.sha)}`
-      : event.reasons.join('; '),
+      ? (event.report?.improvements.map(item => item.benefit).join('; ') ?? short(event.sha))
+      : event.reasons.join('; ') || event.report?.summary || null,
     tone: event.kept ? 'success' : 'neutral',
   }),
   'workers.released': event => ({

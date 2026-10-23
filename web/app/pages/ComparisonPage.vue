@@ -258,6 +258,7 @@ const charts = computed(() => [
                   <th class="px-3 py-2 text-right font-medium">Checks</th>
                   <th class="px-3 py-2 text-left font-medium">Review</th>
                   <th v-if="detail.mode === 'full'" class="px-3 py-2 text-right font-medium">Others' specs</th>
+                  <th v-if="detail.mode === 'full'" class="px-3 py-2 text-left">Cross-check outcomes</th>
                   <th class="px-3 py-2 text-right font-medium">Rounds</th>
                   <th class="px-3 py-2 text-right font-medium">To result</th>
                   <th class="px-3 py-2 text-right font-medium">Agent time</th>
@@ -304,6 +305,14 @@ const charts = computed(() => [
                         ? `${metricsOf.get(entry.task.taskId)?.crossCheck?.passed}/${metricsOf.get(entry.task.taskId)?.crossCheck?.total}`
                         : '-'
                     }}
+                  </td>
+                  <td v-if="detail.mode === 'full'" class="px-3 py-2 text-xs text-muted">
+                    <template v-if="metricsOf.get(entry.task.taskId)?.crossCheck">
+                      {{ metricsOf.get(entry.task.taskId)?.crossCheck?.failed }} behavioural,
+                      {{ metricsOf.get(entry.task.taskId)?.crossCheck?.incompatible }} incompatible,
+                      {{ metricsOf.get(entry.task.taskId)?.crossCheck?.errors }} errors,
+                      {{ metricsOf.get(entry.task.taskId)?.crossCheck?.unknown }} unknown
+                    </template>
                   </td>
                   <td class="px-3 py-2 text-right tabular-nums">{{ entry.rounds }}</td>
                   <td class="px-3 py-2 text-right tabular-nums">

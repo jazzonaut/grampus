@@ -48,7 +48,9 @@ When the user wants to know which recipe does a request best, start a comparison
 Each recipe runs as its own task (an entry) from the same base commit. In `full` mode (the default)
 every entry writes its own spec, so the user approves one per recipe, and every result is then checked
 against every spec. In `shared` mode the first recipe's spec is approved once and every recipe builds
-from it. Entries show up in `status` and `wait` like tasks; the comparison block above them shows the
+from it and the same acceptance-test commit if the first recipe enables tests first. Full comparisons
+report incompatible APIs, execution errors and unknowns separately from behavioural failures.
+Entries show up in `status` and `wait` like tasks; the comparison block above them shows the
 cross-check's progress and says when the user should pick. Only then: Grampus refuses a pick sent
 before it asks. For an entry, never run `accept`: the user keeps one entry with `pick`, which ends the
 others as not selected, and cannot be undone. Before asking, show each entry's result, and say which

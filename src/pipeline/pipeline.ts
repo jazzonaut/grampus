@@ -8,12 +8,17 @@ import { currentSettings } from '../config/settings.js';
 import { judgeCodeReview, parseReviewReport } from '../domain/review.js';
 import { repairAssignment, type Assignment } from '../domain/recipe.js';
 import type { GuardResult, TaskOutcome, UserCommand } from '../domain/events.js';
-import { changedPaths, headSha } from '../git/git.js';
+import { changedPaths, headSha, git, uncommittedPaths } from '../git/git.js';
+import { matchesAny } from '../util/glob.js';
+import { finalCandidate } from './candidate.js';
+import { DriverStop } from './driver-core.js';
+import { prepareWorkspace } from './setup.js';
+import { recordTestBaseline } from './test-evidence.js';
 import type { DriverCore, Launch, Settled } from './driver-core.js';
 import { measureDispatches } from '../measure/usage.js';
 import { inspectCandidate } from './guard.js';
 import { buildPrompt, repairPrompt, reviewPrompt, testsFirstPrompt, type RepairProblems } from './prompts.js';
-import { simplify, simplifyNote } from './simplify.js';
+import { polish, polishNote } from './polish.js';
 import { approveSpec, ensureGate } from './spec-phase.js';
 import { currentDispatch, grantedRounds, stageKey, type SpecVersion } from './state.js';
 import { approvedSpecPath, excludeWorkerFolder, keepEvidence, readWorkerFile, workerFile } from './workspace-files.js';
@@ -24,28 +29,36 @@ export async function runPipeline(core: DriverCore): Promise<void> {
   if (!worktree) throw new Error('The task has no worktree.');
   await excludeWorkerFolder(worktree);
   await ensureRun(core);
+  await prepareWorkspace(core, worktree);
   // An inherited spec was approved in the sibling that wrote it; there is nothing to gate here.
   if (!core.state.inherited) await ensureGate(core);
   const spec = await approveSpec(core, worktree);
   await testsFirst(core, worktree, spec);
   await baseline(core, worktree, spec);
+  recordTestBaseline(core, worktree);
   for (let round = 0; ; round++) {
     const settled = await buildRound(core, worktree, spec, round);
     await verify(core, worktree, spec, round);
     await review(core, worktree, round);
     const decision = decideRound(core, round, settled);
     if (decision === 'repair') continue;
-    if (decision === 'ready') await simplify(core, worktree, spec, round, roundStart(core, 0), protectedFiles(core));
+    if (decision === 'ready')
+      await polish(
+        core,
+        worktree,
+        spec,
+        round,
+        core.state.workspace?.baseSha ?? roundStart(core, 0),
+        protectedFiles(core),
+      );
     const choice = await askUser(core, round, decision, spec.version);
     if (choice.kind === 'accept') return finish(core, 'accepted', decision === 'escalate', null);
   }
 }
 
-/** An automatic explanation is tied to the final candidate after a possible simplify pass. */
+/** An automatic explanation is tied to the final candidate after a possible polish pass. */
 async function explainFinalCandidate(core: DriverCore, specVersion: number): Promise<void> {
-  const round = core.state.guard.size - 1;
-  const simplified = core.state.simplify.get(round)?.decided;
-  const candidateSha = simplified?.kept ? simplified.sha : core.state.verify.get(round)?.sha;
+  const candidateSha = finalCandidate(core.state)?.sha;
   if (!candidateSha) throw new Error('There is no verified candidate to explain.');
   if (core.state.explanations.has(candidateSha)) return;
   const digest = createHash('sha256').update(`${core.state.taskId}:${candidateSha}:${specVersion}`).digest('hex');
@@ -78,21 +91,51 @@ async function ensureRun(core: DriverCore): Promise<void> {
 
 /** Optional acceptance tests written before the build. Their files become protected. */
 async function testsFirst(core: DriverCore, worktree: string, spec: SpecVersion): Promise<void> {
+  if (core.state.testsFirst) return;
+  const inherited = core.state.inheritedTests;
+  if (inherited) {
+    const head = await headSha(worktree);
+    if (head !== inherited.sha) {
+      if (head !== core.state.workspace?.baseSha || (await uncommittedPaths(worktree)).length)
+        throw new DriverStop('Shared acceptance tests require the clean base commit.');
+      const changes = await changedPaths(worktree, head, inherited.sha);
+      if (changes.some(change => !['A', 'M'].includes(change.status) || !inherited.files.includes(change.path)))
+        throw new DriverStop('The shared tests commit contains changes outside its recorded test files.');
+      await git(worktree, ['merge', '--ff-only', '--quiet', inherited.sha]);
+    }
+    core.record({ type: 'tests.recorded', sha: inherited.sha, files: inherited.files });
+    return;
+  }
   const assignment = core.state.recipe.testsFirst;
-  if (!assignment || core.state.testsFirst) return;
+  if (!assignment) return;
   const fromSha = core.state.workspace?.baseSha ?? (await headSha(worktree));
   const settled = await core.runStage({
     key: stageKey('tests', 0),
     stage: 'tests',
     round: 0,
     title: `Acceptance tests: ${core.state.title}`,
-    spec: () => testsFirstPrompt({ specPath: approvedSpecPath(worktree), checks: spec.checks }),
+    spec: () =>
+      testsFirstPrompt({
+        specPath: approvedSpecPath(worktree),
+        checks: spec.checks,
+        reportPath: workerFile(worktree, 'tests:0', 'report.json'),
+      }),
     launch: { assignment },
   });
   const sha = await headSha(worktree);
-  const added = (await changedPaths(worktree, fromSha, sha))
-    .filter(change => change.status === 'A')
-    .map(change => change.path);
+  const changes = await changedPaths(worktree, fromSha, sha);
+  const settings = currentSettings();
+  const invalid = changes.filter(
+    change =>
+      !['A', 'M'].includes(change.status) ||
+      !matchesAny(change.path, settings.testFilePatterns) ||
+      matchesAny(change.path, settings.checkConfigPatterns),
+  );
+  if (invalid.length)
+    throw new DriverStop(
+      `Tests first changed non-test files or removed tests: ${invalid.map(c => c.path).join(', ')}. Restore the test-only boundary before resuming.`,
+    );
+  const added = changes.map(change => change.path);
   if (settled.outcome === 'failed' || added.length === 0) {
     const detail = settled.outcome === 'failed' ? settled.body : 'no test files were committed';
     await core.decide('tests-failed', `Tests first did not produce tests: ${detail}. Continue without them?`, [
@@ -124,11 +167,11 @@ async function baseline(core: DriverCore, worktree: string, spec: SpecVersion): 
 
 /**
  * The commit a round starts from: the baseline for the build, the previous candidate for a repair, or
- * its simplification when that was kept.
+ * its polish when that was kept.
  */
 function roundStart(core: DriverCore, round: number): string {
-  const simplified = core.state.simplify.get(round - 1)?.decided;
-  const previous = simplified?.kept ? simplified.sha : core.state.guard.get(round - 1)?.sha;
+  const polished = core.state.polish.get(round - 1)?.decided;
+  const previous = polished?.kept ? polished.sha : core.state.guard.get(round - 1)?.sha;
   const sha = round === 0 ? core.state.baseline?.sha : previous;
   if (!sha) throw new Error(`Round ${round} has no starting commit.`);
   return sha;
@@ -247,7 +290,11 @@ async function review(core: DriverCore, worktree: string, round: number): Promis
     spec: () =>
       reviewPrompt({
         specPath: approvedSpecPath(worktree),
-        baseSha: roundStart(core, 0),
+        baseSha: core.state.workspace?.baseSha ?? roundStart(core, 0),
+        roundFromSha: guard.fromSha,
+        acceptanceTests: protectedFiles(core),
+        testBaseline:
+          core.state.testBaseline?.assessments.map(item => `${item.name}: ${item.outcome}. ${item.reason}`) ?? [],
         sha: candidate.sha,
         reportPath,
         results: candidate.results,
@@ -320,14 +367,14 @@ function askUser(
   decision: 'escalate' | 'ready',
   specVersion: number,
 ): Promise<UserCommand> {
-  const sha = core.state.verify.get(round)?.sha.slice(0, 12) ?? 'unknown';
+  const sha = finalCandidate(core.state)?.sha.slice(0, 12) ?? 'unknown';
   const reasons = core.state.decisions.get(round)?.reasons ?? [];
   const verdict = core.state.reviews.get(round)?.report?.verdict;
   const explain = core.state.recipe.explain.automatic ? () => explainFinalCandidate(core, specVersion) : undefined;
   if (decision === 'ready')
     return core.decide(
       `ready:${round}`,
-      `Verified at ${sha}: every check passes${verdict ? `, review ${verdict}` : ', no review'}.${simplifyNote(core.state, round)}${baselineNote(core)}${checkConfigNote(core, round)} Accept, continue with guidance, or abandon.`,
+      `Verified at ${sha}: every check passes${verdict ? `, review ${verdict}` : ', no review'}.${polishNote(core.state, round)}${baselineNote(core)}${checkConfigNote(core, round)} Accept, continue with guidance, or abandon.`,
       ['accept', 'continue', 'abandon'],
       explain,
     );
@@ -390,7 +437,14 @@ export async function finish(
   if (!core.state.measurements)
     core.record({ type: 'usage.recorded', measurements: await measureDispatches(core.state, core.orca) });
   const worktree = core.state.workspace?.path;
-  const sha = worktree ? await headSha(worktree).catch(() => null) : null;
+  const head = worktree ? await headSha(worktree).catch(() => null) : null;
+  const candidate = finalCandidate(core.state);
+  if (
+    outcome === 'accepted' &&
+    (!candidate || head !== candidate.sha || (worktree && (await uncommittedPaths(worktree)).length))
+  )
+    throw new DriverStop('The worktree no longer matches the final checked candidate; acceptance stopped.');
+  const sha = outcome === 'accepted' ? (candidate?.sha ?? null) : head;
   core.record({ type: 'task.finished', outcome, sha, override, reason });
   core.log(`Task ${outcome}${override ? ' with unresolved problems' : ''}${sha ? ` at ${sha.slice(0, 12)}` : ''}.`);
 }

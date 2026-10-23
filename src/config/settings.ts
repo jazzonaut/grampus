@@ -51,6 +51,10 @@ export interface Settings {
    * against the candidate (the entries disagree on an API) rather than that the behaviour is wrong.
    */
   crossCheckIncompatiblePatterns: readonly string[];
+  /** Output patterns indicating missing prerequisites or a failed test runner. */
+  checkInfrastructurePatterns: readonly string[];
+  /** Assertion signatures; these count as behavioural evidence only with an established interface. */
+  checkAssertionPatterns: readonly string[];
   /** Saved recipes beside the built-in `standard` recipe. */
   recipes: readonly Recipe[];
   /** Folders searched for Claude session transcripts (`<root>/<project>/<session>.jsonl`). */
@@ -109,6 +113,16 @@ export function defaultSettings(): Settings {
     waitPollMs: 2_000,
     defaultCheckTimeoutSeconds: 15 * 60,
     checkShell: null,
+    checkInfrastructurePatterns: [
+      'command .*not found',
+      'is not recognized as an internal',
+      'MODULE_NOT_FOUND',
+      'ERR_MODULE_NOT_FOUND',
+      'No test files found',
+      'No tests found',
+      'ENOENT',
+    ],
+    checkAssertionPatterns: ['AssertionError', 'ERR_ASSERTION', 'Expected:.*Received:', 'Assert\\.'],
     testFilePatterns: ['**/*.test.*', '**/*.spec.*', '**/test/**', '**/tests/**', '**/__tests__/**'],
     checkConfigPatterns: [
       '**/Directory.Build.props',
@@ -170,6 +184,17 @@ export function defaultSettings(): Settings {
 /** The largest TCP port number. */
 const maxPort = 65_535;
 
+const outputPatterns = z.array(
+  z.string().refine(pattern => {
+    try {
+      new RegExp(pattern);
+      return true;
+    } catch {
+      return false;
+    }
+  }, 'not a valid regular expression'),
+);
+
 const fileSchema = z
   .object({
     orcaCommand: z.array(z.string().min(1)).min(1),
@@ -187,17 +212,10 @@ const fileSchema = z
     defaultCheckTimeoutSeconds: z.number().int().positive().max(specLimits.checkTimeoutSeconds),
     checkShell: z.string().min(1).nullable(),
     testFilePatterns: z.array(z.string().min(1)),
+    checkInfrastructurePatterns: outputPatterns,
+    checkAssertionPatterns: outputPatterns,
     checkConfigPatterns: z.array(z.string().min(1)),
-    crossCheckIncompatiblePatterns: z.array(
-      z.string().refine(pattern => {
-        try {
-          new RegExp(pattern);
-          return true;
-        } catch {
-          return false;
-        }
-      }, 'not a valid regular expression'),
-    ),
+    crossCheckIncompatiblePatterns: outputPatterns,
     recipes: z.array(recipeSchema),
     claudeProjectRoots: z.array(z.string().min(1)),
     codexSessionRoots: z.array(z.string().min(1)),

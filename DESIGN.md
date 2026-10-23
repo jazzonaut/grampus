@@ -81,11 +81,11 @@ spec ─► spec review ─► [approve] ─► (tests first) ─► baseline �
    Round 1 continues the builder's conversation; later rounds start fresh with a distilled
    list of problems, because a long polluted context does worse. Grampus counts rounds
    itself; after the recipe's limit it escalates to the user.
-10. **Simplify** (optional per recipe, off by default). Agents overbuild, and a reviewer that
-    blocks only incorrect code lets bloat through. Once a round is ready, a worker makes the
-    change smaller without changing behaviour. The pass is kept only if the guard, the checks and
-    a review of its own diff all hold; otherwise the worktree goes back to the verified commit.
-    It never escalates or repairs, because the verified commit is already a good result.
+10. **Polish** (optional per recipe, off by default). Once a round is ready, a worker improves
+    naming, duplication, structure, cleanup and consistency without changing behaviour. The pass
+    needs a concrete maintenance benefit and independent approval of safety and value. No worthwhile
+    improvement is a successful no-op. Failed passes restore the verified commit without escalation
+    or repair. Recorded restoration prevents a restart from resetting later rounds.
 11. **Accept.** The user accepts the verified branch, gives guidance for another round, or
     abandons the task. Afterwards the user may ask Grampus to fast-forward their branch to the
     verified commit (`merge`). Pushing and opening a PR stay with the user.
@@ -154,3 +154,20 @@ quality; it is weak for multi-agent debate and for mixing different models.
 - Orca has no per-Run delete, so finished Runs remain in its history.
 - Grampus does not see provider token counts directly yet.
 - Execution is local; remote Orca servers are not supported.
+
+## Workflow and comparison evidence
+
+Repository setup runs before specification, with separate logs and explicit retries for failed or
+interrupted attempts. Tests first accepts additions to existing test files, protects the resulting
+tests, and records whether a claimed behavioural failure matches an independently observed log.
+Shared comparisons distribute the same approved spec and acceptance-test commit to every builder.
+Full comparisons preserve API incompatibility, execution errors and unknown results as distinct
+outcomes; a failed copied test needs an approved portable interface to count as behavioural evidence.
+
+The optional polish pass broadens simplification to naming, duplication, structure, cleanup and
+consistency. A worker claims concrete benefits; independent review assesses both safety and whether
+the change is worth keeping. No worthwhile change is a successful no-op. Adjacent changes are bounded,
+and uncertain or unsuccessful passes restore the verified commit without a repair loop. Final
+verification, explanation, acceptance and cross-checks resolve the same retained candidate SHA.
+Measurements separate setup, specification, tests, implementation, repair, polish, verification and
+explanation; unknown cost, time and intervention attribution stay explicit.

@@ -134,6 +134,31 @@ const tiles = computed(() => {
           </tbody>
         </table>
       </div>
+      <table class="w-full text-sm">
+        <caption class="text-left font-medium">
+          Work by phase (summed work, not elapsed time)
+        </caption>
+        <thead>
+          <tr>
+            <th class="text-left">Phase</th>
+            <th>Agent time</th>
+            <th>Check time</th>
+            <th>Estimated cost</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="phase in card.phases" :key="phase.phase">
+            <td>{{ phase.phase }}</td>
+            <td class="text-center">{{ duration(phase.agentMs) }}{{ phase.unknownTime ? ' + unknown' : '' }}</td>
+            <td class="text-center">{{ duration(phase.checkMs) }}</td>
+            <td class="text-center">{{ money(phase.costUsd) }}{{ phase.unknownCost ? ' + unknown' : '' }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="text-sm text-muted">
+        Corrections: {{ card.interventions.implementation }} implementation, {{ card.interventions.workflow }} workflow,
+        {{ card.interventions.unknown }} unclassified.
+      </p>
       <p class="text-xs text-muted">
         Human cost: {{ card.human.decisions }} decisions and {{ card.human.answers }} answers,
         {{ card.human.fromChat }} from chat. Input counts uncached tokens; cached input is listed separately. Cost is

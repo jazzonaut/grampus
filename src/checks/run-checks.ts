@@ -36,7 +36,9 @@ export async function runChecks(
     let attempt = await runCheck(cwd, check, `${base}.log`, options.signal);
     let flaky = false;
     if (!passed(attempt) && options.rerunFailures && !options.signal?.aborted) {
+      const firstDuration = attempt.durationMs;
       attempt = await runCheck(cwd, check, `${base}.rerun.log`, options.signal);
+      attempt.durationMs += firstDuration;
       flaky = passed(attempt);
     }
     results.push({ name: check.name, command: check.command, ...attempt, flaky, passed: passed(attempt) });

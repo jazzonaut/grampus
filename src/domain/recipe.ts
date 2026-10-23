@@ -46,11 +46,10 @@ export const recipeSchema = z
     /** Independent code review; null skips review so its value can be measured. */
     review: assignmentSchema.nullable(),
     /**
-     * Optional pass after a ready round that removes bloat from the change without changing behaviour.
-     * Kept only when the guard, the checks and a review of its own diff hold. Recipes saved before it
-     * existed have no field and mean off.
+     * Optional maintenance pass after a ready round, preserving behaviour. Independent review must
+     * approve safety and concrete maintenance benefit. Omission means off.
      */
-    simplify: assignmentSchema.nullable().default(null),
+    polish: assignmentSchema.nullable().default(null),
     /** Change explanation worker and whether the final candidate is explained before acceptance. */
     explain: z
       .object({ automatic: z.boolean(), assignment: assignmentSchema })
@@ -81,7 +80,7 @@ export const standardRecipe: Recipe = {
   testsFirst: null,
   build: { agent: 'codex' },
   review: { agent: 'claude' },
-  simplify: null,
+  polish: null,
   explain: { automatic: false, assignment: { agent: 'claude' } },
   repair: { maxRounds: 2, reuseBuilderRounds: 1 },
 };
@@ -102,7 +101,7 @@ export function crossFamilyReview(recipe: Recipe): boolean | null {
     recipe.build,
     repairAssignment(recipe),
     ...(recipe.testsFirst ? [recipe.testsFirst] : []),
-    ...(recipe.simplify ? [recipe.simplify] : []),
+    ...(recipe.polish ? [recipe.polish] : []),
   ];
   return editors.every(editor => agentFamily(editor.agent) !== agentFamily(review.agent));
 }

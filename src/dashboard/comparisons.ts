@@ -14,6 +14,8 @@ import { crossCheckProgress } from '../compare/status.js';
 import { buildScorecard } from '../measure/report.js';
 import { measureDispatches } from '../measure/usage.js';
 import type { TaskState } from '../pipeline/state.js';
+import { finalCandidate } from '../pipeline/candidate.js';
+import { crossCheckCounts } from '../compare/outcomes.js';
 import { withObservedStop } from '../store/driver-lock.js';
 import type { DashboardOrca } from './api.js';
 import type { TaskReader } from './tasks.js';
@@ -96,10 +98,8 @@ export function comparisonDetail(dataDir: string, reader: TaskReader, comparison
     needsYou: state.attention ? { detail: state.attention.detail, since: state.attention.since } : null,
     lastStop: state.finished ? null : state.lastStop,
     entryViews: entries(reader, state).map(({ recipe, task, events: taskEvents }) => {
-      const rounds = [...task.verify.keys()];
-      const last = rounds.length ? Math.max(...rounds) : null;
-      const checks = last === null ? undefined : task.verify.get(last);
-      const review = last === null ? undefined : task.reviews.get(last);
+      const checks = finalCandidate(task);
+      const review = checks?.review;
       return {
         task: listItem(task, taskEvents),
         recipe,
@@ -138,7 +138,7 @@ export async function comparisonMetrics(
     const cells = (state.crossCheck ?? []).filter(
       cell => cell.candidate === task.taskId && cell.specOf !== task.taskId,
     );
-    const results = cells.flatMap(cell => cell.results ?? []);
+    const counts = crossCheckCounts(cells);
     measured.push({
       taskId: task.taskId,
       recipe,
@@ -150,9 +150,7 @@ export async function comparisonMetrics(
       decisions: card.human.decisions,
       answers: card.human.answers,
       waitingMs: card.human.waitingMs,
-      crossCheck: cells.length
-        ? { passed: results.filter(result => result.passed).length, total: results.length }
-        : null,
+      crossCheck: cells.length ? counts : null,
       provisional: !card.final,
     });
   }

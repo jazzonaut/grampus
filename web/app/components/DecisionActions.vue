@@ -22,6 +22,7 @@ const queuedKinds = computed(
 
 type Prompted = 'revise' | 'continue' | 'abandon';
 const prompt = ref<Prompted | null>(null);
+const purpose = ref<'unknown' | 'implementation' | 'workflow'>('unknown');
 const promptOpen = computed({
   get: () => prompt.value !== null,
   set: value => {
@@ -71,8 +72,9 @@ const promptText = computed(() =>
 
 function submitPrompt(text: string): void {
   const kind = prompt.value;
-  if (kind === 'revise') void queue({ kind: 'revise', feedback: text });
-  if (kind === 'continue') void queue({ kind: 'continue', guidance: text });
+  const attribution = purpose.value === 'unknown' ? {} : { purpose: purpose.value };
+  if (kind === 'revise') void queue({ kind: 'revise', feedback: text, ...attribution });
+  if (kind === 'continue') void queue({ kind: 'continue', guidance: text, ...attribution });
   if (kind === 'abandon') void queue(text ? { kind: 'abandon', reason: text } : { kind: 'abandon' });
 }
 
@@ -117,6 +119,14 @@ function approve(): void {
       :disabled="queuedKinds.has('accept')"
       @click="queue({ kind: 'accept' })"
     />
+    <label v-if="options.has('continue') || options.has('revise')" class="text-xs text-muted">
+      Correction purpose
+      <select v-model="purpose" class="rounded border border-default bg-default p-1">
+        <option value="unknown">Unclassified</option>
+        <option value="implementation">Implementation</option>
+        <option value="workflow">Workflow workaround</option>
+      </select>
+    </label>
     <UButton
       v-if="options.has('revise')"
       icon="i-lucide-pencil"

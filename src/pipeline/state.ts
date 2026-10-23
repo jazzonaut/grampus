@@ -83,11 +83,12 @@ export interface ReviewRecord {
   error: string | null;
 }
 
-/** The simplify pass of one ready round, filled in as its steps are recorded. */
-export interface SimplifyRecord {
+/** The polish pass of one ready round, filled in as its steps are recorded. */
+export interface PolishRecord {
   round: number;
+  restored?: string;
   checked: { fromSha: string; sha: string; guard: GuardResult; results: CheckResult[] } | null;
-  decided: Omit<Extract<TaskEvent, { type: 'simplify.decided' }>, 'type' | 'round'> | null;
+  decided: Omit<Extract<TaskEvent, { type: 'polish.decided' }>, 'type' | 'round'> | null;
 }
 
 export interface Attention {
@@ -125,6 +126,13 @@ export interface TaskState {
   messages: Set<string>;
   questions: Map<string, QuestionRecord>;
   testsFirst: { sha: string; files: string[] } | null;
+  testBaseline: Extract<TaskEvent, { type: 'tests.baseline' }> | null;
+  inheritedTests: Extract<TaskEvent, { type: 'tests.inherited' }> | null;
+  setup: {
+    configuration: Extract<TaskEvent, { type: 'setup.configured' }> | null;
+    attempts: number;
+    results: Extract<TaskEvent, { type: 'setup.recorded' }>[];
+  };
   /** Checks of each spec version, run at the base commit while it awaited approval. */
   specChecks: Map<number, { sha: string; results: CheckResult[] }>;
   baseline: { sha: string; results: CheckResult[] } | null;
@@ -132,7 +140,7 @@ export interface TaskState {
   guard: Map<number, { fromSha: string; sha: string; guard: GuardResult }>;
   reviews: Map<number, ReviewRecord>;
   decisions: Map<number, { decision: 'repair' | 'escalate' | 'ready'; reasons: string[] }>;
-  simplify: Map<number, SimplifyRecord>;
+  polish: Map<number, PolishRecord>;
   attention: Attention | null;
   finished: { outcome: TaskOutcome; sha: string | null; override: boolean; at: string } | null;
   /** The comparison this task is an entry of. */
@@ -199,13 +207,16 @@ export function foldEvents(events: readonly StoredEvent[]): TaskState {
     refusals: [],
     questions: new Map(),
     testsFirst: null,
+    testBaseline: null,
+    inheritedTests: null,
+    setup: { configuration: null, attempts: 0, results: [] },
     specChecks: new Map(),
     baseline: null,
     verify: new Map(),
     guard: new Map(),
     reviews: new Map(),
     decisions: new Map(),
-    simplify: new Map(),
+    polish: new Map(),
     attention: null,
     finished: null,
     released: false,
@@ -228,6 +239,21 @@ const ignore = () => undefined;
 
 /** One handler per event type; the mapped type makes a missing event type a compile error. */
 const handlers: Handlers = {
+  'tests.inherited': (state, event) => {
+    state.inheritedTests = event;
+  },
+  'tests.baseline': (state, event) => {
+    state.testBaseline = event;
+  },
+  'setup.configured': (state, event) => {
+    state.setup.configuration = event;
+  },
+  'setup.started': (state, event) => {
+    state.setup.attempts = event.attempt;
+  },
+  'setup.recorded': (state, event) => {
+    state.setup.results.push(event);
+  },
   'log.header': ignore,
   'explanation.recorded': (state, event) => {
     if (event.explanation || !state.explanations.get(event.candidateSha)?.explanation)
@@ -420,11 +446,28 @@ const handlers: Handlers = {
   'round.decided': (state, event) => {
     state.decisions.set(event.round, { decision: event.decision, reasons: event.reasons });
   },
-  'simplify.checked': (state, { round, fromSha, sha, guard, results }) => {
-    simplifyRecord(state, round).checked = { fromSha, sha, guard, results };
+  'polish.checked': (state, { round, fromSha, sha, guard, results }) => {
+    polishRecord(state, round).checked = { fromSha, sha, guard, results };
   },
-  'simplify.decided': (state, { round, fromSha, sha, kept, reasons, review, before, after }) => {
-    simplifyRecord(state, round).decided = { fromSha, sha, kept, reasons, review, before, after };
+  'polish.decided': (
+    state,
+    { round, fromSha, sha, kept, outcome, report, maintenance, reasons, review, before, after },
+  ) => {
+    polishRecord(state, round).decided = {
+      fromSha,
+      sha,
+      kept,
+      outcome,
+      report,
+      maintenance,
+      reasons,
+      review,
+      before,
+      after,
+    };
+  },
+  'polish.restored': (state, event) => {
+    polishRecord(state, event.round).restored = event.sha;
   },
   'attention.needed': (state, event) => {
     state.attention = { reason: event.reason, detail: event.detail, options: event.options, since: event.at };
@@ -453,11 +496,11 @@ export function applyEvent(state: TaskState, event: StoredEvent): void {
   (handlers[event.type] as (state: TaskState, event: StoredEvent) => void)(state, event);
 }
 
-function simplifyRecord(state: TaskState, round: number): SimplifyRecord {
-  const existing = state.simplify.get(round);
+function polishRecord(state: TaskState, round: number): PolishRecord {
+  const existing = state.polish.get(round);
   if (existing) return existing;
-  const created: SimplifyRecord = { round, checked: null, decided: null };
-  state.simplify.set(round, created);
+  const created: PolishRecord = { round, checked: null, decided: null };
+  state.polish.set(round, created);
   return created;
 }
 

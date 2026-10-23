@@ -76,6 +76,7 @@ export const stepStateLook: Record<StepState, Look> = {
 };
 
 export const stepIcon: Record<StepId, string> = {
+  setup: 'i-lucide-wrench',
   spec: 'i-lucide-file-text',
   'spec-review': 'i-lucide-file-search',
   approve: 'i-lucide-stamp',
@@ -85,7 +86,7 @@ export const stepIcon: Record<StepId, string> = {
   verify: 'i-lucide-shield-check',
   review: 'i-lucide-scan-eye',
   repair: 'i-lucide-wrench',
-  simplify: 'i-lucide-scissors',
+  polish: 'i-lucide-scissors',
   accept: 'i-lucide-flag',
 };
 

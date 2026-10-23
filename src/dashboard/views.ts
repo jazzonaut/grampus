@@ -62,6 +62,8 @@ export function taskDetail(
     messages: messagesOf(state, events),
     stages: [...state.stages.values()].map(stageView),
     testsFirst: state.testsFirst,
+    setup: state.setup,
+    testBaseline: state.testBaseline,
     specChecks: latestSpecChecks(state),
     baseline: state.baseline,
     rounds: roundsOf(state),
@@ -95,9 +97,10 @@ export function servableFiles(state: TaskState): Set<string> {
     ...state.specChecks.values(),
     state.baseline,
     ...state.verify.values(),
-    ...[...state.simplify.values()].map(record => record.checked),
+    ...[...state.polish.values()].map(record => record.checked),
   ];
   return new Set([
+    ...state.setup.results.map(item => item.result.logPath),
     ...state.specs.map(spec => spec.path),
     ...runs.flatMap(run => run?.results.map(result => result.logPath) ?? []),
   ]);
@@ -152,6 +155,7 @@ export function pipelineOf(state: TaskState): PipelineStep[] {
   const approved = approvedSpec(state);
   const round = latestRound(state);
   return [
+    setupStep(state),
     specStep(state),
     state.recipe.specReview && !state.inherited
       ? specReviewStep(state, latestSpec?.version)
@@ -162,7 +166,7 @@ export function pipelineOf(state: TaskState): PipelineStep[] {
       approved !== null ? 'done' : state.attention?.reason.startsWith('approve-spec:') ? 'waiting' : 'pending',
       state.inherited ? 'shared spec' : approved !== null ? `v${approved}` : null,
     ),
-    state.recipe.testsFirst
+    state.recipe.testsFirst || state.inheritedTests?.files.length
       ? step('tests', 'Tests first', state.testsFirst ? 'done' : stageState(state.stages.get('tests:0')))
       : step('tests', 'Tests first', 'skipped'),
     baselineStep(state),
@@ -170,24 +174,42 @@ export function pipelineOf(state: TaskState): PipelineStep[] {
     verifyStep(state, round),
     state.recipe.review ? reviewStep(state, round) : step('review', 'Review', 'skipped'),
     repairStep(state, round),
-    state.recipe.simplify ? simplifyStep(state, round) : step('simplify', 'Simplify', 'skipped'),
+    state.recipe.polish ? polishStep(state, round) : step('polish', 'Polish', 'skipped'),
     acceptStep(state),
   ];
 }
 
-function simplifyStep(state: TaskState, round: number | null): PipelineStep {
-  const decided = round === null ? null : state.simplify.get(round)?.decided;
+function polishStep(state: TaskState, round: number | null): PipelineStep {
+  const decided = round === null ? null : state.polish.get(round)?.decided;
   if (decided)
     return step(
-      'simplify',
-      'Simplify',
+      'polish',
+      'Polish',
       'done',
-      decided.kept ? `+${decided.before.added} became +${decided.after.added} lines` : 'discarded',
+      decided.outcome === 'noop'
+        ? 'no worthwhile change'
+        : decided.kept
+          ? (decided.report?.summary ?? 'kept')
+          : 'discarded',
     );
-  if (round === null) return step('simplify', 'Simplify', 'pending');
-  const working = [`simplify:${round}`, `simplify-review:${round}`].some(key => running(state.stages.get(key)));
-  const checking = state.stages.has(`simplify:${round}`);
-  return step('simplify', 'Simplify', working || checking ? 'running' : 'pending');
+  if (round === null) return step('polish', 'Polish', 'pending');
+  const working = [`polish:${round}`, `polish-review:${round}`].some(key => running(state.stages.get(key)));
+  const checking = state.stages.has(`polish:${round}`);
+  return step('polish', 'Polish', working || checking ? 'running' : 'pending');
+}
+
+function setupStep(state: TaskState): PipelineStep {
+  const configured = state.setup.configuration;
+  if (!configured) return step('setup', 'Setup', 'pending');
+  if (!configured.command) return step('setup', 'Setup', 'skipped', configured.source);
+  const last = state.setup.results.at(-1);
+  const status =
+    last?.result.passed && !last.problems.length
+      ? 'done'
+      : state.attention?.reason.startsWith('setup-failed:')
+        ? 'waiting'
+        : 'running';
+  return step('setup', 'Setup', status, configured.command.command);
 }
 
 function specStep(state: TaskState): PipelineStep {
@@ -392,16 +414,16 @@ function roundsOf(state: TaskState): RoundView[] {
           }
         : null,
       decision: decisionOf(state, record.round),
-      simplify: simplifyOf(state, record.round),
+      polish: polishOf(state, record.round),
     };
   });
 }
 
-function simplifyOf(state: TaskState, round: number): RoundView['simplify'] {
-  const simplified = state.simplify.get(round);
-  const key = `simplify:${round}`;
-  if (!simplified && !state.stages.has(key)) return null;
-  return { stageKey: key, checked: simplified?.checked ?? null, decided: simplified?.decided ?? null };
+function polishOf(state: TaskState, round: number): RoundView['polish'] {
+  const polished = state.polish.get(round);
+  const key = `polish:${round}`;
+  if (!polished && !state.stages.has(key)) return null;
+  return { stageKey: key, checked: polished?.checked ?? null, decided: polished?.decided ?? null };
 }
 
 function decisionOf(state: TaskState, round: number): RoundView['decision'] {

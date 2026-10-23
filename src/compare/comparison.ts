@@ -11,11 +11,12 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { inputLimits } from '../config/limits.js';
 import type { CheckResult } from '../domain/events.js';
+import type { CheckAssessment } from '../checks/failure.js';
 import type { Recipe } from '../domain/recipe.js';
 import { appendRecord, readRecords } from '../store/task-store.js';
 
 /** The comparison log schema. Logs written with another schema are refused; there are no migrations. */
-export const comparisonSchemaVersion = 1;
+export const comparisonSchemaVersion = 2;
 
 export type ComparisonMode = 'shared' | 'full';
 
@@ -35,6 +36,7 @@ export interface CrossCheckCell {
    * Absent in cells recorded before Grampus told them apart.
    */
   incompatible?: string[];
+  assessments?: CheckAssessment[];
 }
 
 export type ComparisonEvent =

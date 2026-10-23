@@ -12,17 +12,13 @@ import type { CheckResult } from '../domain/events.js';
 import { currentSettings } from '../config/settings.js';
 import { changedPaths, git, headSha, uncommittedPaths } from '../git/git.js';
 import type { TaskState } from '../pipeline/state.js';
+import { finalCandidate } from '../pipeline/candidate.js';
+import { assessCheck } from '../checks/failure.js';
 import { matchesAny } from '../util/glob.js';
 import type { ComparisonStore, CrossCheckCell } from './comparison.js';
 
 /** An entry's final candidate: the commit its last verified round checked, and the checks of its spec. */
-function candidateOf(state: TaskState): { sha: string; round: number } | null {
-  const rounds = [...state.verify.keys()];
-  if (!rounds.length) return null;
-  const round = Math.max(...rounds);
-  const sha = state.verify.get(round)?.sha;
-  return sha ? { sha, round } : null;
-}
+const candidateOf = finalCandidate;
 
 /** Every cell of the cross-check, in the order they run: each entry's spec against every entry's result. */
 export function crossCheckPairs(entries: readonly TaskState[]): { owner: TaskState; candidate: TaskState }[] {
@@ -49,7 +45,13 @@ export async function crossCheckCell(
     return { ...base, sha: target.sha, results: null, error: `${owner.taskId} has no approved spec and commit` };
   // An entry against its own spec is its own last verification; running it again would only add noise.
   if (owner.taskId === candidate.taskId)
-    return { ...base, sha: target.sha, results: candidate.verify.get(target.round)?.results ?? null, error: null };
+    return {
+      ...base,
+      sha: target.sha,
+      results: target.results,
+      error: null,
+      assessments: target.results.map(result => assessCheck(result, true)),
+    };
   const worktree = candidate.workspace?.path;
   if (!worktree || !existsSync(worktree)) return { ...base, sha: target.sha, results: null, error: 'worktree is gone' };
   try {
@@ -59,7 +61,16 @@ export async function crossCheckCell(
     const results = await withOverlay(worktree, target.sha, baseSha, ownerCandidate.sha, () =>
       runChecks(worktree, spec.checks, store.crossCheckDir(owner.taskId, candidate.taskId), { rerunFailures: true }),
     );
-    return { ...base, sha: target.sha, results, error: null, incompatible: incompatibleChecks(results) };
+    return {
+      ...base,
+      sha: target.sha,
+      results,
+      error: null,
+      incompatible: incompatibleChecks(results),
+      assessments: results.map(result =>
+        assessCheck(result, spec.checks.find(check => check.name === result.name)?.portable === true),
+      ),
+    };
   } catch (error) {
     return { ...base, sha: target.sha, results: null, error: (error as Error).message };
   }

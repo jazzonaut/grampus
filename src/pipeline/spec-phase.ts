@@ -113,6 +113,7 @@ function writeSpec(core: DriverCore, worktree: string, number: number, attempt: 
         feedback: attempt.feedback,
         rejection: attempt.rejection,
         answered: answeredQuestions(core),
+        setup: core.state.setup.configuration?.command?.command ?? null,
       }),
     launch: previous ? { reuse: previous, fallback: recipe.spec } : { assignment: recipe.spec },
   });

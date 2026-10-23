@@ -16,7 +16,7 @@ import type { Recipe } from '../domain/recipe.js';
 import type { Finding, ReviewReport } from '../domain/review.js';
 import type { CheckDefinition } from '../domain/spec.js';
 import type { Scorecard } from '../measure/report.js';
-import type { SimplifyRecord } from '../pipeline/state.js';
+import type { PolishRecord, TaskState } from '../pipeline/state.js';
 import type { TaskSummary } from '../pipeline/status.js';
 import type { CodeReference, Explanation, ExplanationAnswer } from '../domain/explanation.js';
 
@@ -58,6 +58,7 @@ export interface TaskList {
 }
 
 export type StepId =
+  | 'setup'
   | 'spec'
   | 'spec-review'
   | 'approve'
@@ -67,7 +68,7 @@ export type StepId =
   | 'verify'
   | 'review'
   | 'repair'
-  | 'simplify'
+  | 'polish'
   | 'accept';
 export type StepState = 'pending' | 'running' | 'waiting' | 'done' | 'failed' | 'skipped';
 
@@ -160,12 +161,12 @@ export interface RoundView {
     /** What the builder wrote when it reported failure: long free text, shown as a report, not a reason. */
     builderFailure: string | null;
   } | null;
-  /** The simplify pass after this round was ready; null when none ran. */
-  simplify: SimplifyView | null;
+  /** The polish pass after this round was ready; null when none ran. */
+  polish: PolishView | null;
 }
 
-/** A ready round's simplify pass as the driver recorded it. */
-export interface SimplifyView extends Pick<SimplifyRecord, 'checked' | 'decided'> {
+/** A ready round's polish pass as the driver recorded it. */
+export interface PolishView extends Pick<PolishRecord, 'checked' | 'decided'> {
   stageKey: string;
 }
 
@@ -204,6 +205,8 @@ export interface TaskDetail extends TaskListItem {
   messages: MessageView[];
   stages: StageView[];
   testsFirst: { sha: string; files: string[] } | null;
+  setup: TaskState['setup'];
+  testBaseline: TaskState['testBaseline'];
   /** The latest spec version's checks, run on the base commit before approval. */
   specChecks: (CheckRunView & { version: number }) | null;
   baseline: CheckRunView | null;
@@ -324,7 +327,7 @@ export interface EntryMetrics {
   recipe: string;
   /** From creation to the result the user decides on (or to the finish). Null while still working. */
   resultMs: number | null;
-  agentMs: number;
+  agentMs: number | null;
   usage: Usage | null;
   costUsd: number | null;
   dispatchesWithUnknownCost: number;
@@ -332,7 +335,14 @@ export interface EntryMetrics {
   answers: number;
   waitingMs: number;
   /** Over the other entries' specs: how many of their checks this entry's result passed. */
-  crossCheck: { passed: number; total: number } | null;
+  crossCheck: {
+    passed: number;
+    total: number;
+    failed: number;
+    incompatible: number;
+    errors: number;
+    unknown: number;
+  } | null;
   provisional: boolean;
 }
 

@@ -159,6 +159,8 @@ class ComparisonDriver {
     if (!first) return false;
     const lead = this.entry(first.taskId);
     const approval = lead.commands.findLast(command => command.kind === 'approve');
+    // A shared comparison uses one acceptance-test commit, not independently authored suites.
+    if (lead.recipe.testsFirst && !lead.testBaseline && !lead.finished) return false;
     if (approval?.kind !== 'approve') {
       if (lead.finished) {
         this.record({ type: 'comparison.finished', outcome: 'abandoned', winner: null });
@@ -183,6 +185,7 @@ class ComparisonDriver {
       hash: spec.hash,
       checks: spec.checks,
       protected: spec.protected,
+      tests: this.entry(shared.fromTask).testsFirst ?? { sha: this.state.baseSha ?? '', files: [] },
     };
   }
 

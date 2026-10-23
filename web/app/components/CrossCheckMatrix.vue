@@ -20,25 +20,25 @@ function cellOf(specOf: string, candidate: string): CrossCheckCell | undefined {
 
 function summary(cell: CrossCheckCell | undefined): { text: string; tone: string; title: string } {
   if (!cell) return { text: '-', tone: 'text-dimmed', title: 'Not measured' };
-  if (!cell.results) return { text: '?', tone: 'text-warning', title: cell.error ?? 'Unknown' };
+  if (cell.error || !cell.results?.length) return { text: '?', tone: 'text-warning', title: cell.error ?? 'Unknown' };
   const passed = cell.results.filter(result => result.passed).length;
-  const incompatible = new Set(cell.incompatible ?? []);
-  const failed = cell.results
-    .filter(result => !result.passed && !incompatible.has(result.name))
-    .map(result => result.name);
-  const titles = [
-    ...(failed.length ? [`Failed: ${failed.join(', ')}`] : []),
-    ...(incompatible.size ? [`Incompatible API (copied tests did not compile): ${[...incompatible].join(', ')}`] : []),
-  ];
+  const assessments =
+    cell.assessments ??
+    cell.results.map(result => ({
+      name: result.name,
+      outcome: result.passed ? 'passed' : 'unknown',
+      reason: 'Compatibility not established',
+    }));
+  const failed = assessments.filter(item => item.outcome !== 'passed');
+  const labels = [...new Set(failed.map(item => item.outcome))];
   return {
-    text: `${passed}/${cell.results.length}${incompatible.size ? ` · ${incompatible.size} API` : ''}`,
-    tone:
-      passed === cell.results.length
-        ? 'bg-success/15 text-success'
-        : failed.length
-          ? 'bg-error/15 text-error'
-          : 'bg-warning/15 text-warning',
-    title: titles.length ? titles.join('. ') : 'Every check passed',
+    text: `${passed}/${cell.results.length}${labels.length ? ` : ${labels.join(', ')}` : ''}`,
+    tone: !failed.length
+      ? 'bg-success/15 text-success'
+      : labels.every(label => label === 'behavioural-failure')
+        ? 'bg-error/15 text-error'
+        : 'bg-warning/15 text-warning',
+    title: failed.length ? failed.map(item => `${item.name}: ${item.reason}`).join('. ') : 'Every check passed',
   };
 }
 </script>

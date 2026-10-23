@@ -180,7 +180,7 @@ async function taskChanges({ app, response, params, url }: Call): Promise<void> 
   const prior = [
     baseSha,
     ...[...task.state.guard.values()].map(value => value.sha),
-    ...[...task.state.simplify.values()].flatMap(value => (value.decided ? [value.decided.sha] : [])),
+    ...[...task.state.polish.values()].flatMap(value => (value.decided ? [value.decided.sha] : [])),
   ];
   if (!prior.includes(from)) throw new HttpError(400, 'Unknown review commit.');
   const body: ChangesView = {
@@ -202,7 +202,7 @@ async function taskDiff({ app, response, params, url }: Call): Promise<void> {
   const prior = [
     baseSha,
     ...[...task.state.guard.values()].map(value => value.sha),
-    ...[...task.state.simplify.values()].flatMap(value => (value.decided ? [value.decided.sha] : [])),
+    ...[...task.state.polish.values()].flatMap(value => (value.decided ? [value.decided.sha] : [])),
   ];
   if (!prior.includes(from)) throw new HttpError(400, 'Unknown review commit.');
   if (path && !(await lineChanges(worktree, from, sha)).some(file => file.path === path || file.oldPath === path))

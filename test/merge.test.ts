@@ -31,6 +31,16 @@ async function acceptedTask(outcome: 'accepted' | 'abandoned' = 'accepted') {
     recipe: standardRecipe,
   });
   store.append({ type: 'workspace.created', worktreeId: 'wt', path: worktree, baseSha, driverTerminal: 'term' });
+  store.append({
+    type: 'spec.recorded',
+    key: 'spec:1',
+    version: 1,
+    hash: 'hash',
+    path: 'spec.md',
+    checks: [{ name: 'greet', command: 'node test/greet.test.js' }],
+    protected: [],
+  });
+  store.append({ type: 'checks.recorded', phase: 'verify', round: 0, sha, results: [] });
   store.append({ type: 'task.finished', outcome, sha, override: false, reason: null });
   return { repo, worktree, sha, store };
 }

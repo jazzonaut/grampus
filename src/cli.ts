@@ -53,6 +53,7 @@ async function main(argv: string[]): Promise<number> {
       title: { type: 'string' },
       version: { type: 'string' },
       source: { type: 'string' },
+      purpose: { type: 'string' },
       json: { type: 'boolean' },
       after: { type: 'string' },
       port: { type: 'string' },
@@ -74,7 +75,9 @@ async function main(argv: string[]): Promise<number> {
   useSettings(loadSettings(dataDir));
   const source = values.source ?? 'cli';
   if (source !== 'cli' && source !== 'chat' && source !== 'dashboard') throw new Error(`Unknown --source ${source}.`);
-  const queue = (taskId: string | undefined, body: CommandBody) => queued(dataDir, taskId, source, body);
+  const purpose = commandPurpose(values.purpose);
+  const queue = (taskId: string | undefined, body: CommandBody) =>
+    queued(dataDir, taskId, source, { ...body, ...(purpose ? { purpose } : {}) });
   switch (command) {
     case 'new':
       return newTask(dataDir, rest, values);
@@ -514,3 +517,9 @@ main(process.argv.slice(2)).then(
     process.exitCode = 1;
   },
 );
+
+/** Optional correction attribution supplied by the user, never inferred from free text. */
+function commandPurpose(value: string | undefined): 'implementation' | 'workflow' | undefined {
+  if (value === undefined || value === 'implementation' || value === 'workflow') return value;
+  throw new Error('Purpose must be implementation or workflow.');
+}

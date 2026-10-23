@@ -32,6 +32,9 @@ export const reviewLimits = {
   textLength: 4000,
 } as const;
 
+/** Keep polish local: broader extractions belong in a separate task. */
+export const polishLimits = { adjacentFiles: 3 } as const;
+
 /** Bounds on a recipe. */
 export const recipeLimits = {
   maxRepairRounds: 5,

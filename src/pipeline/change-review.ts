@@ -9,6 +9,7 @@ import type { DriverCore } from './driver-core.js';
 import { keepEvidence, readWorkerFile, workerFile } from './workspace-files.js';
 import { DriverStop, TaskAbandoned } from './driver-core.js';
 import { LockLost } from '../store/driver-lock.js';
+import { finalCandidate } from './candidate.js';
 
 type ReviewCommand = Extract<UserCommand, { kind: 'explain' | 'ask' }>;
 
@@ -19,9 +20,7 @@ export async function reviewRefusal(core: DriverCore, command: ReviewCommand): P
   if (workspace.baseSha !== command.baseSha) return 'the task base changed';
   if (core.state.specs.at(-1)?.version !== command.specVersion) return 'the spec version changed';
   if ((await headSha(workspace.path)) !== command.candidateSha) return 'the candidate changed; refresh Changes';
-  const verified =
-    [...core.state.verify.values()].some(run => run.sha === command.candidateSha) ||
-    [...core.state.simplify.values()].some(pass => pass.decided?.kept && pass.decided.sha === command.candidateSha);
+  const verified = finalCandidate(core.state)?.sha === command.candidateSha;
   if (!verified) return 'the candidate has not been verified';
   if (!core.state.finished && !['ready:', 'escalate:'].some(prefix => core.state.attention?.reason.startsWith(prefix)))
     return 'wait until the final candidate is ready for review';

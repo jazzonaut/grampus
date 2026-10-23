@@ -5,6 +5,8 @@ import { z } from 'zod';
 import { inputLimits } from '../config/limits.js';
 import type { Assignment, Recipe } from './recipe.js';
 import type { Finding, ReviewReport } from './review.js';
+import type { MaintenanceAssessment, PolishReport } from './polish.js';
+import type { CheckAssessment } from '../checks/failure.js';
 import type { CheckDefinition } from './spec.js';
 import type { DispatchMeasurement } from '../measure/usage.js';
 import { codeReferenceSchema, type CodeReference, type Explanation, type ExplanationAnswer } from './explanation.js';
@@ -13,20 +15,11 @@ import { codeReferenceSchema, type CodeReference, type Explanation, type Explana
 export type TaskOutcome = 'accepted' | 'abandoned' | 'not-selected';
 
 /** The event log schema. Logs written with another schema are refused; there are no migrations. */
-export const eventSchemaVersion = 2;
+export const eventSchemaVersion = 3;
 
 /** Pipeline stages that run as Orca workers. */
 export type Stage =
-  | 'spec'
-  | 'spec-review'
-  | 'tests'
-  | 'build'
-  | 'review'
-  | 'repair'
-  | 'simplify'
-  | 'simplify-review'
-  | 'explain'
-  | 'answer';
+  'spec' | 'spec-review' | 'tests' | 'build' | 'review' | 'repair' | 'polish' | 'polish-review' | 'explain' | 'answer';
 
 /** The result of one check command at one commit. */
 export interface CheckResult {
@@ -93,6 +86,9 @@ export type TaskEvent =
       comparison?: { comparisonId: string };
     }
   | { type: 'workspace.created'; worktreeId: string; path: string; baseSha: string; driverTerminal: string }
+  | { type: 'setup.configured'; sha: string; command: CheckDefinition | null; source: string }
+  | { type: 'setup.started'; attempt: number }
+  | { type: 'setup.recorded'; attempt: number; sha: string; result: CheckResult; problems: string[] }
   | {
       type: 'driver.started';
       pid: number;
@@ -167,6 +163,8 @@ export type TaskEvent =
   | { type: 'command.applied'; command: UserCommand }
   | { type: 'command.refused'; command: UserCommand; reason: string }
   | { type: 'tests.recorded'; sha: string; files: string[] }
+  | { type: 'tests.inherited'; fromTask: string; sha: string; files: string[] }
+  | { type: 'tests.baseline'; sha: string; assessments: CheckAssessment[] }
   | {
       type: 'checks.recorded';
       /** `spec`: at the base commit while spec version `round` awaits approval. */
@@ -186,9 +184,9 @@ export type TaskEvent =
       error: string | null;
     }
   | { type: 'round.decided'; round: number; decision: 'repair' | 'escalate' | 'ready'; reasons: string[] }
-  /** The simplify pass's commit, guarded and checked against the ready round's commit `fromSha`. */
+  /** The polish pass's commit, guarded and checked against the ready round's commit `fromSha`. */
   | {
-      type: 'simplify.checked';
+      type: 'polish.checked';
       round: number;
       fromSha: string;
       sha: string;
@@ -197,16 +195,19 @@ export type TaskEvent =
       results: CheckResult[];
     }
   /**
-   * Whether the simplify pass of a ready round was kept. A discarded pass is recorded before the
+   * Whether the polish pass of a ready round was kept. A discarded pass is recorded before the
    * worktree is reset to `fromSha`, so a restarted driver finishes the reset.
    */
   | {
-      type: 'simplify.decided';
+      type: 'polish.decided';
       round: number;
       fromSha: string;
-      /** The simplified commit; equals `fromSha` when the worker committed nothing. */
+      /** The polished commit; equals `fromSha` when the worker committed nothing. */
       sha: string;
       kept: boolean;
+      outcome: 'kept' | 'noop' | 'discarded';
+      report: PolishReport | null;
+      maintenance: MaintenanceAssessment | null;
       /** Why the pass was discarded; empty when kept. */
       reasons: string[];
       /** The review of the pass's own diff; null when the recipe has no review or it was not reached. */
@@ -215,6 +216,7 @@ export type TaskEvent =
       before: DiffSize;
       after: DiffSize;
     }
+  | { type: 'polish.restored'; round: number; sha: string }
   | { type: 'attention.needed'; reason: string; detail: string; options: CommandKind[] }
   /** A request that lapsed before the user answered it, such as a quiet worker that reported after all. */
   | { type: 'attention.withdrawn'; reason: string; why: string }
@@ -264,6 +266,8 @@ export const userCommandSchema = z.intersection(
     at: z.string(),
     /** Where the command came from; a chat agent acting for the user is recorded as `chat`. */
     source: z.enum(['cli', 'chat', 'dashboard']),
+    /** Explicit attribution for an intervention; omitted means the cause is not known. */
+    purpose: z.enum(['implementation', 'workflow']).optional(),
   }),
   z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('approve'), specVersion: z.number().int().positive() }),

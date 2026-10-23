@@ -25,6 +25,8 @@ the installed data directory.
 | `testFilePatterns` | `**/*.test.*`, `**/*.spec.*`, `**/test/**`, `**/tests/**`, `**/__tests__/**` | Paths the guard treats as tests |
 | `checkConfigPatterns` | `**/Directory.Build.props`, `**/Directory.Build.targets`, `**/*Tests.csproj`, `**/*Test.csproj`, `**/test/**/*.csproj`, `**/tests/**/*.csproj`, `**/*.runsettings`, `**/testconfig.json`, `**/global.json`, `**/package.json`, `**/tsconfig*.json`, `**/vitest.config.*`, `**/vitest.workspace.*`, `**/jest.config.*`, `**/playwright.config.*`, `**/eslint.config.*`, `**/.eslintrc*`, `**/eslint-suppressions.json`, `**/pyproject.toml`, `**/pytest.ini`, `**/setup.cfg`, `**/tox.ini`, `**/conftest.py`, `**/Makefile` | Paths outside the tests that configure how checks run; the guard names changes to them, and to files a check command names, for the reviewer and the user |
 | `crossCheckIncompatiblePatterns` | C# and TypeScript compiler errors, missing modules and exports, Python import errors, Java `cannot find symbol`, Rust `error[E…]` | Regular expressions that mark a failed cross-check as incompatible: the copied tests did not compile or load against that entry |
+| `checkInfrastructurePatterns` | Missing command/module, no-tests and `ENOENT` signatures | Case-insensitive regular expressions for execution failures; these never count as behaviour evidence |
+| `checkAssertionPatterns` | `AssertionError`, `ERR_ASSERTION`, expected/received and `Assert.` signatures | Recognised assertions; cross-check behavioural attribution additionally requires a portable check |
 | `recipes` | `[]` | Saved recipes beside the built-in `standard` recipe |
 | `claudeProjectRoots` | `["<CLAUDE_CONFIG_DIR or ~/.claude>/projects"]` | Where Claude session transcripts are searched for measurement |
 | `codexSessionRoots` | `["<CODEX_HOME or ~/.codex>/sessions"]` | Where Codex rollouts are searched for measurement |
@@ -74,7 +76,7 @@ that agent; an effort needs a model. `null` skips an optional stage.
       "testsFirst": { "agent": "claude", "model": "sonnet" },
       "build": { "agent": "codex", "model": "gpt-5.4-mini", "effort": "medium" },
       "review": { "agent": "claude", "model": "sonnet" },
-      "simplify": { "agent": "codex" },
+      "polish": { "agent": "codex" },
       "explain": { "automatic": false, "assignment": { "agent": "claude" } },
       "repair": { "maxRounds": 2, "reuseBuilderRounds": 1 }
     }
@@ -82,17 +84,63 @@ that agent; an effort needs a model. `null` skips an optional stage.
 }
 ```
 
-`simplify` runs after every ready round: a worker makes the change smaller without changing
-behaviour, and Grampus keeps the result only if the guard, the checks and the code reviewer all agree
-(see [Pipeline](ARCHITECTURE.md#pipeline)). It edits code, so it counts as an editor for cross-family
+`polish` runs once after each ready round: a worker improves maintainability without changing
+behaviour, and Grampus retains edits only if the guard, checks, behavioural review and maintenance
+assessment all agree (see [Pipeline](ARCHITECTURE.md#pipeline)). It edits code, so it counts as an editor for cross-family
 review. A recipe without the field has it off.
 
 `explain.automatic` runs a read-only explanation worker on the final candidate after checks, review and
-any kept simplification. It defaults to false. The assignment also answers follow-up questions.
+any kept polish. It defaults to false. The assignment also answers follow-up questions.
 
 The built-in `standard` recipe uses Claude for spec and review, Codex for spec review and build, no
-tests-first or simplify stage, and two repair rounds of which the first continues the builder's conversation. The
+tests-first or polish stage, and two repair rounds of which the first continues the builder's conversation. The
 spec review runs `gpt-6.1-sol` at medium effort: at high effort it was the slowest stage and found
 nothing blocking in six runs (Orca accepts an effort only together with a model).
 Review from the builder's own family is allowed so it can be measured; the task records which ran.
 Model ids above are examples; use ids your Orca agents accept.
+## Repository setup
+
+Commit `grampus.json` at the repository root to declare preparation independently of acceptance checks:
+
+```json
+{
+  "setup": {
+    "name": "Install dependencies",
+    "command": "pnpm install --frozen-lockfile",
+    "timeoutSeconds": 900
+  }
+}
+```
+
+Grampus snapshots this configuration from the task's base commit and runs it once per fresh worktree
+before spec writing. Use `{"setup": null}` to disable preparation. Without the file, a root
+`pnpm-lock.yaml` selects `pnpm install --frozen-lockfile`, otherwise a root `package-lock.json` selects
+`npm ci`; other repositories have no inferred setup. Use an explicit command for other package
+managers, nested projects or extra prerequisites. Commands use `checkShell` and the normal check
+timeout settings. Generated dependencies must be ignored by Git; tracked changes or moving HEAD
+make setup fail. Failures have their own logs and retry decision, not a failed behavioural baseline.
+After interruption, stop any previous setup process before confirming a retry.
+
+Approved checks should contain verification only. A check may include `"portable": true` when it
+uses stable existing public interfaces and can be run unchanged against independent implementations.
+This declaration is part of spec approval; it is not inferred from a passing run. Undeclared
+cross-check failures remain unknown unless the logs establish an execution or API incompatibility.
+
+## Correction attribution
+
+When sending `continue`, `revise`, `reply` or `retry`, optionally add
+`--purpose implementation` or `--purpose workflow`. The dashboard offers the same classification
+for revision and continuation. Omit it when the cause is unknown. It affects measurement only,
+not what the driver does or which decisions require the user.
+
+## Polish configuration
+
+Set a recipe's `polish` assignment to enable the pass, or null to disable it. Use a reviewer as well:
+without one, edits cannot be retained. The worker reports naming, duplication, structure, cleanup or
+consistency improvements, with concrete benefits and an explanation for adjacent edits. The fixed
+adjacent-file bound is `polishLimits.adjacentFiles` in `src/config/limits.ts`. Behaviour and maintenance
+value are reviewed separately. No worthwhile improvement is a successful no-op. There is no automatic
+repair budget for polish, and a failed attempt restores the previously verified commit.
+
+The old `simplify` recipe key is rejected by the strict recipe schema. Task logs use schema 3 and
+comparison logs schema 2; old evidence remains on disk but is not migrated by this version.

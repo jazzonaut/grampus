@@ -102,9 +102,11 @@ export interface Harness {
 export async function createHarness(
   behaviour: (harness: Harness) => Behaviour,
   recipe: Recipe = standardRecipe,
+  prepare?: (repo: string) => Promise<void>,
 ): Promise<Harness> {
   useTestSettings({ recipes: recipe.name === standardRecipe.name ? [] : [recipe] });
   const repo = await createRepository();
+  await prepare?.(repo);
   const dataDir = mkdtempSync(join(tmpdir(), 'grampus-data-'));
   const log: string[] = [];
   const harness = {} as Harness;
@@ -157,8 +159,16 @@ export function goodWorkers(harness: Harness, overrides: Partial<Record<string, 
         return { outcome: 'succeeded' };
       case 'spec-review':
       case 'review':
-      case 'simplify-review':
         writeFileSync(outputPath(context.spec), reviewJson('approve'));
+        return { outcome: 'succeeded' };
+      case 'polish-review':
+        writeFileSync(outputPath(context.spec), polishReviewJson());
+        return { outcome: 'succeeded' };
+      case 'polish':
+        writeFileSync(
+          outputPath(context.spec),
+          JSON.stringify({ summary: 'No worthwhile improvement found.', improvements: [] }),
+        );
         return { outcome: 'succeeded' };
       case 'build':
       case 'repair':
@@ -184,11 +194,39 @@ export function roleOf(title: string): string {
   if (title.startsWith('Build')) return 'build';
   if (title.startsWith('Repair')) return 'repair';
   if (title.startsWith('Review')) return 'review';
-  if (title.startsWith('Simplify review')) return 'simplify-review';
-  if (title.startsWith('Simplify')) return 'simplify';
+  if (title.startsWith('Polish review')) return 'polish-review';
+  if (title.startsWith('Polish')) return 'polish';
   return 'other';
 }
 
 export function readText(path: string): string {
   return readFileSync(path, 'utf8');
+}
+
+/** Evidence written by the fake polish worker, describing its concrete fixture edit. */
+export function polishReportJson(files = ['greet.js']): string {
+  return JSON.stringify({
+    summary: 'Make the greeting implementation direct.',
+    improvements: [
+      {
+        category: 'structure',
+        files,
+        benefit: 'Replace the redundant function body with a direct expression.',
+        adjacentReason: null,
+      },
+    ],
+  });
+}
+
+/** A safety approval alone must not authorise retaining a polish pass. */
+export function polishReviewJson(verdict: 'worth-keeping' | 'no-benefit' | 'unknown' = 'worth-keeping'): string {
+  return JSON.stringify({
+    verdict: 'approve',
+    summary: 'Behaviour preserved.',
+    findings: [],
+    maintenance: {
+      verdict,
+      rationale: 'The direct expression removes unnecessary indirection without introducing a helper.',
+    },
+  });
 }

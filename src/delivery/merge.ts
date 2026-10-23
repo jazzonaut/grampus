@@ -1,10 +1,11 @@
 // Delivery after acceptance: an explicit, opt-in fast-forward of the repository's checked-out branch to
 // the verified commit. It is the only Git write Grampus makes outside a task worktree (where a discarded
-// simplify pass is reset, see git.ts). It merges the exact SHA that was verified
+// polish pass is reset, see git.ts). It merges the exact SHA that was verified
 // and accepted, never later commits on the task branch, and refuses anything but a clean fast-forward.
 // It never pushes.
 import { git, headSha, isAncestor, uncommittedPaths } from '../git/git.js';
 import { foldEvents } from '../pipeline/state.js';
+import { finalCandidate } from '../pipeline/candidate.js';
 import type { TaskStore } from '../store/task-store.js';
 
 export interface MergeResult {
@@ -20,6 +21,8 @@ export async function mergeAccepted(store: TaskStore): Promise<MergeResult> {
   if (state.finished?.outcome !== 'accepted' || !state.finished.sha)
     throw new Error(`Task ${state.taskId} is not accepted: only an accepted task can be merged.`);
   const sha = state.finished.sha;
+  if (finalCandidate(state)?.sha !== sha)
+    throw new Error('The accepted commit does not match the recorded final candidate.');
   const repo = state.repoPath;
   const branch = (await git(repo, ['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() => '')).trim();
   if (!branch) throw new Error(`${repo} has no branch checked out; check out the branch to merge into first.`);
