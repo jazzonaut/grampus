@@ -7,7 +7,8 @@ import { dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { defaultSettings, useSettings, type Settings } from '../../src/config/settings.js';
 import type { UserCommand } from '../../src/domain/events.js';
-import { standardRecipe, type Recipe } from '../../src/domain/recipe.js';
+import type { Recipe } from '../../src/domain/recipe.js';
+import { pipelineRecipe } from './recipe-fixture.js';
 import { git } from '../../src/git/git.js';
 import { createTask } from '../../src/pipeline/create-task.js';
 import { drive } from '../../src/pipeline/driver.js';
@@ -77,11 +78,24 @@ export function outputPath(spec: string): string {
 }
 
 export function specText(checks = [{ name: 'greet', command: checkCommand }], protectedPaths: string[] = []): string {
-  return `# Greet by name\n## Outcome\nGreet people by name.\n## Acceptance criteria\n1. greet('Ada') returns 'Hello, Ada!'\n\n\`\`\`grampus\n${JSON.stringify({ checks, protected: protectedPaths })}\n\`\`\`\n`;
+  return `# Greet by name\n## Outcome\nGreet people by name.\n## Acceptance criteria\n1. greet('Ada') returns 'Hello, Ada!'\n\n\`\`\`grampus\n${JSON.stringify({ checks, protected: protectedPaths, acceptance: acceptanceScenarios(checks.map(check => check.name)) })}\n\`\`\`\n`;
 }
 
 export function reviewJson(verdict: 'approve' | 'changes' | 'unknown', findings: unknown[] = []): string {
-  return JSON.stringify({ verdict, summary: 'Reviewed.', findings });
+  return JSON.stringify({
+    verdict,
+    summary: 'Reviewed.',
+    findings,
+    requestCoverage: { verdict: 'covered', rationale: 'The greeting request is covered.' },
+    coverage: [
+      {
+        acceptanceId: 'greeting',
+        status: 'verified',
+        evidence: 'test/greet.test.js checks the actual greet function.',
+        limitations: [],
+      },
+    ],
+  });
 }
 
 export interface Harness {
@@ -101,10 +115,10 @@ export interface Harness {
 /** Create a task with a fake Orca whose workers follow `behaviour`. */
 export async function createHarness(
   behaviour: (harness: Harness) => Behaviour,
-  recipe: Recipe = standardRecipe,
+  recipe: Recipe = pipelineRecipe,
   prepare?: (repo: string) => Promise<void>,
 ): Promise<Harness> {
-  useTestSettings({ recipes: recipe.name === standardRecipe.name ? [] : [recipe] });
+  useTestSettings({ recipes: [] });
   const repo = await createRepository();
   await prepare?.(repo);
   const dataDir = mkdtempSync(join(tmpdir(), 'grampus-data-'));
@@ -116,7 +130,7 @@ export async function createHarness(
       dataDir,
       repoPath: repo,
       request: 'Make greet say hello by name.',
-      recipeName: recipe.name,
+      recipe,
       driveCommand: id => `drive ${id}`,
     },
     orca,
@@ -211,6 +225,7 @@ export function polishReportJson(files = ['greet.js']): string {
       {
         category: 'structure',
         files,
+        problem: 'The greeting implementation contains a redundant intermediate representation.',
         benefit: 'Replace the redundant function body with a direct expression.',
         adjacentReason: null,
       },
@@ -229,4 +244,19 @@ export function polishReviewJson(verdict: 'worth-keeping' | 'no-benefit' | 'unkn
       rationale: 'The direct expression removes unnecessary indirection without introducing a helper.',
     },
   });
+}
+
+/** A minimal request-to-acceptance mapping for fixture specifications. */
+export function acceptanceScenarios(checks = ['greet']) {
+  return [
+    {
+      id: 'greeting',
+      request: 'Make greet say hello by name.',
+      scenario: 'greet Ada returns Hello, Ada!',
+      checks,
+      realComponents: ['greet'],
+      mockedComponents: [],
+      limitations: [],
+    },
+  ];
 }

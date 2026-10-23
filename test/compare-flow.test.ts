@@ -12,7 +12,8 @@ import { incompatibleChecks } from '../src/compare/cross-check.js';
 import { renderComparison, summariseComparison } from '../src/compare/status.js';
 import { driveComparison } from '../src/compare/driver.js';
 import { queueCommand, queueComparisonCommand } from '../src/control.js';
-import { standardRecipe, type Recipe } from '../src/domain/recipe.js';
+import type { Recipe } from '../src/domain/recipe.js';
+import { pipelineRecipe } from './helpers/recipe-fixture.js';
 import { uncommittedPaths } from '../src/git/git.js';
 import { estimateCost } from '../src/measure/cost.js';
 import { drive } from '../src/pipeline/driver.js';
@@ -31,7 +32,7 @@ import {
   write,
 } from './helpers/task-fixture.js';
 
-const alt: Recipe = { ...standardRecipe, name: 'alt', build: { agent: 'claude' }, review: { agent: 'codex' } };
+const alt: Recipe = { ...pipelineRecipe, name: 'alt', build: { agent: 'claude' }, review: { agent: 'codex' } };
 const extraCheck = 'node test/extra.test.js';
 
 /** The worktree a prompt names, from the `<worktree>/.grampus/` paths in it. */
@@ -101,8 +102,12 @@ interface Run {
 }
 
 async function startRun(mode: 'shared' | 'full', concurrency: number, sharedTests = false): Promise<Run> {
-  const leader: Recipe = { ...standardRecipe, name: 'with-tests', testsFirst: { agent: 'codex' } };
-  useTestSettings({ recipes: sharedTests ? [alt, leader] : [alt], comparisonConcurrency: concurrency, waitPollMs: 20 });
+  const leader: Recipe = { ...pipelineRecipe, name: 'with-tests', testsFirst: { agent: 'codex' } };
+  useTestSettings({
+    recipes: sharedTests ? [alt, leader] : [pipelineRecipe, alt],
+    comparisonConcurrency: concurrency,
+    waitPollMs: 20,
+  });
   const repo = await createRepository();
   const dataDir = mkdtempSync(join(tmpdir(), 'grampus-compare-'));
   const desk = new FakeOrca(() => 'hang');
@@ -112,7 +117,7 @@ async function startRun(mode: 'shared' | 'full', concurrency: number, sharedTest
       repoPath: repo,
       request: 'Make greet say hello by name.',
       title: 'Greet',
-      recipeNames: [sharedTests ? 'with-tests' : 'standard', 'alt'],
+      recipeNames: [sharedTests ? 'with-tests' : pipelineRecipe.name, 'alt'],
       mode,
       driveCommand: id => `compare ${id}`,
     },
@@ -333,7 +338,7 @@ test('a task outside a comparison refuses decline', async () => {
     title: 'T',
     request: 'R',
     repoPath: dataDir,
-    recipe: standardRecipe,
+    recipe: pipelineRecipe,
   });
   queueCommand(dataDir, 'solo', 'cli', { kind: 'decline' });
   const { DriverCore } = await import('../src/pipeline/driver-core.js');

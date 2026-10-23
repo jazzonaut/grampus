@@ -5,6 +5,21 @@ import { z } from 'zod';
 import { reviewLimits } from '../config/limits.js';
 
 const text = z.string().max(reviewLimits.textLength);
+const evidenceText = text.trim().min(1);
+const requestCoverageSchema = z
+  .object({
+    verdict: z.enum(['covered', 'gaps', 'unknown']),
+    rationale: evidenceText,
+  })
+  .strict();
+const coverageSchema = z
+  .object({
+    acceptanceId: evidenceText,
+    status: z.enum(['verified', 'unverified']),
+    evidence: evidenceText,
+    limitations: z.array(evidenceText).max(reviewLimits.findings),
+  })
+  .strict();
 
 export const findingSchema = z
   .object({
@@ -27,6 +42,10 @@ export const reviewReportSchema = z
     verdict: z.enum(['approve', 'changes', 'unknown']),
     summary: text,
     findings: z.array(findingSchema).max(reviewLimits.findings),
+    /** Required for spec and implementation reviews; polish reviews assess only the maintenance diff. */
+    requestCoverage: requestCoverageSchema.optional(),
+    /** Required, complete and unique for implementation reviews. */
+    coverage: z.array(coverageSchema).max(reviewLimits.findings).optional(),
   })
   .strict();
 export type ReviewReport = z.infer<typeof reviewReportSchema>;
@@ -53,6 +72,32 @@ export function parseReviewReport(json: string): ReviewReport {
   const report = reviewReportSchema.safeParse(value);
   if (!report.success) throw new Error(`The review report is invalid: ${report.error.message}`);
   return report.data;
+}
+
+/** Missing or duplicate acceptance evidence is unavailable review, never implicit approval. */
+export function validateCoverage(report: ReviewReport, acceptanceIds?: readonly string[]): void {
+  if (!report.requestCoverage) throw new Error('Request coverage assessment is missing.');
+  if (!acceptanceIds) return;
+  const ids = report.coverage?.map(item => item.acceptanceId) ?? [];
+  if (
+    ids.length !== acceptanceIds.length ||
+    new Set(ids).size !== ids.length ||
+    acceptanceIds.some(id => !ids.includes(id))
+  )
+    throw new Error('Acceptance coverage must name every approved scenario exactly once.');
+}
+
+/** Unverified outcomes require a human decision rather than an automatically ready result. */
+export function coverageProblems(report: ReviewReport): string[] {
+  const problems: string[] = [];
+  if (report.requestCoverage?.verdict !== 'covered')
+    problems.push(
+      `original request coverage ${report.requestCoverage?.verdict ?? 'unknown'}: ${report.requestCoverage?.rationale ?? 'unavailable'}`,
+    );
+  for (const item of report.coverage ?? [])
+    if (item.status === 'unverified')
+      problems.push(`unverified outcome ${item.acceptanceId}: ${item.evidence} ${item.limitations.join(' ')}`);
+  return problems;
 }
 
 /** Apply the blocking rule to a code review: a blocker needs a file, a line and a failing scenario. */

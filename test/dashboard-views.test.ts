@@ -1,3 +1,4 @@
+import { acceptanceScenarios } from './helpers/task-fixture.js';
 // Dashboard views of a task mid-flight: the pipeline strip, rounds, worker messages with answers, and the
 // state of queued commands, all derived from the same log the driver reads.
 import assert from 'node:assert/strict';
@@ -7,7 +8,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { listItem, pipelineOf, specSection, taskDetail } from '../src/dashboard/views.js';
 import type { CheckResult, UserCommand } from '../src/domain/events.js';
-import { standardRecipe } from '../src/domain/recipe.js';
+import { pipelineRecipe } from './helpers/recipe-fixture.js';
 import { foldEvents } from '../src/pipeline/state.js';
 import { TaskStore } from '../src/store/task-store.js';
 
@@ -30,7 +31,7 @@ function taskInRepair(): TaskStore {
     title: 'T',
     request: 'R',
     repoPath: 'C:/repo',
-    recipe: standardRecipe,
+    recipe: pipelineRecipe,
   });
   store.append({ type: 'stage.created', key: 'spec:1', stage: 'spec', round: 1, orcaTaskId: 'o1' });
   store.append({
@@ -70,6 +71,7 @@ function taskInRepair(): TaskStore {
   });
   store.append({
     type: 'spec.recorded',
+    acceptance: acceptanceScenarios(),
     key: 'spec:1',
     version: 1,
     hash: 'h',
@@ -86,7 +88,14 @@ function taskInRepair(): TaskStore {
   };
   store.addCommand(approve);
   store.append({ type: 'command.applied', command: approve });
-  store.append({ type: 'checks.recorded', phase: 'baseline', round: 0, sha: 'a', results: [check(false)] });
+  store.append({
+    type: 'checks.recorded',
+    specVersion: 1,
+    phase: 'baseline',
+    round: 0,
+    sha: 'a',
+    results: [check(false)],
+  });
   store.append({ type: 'stage.created', key: 'build:0', stage: 'build', round: 0, orcaTaskId: 'o2' });
   store.append({
     type: 'stage.started',
@@ -107,13 +116,28 @@ function taskInRepair(): TaskStore {
   });
   store.append({
     type: 'guard.recorded',
+    specVersion: 1,
     round: 0,
     fromSha: 'a',
     sha: 'b',
     guard: { clean: true, commits: 1, changedFiles: ['x.js'], violations: [], modifiedTests: [] },
   });
-  store.append({ type: 'checks.recorded', phase: 'verify', round: 0, sha: 'b', results: [check(false)] });
-  store.append({ type: 'round.decided', round: 0, decision: 'repair', reasons: ['check unit failed'] });
+  store.append({
+    type: 'checks.recorded',
+    specVersion: 1,
+    phase: 'verify',
+    round: 0,
+    sha: 'b',
+    results: [check(false)],
+  });
+  store.append({
+    type: 'round.decided',
+    specVersion: 1,
+    sha: 'b',
+    round: 0,
+    decision: 'repair',
+    reasons: ['check unit failed'],
+  });
   store.append({ type: 'stage.created', key: 'repair:1', stage: 'repair', round: 1, orcaTaskId: 'o3' });
   store.append({
     type: 'stage.started',
@@ -231,6 +255,8 @@ test("an escalated round keeps the builder's failure report apart from the other
   const store = taskInRepair();
   store.append({
     type: 'round.decided',
+    specVersion: 1,
+    sha: 'b',
     round: 1,
     decision: 'escalate',
     reasons: ['the builder reported failure: Added X; the check exits 8.', 'check "unit" failed'],

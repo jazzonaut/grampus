@@ -27,7 +27,7 @@ the installed data directory.
 | `crossCheckIncompatiblePatterns` | C# and TypeScript compiler errors, missing modules and exports, Python import errors, Java `cannot find symbol`, Rust `error[E…]` | Regular expressions that mark a failed cross-check as incompatible: the copied tests did not compile or load against that entry |
 | `checkInfrastructurePatterns` | Missing command/module, no-tests and `ENOENT` signatures | Case-insensitive regular expressions for execution failures; these never count as behaviour evidence |
 | `checkAssertionPatterns` | `AssertionError`, `ERR_ASSERTION`, expected/received and `Assert.` signatures | Recognised assertions; cross-check behavioural attribution additionally requires a portable check |
-| `recipes` | `[]` | Saved recipes beside the built-in `standard` recipe |
+| `recipes` | `[]` | Saved recipes beside the built-in `standard-codex` and `standard-claude` recipes |
 | `claudeProjectRoots` | `["<CLAUDE_CONFIG_DIR or ~/.claude>/projects"]` | Where Claude session transcripts are searched for measurement |
 | `codexSessionRoots` | `["<CODEX_HOME or ~/.codex>/sessions"]` | Where Codex rollouts are searched for measurement |
 | `dashboardPort` | `4545` | Port of `grampus dashboard` when `--port` is not given |
@@ -92,10 +92,19 @@ review. A recipe without the field has it off.
 `explain.automatic` runs a read-only explanation worker on the final candidate after checks, review and
 any kept polish. It defaults to false. The assignment also answers follow-up questions.
 
-The built-in `standard` recipe uses Claude for spec and review, Codex for spec review and build, no
-tests-first or polish stage, and two repair rounds of which the first continues the builder's conversation. The
-spec review runs `gpt-6.1-sol` at medium effort: at high effort it was the slowest stage and found
-nothing blocking in six runs (Orca accepts an effort only together with a model).
+The built-in `standard-codex` recipe is the default and uses the settings promoted from
+`economy-codex-4-polish`. `standard-claude` mirrors it with the agent families swapped:
+
+| Stage | `standard-codex` | `standard-claude` |
+| --- | --- | --- |
+| Spec, build, polish | Codex `gpt-6.1-sol`, medium | Claude `claude-sonnet-5-5`, medium |
+| Review, including polish review | Claude `claude-sonnet-5-5`, medium | Codex `gpt-6.1-sol`, medium |
+| Repair | Codex `gpt-6.1-sol`, high | Claude `claude-sonnet-5-5`, high |
+| On-demand explanation | Claude, Orca default model | Codex, Orca default model |
+
+Both disable spec review, tests-first and automatic explanation. They allow two repair rounds,
+with the first eligible to continue the builder conversation when its assignment matches.
+Both names are reserved: copy a built-in recipe to customise it. The old `standard` name is removed.
 Review from the builder's own family is allowed so it can be measured; the task records which ran.
 Model ids above are examples; use ids your Orca agents accept.
 ## Repository setup
@@ -142,5 +151,11 @@ adjacent-file bound is `polishLimits.adjacentFiles` in `src/config/limits.ts`. B
 value are reviewed separately. No worthwhile improvement is a successful no-op. There is no automatic
 repair budget for polish, and a failed attempt restores the previously verified commit.
 
-The old `simplify` recipe key is rejected by the strict recipe schema. Task logs use schema 3 and
+Polish welcomes improvements to readability, maintainability, consistency, simplicity and naming,
+including standalone improvements. The worker explains the issue and benefit; it does not need to
+justify a hypothetical future edit. The independent reviewer assesses whether the change improves
+the code and preserves behaviour. Reports live in the worktree's private Git metadata so they cannot
+enter source commits.
+
+The old `simplify` recipe key is rejected by the strict recipe schema. Task logs use schema 4 and
 comparison logs schema 2; old evidence remains on disk but is not migrated by this version.

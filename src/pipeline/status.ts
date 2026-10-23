@@ -130,6 +130,11 @@ function approvalOf(state: TaskState): TaskSummary['approval'] {
     : reviewed.report
       ? [
           `spec review: ${reviewed.report.verdict}. ${reviewed.report.summary}`,
+          ...(reviewed.report.requestCoverage
+            ? [
+                `request coverage: ${reviewed.report.requestCoverage.verdict}. ${reviewed.report.requestCoverage.rationale}`,
+              ]
+            : []),
           ...reviewed.report.findings.map(
             finding => `- ${finding.severity}: ${finding.title}${finding.detail ? ` (${finding.detail})` : ''}`,
           ),
@@ -158,6 +163,9 @@ function resultOf(state: TaskState): TaskSummary['result'] {
   const round = Number(match[2]);
   // The reasons are not repeated here: the attention detail already lists them.
   const lines = [
+    ...(state.testBaseline?.assessments.map(
+      item => `Tests-first baseline ${item.name}: ${item.outcome}. ${item.reason}`,
+    ) ?? []),
     ...(state.testsFirst?.files.length
       ? [`Acceptance tests committed before implementation: ${state.testsFirst.files.join(', ')}`]
       : []),
@@ -200,6 +208,13 @@ function reviewLines(review: ReviewRecord | undefined): string[] {
   const where = (finding: Finding) => `${finding.file ?? '?'}:${finding.line ?? '?'}`;
   return [
     `review: ${review.report.verdict}. ${review.report.summary}`,
+    ...(review.report.requestCoverage
+      ? [`request coverage: ${review.report.requestCoverage.verdict}. ${review.report.requestCoverage.rationale}`]
+      : []),
+    ...(review.report.coverage?.map(
+      item =>
+        `outcome ${item.acceptanceId}: ${item.status}. ${item.evidence}${item.limitations.length ? ` Limitations: ${item.limitations.join('; ')}` : ''}`,
+    ) ?? []),
     ...review.blocking.map(finding =>
       `- blocking: ${finding.title} (${where(finding)}) ${finding.scenario ?? ''}`.trimEnd(),
     ),

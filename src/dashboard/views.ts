@@ -261,7 +261,12 @@ function reviewStep(state: TaskState, round: number | null): PipelineStep {
   return step(
     'review',
     'Review',
-    review.blocking.length ? 'failed' : 'done',
+    review.blocking.length ||
+      review.report.verdict !== 'approve' ||
+      review.report.requestCoverage?.verdict !== 'covered' ||
+      review.report.coverage?.some(item => item.status === 'unverified')
+      ? 'failed'
+      : 'done',
     `${review.report.verdict}, ${review.blocking.length} blocking`,
   );
 }

@@ -60,6 +60,7 @@ test('starting a task from the dashboard creates its log, worktree and driver te
   const created = (await response.json()) as { taskId: string };
   const state = foldEvents(TaskStore.open(home, created.taskId).events());
   assert.equal(state.title, 'Greet');
+  assert.deepEqual(state.recipe, standardRecipe, 'new tasks use standard-codex by default');
   assert.ok(state.workspace, 'the worktree is recorded');
   assert.deepEqual(orca.terminals, [`grampus-test drive ${created.taskId}`]);
 });
@@ -73,7 +74,7 @@ test('a task with an unknown recipe is refused before anything is created', asyn
   assert.equal(existsSync(join(home, 'tasks')), false);
 });
 
-test('recipes are saved to config.json beside other settings, validated, and the built-in one is protected', async () => {
+test('saved recipes preserve other settings and cannot replace either built-in recipe', async () => {
   const { home, base } = await start();
   writeFileSync(join(home, 'config.json'), JSON.stringify({ waitPollMs: 20 }));
   const cheap = { ...standardRecipe, name: 'cheap', build: { agent: 'codex', model: 'gpt-6-luna', effort: 'low' } };
@@ -96,7 +97,22 @@ test('recipes are saved to config.json beside other settings, validated, and the
   assert.equal(renamed.status, 200);
   const effortWithoutModel = { ...cheap, build: { agent: 'codex', effort: 'low' } };
   assert.equal((await send(base, 'PUT', '/api/recipes/cheaper', effortWithoutModel)).status, 400);
-  assert.equal((await send(base, 'PUT', '/api/recipes/standard', standardRecipe)).status, 400);
+  const catalog = (await (await fetch(`${base}/api/recipes`)).json()) as {
+    builtIn: string[];
+    defaultRecipe: string;
+    recipes: { name: string }[];
+  };
+  assert.deepEqual(catalog.builtIn, ['standard-codex', 'standard-claude']);
+  assert.equal(catalog.defaultRecipe, 'standard-codex');
+  assert.deepEqual(
+    catalog.recipes.map(recipe => recipe.name),
+    [...catalog.builtIn, 'cheaper'],
+  );
+  for (const name of catalog.builtIn) {
+    assert.equal((await send(base, 'PUT', `/api/recipes/${name}`, { ...cheap, name })).status, 400);
+    assert.equal((await send(base, 'PUT', '/api/recipes/cheaper', { ...cheap, name })).status, 400);
+    assert.equal((await send(base, 'DELETE', `/api/recipes/${name}`, {})).status, 404);
+  }
   assert.equal((await send(base, 'DELETE', '/api/recipes/cheaper', {})).status, 200);
   assert.deepEqual(JSON.parse(readFileSync(join(home, 'config.json'), 'utf8')).recipes, []);
 });
@@ -252,14 +268,14 @@ test('a comparison started from the dashboard gets its log and a driver terminal
   const tooFew = await send(base, 'POST', '/api/comparisons', {
     repo,
     request: 'Greet',
-    recipes: ['standard'],
+    recipes: ['standard-codex'],
     mode: 'full',
   });
   assert.equal(tooFew.status, 400);
   const response = await send(base, 'POST', '/api/comparisons', {
     repo,
     request: 'Greet by name',
-    recipes: ['standard', 'alt'],
+    recipes: ['standard-codex', 'alt'],
     mode: 'shared',
   });
   assert.equal(response.status, 201, await response.clone().text());
@@ -272,7 +288,7 @@ test('a comparison started from the dashboard gets its log and a driver terminal
     waiting: string[];
     status: string;
   };
-  assert.deepEqual([detail.mode, detail.waiting, detail.status], ['shared', ['standard', 'alt'], 'running']);
+  assert.deepEqual([detail.mode, detail.waiting, detail.status], ['shared', ['standard-codex', 'alt'], 'running']);
   const list = (await (await fetch(`${base}/api/comparisons`)).json()) as { comparisons: { comparisonId: string }[] };
   assert.deepEqual(
     list.comparisons.map(item => item.comparisonId),

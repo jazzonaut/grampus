@@ -5,15 +5,16 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { runChecks, logExcerpt } from '../checks/run-checks.js';
 import { currentSettings } from '../config/settings.js';
-import { judgeCodeReview, parseReviewReport } from '../domain/review.js';
+import { judgeCodeReview, parseReviewReport, validateCoverage, coverageProblems } from '../domain/review.js';
 import { repairAssignment, type Assignment } from '../domain/recipe.js';
 import type { GuardResult, TaskOutcome, UserCommand } from '../domain/events.js';
 import { changedPaths, headSha, git, uncommittedPaths } from '../git/git.js';
 import { matchesAny } from '../util/glob.js';
 import { finalCandidate } from './candidate.js';
+import { assertEvidenceUnchanged, evidenceSnapshot } from './evidence.js';
 import { DriverStop } from './driver-core.js';
 import { prepareWorkspace } from './setup.js';
-import { recordTestBaseline } from './test-evidence.js';
+import { recordTestBaseline, testBaselineNote } from './test-evidence.js';
 import type { DriverCore, Launch, Settled } from './driver-core.js';
 import { measureDispatches } from '../measure/usage.js';
 import { inspectCandidate } from './guard.js';
@@ -153,13 +154,20 @@ async function baseline(core: DriverCore, worktree: string, spec: SpecVersion): 
   // Usually the checks already ran at this commit while the spec awaited approval; tests first moves HEAD.
   const before = core.state.specChecks.get(spec.version);
   if (before?.sha === sha) {
-    core.record({ type: 'checks.recorded', phase: 'baseline', round: 0, sha, results: before.results });
+    core.record({
+      type: 'checks.recorded',
+      specVersion: spec.version,
+      phase: 'baseline',
+      round: 0,
+      sha,
+      results: before.results,
+    });
     core.log('Baseline: the checks run before approval, at the same commit.');
     return;
   }
   core.log('Running baseline checks.');
   const results = await runChecks(worktree, spec.checks, core.store.checksDir('baseline', 0), { rerunFailures: false });
-  core.record({ type: 'checks.recorded', phase: 'baseline', round: 0, sha, results });
+  core.record({ type: 'checks.recorded', specVersion: spec.version, phase: 'baseline', round: 0, sha, results });
   core.log(
     `Baseline: ${results.filter(result => result.passed).length}/${results.length} checks pass before the change.`,
   );
@@ -261,16 +269,18 @@ async function verify(core: DriverCore, worktree: string, spec: SpecVersion, rou
       checkConfigPatterns: currentSettings().checkConfigPatterns,
       checkCommands: spec.checks.map(check => check.command),
     });
-    core.record({ type: 'guard.recorded', round, fromSha, sha, guard });
+    core.record({ type: 'guard.recorded', specVersion: spec.version, round, fromSha, sha, guard });
     if (guard.violations.length) core.log(`Guard: ${guard.violations.join('; ')}`);
   }
   if (core.state.verify.has(round)) return;
   const sha = core.state.guard.get(round)?.sha ?? (await headSha(worktree));
+  const before = await evidenceSnapshot(worktree, sha, spec);
   core.log(`Running checks at ${sha.slice(0, 12)}.`);
   const results = await runChecks(worktree, spec.checks, core.store.checksDir('verify', round), {
     rerunFailures: true,
   });
-  core.record({ type: 'checks.recorded', phase: 'verify', round, sha, results });
+  await assertEvidenceUnchanged(worktree, sha, spec, before);
+  core.record({ type: 'checks.recorded', specVersion: spec.version, phase: 'verify', round, sha, results });
   core.log(`Checks: ${results.filter(result => result.passed).length}/${results.length} pass.`);
 }
 
@@ -282,6 +292,9 @@ async function review(core: DriverCore, worktree: string, round: number): Promis
   const candidate = core.state.verify.get(round);
   const guard = core.state.guard.get(round);
   if (!candidate || !guard) throw new Error(`Round ${round} has no verified candidate to review.`);
+  const spec = core.state.specs.find(item => item.version === candidate.specVersion);
+  if (!spec) throw new DriverStop('The checked specification is unavailable.');
+  const before = await evidenceSnapshot(worktree, candidate.sha, spec);
   const settled = await core.runStage({
     key,
     stage: 'review',
@@ -289,6 +302,8 @@ async function review(core: DriverCore, worktree: string, round: number): Promis
     title: `Review ${round}: ${core.state.title}`,
     spec: () =>
       reviewPrompt({
+        request: core.state.request,
+        guidance: core.state.commands.flatMap(command => (command.kind === 'continue' ? [command.guidance] : [])),
         specPath: approvedSpecPath(worktree),
         baseSha: core.state.workspace?.baseSha ?? roundStart(core, 0),
         roundFromSha: guard.fromSha,
@@ -304,14 +319,21 @@ async function review(core: DriverCore, worktree: string, round: number): Promis
       }),
     launch: { assignment },
   });
+  await assertEvidenceUnchanged(worktree, candidate.sha, spec, before);
   try {
     if (settled.outcome === 'failed') throw new Error(`The reviewer reported failure: ${settled.body}`);
     const text = readWorkerFile(reportPath);
     if (text === null) throw new Error(`No review report was written at ${reportPath}.`);
-    const outcome = judgeCodeReview(parseReviewReport(text));
+    const report = parseReviewReport(text);
+    validateCoverage(
+      report,
+      spec.acceptance.map(item => item.id),
+    );
+    const outcome = judgeCodeReview(report);
     keepEvidence(reportPath, join(core.store.dir, 'reviews', `round-${round}.json`));
     core.record({
       type: 'review.recorded',
+      specVersion: candidate.specVersion,
       round,
       sha: candidate.sha,
       report: outcome.report,
@@ -325,6 +347,7 @@ async function review(core: DriverCore, worktree: string, round: number): Promis
   } catch (error) {
     core.record({
       type: 'review.recorded',
+      specVersion: candidate.specVersion,
       round,
       sha: candidate.sha,
       report: null,
@@ -342,47 +365,85 @@ export const builderFailed = 'the builder reported failure: ';
 /** Decide a round from recorded evidence: ready, another repair round, or escalation to the user. */
 function decideRound(core: DriverCore, round: number, settled: Settled): 'repair' | 'escalate' | 'ready' {
   const recorded = core.state.decisions.get(round);
-  if (recorded) return recorded.decision;
+  if (recorded) {
+    const checked = core.state.verify.get(round);
+    if (checked?.sha !== recorded.sha || checked.specVersion !== recorded.specVersion)
+      throw new DriverStop('The recorded round decision does not match its check evidence.');
+    return recorded.decision;
+  }
   const problems: string[] = [...(core.state.guard.get(round)?.guard.violations ?? [])];
   for (const result of core.state.verify.get(round)?.results ?? [])
     if (!result.passed) problems.push(`check "${result.name}" failed${result.timedOut ? ' (timed out)' : ''}`);
   const reviewed = core.state.reviews.get(round);
   for (const finding of reviewed?.blocking ?? []) problems.push(`blocking finding: ${finding.title}`);
-  // Problems only a person can resolve: more rounds would repeat them.
-  const stoppers: string[] = [];
-  if (settled.outcome === 'failed') stoppers.push(`${builderFailed}${settled.body}`);
-  if (reviewed?.error) stoppers.push(`review unavailable: ${reviewed.error}`);
+  const stoppers = roundStoppers(core, round, settled);
   const allowed = core.state.recipe.repair.maxRounds + grantedRounds(core.state);
   const decision = stoppers.length ? 'escalate' : !problems.length ? 'ready' : round < allowed ? 'repair' : 'escalate';
-  core.record({ type: 'round.decided', round, decision, reasons: [...stoppers, ...problems] });
+  const checked = core.state.verify.get(round);
+  if (!checked) throw new DriverStop('No check evidence for this round.');
+  core.record({
+    type: 'round.decided',
+    specVersion: checked.specVersion,
+    sha: checked.sha,
+    round,
+    decision,
+    reasons: [...stoppers, ...problems],
+  });
   core.log(
     `Round ${round}: ${decision}${problems.length + stoppers.length ? ` (${[...stoppers, ...problems].join('; ')})` : ''}.`,
   );
   return decision;
 }
 
-function askUser(
+/** Missing evidence and uncertain review need a person, rather than another blind repair. */
+function roundStoppers(core: DriverCore, round: number, settled: Settled): string[] {
+  const reviewed = core.state.reviews.get(round);
+  const stoppers: string[] = [];
+  if (settled.outcome === 'failed') stoppers.push(`${builderFailed}${settled.body}`);
+  if (reviewed?.error) stoppers.push(`review unavailable: ${reviewed.error}`);
+  if (core.state.recipe.review && !reviewed?.report) stoppers.push('review unavailable');
+  if (reviewed?.report) stoppers.push(...coverageProblems(reviewed.report));
+  if (reviewed?.report?.verdict === 'unknown') stoppers.push('review verdict unknown');
+  if (reviewed?.report?.verdict === 'changes' && !reviewed.blocking.length)
+    stoppers.push('review requests changes without a supported finding');
+  if (!finalCandidate(core.state)) stoppers.push('candidate evidence does not match the current commit and spec');
+  return stoppers;
+}
+
+async function askUser(
   core: DriverCore,
   round: number,
   decision: 'escalate' | 'ready',
   specVersion: number,
 ): Promise<UserCommand> {
+  const made = core.decisionAfter(`${decision}:${round}`, ['accept', 'continue', 'abandon']);
+  if (made) return made;
   const sha = finalCandidate(core.state)?.sha.slice(0, 12) ?? 'unknown';
   const reasons = core.state.decisions.get(round)?.reasons ?? [];
   const verdict = core.state.reviews.get(round)?.report?.verdict;
-  const explain = core.state.recipe.explain.automatic ? () => explainFinalCandidate(core, specVersion) : undefined;
+  const candidate = finalCandidate(core.state);
+  const worktree = core.state.workspace?.path;
+  const spec = core.state.specs.find(item => item.version === specVersion);
+  if (!candidate || !worktree || !spec) throw new DriverStop('No current candidate evidence is available.');
+  const snapshot = await evidenceSnapshot(worktree, candidate.sha, spec);
+  const watch = async () => {
+    // Full comparisons temporarily overlay other entries' tests while these drivers wait.
+    // Their final acceptance still requires the restored, clean candidate in finish().
+    if (!core.state.comparisonId) await assertEvidenceUnchanged(worktree, candidate.sha, spec, snapshot);
+    if (core.state.recipe.explain.automatic) await explainFinalCandidate(core, specVersion);
+  };
   if (decision === 'ready')
     return core.decide(
       `ready:${round}`,
-      `Verified at ${sha}: every check passes${verdict ? `, review ${verdict}` : ', no review'}.${polishNote(core.state, round)}${baselineNote(core)}${checkConfigNote(core, round)} Accept, continue with guidance, or abandon.`,
+      `Verified at ${sha}: every check passes${verdict ? `, review ${verdict}` : ', no review'}.${polishNote(core.state, round)}${baselineNote(core)}${testBaselineNote(core)}${checkConfigNote(core, round)} Accept, continue with guidance, or abandon.`,
       ['accept', 'continue', 'abandon'],
-      explain,
+      watch,
     );
   return core.decide(
     `escalate:${round}`,
-    `Round ${round} needs you at ${sha}: ${reasons.join('; ')}.${checkConfigNote(core, round)} Continue with guidance, accept anyway, or abandon.`,
+    `Round ${round} needs you at ${sha}: ${reasons.join('; ')}.${testBaselineNote(core)}${checkConfigNote(core, round)} Continue with guidance, accept anyway, or abandon.`,
     ['continue', 'accept', 'abandon'],
-    explain,
+    watch,
   );
 }
 
@@ -444,6 +505,11 @@ export async function finish(
     (!candidate || head !== candidate.sha || (worktree && (await uncommittedPaths(worktree)).length))
   )
     throw new DriverStop('The worktree no longer matches the final checked candidate; acceptance stopped.');
+  if (outcome === 'accepted' && worktree && candidate) {
+    const spec = core.state.specs.find(item => item.version === candidate.specVersion);
+    if (!spec) throw new DriverStop('The approved specification is unavailable.');
+    await evidenceSnapshot(worktree, candidate.sha, spec);
+  }
   const sha = outcome === 'accepted' ? (candidate?.sha ?? null) : head;
   core.record({ type: 'task.finished', outcome, sha, override, reason });
   core.log(`Task ${outcome}${override ? ' with unresolved problems' : ''}${sha ? ` at ${sha.slice(0, 12)}` : ''}.`);

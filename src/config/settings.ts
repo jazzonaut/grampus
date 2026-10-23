@@ -8,7 +8,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { recipeSchema, standardRecipe, type Recipe } from '../domain/recipe.js';
+import { recipeSchema, builtInRecipes, type Recipe } from '../domain/recipe.js';
 import { defaultModelPrices, type ModelPrice } from '../measure/cost.js';
 import { MiB, specLimits } from './limits.js';
 
@@ -55,7 +55,7 @@ export interface Settings {
   checkInfrastructurePatterns: readonly string[];
   /** Assertion signatures; these count as behavioural evidence only with an established interface. */
   checkAssertionPatterns: readonly string[];
-  /** Saved recipes beside the built-in `standard` recipe. */
+  /** Saved recipes beside the built-in standard recipes. */
   recipes: readonly Recipe[];
   /** Folders searched for Claude session transcripts (`<root>/<project>/<session>.jsonl`). */
   claudeProjectRoots: readonly string[];
@@ -274,9 +274,14 @@ const staleHeartbeats = 3;
 function validated(raw: unknown, path: string): Partial<Settings> {
   const parsed = fileSchema.safeParse(raw);
   if (!parsed.success) throw new Error(`Invalid settings in ${path}: ${parsed.error.message}`);
-  const names = [standardRecipe.name, ...(parsed.data.recipes ?? []).map(recipe => recipe.name)];
+  const names = [
+    ...builtInRecipes.map(recipe => recipe.name),
+    ...(parsed.data.recipes ?? []).map(recipe => recipe.name),
+  ];
   if (new Set(names).size !== names.length)
-    throw new Error(`Recipe names in ${path} must be unique and not "standard".`);
+    throw new Error(
+      `Recipe names in ${path} must be unique and cannot use built-in names: ${builtInRecipes.map(recipe => recipe.name).join(', ')}.`,
+    );
   return Object.fromEntries(Object.entries(parsed.data).filter(([, value]) => value !== undefined));
 }
 
@@ -315,5 +320,5 @@ export function currentSettings(): Settings {
 
 /** Every recipe available for new tasks, built-in first. */
 export function availableRecipes(settings: Settings = currentSettings()): Recipe[] {
-  return [standardRecipe, ...settings.recipes];
+  return [...builtInRecipes, ...settings.recipes];
 }

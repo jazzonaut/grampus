@@ -1,4 +1,4 @@
-<!-- Recipes: the built-in one and the saved ones, with each stage's agent, model and effort at a glance. -->
+<!-- Recipes: the built-in and saved recipes, with each stage's agent, model and effort at a glance. -->
 <script setup lang="ts">
 import { useToast } from '@nuxt/ui/composables';
 import { ref } from 'vue';
@@ -8,7 +8,8 @@ import RecipeEditor from '../components/RecipeEditor.vue';
 
 const toast = useToast();
 const recipes = ref<Recipe[]>([]);
-const builtIn = ref('standard');
+const builtIn = ref<string[]>([]);
+const defaultRecipe = ref('');
 const maxRounds = ref(0);
 const error = ref<string | null>(null);
 const editing = ref<{ recipe: Recipe; originalName: string | null } | null>(null);
@@ -17,9 +18,15 @@ const deleting = ref<string | null>(null);
 
 async function load(): Promise<void> {
   try {
-    const value = await getJson<{ recipes: Recipe[]; builtIn: string; maxRepairRounds: number }>('/api/recipes');
+    const value = await getJson<{
+      recipes: Recipe[];
+      builtIn: string[];
+      defaultRecipe: string;
+      maxRepairRounds: number;
+    }>('/api/recipes');
     recipes.value = value.recipes;
     builtIn.value = value.builtIn;
+    defaultRecipe.value = value.defaultRecipe;
     maxRounds.value = value.maxRepairRounds;
     error.value = null;
   } catch (failure) {
@@ -36,7 +43,7 @@ function edit(recipe: Recipe, copy: boolean): void {
 
 /** A new recipe starts as a copy of the built-in one. */
 function create(): void {
-  const base = recipes.value.find(recipe => recipe.name === builtIn.value) ?? recipes.value[0];
+  const base = recipes.value.find(recipe => recipe.name === defaultRecipe.value) ?? recipes.value[0];
   if (base) edit(base, true);
 }
 
@@ -103,7 +110,7 @@ function stages(recipe: Recipe): { label: string; icon: string; value: string }[
             <template #header>
               <div class="flex items-center gap-2">
                 <h3 class="font-semibold">{{ recipe.name }}</h3>
-                <UBadge v-if="recipe.name === builtIn" variant="subtle" color="neutral" icon="i-lucide-lock"
+                <UBadge v-if="builtIn.includes(recipe.name)" variant="subtle" color="neutral" icon="i-lucide-lock"
                   >built in</UBadge
                 >
                 <div class="ml-auto flex gap-1">
@@ -117,7 +124,7 @@ function stages(recipe: Recipe): { label: string; icon: string; value: string }[
                       @click="edit(recipe, true)"
                     />
                   </UTooltip>
-                  <template v-if="recipe.name !== builtIn">
+                  <template v-if="!builtIn.includes(recipe.name)">
                     <UTooltip text="Edit">
                       <UButton
                         size="xs"

@@ -14,7 +14,7 @@ import type {
   TaskOutcome,
   UserCommand,
 } from '../domain/events.js';
-import type { CheckDefinition } from '../domain/spec.js';
+import type { AcceptanceScenario, CheckDefinition } from '../domain/spec.js';
 import type { CodeReference, Explanation, ExplanationAnswer } from '../domain/explanation.js';
 
 export interface DispatchRecord {
@@ -70,11 +70,13 @@ export interface SpecVersion {
   hash: string;
   path: string;
   checks: CheckDefinition[];
+  acceptance: AcceptanceScenario[];
   protected: string[];
   at: string;
 }
 
 export interface ReviewRecord {
+  specVersion: number;
   round: number;
   sha: string;
   report: ReviewReport | null;
@@ -87,7 +89,7 @@ export interface ReviewRecord {
 export interface PolishRecord {
   round: number;
   restored?: string;
-  checked: { fromSha: string; sha: string; guard: GuardResult; results: CheckResult[] } | null;
+  checked: { specVersion: number; fromSha: string; sha: string; guard: GuardResult; results: CheckResult[] } | null;
   decided: Omit<Extract<TaskEvent, { type: 'polish.decided' }>, 'type' | 'round'> | null;
 }
 
@@ -134,12 +136,15 @@ export interface TaskState {
     results: Extract<TaskEvent, { type: 'setup.recorded' }>[];
   };
   /** Checks of each spec version, run at the base commit while it awaited approval. */
-  specChecks: Map<number, { sha: string; results: CheckResult[] }>;
-  baseline: { sha: string; results: CheckResult[] } | null;
-  verify: Map<number, { sha: string; results: CheckResult[] }>;
-  guard: Map<number, { fromSha: string; sha: string; guard: GuardResult }>;
+  specChecks: Map<number, { specVersion: number; sha: string; results: CheckResult[] }>;
+  baseline: { specVersion: number; sha: string; results: CheckResult[] } | null;
+  verify: Map<number, { specVersion: number; sha: string; results: CheckResult[] }>;
+  guard: Map<number, { specVersion: number; fromSha: string; sha: string; guard: GuardResult }>;
   reviews: Map<number, ReviewRecord>;
-  decisions: Map<number, { decision: 'repair' | 'escalate' | 'ready'; reasons: string[] }>;
+  decisions: Map<
+    number,
+    { sha: string; specVersion: number; decision: 'repair' | 'escalate' | 'ready'; reasons: string[] }
+  >;
   polish: Map<number, PolishRecord>;
   attention: Attention | null;
   finished: { outcome: TaskOutcome; sha: string | null; override: boolean; at: string } | null;
@@ -389,6 +394,7 @@ const handlers: Handlers = {
       hash: event.hash,
       path: event.path,
       checks: event.checks,
+      acceptance: event.acceptance,
       protected: event.protected,
       at: event.at,
     });
@@ -400,6 +406,7 @@ const handlers: Handlers = {
       hash: event.hash,
       path: event.path,
       checks: event.checks,
+      acceptance: event.acceptance,
       protected: event.protected,
       at: event.at,
     });
@@ -415,17 +422,22 @@ const handlers: Handlers = {
     state.testsFirst = { sha: event.sha, files: event.files };
   },
   'checks.recorded': (state, event) => {
-    const run = { sha: event.sha, results: event.results };
+    const run = { specVersion: event.specVersion, sha: event.sha, results: event.results };
     if (event.phase === 'spec') state.specChecks.set(event.round, run);
     else if (event.phase === 'baseline') state.baseline = run;
     else state.verify.set(event.round, run);
   },
   'guard.recorded': (state, event) => {
-    state.guard.set(event.round, { fromSha: event.fromSha, sha: event.sha, guard: event.guard });
+    state.guard.set(event.round, {
+      specVersion: event.specVersion,
+      fromSha: event.fromSha,
+      sha: event.sha,
+      guard: event.guard,
+    });
   },
   'review.recorded': (state, event) => {
-    const { round, sha, report, blocking, downgraded, error } = event;
-    state.reviews.set(round, { round, sha, report, blocking, downgraded, error });
+    const { round, specVersion, sha, report, blocking, downgraded, error } = event;
+    state.reviews.set(round, { round, specVersion, sha, report, blocking, downgraded, error });
   },
   'command.applied': (state, event) => {
     state.applied.add(event.command.id);
@@ -444,16 +456,22 @@ const handlers: Handlers = {
     state.refusals.push({ kind: event.command.kind, reason: event.reason, at: event.at });
   },
   'round.decided': (state, event) => {
-    state.decisions.set(event.round, { decision: event.decision, reasons: event.reasons });
+    state.decisions.set(event.round, {
+      sha: event.sha,
+      specVersion: event.specVersion,
+      decision: event.decision,
+      reasons: event.reasons,
+    });
   },
-  'polish.checked': (state, { round, fromSha, sha, guard, results }) => {
-    polishRecord(state, round).checked = { fromSha, sha, guard, results };
+  'polish.checked': (state, { round, specVersion, fromSha, sha, guard, results }) => {
+    polishRecord(state, round).checked = { specVersion, fromSha, sha, guard, results };
   },
   'polish.decided': (
     state,
-    { round, fromSha, sha, kept, outcome, report, maintenance, reasons, review, before, after },
+    { round, specVersion, fromSha, sha, kept, outcome, report, maintenance, reasons, review, before, after },
   ) => {
     polishRecord(state, round).decided = {
+      specVersion,
       fromSha,
       sha,
       kept,

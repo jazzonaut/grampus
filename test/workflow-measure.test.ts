@@ -23,10 +23,11 @@ const events = (items: TaskEvent[]): StoredEvent[] => items.map(item => ({ ...it
 
 test('reusing spec evidence for baseline does not charge a second check execution', () => {
   const evidence = events([
-    { type: 'checks.recorded', phase: 'spec', round: 1, sha: 'base', results: [result] },
-    { type: 'checks.recorded', phase: 'baseline', round: 0, sha: 'base', results: [result] },
+    { type: 'checks.recorded', specVersion: 1, phase: 'spec', round: 1, sha: 'base', results: [result] },
+    { type: 'checks.recorded', specVersion: 1, phase: 'baseline', round: 0, sha: 'base', results: [result] },
     {
       type: 'checks.recorded',
+      specVersion: 1,
       phase: 'verify',
       round: 0,
       sha: 'built',

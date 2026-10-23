@@ -16,12 +16,31 @@ export const checkDefinitionSchema = z
   .strict();
 export type CheckDefinition = z.infer<typeof checkDefinitionSchema>;
 
+const acceptanceText = z.string().trim().min(1).max(specLimits.acceptanceTextLength);
+/** One requested outcome and the boundary at which its acceptance can actually be observed. */
+export const acceptanceSchema = z
+  .object({
+    id: z
+      .string()
+      .regex(/^[a-z][a-z0-9-]*$/)
+      .max(specLimits.checkNameLength),
+    request: acceptanceText,
+    scenario: acceptanceText,
+    checks: z.array(z.string().min(1).max(specLimits.checkNameLength)).min(1).max(specLimits.checks),
+    realComponents: z.array(acceptanceText).min(1).max(specLimits.acceptanceScenarios),
+    mockedComponents: z.array(acceptanceText).max(specLimits.acceptanceScenarios),
+    limitations: z.array(acceptanceText).max(specLimits.acceptanceScenarios),
+  })
+  .strict();
+export type AcceptanceScenario = z.infer<typeof acceptanceSchema>;
+
 const specBlockSchema = z
   .object({
     /** Commands Grampus runs in the worktree. Every one must pass at the head commit. */
     checks: z.array(checkDefinitionSchema).min(1).max(specLimits.checks),
     /** Repository globs the builder must not change, such as approved acceptance tests. */
     protected: z.array(z.string().min(1).max(specLimits.pathLength)).max(specLimits.protectedPaths).default([]),
+    acceptance: z.array(acceptanceSchema).min(1).max(specLimits.acceptanceScenarios),
   })
   .strict();
 export type SpecBlock = z.infer<typeof specBlockSchema>;
@@ -52,6 +71,11 @@ export function parseSpec(markdown: string): Spec {
   if (!block.success) throw new Error(`The \`grampus\` block is invalid: ${block.error.message}`);
   const names = block.data.checks.map(check => check.name);
   if (new Set(names).size !== names.length) throw new Error('Check names in the `grampus` block must be unique.');
+  const ids = block.data.acceptance.map(item => item.id);
+  if (new Set(ids).size !== ids.length) throw new Error('Acceptance scenario ids must be unique.');
+  for (const item of block.data.acceptance)
+    if (item.checks.some(name => !names.includes(name)))
+      throw new Error(`Acceptance ${item.id} names an undeclared check.`);
   return { markdown, hash: hashText(markdown), block: block.data };
 }
 

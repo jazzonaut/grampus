@@ -30,7 +30,7 @@ This builds the checkout and installs it as a new version in `%LOCALAPPDATA%\Pro
 - `grampus` goes on your user PATH and always runs the newest installed version. After the first
   install, restart Orca and open new terminals so they see the PATH change.
 - Each version is an immutable folder named by its build id, `<package version>+<commit>`, such as
-  `0.8.0+a1daeb8c3f21`. `grampus --version` shows the running one. Running tasks and the dashboard keep
+  `0.9.0+a1daeb8c3f21`. `grampus --version` shows the running one. Running tasks and the dashboard keep
   the code they started with; a driver restarted later runs the newest version.
 - The Grampus skill is installed for Claude (`~/.claude/skills/grampus`) and Codex
   (`~/.codex/skills/grampus`) and runs `grampus` from PATH, so you can control Grampus from an Orca chat.
@@ -86,7 +86,7 @@ on networks you trust, or set `dashboardHost` to `127.0.0.1` (see [Configuration
 ## Compare recipes
 
 ```text
-grampus compare --recipes standard,economy-codex "Add CSV export to the reports page"
+grampus compare --recipes standard-codex,standard-claude "Add CSV export to the reports page"
 ```
 
 Each recipe runs as its own task from the same base commit. By default each writes its own spec (you

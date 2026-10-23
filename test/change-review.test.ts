@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { currentSettings } from '../src/config/settings.js';
-import { standardRecipe } from '../src/domain/recipe.js';
+import { pipelineRecipe } from './helpers/recipe-fixture.js';
 import { explanationSchema } from '../src/domain/explanation.js';
 import { headSha } from '../src/git/git.js';
 import { driveReview } from '../src/pipeline/driver.js';
@@ -87,9 +87,9 @@ test('pre-existing uncommitted work makes automatic explanation unavailable with
       return workers(h)(context);
     },
     {
-      ...standardRecipe,
+      ...pipelineRecipe,
       name: 'dirty-explanation',
-      repair: { ...standardRecipe.repair, maxRounds: 0 },
+      repair: { ...pipelineRecipe.repair, maxRounds: 0 },
       explain: { automatic: true, assignment: { agent: 'claude' } },
     },
   );
@@ -153,7 +153,7 @@ function reportPath(prompt: string): string {
 
 test('automatic explanation, follow-up and later access share candidate-bound evidence', async () => {
   const harness = await createHarness(h => workers(h), {
-    ...standardRecipe,
+    ...pipelineRecipe,
     name: 'explained',
     explain: { automatic: true, assignment: { agent: 'claude' } },
   });
@@ -192,7 +192,7 @@ test('automatic explanation, follow-up and later access share candidate-bound ev
 
 test('an unavailable explanation leaves acceptance available', async () => {
   const harness = await createHarness(h => workers(h, true), {
-    ...standardRecipe,
+    ...pipelineRecipe,
     name: 'explain-failure',
     explain: { automatic: true, assignment: { agent: 'claude' } },
   });
@@ -211,7 +211,7 @@ test('an unavailable explanation leaves acceptance available', async () => {
 
 test('a fabricated code reference is refused as explanation evidence', async () => {
   const harness = await createHarness(h => workers(h, false, true), {
-    ...standardRecipe,
+    ...pipelineRecipe,
     name: 'bad-reference',
     explain: { automatic: true, assignment: { agent: 'claude' } },
   });
@@ -295,7 +295,7 @@ test('a completed task can answer a question from its follow-up worker', async (
       if (context.title.startsWith('Answer:')) await context.ask('Which part should I explain?');
       return workers(h)(context);
     },
-    { ...standardRecipe, name: 'explain-reply', explain: { automatic: true, assignment: { agent: 'claude' } } },
+    { ...pipelineRecipe, name: 'explain-reply', explain: { automatic: true, assignment: { agent: 'claude' } } },
   );
   const driver = harness.run();
   await harness.until(state => state.attention?.reason === 'approve-spec:1', 'approval');
@@ -334,7 +334,7 @@ test('a completed task can answer a question from its follow-up worker', async (
 test('an automatic explanation leaves acceptance available while its worker is running', async t => {
   const harness = await createHarness(
     h => context => (context.title.startsWith('Explain:') ? 'hang' : workers(h)(context)),
-    { ...standardRecipe, name: 'explain-hang', explain: { automatic: true, assignment: { agent: 'claude' } } },
+    { ...pipelineRecipe, name: 'explain-hang', explain: { automatic: true, assignment: { agent: 'claude' } } },
   );
   const driver = harness.run();
   t.after(async () => {

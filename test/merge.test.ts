@@ -1,3 +1,4 @@
+import { acceptanceScenarios } from './helpers/task-fixture.js';
 // `grampus merge`: an explicit fast-forward of the repository's checked-out branch to the verified commit.
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -33,6 +34,7 @@ async function acceptedTask(outcome: 'accepted' | 'abandoned' = 'accepted') {
   store.append({ type: 'workspace.created', worktreeId: 'wt', path: worktree, baseSha, driverTerminal: 'term' });
   store.append({
     type: 'spec.recorded',
+    acceptance: acceptanceScenarios(),
     key: 'spec:1',
     version: 1,
     hash: 'hash',
@@ -40,7 +42,33 @@ async function acceptedTask(outcome: 'accepted' | 'abandoned' = 'accepted') {
     checks: [{ name: 'greet', command: 'node test/greet.test.js' }],
     protected: [],
   });
-  store.append({ type: 'checks.recorded', phase: 'verify', round: 0, sha, results: [] });
+  store.append({
+    type: 'guard.recorded',
+    specVersion: 1,
+    round: 0,
+    fromSha: baseSha,
+    sha,
+    guard: { clean: true, commits: 1, changedFiles: ['greet.js'], violations: [], modifiedTests: [] },
+  });
+  store.append({
+    type: 'checks.recorded',
+    specVersion: 1,
+    phase: 'verify',
+    round: 0,
+    sha,
+    results: [
+      {
+        name: 'greet',
+        command: 'node test/greet.test.js',
+        exitCode: 0,
+        passed: true,
+        timedOut: false,
+        durationMs: 1,
+        logPath: '',
+        flaky: false,
+      },
+    ],
+  });
   store.append({ type: 'task.finished', outcome, sha, override: false, reason: null });
   return { repo, worktree, sha, store };
 }

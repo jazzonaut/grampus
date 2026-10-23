@@ -81,9 +81,10 @@ spec ─► spec review ─► [approve] ─► (tests first) ─► baseline �
    Round 1 continues the builder's conversation; later rounds start fresh with a distilled
    list of problems, because a long polluted context does worse. Grampus counts rounds
    itself; after the recipe's limit it escalates to the user.
-10. **Polish** (optional per recipe, off by default). Once a round is ready, a worker improves
-    naming, duplication, structure, cleanup and consistency without changing behaviour. The pass
-    needs a concrete maintenance benefit and independent approval of safety and value. No worthwhile
+10. **Polish** (optional per recipe, enabled in the standard recipes). Once a round is ready, a worker inspects it
+    for improvements to readability, maintainability, consistency, simplicity and naming. Standalone
+    improvements in any of these areas are welcome. The pass needs independent approval of safety
+    and value. No worthwhile
     improvement is a successful no-op. Failed passes restore the verified commit without escalation
     or repair. Recorded restoration prevents a restart from resetting later rounds.
 11. **Accept.** The user accepts the verified branch, gives guidance for another round, or
@@ -164,9 +165,11 @@ Shared comparisons distribute the same approved spec and acceptance-test commit 
 Full comparisons preserve API incompatibility, execution errors and unknown results as distinct
 outcomes; a failed copied test needs an approved portable interface to count as behavioural evidence.
 
-The optional polish pass broadens simplification to naming, duplication, structure, cleanup and
-consistency. A worker claims concrete benefits; independent review assesses both safety and whether
-the change is worth keeping. No worthwhile change is a successful no-op. Adjacent changes are bounded,
+The optional polish pass improves readability, maintainability, consistency, simplicity and naming.
+Standalone improvements are welcome; no hypothetical future edit is needed to justify them. The worker
+explains the issue and benefit, and independent review assesses both safety and whether the change is
+worth keeping. Reports live in Git metadata
+so they cannot enter the source diff. No worthwhile change is a successful no-op. Adjacent changes are bounded,
 and uncertain or unsuccessful passes restore the verified commit without a repair loop. Final
 verification, explanation, acceptance and cross-checks resolve the same retained candidate SHA.
 Measurements separate setup, specification, tests, implementation, repair, polish, verification and

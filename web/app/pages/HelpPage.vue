@@ -110,7 +110,7 @@ const states = Object.keys(stepStateLook) as StepState[];
               Start a Grampus task: add CSV export to the reports page.
             </li>
             <li class="rounded-lg border border-default px-3 py-2">
-              Compare the standard and economy-codex recipes on: add CSV export to the reports page.
+              Compare the standard-codex and standard-claude recipes on: add CSV export to the reports page.
             </li>
             <li class="rounded-lg border border-default px-3 py-2">What does Grampus need from me?</li>
           </ul>

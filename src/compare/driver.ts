@@ -184,6 +184,7 @@ class ComparisonDriver {
       path: spec.path,
       hash: spec.hash,
       checks: spec.checks,
+      acceptance: spec.acceptance,
       protected: spec.protected,
       tests: this.entry(shared.fromTask).testsFirst ?? { sha: this.state.baseSha ?? '', files: [] },
     };

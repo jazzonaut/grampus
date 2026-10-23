@@ -68,22 +68,42 @@ export const recipeSchema = z
   .strict();
 export type Recipe = z.infer<typeof recipeSchema>;
 
-/**
- * The built-in recipe: Claude specifies and reviews, Codex builds, two repair rounds. The spec review
- * runs at medium effort: at high effort it was the slowest stage and found nothing blocking in six
- * runs. Orca takes an effort only with a model, so it names the Codex model those runs used.
- */
+/** Default recipe, promoted from economy-codex-4-polish. */
 export const standardRecipe: Recipe = {
-  name: 'standard',
-  spec: { agent: 'claude' },
-  specReview: { agent: 'codex', model: 'gpt-6.1-sol', effort: 'medium' },
+  name: 'standard-codex',
+  spec: { agent: 'codex', model: 'gpt-6.1-sol', effort: 'medium' },
+  specReview: null,
   testsFirst: null,
-  build: { agent: 'codex' },
-  review: { agent: 'claude' },
-  polish: null,
+  build: { agent: 'codex', model: 'gpt-6.1-sol', effort: 'medium' },
+  review: { agent: 'claude', model: 'claude-sonnet-5-5', effort: 'medium' },
+  polish: { agent: 'codex', model: 'gpt-6.1-sol', effort: 'medium' },
   explain: { automatic: false, assignment: { agent: 'claude' } },
-  repair: { maxRounds: 2, reuseBuilderRounds: 1 },
+  repair: {
+    maxRounds: 2,
+    assignment: { agent: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
+    reuseBuilderRounds: 1,
+  },
 };
+
+/** Mirror of standard-codex, with Claude editing and Codex reviewing. */
+export const standardClaudeRecipe: Recipe = {
+  name: 'standard-claude',
+  spec: { agent: 'claude', model: 'claude-sonnet-5-5', effort: 'medium' },
+  specReview: null,
+  testsFirst: null,
+  build: { agent: 'claude', model: 'claude-sonnet-5-5', effort: 'medium' },
+  review: { agent: 'codex', model: 'gpt-6.1-sol', effort: 'medium' },
+  polish: { agent: 'claude', model: 'claude-sonnet-5-5', effort: 'medium' },
+  explain: { automatic: false, assignment: { agent: 'codex' } },
+  repair: {
+    maxRounds: 2,
+    assignment: { agent: 'claude', model: 'claude-sonnet-5-5', effort: 'high' },
+    reuseBuilderRounds: 1,
+  },
+};
+
+/** Built-in recipes, with the default first. Saved recipes cannot shadow these names. */
+export const builtInRecipes: readonly Recipe[] = [standardRecipe, standardClaudeRecipe];
 
 /** The assignment that repairs a round. */
 export function repairAssignment(recipe: Recipe): Assignment {

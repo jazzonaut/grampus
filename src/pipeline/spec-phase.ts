@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { logExcerpt, runChecks } from '../checks/run-checks.js';
 import { specLimits } from '../config/limits.js';
 import type { CheckResult, UserCommand } from '../domain/events.js';
-import { parseReviewReport } from '../domain/review.js';
+import { parseReviewReport, validateCoverage } from '../domain/review.js';
 import { headSha } from '../git/git.js';
 import { parseSpec } from '../domain/spec.js';
 import { specPrompt, specReviewPrompt } from './prompts.js';
@@ -150,6 +150,7 @@ function recordSpec(core: DriverCore, worktree: string, key: string): SpecVersio
       hash: spec.hash,
       path,
       checks: spec.block.checks,
+      acceptance: spec.block.acceptance,
       protected: spec.block.protected,
     });
     core.log(`Spec version ${version} recorded: ${spec.block.checks.length} checks.`);
@@ -222,6 +223,7 @@ function landSpecChecks(core: DriverCore, spec: SpecVersion, checks: SpecChecks 
   if (!checks?.results || checks.controller.signal.aborted || core.state.specChecks.has(spec.version)) return false;
   core.record({
     type: 'checks.recorded',
+    specVersion: spec.version,
     phase: 'spec',
     round: spec.version,
     sha: checks.sha,
@@ -253,6 +255,7 @@ async function startSpecReview(core: DriverCore, worktree: string, spec: SpecVer
     title: `Spec review v${spec.version}: ${core.state.title}`,
     spec: () =>
       specReviewPrompt({
+        request: core.state.request,
         specPath: spec.path,
         reportPath,
         checksBefore: before
@@ -299,6 +302,7 @@ function recordSpecReview(
     if (settled.outcome === 'failed') throw new Error(`The spec reviewer reported failure: ${settled.body}`);
     if (text === null) throw new Error(`No report was written at ${reportPath}.`);
     const report = parseReviewReport(text);
+    validateCoverage(report);
     keepEvidence(reportPath, join(core.store.dir, 'spec', `v${spec.version}-review.json`));
     core.record({ type: 'spec_review.recorded', specVersion: spec.version, report, error: null });
   } catch (error) {
@@ -323,7 +327,8 @@ function approvalDetail(core: DriverCore, spec: SpecVersion, checks: SpecChecks 
       : core.state.stages.has(stageKey('spec-review', spec.version))
         ? 'spec review still running (approve now or wait for its findings)'
         : 'spec review starts when the checks finish';
-  return `Approve spec version ${spec.version} (${spec.path}); ${checksText(core, spec, checks)}; ${reviewText}.`;
+  const coverage = review?.report?.requestCoverage;
+  return `Approve spec version ${spec.version} (${spec.path}); ${checksText(core, spec, checks)}; ${reviewText}.${coverage ? ` Original request: ${coverage.verdict}. ${coverage.rationale}` : ''}`;
 }
 
 function checksText(core: DriverCore, spec: SpecVersion, checks: SpecChecks | null): string {

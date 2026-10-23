@@ -4,9 +4,9 @@
 // and its providers are checked at most every `healthProbeMs`, since each check runs the Orca CLI.
 import type { ComparisonState, StoredComparisonEvent } from '../compare/comparison.js';
 import { ComparisonStore, listComparisonIds } from '../compare/comparison.js';
-import { currentSettings } from '../config/settings.js';
+import { availableRecipes, currentSettings } from '../config/settings.js';
 import type { StoredEvent } from '../domain/events.js';
-import { standardRecipe, type Recipe } from '../domain/recipe.js';
+import type { Recipe } from '../domain/recipe.js';
 import { installationOf, installedBuild, packageRoot, selectedBuild } from '../install/installation.js';
 import type { OrcaHealth } from '../orca/client.js';
 import type { ProviderLimits } from '../orca/protocol.js';
@@ -117,7 +117,7 @@ export async function readHealth(dataDir: string, reader: TaskReader, probe: Orc
     unreadable,
     probe: await probe.get(now),
     grampus: { dashboard: build, installed: build ? selectedBuild(installationOf(packageRoot)) : null },
-    recipes: [standardRecipe, ...currentSettings().recipes],
+    recipes: availableRecipes(),
   });
 }
 

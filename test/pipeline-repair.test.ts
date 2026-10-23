@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { standardRecipe } from '../src/domain/recipe.js';
+import { pipelineRecipe } from './helpers/recipe-fixture.js';
 import {
   commitAll,
   createHarness,
   goodWorkers,
   outputPath,
   reviewJson,
+  specText,
   write,
   worktreeOf,
   type Harness,
@@ -90,7 +91,7 @@ test('only supported blocking findings send work back; unsupported ones are down
 });
 
 test('after the recipe allows no more rounds the user decides, and accepting records an override', async () => {
-  const recipe = { ...standardRecipe, name: 'no-repair', repair: { maxRounds: 0, reuseBuilderRounds: 0 } };
+  const recipe = { ...pipelineRecipe, name: 'no-repair', repair: { maxRounds: 0, reuseBuilderRounds: 0 } };
   const harness = await createHarness(
     h =>
       goodWorkers(h, {
@@ -112,7 +113,7 @@ test('after the recipe allows no more rounds the user decides, and accepting rec
 });
 
 test('continue grants one more round with the user guidance in the repair prompt', async () => {
-  const recipe = { ...standardRecipe, name: 'no-repair', repair: { maxRounds: 0, reuseBuilderRounds: 0 } };
+  const recipe = { ...pipelineRecipe, name: 'no-repair', repair: { maxRounds: 0, reuseBuilderRounds: 0 } };
   let attempt = 0;
   const harness = await createHarness(
     h =>
@@ -140,7 +141,7 @@ test('continue grants one more round with the user guidance in the repair prompt
 });
 
 test('guidance from continue still reaches the automatic repair rounds after it', async () => {
-  const recipe = { ...standardRecipe, name: 'two-repairs', repair: { maxRounds: 2, reuseBuilderRounds: 0 } };
+  const recipe = { ...pipelineRecipe, name: 'two-repairs', repair: { maxRounds: 2, reuseBuilderRounds: 0 } };
   const repairPrompts: string[] = [];
   const harness = await createHarness(
     h =>
@@ -198,7 +199,7 @@ test('deleting a test fails the round even when the checks pass', async () => {
 });
 
 function specTextWith(command: string): string {
-  return `# Spec\n\n\`\`\`grampus\n${JSON.stringify({ checks: [{ name: 'trivial', command }] })}\n\`\`\`\n`;
+  return specText([{ name: 'trivial', command }]);
 }
 
 test('when Orca refuses to continue a chat worker, repair starts a fresh worker and stops trying', async () => {

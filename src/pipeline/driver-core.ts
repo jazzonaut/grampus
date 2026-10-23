@@ -238,7 +238,8 @@ export class DriverCore {
     this.log(`Needs you: ${detail} [${options.join(', ')}]`);
   }
 
-  private decisionAfter(key: string, options: CommandKind[]): UserCommand | null {
+  /** Replay a settled decision before resolving evidence for a later round on restart. */
+  decisionAfter(key: string, options: CommandKind[]): UserCommand | null {
     const index = this.events.findLastIndex(event => event.type === 'attention.needed' && event.reason === key);
     if (index < 0) return null;
     for (const event of this.events.slice(index + 1)) {

@@ -13,6 +13,8 @@ export const specLimits = {
   /** Size of the spec file a worker writes. */
   bytes: 128 * KiB,
   checks: 12,
+  acceptanceScenarios: 40,
+  acceptanceTextLength: 4000,
   checkNameLength: 80,
   checkCommandLength: 2000,
   /** Longest single check; the default comes from settings. */

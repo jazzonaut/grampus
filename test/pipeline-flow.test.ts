@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { currentSettings } from '../src/config/settings.js';
-import { standardRecipe } from '../src/domain/recipe.js';
+import { pipelineRecipe } from './helpers/recipe-fixture.js';
 import { headSha } from '../src/git/git.js';
 import { renderSummary, summarise } from '../src/pipeline/status.js';
 import {
@@ -116,7 +116,7 @@ test('an unusable spec file is corrected automatically once', async () => {
 });
 
 test('tests first commits acceptance tests that the builder may not change', async () => {
-  const recipe = { ...standardRecipe, name: 'tests-first', testsFirst: { agent: 'claude' as const } };
+  const recipe = { ...pipelineRecipe, name: 'tests-first', testsFirst: { agent: 'claude' as const } };
   let builds = 0;
   const harness = await createHarness(
     h =>
@@ -240,10 +240,7 @@ test('a blocking spec review finding that arrives after the request notifies the
       'spec-review': async context => {
         await reviewDone;
         const finding = { severity: 'blocking', title: 'Greeting for an empty name is undefined' };
-        writeFileSync(
-          outputPath(context.spec),
-          JSON.stringify({ verdict: 'changes', summary: 'Gap.', findings: [finding] }),
-        );
+        writeFileSync(outputPath(context.spec), reviewJson('changes', [finding]));
         return { outcome: 'succeeded' };
       },
     }),
@@ -272,7 +269,7 @@ test('a clean spec review that lands after the request notifies the user and upd
     goodWorkers(h, {
       'spec-review': async context => {
         await reviewDone;
-        writeFileSync(outputPath(context.spec), JSON.stringify({ verdict: 'approve', summary: 'Fine.', findings: [] }));
+        writeFileSync(outputPath(context.spec), reviewJson('approve'));
         return { outcome: 'succeeded' };
       },
     }),

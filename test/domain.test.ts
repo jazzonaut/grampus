@@ -1,15 +1,27 @@
+import { acceptanceScenarios } from './helpers/task-fixture.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { crossFamilyReview, recipeSchema, standardRecipe } from '../src/domain/recipe.js';
+import {
+  builtInRecipes,
+  crossFamilyReview,
+  recipeSchema,
+  standardRecipe,
+  standardClaudeRecipe,
+} from '../src/domain/recipe.js';
 import { judgeCodeReview, parseReviewReport } from '../src/domain/review.js';
 import { parseSpec } from '../src/domain/spec.js';
 import { globToRegExp, matchesAny } from '../src/util/glob.js';
 
-const block = (value: unknown) => `# Spec\n\n\`\`\`grampus\n${JSON.stringify(value)}\n\`\`\`\n`;
+const block = (value: unknown) =>
+  `# Spec\n\n\`\`\`grampus\n${JSON.stringify({ acceptance: acceptanceScenarios((value as { checks?: { name: string }[] }).checks?.map(check => check.name)), ...(value as object) })}\n\`\`\`\n`;
 
 test('a spec needs exactly one valid grampus block', () => {
   const spec = parseSpec(block({ checks: [{ name: 'unit', command: 'npm test' }] }));
-  assert.deepEqual(spec.block, { checks: [{ name: 'unit', command: 'npm test' }], protected: [] });
+  assert.deepEqual(spec.block, {
+    checks: [{ name: 'unit', command: 'npm test' }],
+    protected: [],
+    acceptance: acceptanceScenarios(['unit']),
+  });
   assert.equal(spec.hash, parseSpec(spec.markdown).hash);
   assert.throws(() => parseSpec('# Spec\nno block'), /exactly one fenced `grampus` JSON block; found 0/);
   assert.throws(() => parseSpec(block({ checks: [] }) + block({ checks: [] })), /found 2/);
@@ -68,8 +80,13 @@ test('globs cross directories only with **', () => {
 });
 
 test('the standard recipe is valid and its review is cross-family', () => {
-  assert.deepEqual(recipeSchema.parse(standardRecipe), standardRecipe);
-  assert.equal(crossFamilyReview(standardRecipe), true);
+  for (const recipe of builtInRecipes) {
+    assert.deepEqual(recipeSchema.parse(recipe), recipe);
+    assert.equal(crossFamilyReview(recipe), true);
+  }
+  assert.deepEqual(standardClaudeRecipe.build, standardRecipe.review);
+  assert.deepEqual(standardClaudeRecipe.review, standardRecipe.build);
+  assert.equal(standardClaudeRecipe.repair.assignment?.effort, standardRecipe.repair.assignment?.effort);
   assert.equal(crossFamilyReview({ ...standardRecipe, review: { agent: 'codex' } }), false);
   assert.equal(crossFamilyReview({ ...standardRecipe, review: null }), null);
   assert.equal(

@@ -114,6 +114,17 @@ function size(diff: DiffSize): string {
       />
       <template v-else>
         <p class="text-sm">{{ round.review.report.summary }}</p>
+        <p v-if="round.review.report.requestCoverage" class="text-sm">
+          Original request: {{ round.review.report.requestCoverage.verdict }}.
+          {{ round.review.report.requestCoverage.rationale }}
+        </p>
+        <div v-for="item in round.review.report.coverage ?? []" :key="item.acceptanceId" class="text-sm space-y-1">
+          <p>
+            <strong>{{ item.acceptanceId }}: {{ item.status }}</strong
+            >. {{ item.evidence }}
+          </p>
+          <p v-if="item.limitations.length" class="text-warning">Limitations: {{ item.limitations.join('; ') }}</p>
+        </div>
         <FindingList :findings="round.review.report.findings" :downgraded="round.review.downgraded" />
       </template>
     </section>

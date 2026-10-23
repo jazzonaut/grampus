@@ -26,7 +26,7 @@ const recipes = ref<Recipe[]>([]);
 const repo = ref<string | undefined>(undefined);
 const request = ref('');
 const title = ref('');
-const recipe = ref('standard');
+const recipe = ref('');
 const comparing = ref(route.query['compare'] === '1');
 const compared = ref<string[]>([]);
 const mode = ref<'full' | 'shared'>('full');
@@ -53,8 +53,11 @@ getJson<{ repos: RepoChoice[]; note: string | null }>('/api/repos').then(
   },
   (failure: unknown) => (repoNote.value = (failure as Error).message),
 );
-getJson<{ recipes: Recipe[] }>('/api/recipes').then(
-  value => (recipes.value = value.recipes),
+getJson<{ recipes: Recipe[]; defaultRecipe: string }>('/api/recipes').then(
+  value => {
+    recipes.value = value.recipes;
+    recipe.value = value.defaultRecipe;
+  },
   () => undefined,
 );
 

@@ -1,7 +1,6 @@
-// Files exchanged with workers. Workers write inside the task worktree, under `.grampus/`, because
-// agent sandboxes may refuse writes elsewhere. Grampus excludes that folder from Git (through the
-// repository's `info/exclude`, never a committed file) and copies each file into the task folder as
-// evidence that survives the worktree.
+// Files exchanged with workers. Most use the excluded `.grampus/` folder for sandbox access;
+// polish reports use Git metadata so a worker cannot force-add them to its source changes.
+// Durable copies in the task folder preserve evidence after the worktree is removed.
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { git } from '../git/git.js';
@@ -12,6 +11,14 @@ export const workerFolder = '.grampus';
 /** The path a stage's worker writes a file to, e.g. `<worktree>/.grampus/spec-1/spec.md`. */
 export function workerFile(worktree: string, key: string, name: string): string {
   const dir = join(worktree, workerFolder, safeName(key));
+  mkdirSync(dir, { recursive: true });
+  return join(dir, name);
+}
+
+/** Keep polish reports in this worktree's Git metadata, where even a force-add cannot commit them. */
+export async function privateWorkerFile(worktree: string, key: string, name: string): Promise<string> {
+  const gitDir = (await git(worktree, ['rev-parse', '--absolute-git-dir'])).trim();
+  const dir = join(gitDir, 'grampus', safeName(key));
   mkdirSync(dir, { recursive: true });
   return join(dir, name);
 }

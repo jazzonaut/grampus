@@ -25,7 +25,9 @@ A short sketch. The builder may change it.
 Then exactly one fenced code block whose info string is \`grampus\`, containing JSON:
 
 \`\`\`grampus
-{"checks": [{"name": "unit tests", "command": "npm test -- src/export.test.ts", "timeoutSeconds": 600}], "protected": []}
+{"checks": [{"name": "unit tests", "command": "npm test -- src/export.test.ts", "timeoutSeconds": 600}], "protected": [],
+ "acceptance": [{"id":"export-result","request":"the requested export outcome","scenario":"concrete action and expected result",
+ "checks":["unit tests"],"realComponents":["export entry point"],"mockedComponents":[],"limitations":[]}]}
 \`\`\`
 
 - "checks": commands run from the repository root, non-interactively, that exit 0 only when the
@@ -38,7 +40,14 @@ Then exactly one fenced code block whose info string is \`grampus\`, containing 
 - A check may declare "portable": true only when its tests use stable, existing public interfaces
   and observable behaviour rather than implementation-specific helpers. This is an explicit claim
   reviewed with the spec; without it, a cross-check failure has unknown behavioural meaning.
-- "protected": repository globs the builder must not change (usually empty).`;
+- "protected": repository globs the builder must not change (usually empty).
+- "acceptance": map every requested outcome to at least one executable scenario. Use unique stable ids
+  and declared check names. Name the real components exercised, mocked components and known limitations.
+  Trace the user's action through the relevant production boundaries before choosing a test seam.
+  Manually injecting the state that should result from a journey does not prove the journey works.
+  Keep this proportional: a pure function can need one direct test; a reconnect request needs evidence
+  across the transport and identity boundaries it depends on. Do not require unrelated end-to-end suites.
+  State gaps honestly rather than narrowing the request to what a convenient unit test can prove.`;
 
 const reportFormat = `Write the report as JSON:
 
@@ -115,6 +124,7 @@ ACCEPTANCE: the spec file exists in this format. Then send worker_done with --ou
 }
 
 export function specReviewPrompt(input: {
+  request: string;
   specPath: string;
   reportPath: string;
   /** The spec's checks as Grampus ran them on the current commit, with failing log tails; null if they could not run. */
@@ -131,17 +141,23 @@ shows no regression but not the new behaviour.`
   return `ROLE: spec reviewer, independent of the spec writer.
 
 TARGET: the spec at ${input.specPath} and this repository, read-only.
+Original user request:
+${input.request}
 
 CHANGE: review the spec before the user approves it and write a report to ${input.reportPath}.
 Look for: ambiguity that would change the result, missing edge cases, criteria that no check
 exercises, checks that cannot prove their criteria or are likely slow or flaky, and scope beyond
 the request. Severity "blocking" means it must be resolved before building; everything else is a note.
+Compare the acceptance mapping against the original request, not just the provisional approach.
+Trace each scenario through production entry points and name any mocked boundary that hides the
+requested behaviour. A central requested outcome missing from the spec is a coverage gap.
 
 ${before}
 
 CONSTRAINTS: do not edit any file except the report. Do not repeat the spec back.
 
 ${reportFormat}
+Also include "requestCoverage": {"verdict":"covered" | "gaps" | "unknown", "rationale":"how the spec accounts for the original request, including any omitted outcomes"}.
 
 ACCEPTANCE: the report file exists as valid JSON. Then send worker_done with --outcome succeeded and
 --report-path ${input.reportPath}.`;
@@ -168,7 +184,7 @@ CONSTRAINTS:
 - Prefer existing public interfaces and observable behaviour, avoiding assumptions about new internal
   methods or data structures. This lets different builders implement the same acceptance tests.
 - Once you commit them, these files are protected: the builder cannot change them.
-${input.reportPath ? `\nWrite a report to ${input.reportPath}, with JSON {"failures":[{"check":"approved check name","criterion":"criterion this failure demonstrates","expectedOutput":"exact short assertion output"}]}. Run the checks and quote actual failure output. Missing tools, failed imports and broken test harnesses are not behavioural failures. Grampus independently reruns the checks and matches your explanation against their logs.` : ''}
+${input.reportPath ? `\nWrite a report to ${input.reportPath}, with JSON {"failures":[{"check":"approved check name","file":"repository-relative changed test file","test":"exact runner-reported test name","criterion":"criterion this failure demonstrates","expectedOutput":"exact short assertion output"}]}. Run the checks and quote actual failure output. Missing tools, failed imports and broken test harnesses are not behavioural failures. Use a runner reporter that prints named failures, file locations and assertion diagnostics (for example Node TAP, Vitest, Jest or pytest). Grampus independently reruns the checks and requires the named test and assertion in the same failure section of the full log. Include every intended failing acceptance test; a filename, suite failure or arbitrary printed text alone is insufficient.` : ''}
 
 ACCEPTANCE: one or more commits that add the tests. Then send worker_done with --outcome succeeded
 and --files-modified listing the test files.`;
@@ -265,6 +281,8 @@ function describeProblems(problems: RepairProblems): string {
 }
 
 export function reviewPrompt(input: {
+  request: string;
+  guidance: readonly string[];
   specPath: string;
   baseSha: string;
   sha: string;
@@ -292,6 +310,9 @@ export function reviewPrompt(input: {
 
 TARGET: the change ${input.baseSha.slice(0, 12)}..${input.sha.slice(0, 12)} in this repository
 (\`git diff ${input.baseSha} ${input.sha}\`), against the approved spec at ${input.specPath}.
+Original user request:
+${input.request}
+${input.guidance.length ? `User guidance, oldest first:\n${bullets(input.guidance)}` : ''}
 ${input.roundFromSha ? `\nThe current round alone is \`git diff ${input.roundFromSha} ${input.sha}\`. Judge coverage using the complete task diff above, including tests committed before the builder started.` : ''}
 ${input.acceptanceTests?.length ? `\nAcceptance tests committed before implementation and protected afterwards:\n${bullets(input.acceptanceTests)}` : ''}
 ${input.testBaseline?.length ? `\nPre-implementation test evidence:\n${bullets(input.testBaseline)}\nConfirm the claimed missing behaviour caused the failure; unknown evidence does not establish a red phase.` : ''}
@@ -313,12 +334,22 @@ CHANGE: write a review report to ${input.reportPath}.
 
 CONSTRAINTS:
 - Read-only: do not edit, commit or check out anything except writing the report.
-- A finding is "blocking" only if the change is incorrect or misses a spec criterion, and only with a
+- Evaluate implementation against the spec AND whether the spec and tests fulfil the original request.
+  Follow the requested action through production wiring. An injected roster, mocked transport or unused
+  helper does not prove the corresponding real journey. Use the smallest appropriate executable seam.
+- A finding is "blocking" only if the change is incorrect or misses a requested outcome or spec criterion, and only with a
   file, a line and a concrete failing scenario. Grampus downgrades blocking findings without them to notes.
 - Style, naming, polish and speculative risks are notes. Do not invent gaps to have something
   to report; "approve" with no findings is a good review when the change is right.
 
 ${reportFormat}
+Also include both:
+"requestCoverage": {"verdict":"covered" | "gaps" | "unknown", "rationale":"assessment of the original request, including omissions in the spec"},
+"coverage": [{"acceptanceId":"id from the approved acceptance mapping", "status":"verified" | "unverified",
+ "evidence":"specific test, assertion and driver check that exercise the outcome", "limitations":["remaining gaps or relevant mock boundaries"]}].
+Name EVERY approved acceptance id exactly once. Mark an outcome unverified if the evidence cannot
+establish it, even if all commands passed. A missing requested outcome cannot be dismissed as extra scope
+merely because the spec overlooked it. Do not invent coverage or require unrelated full-system tests.
 
 ACCEPTANCE: the report file exists as valid JSON. Then send worker_done with --outcome succeeded and
 --report-path ${input.reportPath}.`;
@@ -339,13 +370,16 @@ TARGET: the change ${input.baseSha.slice(0, 12)}..${input.sha.slice(0, 12)} in t
 (\`git diff ${input.baseSha} ${input.sha}\`), which implements the approved spec at ${input.specPath}.
 Its checks pass${input.reviewed ? ' and a reviewer approved it' : ''}.
 
-CHANGE: make the completed change easier to understand and maintain without changing behaviour. Look for:
-- names that can express domain meaning or responsibilities more clearly;
+CHANGE: polish the task's code for readability, maintainability, consistency, simplicity and better
+naming while preserving behaviour. Inspect it first and explain the improvement each edit makes.
+These are valid benefits in their own right; no hypothetical future edit is needed to justify them.
+Look for:
+- unclear names, inconsistent terminology or presentation, and code that is harder to read than it needs to be;
 - code that does what the repository already has a helper for: use the helper;
 - duplication within the change;
 - abstractions, options, parameters, configuration or error handling the spec does not need;
 - dead code, unused exports, leftover debugging and comments that restate the code.
-- confusing control flow, redundant state, and local inconsistencies with repository conventions.
+- confusing control flow or redundant state that makes an actual rule harder to maintain.
 Extract shared code only when it represents the same rule or responsibility and reduces maintenance
 effort. Similar-looking code alone is not enough. Do not introduce generic helpers speculatively.
 
@@ -359,13 +393,16 @@ ${checkList(input.checks)}
 - Do not change how checks run: runner, build or lint settings, or scripts a check names.${
     input.protectedPaths.length ? `\n- Do not change these protected paths:\n${bullets(input.protectedPaths)}` : ''
   }
-- A small, sure polish beats a large, risky one. If nothing is worth polishing, commit
-  nothing.
+- Standalone naming, readability and consistency improvements are welcome. Follow the repository's
+  conventions and explain what improves; do not churn code solely to impose a personal preference.
+  If you find no useful improvement, commit nothing and report an empty improvements list.
 - Commit your work on the current branch and leave no uncommitted or untracked files. Do not push,
   change branches, amend or rebase commits you did not make.
 
 Write a report to ${input.reportPath}. Use this JSON shape:
-{"summary":"What improved, or why no worthwhile change was found","improvements":[{"category":"naming|duplication|structure|cleanup|consistency","files":["repo-relative/path"],"benefit":"Concrete maintenance benefit","adjacentReason":null}]}
+{"summary":"What improved, or why no worthwhile change was found","improvements":[{"category":"naming|duplication|structure|cleanup|consistency","files":["repo-relative/path"],"problem":"Readability, naming, consistency or maintenance issue","benefit":"How the code becomes clearer, simpler, more consistent or easier to maintain","adjacentReason":null}]}
+The report is runtime evidence in this worktree's Git metadata, outside product source. Write only the
+specified report there. Do not add, force-add or commit reports, and do not alter other Git metadata.
 Use exactly one category per item. Set adjacentReason to an explanation for edits outside the original
 change. Cover every edited file. For a successful no-op, improvements is empty. More edits or fewer
 lines are not a goal. Inspect affected callers and run relevant checks beyond the approved checks when
@@ -406,10 +443,12 @@ CONSTRAINTS:
 - Read-only: do not edit, commit or check out anything except writing the report.
 - A finding is "blocking" only if the polish changes behaviour, breaks a spec criterion or
   weakens a test, and only with a file, a line and a concrete failing scenario.
-- Independently assess maintenance value: clearer domain names, fewer representations of a rule,
-  simpler control flow, justified reuse or removal of unused code. Reject cosmetic churn, speculative
-  abstractions and unrelated cleanup. Check that every adjacent edit is necessary and bounded, and
-  inspect affected callers. Preserving behaviour alone is not enough to retain the pass.
+- Independently assess the benefit: readability, maintainability, consistency, simpler code and better
+  naming all count, including standalone improvements. A hypothetical future edit is not required.
+  Look for clearer domain names, fewer representations of a rule, simpler control flow, justified reuse
+  or removal of unused code. Distinguish useful polish from personal preference, speculative abstractions
+  and unrelated cleanup. Check that every adjacent edit is necessary and bounded, and inspect affected
+  callers. Preserve improvements worth keeping; preserving behaviour alone is not evidence of a benefit.
 - Use "approve" only when you are confident behaviour is unchanged. Any other verdict discards the
   polish and keeps the change as it was, which is safe.
 

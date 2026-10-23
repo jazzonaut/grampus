@@ -4,8 +4,8 @@ import { basename, dirname } from 'node:path';
 import { suggestTitle } from '../agents/title.js';
 import { inputLimits } from '../config/limits.js';
 import { availableRecipes } from '../config/settings.js';
-import type { Recipe } from '../domain/recipe.js';
-import type { CheckDefinition } from '../domain/spec.js';
+import { standardRecipe, type Recipe } from '../domain/recipe.js';
+import type { AcceptanceScenario, CheckDefinition } from '../domain/spec.js';
 import { join } from 'node:path';
 import { keepEvidence } from './workspace-files.js';
 import { git, headSha } from '../git/git.js';
@@ -36,6 +36,7 @@ export interface InheritedSpec {
   path: string;
   hash: string;
   checks: CheckDefinition[];
+  acceptance: AcceptanceScenario[];
   protected: string[];
 }
 
@@ -46,7 +47,7 @@ export async function createTask(
   const request = input.request.trim();
   if (!request || request.length > inputLimits.requestLength)
     throw new Error(`The request must be between 1 and ${inputLimits.requestLength} characters.`);
-  const recipe = input.recipe ?? findRecipe(input.recipeName ?? 'standard');
+  const recipe = input.recipe ?? findRecipe(input.recipeName ?? standardRecipe.name);
   const repoRoot = await resolveRepository(input.repoPath);
   const title = await taskTitle(request, input.title);
   const taskId = `${slug(title)}-${randomBytes(3).toString('hex')}`;
@@ -119,6 +120,7 @@ function inheritSpec(store: TaskStore, spec: InheritedSpec): void {
     hash: spec.hash,
     path,
     checks: spec.checks,
+    acceptance: spec.acceptance,
     protected: spec.protected,
   });
 }

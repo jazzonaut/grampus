@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { standardRecipe } from '../src/domain/recipe.js';
+import { pipelineRecipe } from './helpers/recipe-fixture.js';
 import { crossCheckCell } from '../src/compare/cross-check.js';
 import { ComparisonStore } from '../src/compare/comparison.js';
 import {
@@ -32,7 +32,7 @@ test('tests first recognises and protects cases added to existing test files', a
           return { outcome: 'succeeded' };
         },
       }),
-    { ...standardRecipe, name: 'existing-tests', testsFirst: { agent: 'codex' } },
+    { ...pipelineRecipe, name: 'existing-tests', testsFirst: { agent: 'codex' } },
   );
   const driver = harness.run();
   try {
@@ -64,7 +64,7 @@ test('cross-checks use the retained polish and its own check evidence', async ()
           return { outcome: 'succeeded' };
         },
       }),
-    { ...standardRecipe, name: 'polished-candidate', polish: { agent: 'codex' } },
+    { ...pipelineRecipe, name: 'polished-candidate', polish: { agent: 'codex' } },
   );
   const driver = harness.run();
   try {
@@ -101,7 +101,7 @@ test('repository setup fails separately, retries explicitly and precedes the spe
           return { outcome: 'succeeded' };
         },
       }),
-    standardRecipe,
+    pipelineRecipe,
     async repo => {
       write(repo, '.gitignore', '.allow-setup\n.prepared\n');
       write(
@@ -139,7 +139,7 @@ test('a tests-first worker cannot quietly implement production code', async () =
           return { outcome: 'succeeded' };
         },
       }),
-    { ...standardRecipe, name: 'test-boundary', testsFirst: { agent: 'codex' } },
+    { ...pipelineRecipe, name: 'test-boundary', testsFirst: { agent: 'codex' } },
   );
   const driver = harness.run();
   await harness.until(s => s.attention?.reason === 'approve-spec:1', 'spec');
@@ -160,5 +160,5 @@ test('acceptance refuses a commit added after final verification', async () => {
   harness.command({ kind: 'accept' });
   assert.equal(await driver, 1);
   assert.equal(harness.state().finished, null);
-  assert.match(harness.state().lastStop?.reason ?? '', /final checked candidate/);
+  assert.match(harness.state().lastStop?.reason ?? '', /candidate|worktree changed during verification/);
 });

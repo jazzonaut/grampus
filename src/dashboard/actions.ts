@@ -10,7 +10,7 @@ import { queueComparisonCommand } from '../control.js';
 import { inputLimits, recipeLimits } from '../config/limits.js';
 import { availableRecipes, currentSettings, saveRecipes, useSettings } from '../config/settings.js';
 import { mergeAccepted } from '../delivery/merge.js';
-import { recipeSchema, standardRecipe, type Recipe } from '../domain/recipe.js';
+import { recipeSchema, standardRecipe, builtInRecipes, type Recipe } from '../domain/recipe.js';
 import { OrcaError, OrcaUncertainError } from '../orca/client.js';
 import { createTask, driverTabTitle } from '../pipeline/create-task.js';
 import { removeTask } from '../pipeline/remove-task.js';
@@ -199,7 +199,8 @@ export async function listRepos({ app, response }: Call): Promise<void> {
 export function listRecipes({ response }: Call): void {
   sendJson(response, 200, {
     recipes: availableRecipes(),
-    builtIn: standardRecipe.name,
+    builtIn: builtInRecipes.map(recipe => recipe.name),
+    defaultRecipe: standardRecipe.name,
     maxRepairRounds: recipeLimits.maxRepairRounds,
   });
 }
@@ -215,7 +216,8 @@ function storeRecipes(app: DashboardApp, recipes: Recipe[]): void {
 /** Create or replace a saved recipe; a different name in the body renames it. */
 export async function putRecipe({ app, request, response, params }: Call): Promise<void> {
   const name = decodeURIComponent(params[0] ?? '');
-  if (name === standardRecipe.name) throw new HttpError(400, 'The built-in recipe cannot be changed; copy it instead.');
+  if (builtInRecipes.some(recipe => recipe.name === name))
+    throw new HttpError(400, 'The built-in recipe cannot be changed; copy it instead.');
   const recipe = recipeSchema.parse(await readJson(request));
   const saved = currentSettings().recipes;
   if (recipe.name !== name && saved.some(item => item.name === recipe.name))

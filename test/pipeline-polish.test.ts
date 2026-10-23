@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
+import { relative, isAbsolute } from 'node:path';
 import { test } from 'node:test';
-import { standardRecipe, type Recipe } from '../src/domain/recipe.js';
-import { headSha, uncommittedPaths } from '../src/git/git.js';
+import type { Recipe } from '../src/domain/recipe.js';
+import { pipelineRecipe } from './helpers/recipe-fixture.js';
+import { git, headSha, uncommittedPaths } from '../src/git/git.js';
 import type { WorkerContext, WorkerResult } from './helpers/fake-orca.js';
 import {
   commitAll,
@@ -17,7 +19,7 @@ import {
   type Harness,
 } from './helpers/task-fixture.js';
 
-const recipe: Recipe = { ...standardRecipe, name: 'polish', polish: { agent: 'codex' } };
+const recipe: Recipe = { ...pipelineRecipe, name: 'polish', polish: { agent: 'codex' } };
 
 const plainGreet = 'export const greet = name => `Hello, ${name}!`;\n';
 
@@ -306,6 +308,74 @@ test('behaviour-preserving polish without a maintenance benefit is discarded', a
     assert.equal(ready.polish.get(0)?.decided?.outcome, 'discarded');
     assert.match(ready.polish.get(0)?.decided?.reasons.join() ?? '', /no-benefit/);
     assert.equal(await headSha(worktreeOf(harness)), ready.verify.get(0)?.sha);
+  } finally {
+    harness.command({ kind: 'abandon' });
+    await driver;
+  }
+});
+
+test('polish reports live outside the source tree and never need a maintenance claim', async () => {
+  const harness = await createHarness(
+    h =>
+      goodWorkers(h, {
+        polish: async context => {
+          const path = outputPath(context.spec);
+          const fromTree = relative(worktreeOf(h), path);
+          assert.ok(fromTree.startsWith('..') || isAbsolute(fromTree), 'report must be outside the source worktree');
+          writeFileSync(path, polishReportJson());
+          await assert.rejects(git(worktreeOf(h), ['add', '-f', '--', path]), /outside repository/i);
+          write(worktreeOf(h), 'greet.js', plainGreet);
+          await commitAll(worktreeOf(h), 'Polish with report already written');
+          return { outcome: 'succeeded' };
+        },
+      }),
+    recipe,
+  );
+  const driver = harness.run();
+  try {
+    const ready = await approveAndWait(harness, 'ready:0');
+    assert.equal(ready.polish.get(0)?.decided?.outcome, 'kept');
+    assert.deepEqual(ready.polish.get(0)?.checked?.guard.changedFiles, ['greet.js']);
+  } finally {
+    harness.command({ kind: 'abandon' });
+    await driver;
+  }
+});
+
+test('standalone naming improvements can be kept when checks and independent review approve', async () => {
+  const harness = await createHarness(
+    h =>
+      goodWorkers(h, {
+        polish: async context => {
+          write(worktreeOf(h), 'greet.js', 'export const greet = person => `Hello, ${person}!`;\n');
+          await commitAll(worktreeOf(h), 'Rename a local parameter');
+          writeFileSync(
+            outputPath(context.spec),
+            JSON.stringify({
+              summary: 'Make the greeting parameter match its domain meaning.',
+              improvements: [
+                {
+                  category: 'naming',
+                  files: ['greet.js'],
+                  problem: 'The parameter does not say it represents the person being greeted.',
+                  benefit: 'The person parameter makes the greeting expression easier to read.',
+                  adjacentReason: null,
+                },
+              ],
+            }),
+          );
+          return { outcome: 'succeeded' };
+        },
+      }),
+    recipe,
+  );
+  const driver = harness.run();
+  try {
+    const ready = await approveAndWait(harness, 'ready:0');
+    assert.equal(ready.polish.get(0)?.decided?.outcome, 'kept');
+    assert.ok(ready.polish.get(0)?.checked?.results.every(result => result.passed));
+    assert.equal(ready.stages.has('polish-review:0'), true);
+    assert.equal(await headSha(worktreeOf(harness)), ready.polish.get(0)?.decided?.sha);
   } finally {
     harness.command({ kind: 'abandon' });
     await driver;

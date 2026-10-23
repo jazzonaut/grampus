@@ -1,4 +1,4 @@
-<!-- The committed diff stays central while explanation, discussion, feedback and PR copy sit beside it. -->
+<!-- Explanations use a readable overview above the diff; review actions stay beside the code. -->
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import type { CodeReference } from '../../../src/domain/explanation';
@@ -427,22 +427,104 @@ async function copyPr(): Promise<void> {
         size="sm"
         color="neutral"
         variant="outline"
-        icon="i-lucide-panel-right-open"
+        icon="i-lucide-book-open"
+        :aria-expanded="explanationOpen"
+        aria-controls="change-explanation"
         @click="explanationOpen = !explanationOpen"
         >{{ explanationOpen ? 'Close explanation' : 'Open explanation' }}</UButton
       >
       <span v-if="current?.error" class="text-xs text-warning">{{ current.error }}</span>
     </div>
     <div v-else class="space-y-2"><USkeleton class="h-5 w-1/2" /><USkeleton class="h-64" /></div>
-    <div
-      v-if="changes"
-      class="grid gap-4 items-start"
-      :class="
-        explanationOpen
-          ? 'md:grid-cols-[minmax(0,1fr)_minmax(15rem,18rem)]'
-          : 'xl:grid-cols-[minmax(0,1fr)_minmax(19rem,25rem)]'
-      "
-    >
+    <UCard v-if="explanationOpen && explanation" id="change-explanation">
+      <template #header><h3 class="font-semibold">Why this changed</h3></template>
+      <div class="mx-auto max-w-prose space-y-4 text-sm">
+        <UAlert
+          v-if="!current?.explanation"
+          color="warning"
+          variant="subtle"
+          title="Earlier candidate"
+          description="This explanation refers to a previous commit. Its references may have moved."
+        />
+        <details
+          v-for="item in [
+            ['Problem', explanation.problem],
+            ['Before and after', explanation.beforeAfter],
+            ['Architecture', explanation.architecture],
+            ['Approach', explanation.approach],
+            ['Decisions', explanation.decisions],
+            ['Validation', explanation.validation],
+            ['Limitations', explanation.limitations],
+          ]"
+          :key="item[0]"
+          class="rounded-lg border border-default px-4"
+          :open="item[0] === 'Before and after'"
+        >
+          <summary class="cursor-pointer py-3 font-semibold focus-visible:outline-primary">{{ item[0] }}</summary>
+          <MarkdownView class="pb-4" :source="item[1] ?? ''" />
+        </details>
+        <section v-if="activeGroup" class="rounded-lg border border-primary/30 p-3">
+          <div class="flex justify-between gap-2">
+            <h4 class="font-semibold">{{ activeGroup.title }}</h4>
+            <UButton size="xs" color="neutral" variant="outline" @click="mark(activeGroup.id)">{{
+              markers.includes(activeGroup.id) ? 'Reviewed ✓' : 'Mark reviewed'
+            }}</UButton>
+          </div>
+          <MarkdownView :source="activeGroup.purpose" />
+          <div class="flex flex-wrap gap-1 mt-2">
+            <UButton
+              v-for="reference in activeGroup.references"
+              :key="`${reference.path}:${reference.start}`"
+              size="xs"
+              color="neutral"
+              variant="link"
+              class="px-0"
+              @click="jump(reference, current?.explanation ? changes?.sha : prior?.candidateSha)"
+              >{{ reference.path }}:{{ reference.start }}</UButton
+            >
+          </div>
+        </section>
+        <p v-if="selectedCode" class="text-xs text-primary">
+          Selected code: {{ selectedCode.path }}:{{ selectedCode.start
+          }}<template v-if="selectedCode.end !== selectedCode.start">-{{ selectedCode.end }}</template>
+        </p>
+        <form v-if="current?.explanation" class="space-y-2" @submit.prevent="ask">
+          <UFormField label="Ask about this change"
+            ><UTextarea
+              v-model="question"
+              class="w-full"
+              placeholder="What would you like to understand?" /></UFormField
+          ><UButton type="submit" size="sm" :disabled="!question.trim()" :loading="busy">Ask question</UButton>
+        </form>
+        <div v-for="answer in currentAnswers" :key="answer.commandId" class="border-t border-default pt-3 space-y-1">
+          <p class="font-medium">{{ answer.question }}</p>
+          <p v-if="answer.error" class="text-warning">{{ answer.error }}</p>
+          <MarkdownView v-else-if="answer.answer" :source="answer.answer.answer" />
+          <div class="flex flex-wrap gap-1">
+            <UButton
+              v-for="reference in answer.answer?.references ?? []"
+              :key="`${reference.path}:${reference.start}`"
+              size="xs"
+              variant="link"
+              color="neutral"
+              class="px-0"
+              @click="jump(reference, answer.candidateSha)"
+              >{{ reference.path }}:{{ reference.start }}</UButton
+            >
+          </div>
+          <UButton
+            v-if="answer.answer"
+            size="xs"
+            color="neutral"
+            variant="link"
+            class="px-0"
+            @click="requestFromDiscussion(answer)"
+            >Draft a change request from this answer</UButton
+          >
+        </div>
+      </div>
+    </UCard>
+    <div v-if="changes" class="grid gap-4 items-start xl:grid-cols-[minmax(0,1fr)_minmax(19rem,25rem)]">
       <div class="min-w-0 space-y-3">
         <div
           v-if="prior"
@@ -517,24 +599,17 @@ async function copyPr(): Promise<void> {
             >All</UButton
           >
         </div>
-        <div
-          class="grid gap-3 items-start"
-          :class="explanationOpen ? '' : 'md:grid-cols-[minmax(11rem,15rem)_minmax(0,1fr)]'"
-        >
+        <div class="grid gap-3 items-start md:grid-cols-[minmax(11rem,15rem)_minmax(0,1fr)]">
           <nav
-            class="rounded-lg border border-default overflow-auto"
-            :class="explanationOpen ? 'flex max-h-20' : 'max-h-80 md:sticky md:top-2'"
+            class="rounded-lg border border-default overflow-auto max-h-80 md:sticky md:top-2"
             aria-label="Changed files"
           >
             <button
               v-for="file in visibleFiles"
               :key="file.path"
               type="button"
-              class="text-left px-3 py-2 border-b border-default text-xs hover:bg-elevated"
-              :class="[
-                selectedFile === file.path ? 'bg-primary/10 font-semibold' : '',
-                explanationOpen ? 'min-w-40 max-w-48 border-r' : 'w-full',
-              ]"
+              class="w-full text-left px-3 py-2 border-b border-default text-xs hover:bg-elevated"
+              :class="selectedFile === file.path ? 'bg-primary/10 font-semibold' : ''"
               :title="file.oldPath ? `Renamed from ${file.oldPath}` : file.path"
               @click="selectedFile = file.path"
             >
@@ -565,97 +640,7 @@ async function copyPr(): Promise<void> {
           </div>
         </div>
       </div>
-      <aside class="min-w-0 space-y-3 xl:sticky xl:top-2" aria-label="Change explanation and review">
-        <UCard v-if="explanationOpen && explanation" class="max-h-[75vh] overflow-auto">
-          <template #header><h3 class="font-semibold">Why this changed</h3></template>
-          <div class="space-y-3 text-sm">
-            <UAlert
-              v-if="!current?.explanation"
-              color="warning"
-              variant="subtle"
-              title="Earlier candidate"
-              description="This explanation refers to a previous commit. Its references may have moved."
-            />
-            <section
-              v-for="item in [
-                ['Problem', explanation.problem],
-                ['Before and after', explanation.beforeAfter],
-                ['Architecture', explanation.architecture],
-                ['Approach', explanation.approach],
-                ['Decisions', explanation.decisions],
-                ['Validation', explanation.validation],
-                ['Limitations', explanation.limitations],
-              ]"
-              :key="item[0]"
-            >
-              <h4 class="font-semibold">{{ item[0] }}</h4>
-              <MarkdownView :source="item[1] ?? ''" />
-            </section>
-            <section v-if="activeGroup" class="rounded-lg border border-primary/30 p-3">
-              <div class="flex justify-between gap-2">
-                <h4 class="font-semibold">{{ activeGroup.title }}</h4>
-                <UButton size="xs" color="neutral" variant="outline" @click="mark(activeGroup.id)">{{
-                  markers.includes(activeGroup.id) ? 'Reviewed ✓' : 'Mark reviewed'
-                }}</UButton>
-              </div>
-              <MarkdownView :source="activeGroup.purpose" />
-              <div class="flex flex-wrap gap-1 mt-2">
-                <UButton
-                  v-for="reference in activeGroup.references"
-                  :key="`${reference.path}:${reference.start}`"
-                  size="xs"
-                  color="neutral"
-                  variant="link"
-                  class="px-0"
-                  @click="jump(reference, current?.explanation ? changes?.sha : prior?.candidateSha)"
-                  >{{ reference.path }}:{{ reference.start }}</UButton
-                >
-              </div>
-            </section>
-            <p v-if="selectedCode" class="text-xs text-primary">
-              Selected code: {{ selectedCode.path }}:{{ selectedCode.start
-              }}<template v-if="selectedCode.end !== selectedCode.start">-{{ selectedCode.end }}</template>
-            </p>
-            <form v-if="current?.explanation" class="space-y-2" @submit.prevent="ask">
-              <UFormField label="Ask about this change"
-                ><UTextarea
-                  v-model="question"
-                  class="w-full"
-                  placeholder="What would you like to understand?" /></UFormField
-              ><UButton type="submit" size="sm" :disabled="!question.trim()" :loading="busy">Ask question</UButton>
-            </form>
-            <div
-              v-for="answer in currentAnswers"
-              :key="answer.commandId"
-              class="border-t border-default pt-3 space-y-1"
-            >
-              <p class="font-medium">{{ answer.question }}</p>
-              <p v-if="answer.error" class="text-warning">{{ answer.error }}</p>
-              <MarkdownView v-else-if="answer.answer" :source="answer.answer.answer" />
-              <div class="flex flex-wrap gap-1">
-                <UButton
-                  v-for="reference in answer.answer?.references ?? []"
-                  :key="`${reference.path}:${reference.start}`"
-                  size="xs"
-                  variant="link"
-                  color="neutral"
-                  class="px-0"
-                  @click="jump(reference, answer.candidateSha)"
-                  >{{ reference.path }}:{{ reference.start }}</UButton
-                >
-              </div>
-              <UButton
-                v-if="answer.answer"
-                size="xs"
-                color="neutral"
-                variant="link"
-                class="px-0"
-                @click="requestFromDiscussion(answer)"
-                >Draft a change request from this answer</UButton
-              >
-            </div>
-          </div>
-        </UCard>
+      <aside class="min-w-0 space-y-3 xl:sticky xl:top-2" aria-label="Review actions">
         <UCard v-if="prior && !current"
           ><template #header><h3 class="font-semibold">Earlier explanation</h3></template>
           <p class="text-sm text-muted">

@@ -49,7 +49,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | `install/` | `installation.ts` | Installation layout, build identity, launcher; whether this process is installed |
 | | `install.ts`, `main.ts` | `npm run install:local`: copy, smoke check, select, PATH, skill, prune |
 | | `update.ts` | `grampus update`: reinstall from the recorded checkout |
-| `domain/` | `recipe.ts` | Recipe schema, the built-in `standard` recipe, family checks |
+| `domain/` | `recipe.ts` | Recipe schema, the built-in standard recipes, family checks |
 | | `explanation.ts` | Candidate-bound explanation, purpose groups and code references |
 | | `spec.ts` | Spec parsing: one fenced `grampus` JSON block with checks and protected paths |
 | | `review.ts` | Review reports and the blocking rule |
@@ -103,6 +103,10 @@ unchanged. See [repository setup](CONFIGURATION.md#repository-setup).
    decides. Valid specs become versions, copied to `<task>/spec/v<version>.md`. Revisions and
    corrections try to continue the previous spec conversation (see reuse below) and always list the
    questions the user already answered, so a fresh writer does not ask them again.
+   The machine-readable block requires an `acceptance` mapping with unique ids. Each entry names a
+   requested outcome, executable scenario, declared checks, real components, mocked components and
+   known limitations. The mapping is proportional to the task: direct function tests can suffice for
+   a function change; a requested journey must cover its relevant production boundaries.
 3. **Checks on the original commit.** As soon as a spec version is recorded, the driver runs its checks
    at HEAD, without reruns, alongside the approval request (`checks.recorded`, phase `spec`). The
    results are added when they land, with a fresh request. A check that fails here for any reason
@@ -128,11 +132,15 @@ unchanged. See [repository setup](CONFIGURATION.md#repository-setup).
    the list of tests committed before implementation; tests do not disappear from the evidence when
    the builder leaves them unchanged.
 7. **Baseline.** Reuse the checks on the original commit if HEAD has not moved; otherwise run checks
-   at the tests-first commit without reruns. The test writer reports the criterion and exact expected
-   failure output in `tests:0/report.json`. `tests.baseline` matches those claims against independent
-   check logs and distinguishes missing prerequisites, incompatible tests, passing checks and unknown
-   failures. A matched explanation is attributed to the writer, not proof of causation; the code
-   reviewer must confirm it. Unknown evidence never establishes a red phase.
+   at the tests-first commit without reruns. The test writer reports the check, changed test file,
+   exact test name, criterion and assertion output in `tests:0/report.json`. `tests.baseline` reads the
+   full independently captured log, rather than its display tail. Behavioural attribution requires a
+   recognised assertion in the same named failure section as the claimed test and file. Node TAP,
+   Vitest, Jest, pytest and matching named failure formats are recognised conservatively; unsupported
+   output remains unknown. Missing prerequisites and incompatible tests take precedence over matching
+   assertions. Arbitrary printed text cannot establish a red phase. The report is copied into task
+   evidence, and incomplete or unproven red phases are shown at acceptance. A matched explanation is
+   still attributed to the writer; the code reviewer must confirm causation and coverage.
 8. **Rounds.** Round 0 is `build:0`; round `r` is `repair:<r>`. Repair rounds up to
    `recipe.repair.reuseBuilderRounds` try to continue the previous editor's conversation when the
    assignment is unchanged; later rounds start a fresh worker with the distilled problems.
@@ -154,19 +162,32 @@ unchanged. See [repository setup](CONFIGURATION.md#repository-setup).
    round's blocking findings. A check configuration change that makes a check pass without the
    behaviour is blocking. Only findings with a file, a line and a scenario block; others are kept as
    downgraded notes.
+   Both spec and implementation reviewers receive the original request and must assess its coverage.
+   Implementation reviews must name every approved acceptance id exactly once, with verified or
+   unverified status, concrete evidence and limitations. A missing mapping makes the review unavailable;
+   gaps, unknown request coverage and unverified outcomes escalate instead of becoming ready. An
+   overlooked requested outcome cannot be dismissed merely because the spec omitted it. Coverage is
+   an attributed review assessment, not a deterministic proof of the natural-language request.
 11. **Decision.** Ready when there are no guard violations, failing checks or blocking findings. The
     request to the user names any check configuration changed since the build started. A
-    builder that reported failure, or an unavailable review, escalates immediately. Otherwise repair
+    builder that reported failure, an unavailable or unknown review, or unverified outcome coverage,
+    escalates immediately. Otherwise repair
     while `round < maxRounds + continues`, then escalate.
-12. **Polish** (`polish:<r>`, optional, once per ready round). One worker improves names, reuse,
-    control flow, redundant state, dead code and local consistency while preserving behaviour.
+12. **Polish** (`polish:<r>`, optional, once per ready round). One worker improves readability,
+    maintainability, consistency, simplicity and naming while preserving behaviour. Standalone naming
+    and consistency improvements are allowed and assessed on their benefit, with no requirement to
+    justify a hypothetical future edit. The worker follows repository conventions and avoids changes
+    made solely for personal preference. Finding no useful improvement is a successful no-op.
     Extraction must consolidate the same rule or responsibility, not merely similar-looking code.
     Up to `polishLimits.adjacentFiles` adjacent files may be changed to complete a specific improvement;
     each needs a recorded explanation. Broader cleanup is outside this stage. Protected acceptance
     tests stay protected, and other tests may only be adapted without weakening cases or assertions.
     Check configuration must not change.
 
-    The worker writes a bounded structured report with concrete benefits and affected files. A clean
+    The worker writes a bounded structured report with the problem identified before editing, concrete
+    benefits and affected files. Polish and polish-review reports live under
+    `<worktree git directory>/grampus/<stage>/report.json`, outside the source tree, and are copied into
+    the task evidence store. Git cannot add them to the product commit, even with force-add. A clean
     unchanged commit and an empty improvement list is a successful `noop`, not a rejection. Otherwise
     Grampus guards and checks the new commit, and an independent reviewer assesses both behavioural
     safety and maintenance value. Retention requires an approving review and `worth-keeping`
@@ -249,7 +270,9 @@ prints the addresses it answers on.
   file diff at a time. The legacy whole-diff response is capped by `dashboardDiffBytes` and identifies
   truncation. Uncommitted work is excluded. The Changes tab navigates by purpose or file, with all files
   accessible, code-linked explanation and answers, and editable guidance submitted through the existing
-  `continue` command. Review markers and an editable PR draft are stored in this browser per candidate;
+  `continue` command. The explanation opens above the diff at a readable line length, with individually
+  expandable sections and Before and after open initially. It uses the page scroll and leaves file
+  navigation unchanged. Review markers and an editable PR draft are stored in this browser per candidate;
   they do not gate acceptance or publish anything.
 - **No login.** Anyone who can reach the port can control tasks. The guards stop other web pages from
   using a visitor's browser: requests must name one of this machine's host names or addresses (or
@@ -528,6 +551,14 @@ A retained polish uses its checked commit and evidence, including on the compari
 Status, comparison, acceptance, delivery, explanation validation and scorecards resolve that same
 candidate. Acceptance refuses a moved or dirty worktree; delivery verifies that the accepted SHA
 matches the recorded candidate. Failed checks remain failures even when a candidate exists.
+Checks, guard, review, round decisions and polish explicitly record their spec version. The resolver
+refuses mixed commit/spec evidence, incomplete command lists and a superseded round while a new builder
+works. Checks and read-only reviews are surrounded by commit, tracked-tree and approved-spec checks;
+unexpected changes stop the driver instead of attaching evidence to the wrong inputs. Waiting for
+acceptance also checks the candidate. A retained polish preserves outcome coverage through its
+independent behaviour-preservation review, while keeping the original review in the log.
+Comparison entries defer the idle worktree check because cross-checks temporarily overlay tests;
+final acceptance still requires the restored, clean candidate and matching approved specification.
 
 Scorecards separate setup, specification, tests, implementation, repair, polish, verification and
 explanation. Check duration includes both attempts when a failed check is rerun. Phase time sums
@@ -544,5 +575,5 @@ For builder comparisons, use shared mode with tests first in the first recipe, t
 interfaces, and compare repeated runs over several tasks. Full mode includes spec quality and test
 compatibility differences and is not an interchangeable behavioural benchmark.
 
-Task schema 3 and comparison schema 2 describe this workflow. Earlier logs are refused, not migrated
+Task schema 4 and comparison schema 2 describe this workflow. Earlier logs are refused, not migrated
 or rewritten. Recipe configuration now uses `polish`; `simplify` is not a supported alias.

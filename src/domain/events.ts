@@ -7,7 +7,7 @@ import type { Assignment, Recipe } from './recipe.js';
 import type { Finding, ReviewReport } from './review.js';
 import type { MaintenanceAssessment, PolishReport } from './polish.js';
 import type { CheckAssessment } from '../checks/failure.js';
-import type { CheckDefinition } from './spec.js';
+import type { AcceptanceScenario, CheckDefinition } from './spec.js';
 import type { DispatchMeasurement } from '../measure/usage.js';
 import { codeReferenceSchema, type CodeReference, type Explanation, type ExplanationAnswer } from './explanation.js';
 
@@ -15,7 +15,7 @@ import { codeReferenceSchema, type CodeReference, type Explanation, type Explana
 export type TaskOutcome = 'accepted' | 'abandoned' | 'not-selected';
 
 /** The event log schema. Logs written with another schema are refused; there are no migrations. */
-export const eventSchemaVersion = 3;
+export const eventSchemaVersion = 4;
 
 /** Pipeline stages that run as Orca workers. */
 export type Stage =
@@ -144,6 +144,7 @@ export type TaskEvent =
       hash: string;
       path: string;
       checks: CheckDefinition[];
+      acceptance: AcceptanceScenario[];
       protected: string[];
     }
   | { type: 'spec.rejected'; key: string; error: string }
@@ -155,6 +156,7 @@ export type TaskEvent =
       hash: string;
       path: string;
       checks: CheckDefinition[];
+      acceptance: AcceptanceScenario[];
       protected: string[];
     }
   | { type: 'spec_review.recorded'; specVersion: number; report: ReviewReport | null; error: string | null }
@@ -164,18 +166,20 @@ export type TaskEvent =
   | { type: 'command.refused'; command: UserCommand; reason: string }
   | { type: 'tests.recorded'; sha: string; files: string[] }
   | { type: 'tests.inherited'; fromTask: string; sha: string; files: string[] }
-  | { type: 'tests.baseline'; sha: string; assessments: CheckAssessment[] }
+  | { type: 'tests.baseline'; specVersion: number; sha: string; assessments: CheckAssessment[] }
   | {
       type: 'checks.recorded';
+      specVersion: number;
       /** `spec`: at the base commit while spec version `round` awaits approval. */
       phase: 'spec' | 'baseline' | 'verify';
       round: number;
       sha: string;
       results: CheckResult[];
     }
-  | { type: 'guard.recorded'; round: number; fromSha: string; sha: string; guard: GuardResult }
+  | { type: 'guard.recorded'; specVersion: number; round: number; fromSha: string; sha: string; guard: GuardResult }
   | {
       type: 'review.recorded';
+      specVersion: number;
       round: number;
       sha: string;
       report: ReviewReport | null;
@@ -183,10 +187,18 @@ export type TaskEvent =
       downgraded: Finding[];
       error: string | null;
     }
-  | { type: 'round.decided'; round: number; decision: 'repair' | 'escalate' | 'ready'; reasons: string[] }
+  | {
+      type: 'round.decided';
+      specVersion: number;
+      sha: string;
+      round: number;
+      decision: 'repair' | 'escalate' | 'ready';
+      reasons: string[];
+    }
   /** The polish pass's commit, guarded and checked against the ready round's commit `fromSha`. */
   | {
       type: 'polish.checked';
+      specVersion: number;
       round: number;
       fromSha: string;
       sha: string;
@@ -200,6 +212,7 @@ export type TaskEvent =
    */
   | {
       type: 'polish.decided';
+      specVersion: number;
       round: number;
       fromSha: string;
       /** The polished commit; equals `fromSha` when the worker committed nothing. */

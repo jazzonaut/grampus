@@ -13,6 +13,8 @@ export const polishReportSchema = z
           .object({
             category: z.enum(['naming', 'duplication', 'structure', 'cleanup', 'consistency']),
             files: z.array(text).min(1).max(reviewLimits.findings),
+            /** The readability, naming, consistency or maintenance issue the change addresses. */
+            problem: text,
             benefit: text,
             /** Why an edit outside the original change is necessary, or null when all edits are in it. */
             adjacentReason: text.nullable(),

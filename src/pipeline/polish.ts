@@ -19,7 +19,8 @@ import {
 } from '../domain/polish.js';
 import { reviewLimits, polishLimits } from '../config/limits.js';
 import { changedPaths } from '../git/git.js';
-import { approvedSpecPath, keepEvidence, readWorkerFile, workerFile } from './workspace-files.js';
+import { approvedSpecPath, keepEvidence, readWorkerFile, privateWorkerFile } from './workspace-files.js';
+import { assertEvidenceUnchanged, evidenceSnapshot } from './evidence.js';
 
 /**
  * Run the recipe's polish pass on a ready round, once. `baseSha` is where the change starts and
@@ -63,7 +64,7 @@ interface Pass {
 async function runPass(core: DriverCore, pass: Pass, assignment: Assignment): Promise<void> {
   const { worktree, spec, round, baseSha, fromSha } = pass;
   const reviewer = core.state.recipe.review;
-  const reportPath = workerFile(worktree, stageKey('polish', round), 'report.json');
+  const reportPath = await privateWorkerFile(worktree, stageKey('polish', round), 'report.json');
   const worker = await core.runOptionalStage({
     key: stageKey('polish', round),
     stage: 'polish',
@@ -99,6 +100,7 @@ async function runPass(core: DriverCore, pass: Pass, assignment: Assignment): Pr
   const after = kept ? await diffSize(worktree, baseSha, sha) : before;
   core.record({
     type: 'polish.decided',
+    specVersion: spec.version,
     round,
     fromSha,
     sha,
@@ -184,12 +186,14 @@ async function check(core: DriverCore, { worktree, spec, round, fromSha, protect
     checkCommands: spec.checks.map(command => command.command),
   });
   const guarded = guardProblems(core.state, guard);
+  const before = await evidenceSnapshot(worktree, sha, spec);
   if (guarded.length) core.log(`Polish ${round}: ${guarded.join('; ')}`);
   else core.log(`Running checks at the polished commit ${sha.slice(0, 12)}.`);
   const results = guarded.length
     ? []
     : await runChecks(worktree, spec.checks, core.store.checksDir('polish', round), { rerunFailures: true });
-  core.record({ type: 'polish.checked', round, fromSha, sha, guard, results });
+  await assertEvidenceUnchanged(worktree, sha, spec, before);
+  core.record({ type: 'polish.checked', specVersion: spec.version, round, fromSha, sha, guard, results });
 }
 
 /** Why a guarded and checked polish cannot be kept. */
@@ -213,14 +217,16 @@ function guardProblems(state: TaskState, guard: GuardResult): string[] {
 
 async function reviewPass(
   core: DriverCore,
-  { worktree, round, fromSha }: Pass,
+  { worktree, round, fromSha, spec }: Pass,
   sha: string,
 ): Promise<{ review: ReviewResult; maintenance: MaintenanceAssessment | null }> {
   const assignment = core.state.recipe.review;
   if (!assignment) throw new Error('The recipe has no review.');
   const key = stageKey('polish-review', round);
-  const reportPath = workerFile(worktree, key, 'report.json');
+  const reportPath = await privateWorkerFile(worktree, key, 'report.json');
+  const polishReportPath = await privateWorkerFile(worktree, stageKey('polish', round), 'report.json');
   const checked = core.state.polish.get(round)?.checked;
+  const before = await evidenceSnapshot(worktree, sha, spec);
   const settled = await core.runOptionalStage({
     key,
     stage: 'polish-review',
@@ -234,10 +240,11 @@ async function reviewPass(
         reportPath,
         results: checked?.results ?? [],
         modifiedTests: checked?.guard.modifiedTests ?? [],
-        polishReportPath: workerFile(worktree, stageKey('polish', round), 'report.json'),
+        polishReportPath,
       }),
     launch: { assignment },
   });
+  await assertEvidenceUnchanged(worktree, sha, spec, before);
   try {
     if ('error' in settled) throw new Error(`The reviewer ${settled.error}`);
     if (settled.outcome === 'failed') throw new Error(`The reviewer reported failure: ${settled.body}`);

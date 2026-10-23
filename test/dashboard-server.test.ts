@@ -1,3 +1,4 @@
+import { acceptanceScenarios } from './helpers/task-fixture.js';
 // The dashboard server over real HTTP: task views, queued commands, live changes, and the guards that keep
 // other web pages from driving it through a visitor's browser.
 import assert from 'node:assert/strict';
@@ -50,6 +51,7 @@ async function start(): Promise<Fixture> {
   writeFileSync(specPath, '# Greet\n');
   store.append({
     type: 'spec.recorded',
+    acceptance: acceptanceScenarios(),
     key: 'spec:1',
     version: 1,
     hash: 'h',

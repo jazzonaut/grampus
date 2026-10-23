@@ -94,6 +94,10 @@ const verdictColor = { approve: 'success', changes: 'warning', unknown: 'neutral
               }}</UBadge>
             </div>
             <p class="text-sm">{{ spec.review.report.summary }}</p>
+            <p v-if="spec.review.report.requestCoverage" class="text-sm">
+              Original request: {{ spec.review.report.requestCoverage.verdict }}.
+              {{ spec.review.report.requestCoverage.rationale }}
+            </p>
             <FindingList :findings="spec.review.report.findings" />
           </div>
         </UCard>
