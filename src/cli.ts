@@ -21,6 +21,7 @@ import {
   type CommandSource,
 } from './control.js';
 import { serveDashboard } from './dashboard/server.js';
+import { taskDetail } from './dashboard/views.js';
 import { mergeAccepted } from './delivery/merge.js';
 import { installationOf, installedBuild, packageRoot, packageVersion } from './install/installation.js';
 import { planUpdate, runInstaller } from './install/update.js';
@@ -29,7 +30,8 @@ import { measureDispatches } from './measure/usage.js';
 import { OrcaCli } from './orca/client.js';
 import { createTask } from './pipeline/create-task.js';
 import { removeTask, type RemoveOptions } from './pipeline/remove-task.js';
-import { drive } from './pipeline/driver.js';
+import { drive, driveReview } from './pipeline/driver.js';
+import { headSha } from './git/git.js';
 import { foldEvents } from './pipeline/state.js';
 import { renderSummary, summarise, type TaskSummary } from './pipeline/status.js';
 import { installSkill, renderSkill } from './skill.js';
@@ -82,6 +84,13 @@ async function main(argv: string[]): Promise<number> {
       return drive(TaskStore.open(dataDir, required(rest[0], 'task')), new OrcaCli(), line =>
         console.log(`[${time()}] ${line}`),
       );
+    case 'drive-review':
+      return driveReview(TaskStore.open(dataDir, required(rest[0], 'task')), new OrcaCli(), line =>
+        console.log(`[${time()}] ${line}`),
+      );
+    case 'explain':
+    case 'ask':
+      return queueReview(dataDir, required(rest[0], 'task'), command, rest.slice(1).join(' '), source);
     default: {
       const handled =
         (await comparisonCommand(dataDir, command, rest, source, values)) ??
@@ -151,6 +160,13 @@ async function otherCommand(
       });
     case 'report':
       return report(dataDir, required(rest[0], 'task'), values.json ?? false);
+    case 'explanation': {
+      const events = TaskStore.open(dataDir, required(rest[0], 'task')).events();
+      const state = foldEvents(events);
+      const view = taskDetail(state, events, []);
+      console.log(JSON.stringify({ explanations: view.explanations, answers: view.answers }, null, 2));
+      return 0;
+    }
     case 'recipes':
       console.log(JSON.stringify(availableRecipes(), null, 2));
       return 0;
@@ -163,6 +179,35 @@ async function otherCommand(
     default:
       return null;
   }
+}
+
+/** Queue a candidate-bound review request and reopen the short-lived review driver after completion. */
+async function queueReview(
+  dataDir: string,
+  taskId: string,
+  kind: 'explain' | 'ask',
+  words: string,
+  source: CommandSource,
+): Promise<number> {
+  const state = foldEvents(TaskStore.open(dataDir, taskId).events());
+  const workspace = state.workspace;
+  const specVersion = state.specs.at(-1)?.version;
+  if (!workspace || !specVersion) throw new Error('The task has no worktree or spec to explain.');
+  const candidateSha = await headSha(workspace.path);
+  const binding = { baseSha: workspace.baseSha, candidateSha, specVersion };
+  const body: CommandBody =
+    kind === 'explain'
+      ? { kind, ...binding }
+      : { kind, ...binding, question: required(words, 'question'), groupId: null, reference: null };
+  const command = queueCommand(dataDir, taskId, source, body);
+  if (state.finished)
+    await new OrcaCli().createTerminal({
+      worktree: { id: workspace.worktreeId },
+      title: `Grampus review: ${state.title}`,
+      command: `${selfCommand(dataDir)} drive-review ${taskId}`,
+    });
+  console.log(`Queued ${command.kind} for ${taskId}. Read the stored result with grampus explanation ${taskId}.`);
+  return 0;
 }
 
 /** Fast-forward the user's checked-out branch to an accepted task's verified commit. Never pushes. */

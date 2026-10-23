@@ -7,15 +7,26 @@ import type { Assignment, Recipe } from './recipe.js';
 import type { Finding, ReviewReport } from './review.js';
 import type { CheckDefinition } from './spec.js';
 import type { DispatchMeasurement } from '../measure/usage.js';
+import { codeReferenceSchema, type CodeReference, type Explanation, type ExplanationAnswer } from './explanation.js';
 
 /** How a task ended. `not-selected` is a comparison entry the user did not pick; its evidence still counts. */
 export type TaskOutcome = 'accepted' | 'abandoned' | 'not-selected';
 
 /** The event log schema. Logs written with another schema are refused; there are no migrations. */
-export const eventSchemaVersion = 1;
+export const eventSchemaVersion = 2;
 
 /** Pipeline stages that run as Orca workers. */
-export type Stage = 'spec' | 'spec-review' | 'tests' | 'build' | 'review' | 'repair' | 'simplify' | 'simplify-review';
+export type Stage =
+  | 'spec'
+  | 'spec-review'
+  | 'tests'
+  | 'build'
+  | 'review'
+  | 'repair'
+  | 'simplify'
+  | 'simplify-review'
+  | 'explain'
+  | 'answer';
 
 /** The result of one check command at one commit. */
 export interface CheckResult {
@@ -210,6 +221,27 @@ export type TaskEvent =
   | { type: 'workers.released'; released: string[]; failures: string[] }
   | { type: 'usage.recorded'; measurements: DispatchMeasurement[] }
   | {
+      type: 'explanation.recorded';
+      commandId: string;
+      baseSha: string;
+      candidateSha: string;
+      specVersion: number;
+      explanation: Explanation | null;
+      error: string | null;
+    }
+  | {
+      type: 'answer.recorded';
+      commandId: string;
+      baseSha: string;
+      candidateSha: string;
+      specVersion: number;
+      question: string;
+      groupId: string | null;
+      reference: CodeReference | null;
+      answer: ExplanationAnswer | null;
+      error: string | null;
+    }
+  | {
       type: 'task.finished';
       outcome: TaskOutcome;
       sha: string | null;
@@ -238,6 +270,21 @@ export const userCommandSchema = z.intersection(
     z.object({ kind: z.literal('revise'), feedback: text(inputLimits.feedbackLength) }),
     z.object({ kind: z.literal('reply'), messageId: text(200), body: text(inputLimits.feedbackLength) }),
     z.object({ kind: z.literal('continue'), guidance: text(inputLimits.feedbackLength) }),
+    z.object({
+      kind: z.literal('explain'),
+      baseSha: z.string().length(40),
+      candidateSha: z.string().length(40),
+      specVersion: z.number().int().positive(),
+    }),
+    z.object({
+      kind: z.literal('ask'),
+      baseSha: z.string().length(40),
+      candidateSha: z.string().length(40),
+      specVersion: z.number().int().positive(),
+      question: text(inputLimits.feedbackLength),
+      groupId: z.string().nullable(),
+      reference: codeReferenceSchema.nullable(),
+    }),
     z.object({ kind: z.literal('retry') }),
     z.object({ kind: z.literal('accept') }),
     z.object({ kind: z.literal('abandon'), reason: z.string().max(inputLimits.feedbackLength).optional() }),

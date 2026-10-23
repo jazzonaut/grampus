@@ -38,6 +38,8 @@ const commandIcon = {
   accept: 'i-lucide-check-check',
   abandon: 'i-lucide-trash-2',
   decline: 'i-lucide-circle-slash',
+  explain: 'i-lucide-book-open',
+  ask: 'i-lucide-message-circle-question',
 } as const;
 const commandState = {
   queued: { icon: 'i-lucide-clock', color: 'neutral', label: 'Queued for the driver' },
@@ -179,7 +181,12 @@ const commandState = {
           </ul>
         </UCard>
 
-        <ChangesCard v-if="task.worktree" :task-id="task.taskId" :updated-at="task.updatedAt" />
+        <ChangesCard
+          v-if="task.worktree"
+          :task-id="task.taskId"
+          :updated-at="task.updatedAt"
+          @show="value => emit('show', value)"
+        />
       </div>
     </div>
   </div>

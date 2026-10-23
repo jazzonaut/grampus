@@ -117,6 +117,22 @@ export async function resetWorktree(cwd: string, sha: string): Promise<void> {
 }
 
 /** The unified diff between two commits, with rename detection. */
-export async function patch(cwd: string, from: string, to: string): Promise<string> {
-  return git(cwd, ['diff', '-M', '--no-color', from, to]);
+export async function patch(cwd: string, from: string, to: string, path?: string): Promise<string> {
+  return git(cwd, ['diff', '-M', '--no-color', from, to, ...(path ? ['--', path] : [])]);
+}
+
+/** Web URL of origin when it is a GitHub or GitLab remote; unknown hosts stay unknown. */
+export async function repositoryWebUrl(cwd: string): Promise<string | null> {
+  const remote = await git(cwd, ['remote', 'get-url', 'origin']).catch(() => null);
+  if (!remote) return null;
+  const value = remote.trim();
+  const ssh = /^git@(github\.com|gitlab\.com):(.+?)(?:\.git)?$/.exec(value);
+  if (ssh) return `https://${ssh[1]}/${ssh[2]?.replace(/\.git$/, '')}`;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || !['github.com', 'gitlab.com'].includes(url.hostname)) return null;
+    return `https://${url.hostname}${url.pathname.replace(/\.git$/, '').replace(/\/$/, '')}`;
+  } catch {
+    return null;
+  }
 }

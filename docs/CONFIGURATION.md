@@ -37,7 +37,7 @@ the installed data directory.
 | `comparisonConcurrency` | `2` | How many entries of a comparison run at once; the rest wait for a free place |
 | `modelPrices` | built-in table (see below) | API list prices per model for estimated cost; entries replace single models |
 | `dashboardAllowedHosts` | `[]` | Extra host names the dashboard answers to, such as a VPN name; localhost, this machine's name and its addresses are always allowed |
-| `dashboardDiffBytes` | `1048576` (1 MiB) | Bytes of a task's diff the dashboard shows in View full diff; a longer diff is cut |
+| `dashboardDiffBytes` | `1048576` (1 MiB) | Bytes of the legacy whole-task diff response; the Changes tab requests complete individual files |
 | `healthProbeMs` | `30000` (30 s) | How long the System page reuses one check of Orca and its agent accounts, and how often it checks again |
 | `healthProbeTimeoutMs` | `15000` (15 s) | Deadline for one of those checks; an Orca that takes longer counts as not answering |
 | `healthHistoryMs` | `86400000` (24 h) | How far back the System page lists Orca hiccups and driver stops |
@@ -75,6 +75,7 @@ that agent; an effort needs a model. `null` skips an optional stage.
       "build": { "agent": "codex", "model": "gpt-5.4-mini", "effort": "medium" },
       "review": { "agent": "claude", "model": "sonnet" },
       "simplify": { "agent": "codex" },
+      "explain": { "automatic": false, "assignment": { "agent": "claude" } },
       "repair": { "maxRounds": 2, "reuseBuilderRounds": 1 }
     }
   ]
@@ -85,6 +86,9 @@ that agent; an effort needs a model. `null` skips an optional stage.
 behaviour, and Grampus keeps the result only if the guard, the checks and the code reviewer all agree
 (see [Pipeline](ARCHITECTURE.md#pipeline)). It edits code, so it counts as an editor for cross-family
 review. A recipe without the field has it off.
+
+`explain.automatic` runs a read-only explanation worker on the final candidate after checks, review and
+any kept simplification. It defaults to false. The assignment also answers follow-up questions.
 
 The built-in `standard` recipe uses Claude for spec and review, Codex for spec review and build, no
 tests-first or simplify stage, and two repair rounds of which the first continues the builder's conversation. The

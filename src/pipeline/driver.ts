@@ -2,11 +2,14 @@
 // The driver lock keeps a second driver for the same task from starting, and stops this one from writing
 // if another driver took the lock over.
 import { installedBuild } from '../install/installation.js';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { currentSettings } from '../config/settings.js';
 import type { Orca } from '../orca/client.js';
 import { acquireDriverLock, LockLost } from '../store/driver-lock.js';
 import type { TaskStore } from '../store/task-store.js';
 import { DriverCore, DriverStop, TaskAbandoned, type Log } from './driver-core.js';
 import { finish, runPipeline } from './pipeline.js';
+import { measureDispatches } from '../measure/usage.js';
 
 /** Run a task's driver until the task finishes or the driver must stop. Returns the process exit code. */
 export async function drive(store: TaskStore, orca: Orca, log: Log): Promise<number> {
@@ -34,6 +37,34 @@ export async function drive(store: TaskStore, orca: Orca, log: Log): Promise<num
   } finally {
     lock.release();
     if (finished) await closeOwnTab(orca, log);
+  }
+}
+
+/** Reopen a completed task briefly for queued explanation or question workers. */
+export async function driveReview(store: TaskStore, orca: Orca, log: Log): Promise<number> {
+  const deadline = Date.now() + currentSettings().driverStaleMs;
+  let lock;
+  for (;;) {
+    try {
+      lock = acquireDriverLock(store.dir);
+      break;
+    } catch (error) {
+      if (!String((error as Error).message).startsWith('Another driver') || Date.now() >= deadline) throw error;
+      await sleep(currentSettings().orcaRetryDelayMs);
+    }
+  }
+  store.fenceWith(() => lock.assertHeld());
+  try {
+    const core = new DriverCore(store, orca, log);
+    if (!core.state.finished) throw new Error('The main driver still owns this task.');
+    if (core.state.runId) await core.repeatUncertain(() => orca.useRun(core.state.runId as string));
+    await core.processReviewCommands();
+    await core.releaseWorkers();
+    core.record({ type: 'usage.recorded', measurements: await measureDispatches(core.state, orca) });
+    return 0;
+  } finally {
+    lock.release();
+    await closeOwnTab(orca, log);
   }
 }
 

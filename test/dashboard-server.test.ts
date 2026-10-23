@@ -290,6 +290,10 @@ test("the task's changes so far are counted per file and served as a diff, cut a
   const cut = (await (await fetch(`${base}/api/tasks/task-2/diff`)).json()) as DiffView;
   assert.equal(cut.truncated, true);
   assert.equal(cut.patch.length, 40);
+  const file = (await (await fetch(`${base}/api/tasks/task-2/diff?path=greet.js`)).json()) as DiffView;
+  assert.equal(file.truncated, false, 'a file request never silently cuts the patch');
+  assert.match(file.patch, /Hello, \$\{name\}!/);
+  assert.equal((await fetch(`${base}/api/tasks/task-2/diff?path=secret.txt`)).status, 404);
 });
 
 test('a task without a worktree has no changes to show', async () => {

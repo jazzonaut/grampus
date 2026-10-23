@@ -137,6 +137,19 @@ async function save(): Promise<void> {
           optional
         />
 
+        <div class="rounded-lg border border-default p-3 space-y-3">
+          <USwitch
+            v-model="draft.explain.automatic"
+            label="Explain the final candidate automatically"
+            description="Runs after verification and a kept simplification; explanations do not affect correctness."
+          />
+          <AssignmentField
+            v-model="draft.explain.assignment"
+            label="Explanation agent"
+            help="Also answers follow-up questions in the Changes tab."
+          />
+        </div>
+
         <UAlert v-if="error" color="error" variant="subtle" icon="i-lucide-circle-x" :title="error" />
       </form>
     </template>

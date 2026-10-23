@@ -90,6 +90,14 @@ export const commands: readonly CommandInfo[] = [
     summary: 'Models, time, tokens and estimated cost per stage, and human cost',
     group: 'evidence',
   },
+  { name: 'explain', args: '<task>', summary: 'Explain the current committed candidate on demand', group: 'evidence' },
+  {
+    name: 'ask',
+    args: '<task> <question...>',
+    summary: 'Ask a follow-up about the current explanation',
+    group: 'evidence',
+  },
+  { name: 'explanation', args: '<task>', summary: 'Read stored explanations and answers as JSON', group: 'evidence' },
   {
     name: 'merge',
     args: '<task>',

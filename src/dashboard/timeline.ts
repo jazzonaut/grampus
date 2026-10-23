@@ -11,6 +11,16 @@ const short = (sha: string | null) => (sha ? sha.slice(0, 12) : '?');
 
 const describers: Describers = {
   'log.header': hidden,
+  'explanation.recorded': event => ({
+    title: event.explanation ? 'Change explanation ready' : 'Change explanation unavailable',
+    detail: event.error ?? short(event.candidateSha),
+    tone: event.error ? 'warning' : 'info',
+  }),
+  'answer.recorded': event => ({
+    title: event.answer ? 'Follow-up answered' : 'Follow-up unavailable',
+    detail: event.error ?? event.question,
+    tone: event.error ? 'warning' : 'info',
+  }),
   'orca.requested': hidden,
   'task.created': event => ({ title: 'Task created', detail: `Recipe ${event.recipe.name}` }),
   'workspace.created': event => ({ title: 'Worktree created', detail: `${event.path} at ${short(event.baseSha)}` }),

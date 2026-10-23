@@ -18,6 +18,7 @@ import type { CheckDefinition } from '../domain/spec.js';
 import type { Scorecard } from '../measure/report.js';
 import type { SimplifyRecord } from '../pipeline/state.js';
 import type { TaskSummary } from '../pipeline/status.js';
+import type { CodeReference, Explanation, ExplanationAnswer } from '../domain/explanation.js';
 
 /** Where a task stands, for icons, filters and the tab badge. */
 export type TaskStatus = 'needs-you' | 'running' | 'stopped' | TaskOutcome;
@@ -212,12 +213,35 @@ export interface TaskDetail extends TaskListItem {
   merged: { branch: string; sha: string } | null;
   finished: { outcome: TaskOutcome; sha: string | null; override: boolean; at: string } | null;
   lastStop: { reason: string; at: string } | null;
+  explanations: {
+    commandId: string;
+    baseSha: string;
+    candidateSha: string;
+    specVersion: number;
+    explanation: Explanation | null;
+    error: string | null;
+    at: string;
+  }[];
+  answers: {
+    commandId: string;
+    baseSha: string;
+    candidateSha: string;
+    specVersion: number;
+    question: string;
+    groupId: string | null;
+    reference: CodeReference | null;
+    answer: ExplanationAnswer | null;
+    error: string | null;
+    at: string;
+  }[];
 }
 
 /** What the task's branch changes: the worktree's current commit against the task's base commit. */
 export interface ChangesView {
   baseSha: string;
   sha: string;
+  specVersion: number | null;
+  repositoryUrl: string | null;
   /** Null counts mean Git treats the file as binary. */
   files: { path: string; oldPath: string | null; added: number | null; deleted: number | null }[];
 }

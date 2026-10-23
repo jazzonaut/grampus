@@ -2,12 +2,14 @@
 // build or repair, verification, review and a decision, until the user accepts or abandons. Each step
 // returns early when the log already records it, so a restarted driver resumes at the first missing step.
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { runChecks, logExcerpt } from '../checks/run-checks.js';
 import { currentSettings } from '../config/settings.js';
 import { judgeCodeReview, parseReviewReport } from '../domain/review.js';
 import { repairAssignment, type Assignment } from '../domain/recipe.js';
 import type { GuardResult, TaskOutcome, UserCommand } from '../domain/events.js';
 import { changedPaths, headSha } from '../git/git.js';
+import { runReviewCommand } from './change-review.js';
 import type { DriverCore, Launch, Settled } from './driver-core.js';
 import { measureDispatches } from '../measure/usage.js';
 import { inspectCandidate } from './guard.js';
@@ -35,9 +37,27 @@ export async function runPipeline(core: DriverCore): Promise<void> {
     const decision = decideRound(core, round, settled);
     if (decision === 'repair') continue;
     if (decision === 'ready') await simplify(core, worktree, spec, round, roundStart(core, 0), protectedFiles(core));
+    if (core.state.recipe.explain.automatic) await explainFinalCandidate(core, worktree, spec.version);
     const choice = await askUser(core, round, decision);
     if (choice.kind === 'accept') return finish(core, 'accepted', decision === 'escalate', null);
   }
+}
+
+/** An automatic explanation is tied to the final candidate after a possible simplify pass. */
+async function explainFinalCandidate(core: DriverCore, worktree: string, specVersion: number): Promise<void> {
+  const candidateSha = await headSha(worktree);
+  if (core.state.explanations.has(candidateSha)) return;
+  const digest = createHash('sha256').update(`${core.state.taskId}:${candidateSha}:${specVersion}`).digest('hex');
+  const id = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+  await runReviewCommand(core, {
+    kind: 'explain',
+    id,
+    at: new Date().toISOString(),
+    source: 'cli',
+    baseSha: core.state.workspace?.baseSha ?? '',
+    candidateSha,
+    specVersion,
+  });
 }
 
 async function ensureRun(core: DriverCore): Promise<void> {

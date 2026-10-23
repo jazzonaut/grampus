@@ -15,6 +15,7 @@ import type {
   UserCommand,
 } from '../domain/events.js';
 import type { CheckDefinition } from '../domain/spec.js';
+import type { CodeReference, Explanation, ExplanationAnswer } from '../domain/explanation.js';
 
 export interface DispatchRecord {
   dispatchId: string;
@@ -139,11 +140,36 @@ export interface TaskState {
   /** The shared spec this entry inherited instead of writing its own. */
   inherited: { fromTask: string; fromVersion: number } | null;
   released: boolean;
+  releasedDispatches: Set<string>;
   /** Set by `grampus merge` after acceptance. */
   merged: { branch: string; sha: string } | null;
   /** Per-dispatch models, tokens and times, recorded when the task finishes. */
   measurements: DispatchMeasurement[] | null;
   lastStop: { reason: string; at: string } | null;
+  explanations: Map<
+    string,
+    {
+      commandId: string;
+      baseSha: string;
+      candidateSha: string;
+      specVersion: number;
+      explanation: Explanation | null;
+      error: string | null;
+      at: string;
+    }
+  >;
+  answers: {
+    commandId: string;
+    baseSha: string;
+    candidateSha: string;
+    specVersion: number;
+    question: string;
+    groupId: string | null;
+    reference: CodeReference | null;
+    answer: ExplanationAnswer | null;
+    error: string | null;
+    at: string;
+  }[];
 }
 
 /** Fold a task's events into its state. */
@@ -183,9 +209,12 @@ export function foldEvents(events: readonly StoredEvent[]): TaskState {
     attention: null,
     finished: null,
     released: false,
+    releasedDispatches: new Set(),
     merged: null,
     measurements: null,
     lastStop: null,
+    explanations: new Map(),
+    answers: [],
     comparisonId: created.comparison?.comparisonId ?? null,
     inherited: null,
   };
@@ -200,6 +229,32 @@ const ignore = () => undefined;
 /** One handler per event type; the mapped type makes a missing event type a compile error. */
 const handlers: Handlers = {
   'log.header': ignore,
+  'explanation.recorded': (state, event) => {
+    if (event.explanation || !state.explanations.get(event.candidateSha)?.explanation)
+      state.explanations.set(event.candidateSha, {
+        commandId: event.commandId,
+        baseSha: event.baseSha,
+        candidateSha: event.candidateSha,
+        specVersion: event.specVersion,
+        explanation: event.explanation,
+        error: event.error,
+        at: event.at,
+      });
+  },
+  'answer.recorded': (state, event) => {
+    state.answers.push({
+      commandId: event.commandId,
+      baseSha: event.baseSha,
+      candidateSha: event.candidateSha,
+      specVersion: event.specVersion,
+      question: event.question,
+      groupId: event.groupId,
+      reference: event.reference,
+      answer: event.answer,
+      error: event.error,
+      at: event.at,
+    });
+  },
   'task.created': ignore,
   'workspace.created': (state, event) => {
     state.workspace = {
@@ -349,9 +404,11 @@ const handlers: Handlers = {
   'command.applied': (state, event) => {
     state.applied.add(event.command.id);
     state.commands.push(event.command);
-    if (event.command.kind === 'reply') {
-      const question = state.questions.get(event.command.messageId);
-      if (question) question.answered = true;
+    if (event.command.kind === 'reply' || event.command.kind === 'explain' || event.command.kind === 'ask') {
+      if (event.command.kind === 'reply') {
+        const question = state.questions.get(event.command.messageId);
+        if (question) question.answered = true;
+      }
       return;
     }
     state.attention = null;
@@ -375,8 +432,9 @@ const handlers: Handlers = {
   'attention.withdrawn': (state, event) => {
     if (state.attention?.reason === event.reason) state.attention = null;
   },
-  'workers.released': state => {
+  'workers.released': (state, event) => {
     state.released = true;
+    for (const dispatchId of event.released) state.releasedDispatches.add(dispatchId);
   },
   'task.merged': (state, event) => {
     state.merged = { branch: event.branch, sha: event.sha };

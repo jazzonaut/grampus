@@ -15,7 +15,7 @@ Current behaviour of Grampus. Intent and the reasons behind it are in [DESIGN.md
   Orca  ── Run, tasks, dispatches, gate, inbox, liveness
      │   worker-start --agent claude|codex  (chat or terminal, per the user's setting)
      ▼
-  workers  ── spec, spec review, tests, build, review, repair, simplify
+  workers  ── spec, spec review, tests, build, review, repair, simplify, explain, answer
              write files under <worktree>/.grampus/, commit on the task branch
 ```
 
@@ -50,6 +50,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `install.ts`, `main.ts` | `npm run install:local`: copy, smoke check, select, PATH, skill, prune |
 | | `update.ts` | `grampus update`: reinstall from the recorded checkout |
 | `domain/` | `recipe.ts` | Recipe schema, the built-in `standard` recipe, family checks |
+| | `explanation.ts` | Candidate-bound explanation, purpose groups and code references |
 | | `spec.ts` | Spec parsing: one fenced `grampus` JSON block with checks and protected paths |
 | | `review.ts` | Review reports and the blocking rule |
 | | `events.ts` | The event log schema and user command schema |
@@ -74,6 +75,7 @@ between two calls, such as a spec review landing while an agent talked to the us
 | | `tasks.ts` | Cached log reads and the change watcher behind live updates |
 | `web/` | `app/` | The dashboard: Vue 3, Nuxt UI, built into `dist/web` |
 | `pipeline/` | `driver.ts` | Driver entry point and lock |
+| | `change-review.ts` | Optional read-only explanation and follow-up workers |
 | | `driver-core.ts` | Recording, request ids, inbox pump, commands, decisions, running a stage |
 | | `pipeline.ts` | Stage order: run, gate, spec, tests first, baseline, rounds, finish |
 | | `spec-phase.ts` | Spec writing, automatic correction, checks on the original commit, spec review, approval |
@@ -163,6 +165,16 @@ between two calls, such as a spec review landing while an agent talked to the us
     ones with `worker-stop`. When every check already passed at the baseline, the acceptance request
     says so: those checks show no regression but do not demonstrate the new behaviour.
 
+Change understanding runs as optional evidence after verification and any kept simplification. A recipe
+may enable automatic generation; otherwise the user requests it at the acceptance point. An optional
+worker reads the request, approved spec, relevant architecture and complete Git diff, then writes a
+validated explanation with purpose groups and candidate line references. Follow-up questions use a
+separate optional worker. `explanation.recorded` and `answer.recorded` bind results and failures to the
+base SHA, candidate SHA and spec version. Failures do not alter correctness or acceptance. The driver
+records their stages, request ids and measurements. A completed task's driver has closed; queued review
+commands launch a short-lived `drive-review` in its worktree under the same lock, rebind its Orca Run,
+and close the tab afterwards. Previous explanations remain in the event log after repairs.
+
 ## Dashboard
 
 `grampus dashboard [--port <n>]` serves the built web app (`dist/web`) and a JSON API from one Node
@@ -195,9 +207,13 @@ prints the addresses it answers on.
 - **Live updates**: `/api/live` is a server-sent event stream. A watcher polls log and queue sizes every
   `waitPollMs` and sends the ids of tasks that changed; after a reconnect the page reloads everything.
 - **Files**: only paths a task's log records (spec versions, check logs) can be fetched.
-- **Changes**: `/api/tasks/<id>/changes` counts lines added and deleted per file between the task's base
-  commit and its worktree's current commit; `/api/tasks/<id>/diff` returns that diff, cut at
-  `dashboardDiffBytes`. Uncommitted work is not included, so it matches what checks and review see.
+- **Changes**: `/api/tasks/<id>/changes` counts lines per file between the task base or a recorded prior
+  candidate (`from`) and the current commit. `/api/tasks/<id>/diff?path=...` returns one complete changed
+  file diff at a time. The legacy whole-diff response is capped by `dashboardDiffBytes` and identifies
+  truncation. Uncommitted work is excluded. The Changes tab navigates by purpose or file, with all files
+  accessible, code-linked explanation and answers, and editable guidance submitted through the existing
+  `continue` command. Review markers and an editable PR draft are stored in this browser per candidate;
+  they do not gate acceptance or publish anything.
 - **No login.** Anyone who can reach the port can control tasks. The guards stop other web pages from
   using a visitor's browser: requests must name one of this machine's host names or addresses (or
   `dashboardAllowedHosts`), so DNS rebinding fails; writes must carry the dashboard's own `Origin` and a
@@ -210,7 +226,7 @@ prints the addresses it answers on.
   review per round (with check logs), worker questions and answers, timeline, scorecard and the raw
   event log. The overview shows the pending decision (its evidence behind Show details), the request,
   the spec's Outcome section as the description and your decisions, beside the workers and the files
-  changed with the full diff. The open tab is part of the address, so it can be bookmarked.
+  changed with a link to the Changes tab. The open tab is part of the address, so it can be bookmarked.
 - **System** (`dashboard/health.ts`, `/api/health`): every unfinished task's and comparison's driver
   (alive by its lock heartbeat, starting, or stopped with why; the build it runs from `driver.started`;
   whether Orca is turning it away as busy), the workers that have not reported (working, asking, quiet
@@ -288,12 +304,13 @@ prints the addresses it answers on.
 
 ```text
 <data>/config.json                       optional settings
-<data>/tasks/<task>/events.jsonl          append-only event log (schema 1)
+<data>/tasks/<task>/events.jsonl          append-only event log (schema 2)
 <data>/tasks/<task>/commands.jsonl        queued user commands
 <data>/tasks/<task>/driver.lock          the running driver's process id, token and heartbeat
 <data>/tasks/<task>/spec/v<n>.md          spec versions and their reviews
 <data>/tasks/<task>/reviews/round-<r>.json
 <data>/tasks/<task>/reviews/simplify-<r>.json
+<data>/tasks/<task>/explanations/<command-id>.json
 <data>/tasks/<task>/checks/<phase>-<r>/   check logs
 <data>/comparisons/<id>/events.jsonl      comparison log (schema 1)
 <data>/comparisons/<id>/commands.jsonl    queued picks and abandons

@@ -51,6 +51,11 @@ export const recipeSchema = z
      * existed have no field and mean off.
      */
     simplify: assignmentSchema.nullable().default(null),
+    /** Change explanation worker and whether the final candidate is explained before acceptance. */
+    explain: z
+      .object({ automatic: z.boolean(), assignment: assignmentSchema })
+      .strict()
+      .default({ automatic: false, assignment: { agent: 'claude' } }),
     repair: z
       .object({
         maxRounds: z.number().int().min(0).max(recipeLimits.maxRepairRounds),
@@ -77,6 +82,7 @@ export const standardRecipe: Recipe = {
   build: { agent: 'codex' },
   review: { agent: 'claude' },
   simplify: null,
+  explain: { automatic: false, assignment: { agent: 'claude' } },
   repair: { maxRounds: 2, reuseBuilderRounds: 1 },
 };
 

@@ -90,6 +90,14 @@ spec ─► spec review ─► [approve] ─► (tests first) ─► baseline �
     abandons the task. Afterwards the user may ask Grampus to fast-forward their branch to the
     verified commit (`merge`). Pushing and opening a PR stay with the user.
 
+Change understanding is optional review evidence. The user can request an explanation of the final
+candidate or enable automatic generation per recipe. Purpose groups connect the original problem,
+before and after behaviour, architecture, implementation decisions, validation and uncertainty to
+committed lines. Questions gather understanding without requesting changes; explicit feedback is
+collected and sent through the existing continuation decision. Results are bound to the candidate and
+spec they discuss, so repairs cannot make earlier notes look current. Manual review marks help the
+reader but do not gate acceptance. Grampus prepares editable PR copy; the user publishes it.
+
 The builder never argues with the reviewer. A disputed finding is settled by a check, a fresh
 review or the user, because judges flip verdicts under pushback.
 

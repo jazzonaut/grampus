@@ -10,6 +10,8 @@ const verbs: Record<CommandBody['kind'], string> = {
   revise: 'Revision request',
   reply: 'Answer',
   continue: 'Continue',
+  explain: 'Explanation',
+  ask: 'Follow-up question',
   retry: 'Retry',
   accept: 'Acceptance',
   abandon: 'Abandon',

@@ -70,6 +70,22 @@ export function taskDetail(
     merged: state.merged,
     finished: state.finished,
     lastStop: state.finished ? null : state.lastStop,
+    explanations: events.flatMap(event =>
+      event.type === 'explanation.recorded'
+        ? [
+            {
+              commandId: event.commandId,
+              baseSha: event.baseSha,
+              candidateSha: event.candidateSha,
+              specVersion: event.specVersion,
+              explanation: event.explanation,
+              error: event.error,
+              at: event.at,
+            },
+          ]
+        : [],
+    ),
+    answers: state.answers,
   };
 }
 
@@ -411,6 +427,10 @@ function commandText(command: UserCommand): string | null {
       return command.reason ?? null;
     case 'approve':
       return `spec v${command.specVersion}`;
+    case 'explain':
+      return `candidate ${command.candidateSha.slice(0, 12)}`;
+    case 'ask':
+      return command.question;
     case 'retry':
     case 'accept':
     case 'decline':

@@ -10,6 +10,7 @@ import type { CommandKind, Stage, StoredEvent, TaskEvent, UserCommand } from '..
 import { OrcaBusyError, OrcaError, OrcaUncertainError, type Delivery, type Orca } from '../orca/client.js';
 import { lifecyclePayloadSchema, type OrcaMessage, type WorkerStartReceipt } from '../orca/protocol.js';
 import type { TaskStore } from '../store/task-store.js';
+import { reviewRefusal, runReviewCommand } from './change-review.js';
 import {
   applyEvent,
   currentDispatch,
@@ -87,6 +88,7 @@ export class DriverCore {
   private lastLiveness = 0;
   /** When Orca began turning inbox checks away as busy, or null; each spell is logged and recorded once. */
   private busySince: number | null = null;
+  private reviewInProgress = new Set<string>();
 
   constructor(
     readonly store: TaskStore,
@@ -248,6 +250,28 @@ export class DriverCore {
 
   private async applyCommands(): Promise<void> {
     for (const command of this.store.commands()) {
+      if (command.kind === 'explain' || command.kind === 'ask') {
+        if (this.reviewInProgress.has(command.id)) continue;
+        const recorded =
+          command.kind === 'explain'
+            ? this.events.some(event => event.type === 'explanation.recorded' && event.commandId === command.id)
+            : this.state.answers.some(answer => answer.commandId === command.id);
+        if (recorded || this.events.some(event => event.type === 'command.refused' && event.command.id === command.id))
+          continue;
+        const refusal = this.state.applied.has(command.id) ? null : await reviewRefusal(this, command);
+        if (refusal) {
+          this.record({ type: 'command.refused', command, reason: refusal });
+          continue;
+        }
+        if (!this.state.applied.has(command.id)) this.record({ type: 'command.applied', command });
+        this.reviewInProgress.add(command.id);
+        try {
+          await runReviewCommand(this, command);
+        } finally {
+          this.reviewInProgress.delete(command.id);
+        }
+        continue;
+      }
       if (this.state.applied.has(command.id)) continue;
       const refusal = this.refusal(command) ?? (command.kind === 'reply' ? await this.relay(command) : null);
       if (refusal) {
@@ -260,6 +284,11 @@ export class DriverCore {
       if (command.kind === 'abandon') throw new TaskAbandoned(command.reason ?? null);
       if (command.kind === 'decline') throw new TaskAbandoned('another comparison entry was picked', 'not-selected');
     }
+  }
+
+  /** Process queued review commands in a short-lived review driver after task completion. */
+  async processReviewCommands(): Promise<void> {
+    await this.applyCommands();
   }
 
   private refusal(command: UserCommand): string | null {
@@ -597,21 +626,23 @@ export class DriverCore {
 
   /** Release every worker the task started: stop unsettled ones, release settled ones. */
   async releaseWorkers(): Promise<void> {
-    if (this.state.released) return;
+    const pending = [...this.state.stages.values()]
+      .flatMap(record => record.dispatches)
+      .filter(dispatch => !this.state.releasedDispatches.has(dispatch.dispatchId));
+    if (!pending.length && this.state.released) return;
     const released: string[] = [];
     const failures: string[] = [];
-    for (const record of this.state.stages.values())
-      for (const dispatch of record.dispatches) {
-        const action = this.repeatUncertain(() =>
-          dispatch.settled || dispatch.exited
-            ? this.orca.releaseWorker(dispatch.dispatchId)
-            : this.orca.stopWorker(dispatch.dispatchId),
-        );
-        await action.then(
-          () => released.push(dispatch.dispatchId),
-          (error: unknown) => failures.push(`${dispatch.dispatchId}: ${(error as Error).message}`),
-        );
-      }
+    for (const dispatch of pending) {
+      const action = this.repeatUncertain(() =>
+        dispatch.settled || dispatch.exited
+          ? this.orca.releaseWorker(dispatch.dispatchId)
+          : this.orca.stopWorker(dispatch.dispatchId),
+      );
+      await action.then(
+        () => released.push(dispatch.dispatchId),
+        (error: unknown) => failures.push(`${dispatch.dispatchId}: ${(error as Error).message}`),
+      );
+    }
     this.record({ type: 'workers.released', released, failures });
   }
 }

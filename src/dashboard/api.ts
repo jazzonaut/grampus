@@ -8,7 +8,7 @@ import { checkLimits } from '../config/limits.js';
 import { currentSettings } from '../config/settings.js';
 import { commandGroups, commands, globalOptions } from '../commands.js';
 import { queueCommand } from '../control.js';
-import { headSha, lineChanges, patch } from '../git/git.js';
+import { headSha, lineChanges, patch, repositoryWebUrl } from '../git/git.js';
 import { buildScorecard } from '../measure/report.js';
 import { measureDispatches } from '../measure/usage.js';
 import type { Orca, OrcaDesk, OrcaHealth, OrcaWorkspaces } from '../orca/client.js';
@@ -173,22 +173,47 @@ async function branchOf(task: LoadedTask): Promise<{ worktree: string; baseSha: 
 }
 
 /** Lines added and deleted per file on the task's branch so far. Uncommitted work is not counted. */
-async function taskChanges({ app, response, params }: Call): Promise<void> {
-  const { worktree, baseSha, sha } = await branchOf(load(app, params[0]));
-  const body: ChangesView = { baseSha, sha, files: await lineChanges(worktree, baseSha, sha) };
+async function taskChanges({ app, response, params, url }: Call): Promise<void> {
+  const task = load(app, params[0]);
+  const { worktree, baseSha, sha } = await branchOf(task);
+  const from = url.searchParams.get('from') ?? baseSha;
+  const prior = [
+    baseSha,
+    ...[...task.state.guard.values()].map(value => value.sha),
+    ...[...task.state.simplify.values()].flatMap(value => (value.decided ? [value.decided.sha] : [])),
+  ];
+  if (!prior.includes(from)) throw new HttpError(400, 'Unknown review commit.');
+  const body: ChangesView = {
+    baseSha: from,
+    sha,
+    specVersion: task.state.specs.at(-1)?.version ?? null,
+    repositoryUrl: await repositoryWebUrl(worktree),
+    files: await lineChanges(worktree, from, sha),
+  };
   sendJson(response, 200, body);
 }
 
 /** The unified diff of the task's branch so far, cut at the configured size. */
-async function taskDiff({ app, response, params }: Call): Promise<void> {
-  const { worktree, baseSha, sha } = await branchOf(load(app, params[0]));
-  const text = Buffer.from(await patch(worktree, baseSha, sha), 'utf8');
+async function taskDiff({ app, response, params, url }: Call): Promise<void> {
+  const task = load(app, params[0]);
+  const { worktree, baseSha, sha } = await branchOf(task);
+  const path = url.searchParams.get('path');
+  const from = url.searchParams.get('from') ?? baseSha;
+  const prior = [
+    baseSha,
+    ...[...task.state.guard.values()].map(value => value.sha),
+    ...[...task.state.simplify.values()].flatMap(value => (value.decided ? [value.decided.sha] : [])),
+  ];
+  if (!prior.includes(from)) throw new HttpError(400, 'Unknown review commit.');
+  if (path && !(await lineChanges(worktree, from, sha)).some(file => file.path === path || file.oldPath === path))
+    throw new HttpError(404, 'That path is not in this diff.');
+  const text = Buffer.from(await patch(worktree, from, sha, path ?? undefined), 'utf8');
   const limit = currentSettings().dashboardDiffBytes;
   const body: DiffView = {
-    baseSha,
+    baseSha: from,
     sha,
-    patch: text.subarray(0, limit).toString('utf8'),
-    truncated: text.length > limit,
+    patch: path ? text.toString('utf8') : text.subarray(0, limit).toString('utf8'),
+    truncated: !path && text.length > limit,
   };
   sendJson(response, 200, body);
 }
@@ -196,6 +221,15 @@ async function taskDiff({ app, response, params }: Call): Promise<void> {
 async function addCommand({ app, request, response, params }: Call): Promise<void> {
   const task = load(app, params[0]);
   const command = queueCommand(app.dataDir, task.state.taskId, 'dashboard', await readJson(request));
+  if (task.state.finished && (command.kind === 'explain' || command.kind === 'ask')) {
+    const workspace = task.state.workspace;
+    if (!workspace) throw new HttpError(409, 'The task has no worktree.');
+    await app.orca.createTerminal({
+      worktree: { id: workspace.worktreeId },
+      title: `Grampus review: ${task.state.title}`,
+      command: `${app.selfCommand} drive-review ${task.state.taskId}`,
+    });
+  }
   sendJson(response, 202, command);
 }
 

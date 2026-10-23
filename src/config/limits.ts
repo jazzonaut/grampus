@@ -59,3 +59,13 @@ export const inputLimits = {
   /** A dashboard request body: a request or feedback with room for JSON escaping. */
   bodyBytes: 256 * KiB,
 } as const;
+
+/** Bounds on an explanation and its code references, which are recorded as review evidence. */
+export const explanationLimits = {
+  bytes: 256 * KiB,
+  textLength: 20_000,
+  titleLength: 160,
+  pathLength: 400,
+  groups: 40,
+  references: 200,
+} as const;

@@ -96,6 +96,7 @@ function humanCost(events: readonly StoredEvent[]): Scorecard['human'] {
     if (event.type === 'attention.withdrawn') since = null;
     if (event.type === 'worker.message' && event.kind === 'question') asked.set(event.messageId, Date.parse(event.at));
     if (event.type !== 'command.applied') continue;
+    if (event.command.kind === 'explain' || event.command.kind === 'ask') continue;
     if (event.command.kind === 'reply') {
       answers++;
       if (event.command.source === 'chat') fromChat++;

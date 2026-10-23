@@ -6,6 +6,7 @@
 import { computed, toRef } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import EventLog from '../components/EventLog.vue';
+import ChangesTab from '../components/ChangesTab.vue';
 import MessagesTab from '../components/MessagesTab.vue';
 import OverviewTab from '../components/OverviewTab.vue';
 import PipelineStrip from '../components/PipelineStrip.vue';
@@ -45,6 +46,7 @@ const tabs = computed(() => {
         : undefined,
     },
     { label: 'Spec', value: 'spec', icon: 'i-lucide-file-text', badge: latest ? `v${latest.version}` : undefined },
+    { label: 'Changes', value: 'changes', icon: 'i-lucide-file-diff' },
     { label: 'Checks & review', value: 'rounds', icon: 'i-lucide-list-checks' },
     {
       label: 'Questions',
@@ -127,6 +129,7 @@ const tabs = computed(() => {
       <div v-else class="max-w-7xl">
         <OverviewTab v-if="tab === 'overview'" :task="task" @show="value => (tab = value)" />
         <SpecTab v-else-if="tab === 'spec'" :specs="task.specs" />
+        <ChangesTab v-else-if="tab === 'changes'" :task="task" />
         <RoundsTab v-else-if="tab === 'rounds'" :task="task" />
         <MessagesTab v-else-if="tab === 'messages'" :messages="task.messages">
           <template #reply="{ message }">

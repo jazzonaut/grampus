@@ -107,6 +107,9 @@ const specChecks = computed(() => {
           </div>
           <div v-if="round" class="pt-2 space-y-3">
             <RoundEvidence :task="task" :round="round" />
+            <UButton size="sm" variant="link" icon="i-lucide-file-diff" class="px-0" @click="emit('show', 'changes')"
+              >Explore changes before deciding</UButton
+            >
             <UButton size="sm" variant="link" icon="i-lucide-list-checks" class="px-0" @click="emit('show', 'rounds')">
               See every round and the baseline
             </UButton>
