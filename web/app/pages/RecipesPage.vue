@@ -79,10 +79,11 @@ function stages(recipe: Recipe): { label: string; icon: string; value: string }[
     {
       label: 'Repair',
       icon: 'i-lucide-wrench',
-      value: `${recipe.repair.maxRounds} rounds, ${recipe.repair.reuseBuilderRounds} continuing${
+      value: `${recipe.repair.maxRounds} ordinary rounds, ${recipe.repair.reuseBuilderRounds} continuing${
         recipe.repair.assignment ? `, ${describe(recipe.repair.assignment)}` : ''
       }`,
     },
+    { label: 'Coverage', icon: 'i-lucide-wrench', value: `${recipe.repair.coverageGapRounds} automatic repairs` },
     { label: 'Polish', icon: 'i-lucide-scissors', value: describe(recipe.polish) },
   ];
 }

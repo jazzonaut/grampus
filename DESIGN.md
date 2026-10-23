@@ -78,6 +78,9 @@ spec ─► spec review ─► [approve] ─► (tests first) ─► baseline �
    check evidence. Only correctness or spec gaps with a location and a concrete failing
    scenario can block; "unknown" is allowed.
 9. **Repair.** Failed checks, guard violations or blocking findings go to a repair worker.
+   Actionable coverage gaps have a separate recipe allowance, `repair.coverageGapRounds`, set to
+   three in both built-in recipes. They require a supported finding and known request coverage;
+   uncertainty still escalates. Every attempt is checked and independently reviewed again.
    Round 1 continues the builder's conversation; later rounds start fresh with a distilled
    list of problems, because a long polluted context does worse. Grampus counts rounds
    itself; after the recipe's limit it escalates to the user.

@@ -78,7 +78,7 @@ that agent; an effort needs a model. `null` skips an optional stage.
       "review": { "agent": "claude", "model": "sonnet" },
       "polish": { "agent": "codex" },
       "explain": { "automatic": false, "assignment": { "agent": "claude" } },
-      "repair": { "maxRounds": 2, "reuseBuilderRounds": 1 }
+      "repair": { "maxRounds": 2, "coverageGapRounds": 3, "reuseBuilderRounds": 1 }
     }
   ]
 }
@@ -92,6 +92,22 @@ review. A recipe without the field has it off.
 `explain.automatic` runs a read-only explanation worker on the final candidate after checks, review and
 any kept polish. It defaults to false. The assignment also answers follow-up questions.
 
+`repair.coverageGapRounds` allows automatic repairs when a review requests changes, identifies a
+coverage gap or unverified outcome, and supplies a supported blocking finding with a file, line and
+failing scenario. It is a separate allowance from `repair.maxRounds`, which covers ordinary repairs.
+Each automatic decision consumes one round from the relevant allowance, even when both kinds of
+problem occur together; coverage problems take precedence. Both counts survive driver restarts.
+The field accepts 0 to 5 and defaults to 0 in saved recipes that omit it. Zero asks you immediately.
+The dashboard recipe editor exposes it as **Automatic coverage repairs**.
+
+Coverage repairs receive the original request, coverage evidence and limitations, and blocking
+findings. They may fix requested behaviour omitted by the spec but cannot change the approved spec
+or expand the request. Every attempt runs the checks and independent review again; remaining
+coverage problems prevent readiness. Unknown request coverage or review verdicts, unavailable or
+incomplete reviews, unsupported findings and worker failures still escalate immediately. Exhausting
+an allowance also escalates; a manual continuation grants one attempt without replenishing either
+automatic allowance. Tasks retain the recipe copied at creation, so changes apply to new tasks.
+
 The built-in `standard-codex` recipe is the default and uses the settings promoted from
 `economy-codex-4-polish`. `standard-claude` mirrors it with the agent families swapped:
 
@@ -103,7 +119,8 @@ The built-in `standard-codex` recipe is the default and uses the settings promot
 | On-demand explanation | Claude, Orca default model | Codex, Orca default model |
 
 Both disable spec review, tests-first and automatic explanation. They allow two repair rounds,
-with the first eligible to continue the builder conversation when its assignment matches.
+plus three automatic coverage repair rounds, with the first repair eligible to continue the builder
+conversation when its assignment matches.
 Both names are reserved: copy a built-in recipe to customise it. The old `standard` name is removed.
 Review from the builder's own family is allowed so it can be measured; the task records which ran.
 Model ids above are examples; use ids your Orca agents accept.

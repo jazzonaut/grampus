@@ -164,6 +164,20 @@ test('the pipeline strip shows where a task in repair stands', () => {
   assert.equal(steps['accept']?.state, 'pending');
 });
 
+test('the pipeline strip includes coverage repairs without treating ordinary rounds as the total', () => {
+  const state = foldEvents(taskInRepair().events());
+  state.recipe = { ...state.recipe, repair: { ...state.recipe.repair, maxRounds: 0, coverageGapRounds: 3 } };
+  const record = state.stages.get('repair:1');
+  assert.ok(record);
+  state.stages.delete('repair:1');
+  assert.equal(pipelineOf(state).find(step => step.id === 'repair')?.state, 'pending');
+
+  state.stages.set('repair:3', { ...record, round: 3, key: 'repair:3' });
+  const repair = pipelineOf(state).find(step => step.id === 'repair');
+  assert.equal(repair?.state, 'running');
+  assert.equal(repair.detail, 'round 3');
+});
+
 test('task detail pairs questions with answers, rounds with evidence, and queued commands with their state', () => {
   const store = taskInRepair();
   const queued: UserCommand = {

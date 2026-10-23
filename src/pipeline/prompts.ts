@@ -217,15 +217,20 @@ diff against the spec. When you have committed, send worker_done with --outcome 
 ${failureReport}`;
 }
 
+/** Evidence a repair worker needs to address the previous candidate without weakening verification. */
 export interface RepairProblems {
   failedChecks: { result: CheckResult; excerpt: string; failedAtBase: boolean }[];
   violations: string[];
   findings: Finding[];
+  /** The full coverage assessment, including missing evidence and declared limitations. */
+  coverage: string[];
   /** What the user said with each `continue` so far, oldest first. */
   guidance: string[];
 }
 
+/** Bind repair instructions to the approved spec, original request and recorded failure evidence. */
 export function repairPrompt(input: {
+  request: string;
   specPath: string;
   checks: readonly CheckDefinition[];
   protectedPaths: readonly string[];
@@ -236,6 +241,9 @@ export function repairPrompt(input: {
 
 TARGET: this repository, the approved spec at ${input.specPath} and the problems below, found at
 your last commit.
+
+Original user request:
+${input.request}
 
 CHANGE: fix these problems so every criterion holds and the checks pass.
 
@@ -249,6 +257,9 @@ CONSTRAINTS:
 - Do not delete, skip or weaken tests.${
     input.protectedPaths.length ? `\n- Do not change these protected paths:\n${bullets(input.protectedPaths)}` : ''
   }
+- Fix requested behaviour omitted by the spec when supported by the review's concrete scenario.
+  Add a regression test for the real failing journey. Do not edit the approved spec or expand beyond
+  the original request; report failure if a product decision or spec contradiction prevents repair.
 
 Checks Grampus runs:
 ${checkList(input.checks)}
@@ -265,6 +276,7 @@ function describeProblems(problems: RepairProblems): string {
       `GUIDANCE FROM THE USER, oldest first. All of it still applies; where two disagree, the later wins:\n${bullets(problems.guidance)}`,
     );
   if (problems.violations.length) sections.push(`INTEGRITY PROBLEMS:\n${bullets(problems.violations)}`);
+  if (problems.coverage.length) sections.push(`OUTCOME COVERAGE PROBLEMS:\n${bullets(problems.coverage)}`);
   for (const failed of problems.failedChecks)
     sections.push(
       `FAILED CHECK "${failed.result.name}" (\`${failed.result.command}\`, exit ${failed.result.exitCode ?? 'none'}${

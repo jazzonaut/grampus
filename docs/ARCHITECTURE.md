@@ -165,14 +165,24 @@ unchanged. See [repository setup](CONFIGURATION.md#repository-setup).
    Both spec and implementation reviewers receive the original request and must assess its coverage.
    Implementation reviews must name every approved acceptance id exactly once, with verified or
    unverified status, concrete evidence and limitations. A missing mapping makes the review unavailable;
-   gaps, unknown request coverage and unverified outcomes escalate instead of becoming ready. An
+   gaps, unknown request coverage and unverified outcomes prevent readiness. An
    overlooked requested outcome cannot be dismissed merely because the spec omitted it. Coverage is
    an attributed review assessment, not a deterministic proof of the natural-language request.
 11. **Decision.** Ready when there are no guard violations, failing checks or blocking findings. The
     request to the user names any check configuration changed since the build started. A
-    builder that reported failure, an unavailable or unknown review, or unverified outcome coverage,
-    escalates immediately. Otherwise repair
-    while `round < maxRounds + continues`, then escalate.
+    builder that reported failure or an unavailable or unknown review escalates immediately. Coverage
+    problems can drive automatic repair only when the review requests changes, request coverage is
+    known and a supported blocking finding gives a file, line and failing scenario. Otherwise they
+    escalate immediately. `recipe.repair.coverageGapRounds` bounds these automatic repairs separately
+    from the ordinary `maxRounds` allowance; a round with both kinds of problem consumes the coverage
+    allowance. The built-in recipes allow three coverage repairs and two ordinary repairs. Saved
+    recipes that omit the coverage allowance use zero. Counts derive from recorded automatic
+    decisions and their reviews, so restarts do not reset them. Exhausting either allowance escalates.
+    Manual continuation grants one attempt without replenishing automatic allowances. Repairs receive
+    the original request, full coverage problems and supported findings; they must test the real
+    failing journey and may fix omitted requested behaviour without changing the approved spec.
+    The dashboard pipeline strip shows the current round without treating either allowance as a
+    total round limit.
 12. **Polish** (`polish:<r>`, optional, once per ready round). One worker improves readability,
     maintainability, consistency, simplicity and naming while preserving behaviour. Standalone naming
     and consistency improvements are allowed and assessed on their benefit, with no requirement to

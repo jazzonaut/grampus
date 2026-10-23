@@ -87,7 +87,7 @@ export function validateCoverage(report: ReviewReport, acceptanceIds?: readonly 
     throw new Error('Acceptance coverage must name every approved scenario exactly once.');
 }
 
-/** Unverified outcomes require a human decision rather than an automatically ready result. */
+/** Coverage problems prevent readiness, even when a recipe permits automatic repair. */
 export function coverageProblems(report: ReviewReport): string[] {
   const problems: string[] = [];
   if (report.requestCoverage?.verdict !== 'covered')

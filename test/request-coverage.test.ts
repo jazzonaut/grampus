@@ -4,7 +4,66 @@ import { writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { parseSpec } from '../src/domain/spec.js';
 import { parseReviewReport, validateCoverage } from '../src/domain/review.js';
+import { builtInRecipes, recipeSchema } from '../src/domain/recipe.js';
+import { coverageRecipe, gapReport } from './helpers/coverage-fixture.js';
+import { pipelineRecipe } from './helpers/recipe-fixture.js';
 import { createHarness, goodWorkers, outputPath, reviewJson, specText } from './helpers/task-fixture.js';
+
+test('coverage repair allowance is bounded, defaults to zero and is three in both built-ins', () => {
+  for (const recipe of builtInRecipes) assert.equal(recipe.repair.coverageGapRounds, 3);
+  const parse = (coverageGapRounds?: unknown) =>
+    recipeSchema.parse({
+      ...pipelineRecipe,
+      repair: {
+        maxRounds: 2,
+        reuseBuilderRounds: 1,
+        ...(coverageGapRounds === undefined ? {} : { coverageGapRounds }),
+      },
+    });
+  assert.equal(parse().repair.coverageGapRounds, 0);
+  assert.equal(parse(3).repair.coverageGapRounds, 3);
+  assert.equal(parse(5).repair.coverageGapRounds, 5);
+  for (const invalid of [-1, 1.5, '3', 6]) assert.throws(() => parse(invalid));
+});
+
+for (const scenario of [
+  'disabled',
+  'unknown-request',
+  'unknown-review',
+  'unsupported',
+  'no-finding',
+  'missing-mapping',
+] as const) {
+  test(`coverage still escalates immediately when ${scenario}`, async () => {
+    const report = gapReport();
+    if (scenario === 'unknown-request')
+      report.requestCoverage = { verdict: 'unknown', rationale: 'Transport unavailable.' };
+    if (scenario === 'unknown-review') report.verdict = 'unknown';
+    if (scenario === 'unsupported') report.findings = [{ severity: 'blocking', title: 'Vague concern' }];
+    if (scenario === 'no-finding') report.findings = [];
+    if (scenario === 'missing-mapping') report.coverage = [];
+    const h = await createHarness(
+      h =>
+        goodWorkers(h, {
+          review: context => {
+            writeFileSync(outputPath(context.spec), JSON.stringify(report));
+            return { outcome: 'succeeded' };
+          },
+        }),
+      coverageRecipe(scenario === 'disabled' ? 0 : 3, 2),
+    );
+    const driver = h.run();
+    try {
+      await h.until(s => s.attention?.reason === 'approve-spec:1', 'approval');
+      h.command({ kind: 'approve', specVersion: 1 });
+      await h.until(s => s.attention?.reason === 'escalate:0', 'immediate escalation');
+      assert.equal(h.orca.starts.filter(start => start.title.startsWith('Repair')).length, 0);
+    } finally {
+      h.command({ kind: 'abandon' });
+      await driver;
+    }
+  });
+}
 
 test('a specification cannot omit the request-to-acceptance mapping', () => {
   assert.throws(() => parseSpec('```grampus\n{"checks":[{"name":"unit","command":"npm test"}]}\n```'), /acceptance/);

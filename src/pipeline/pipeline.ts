@@ -21,7 +21,7 @@ import { inspectCandidate } from './guard.js';
 import { buildPrompt, repairPrompt, reviewPrompt, testsFirstPrompt, type RepairProblems } from './prompts.js';
 import { polish, polishNote } from './polish.js';
 import { approveSpec, ensureGate } from './spec-phase.js';
-import { currentDispatch, grantedRounds, stageKey, type SpecVersion } from './state.js';
+import { currentDispatch, stageKey, type ReviewRecord, type SpecVersion } from './state.js';
 import { approvedSpecPath, excludeWorkerFolder, keepEvidence, readWorkerFile, workerFile } from './workspace-files.js';
 
 /** Run the task to acceptance. Throws `TaskAbandoned` or `DriverStop` to end early. */
@@ -209,6 +209,7 @@ function buildRound(core: DriverCore, worktree: string, spec: SpecVersion, round
     title: `Repair ${round}: ${core.state.title}`,
     spec: () =>
       repairPrompt({
+        request: core.state.request,
         specPath,
         checks: spec.checks,
         protectedPaths,
@@ -236,6 +237,7 @@ function sameAssignment(left: Assignment, right: Assignment): boolean {
 }
 
 function problemsOf(core: DriverCore, round: number): RepairProblems {
+  const report = core.state.reviews.get(round)?.report;
   const baselineFailures = new Set(
     core.state.baseline?.results.filter(result => !result.passed).map(result => result.name),
   );
@@ -249,6 +251,7 @@ function problemsOf(core: DriverCore, round: number): RepairProblems {
       })),
     violations: core.state.guard.get(round)?.guard.violations ?? [],
     findings: core.state.reviews.get(round)?.blocking ?? [],
+    coverage: report ? coverageProblems(report) : [],
     // Every continue so far, not only the one that granted this round: an automatic round after it
     // otherwise never hears what the user asked, and once undid it.
     guidance: core.state.commands.flatMap(command => (command.kind === 'continue' ? [command.guidance] : [])),
@@ -371,14 +374,20 @@ function decideRound(core: DriverCore, round: number, settled: Settled): 'repair
       throw new DriverStop('The recorded round decision does not match its check evidence.');
     return recorded.decision;
   }
-  const problems: string[] = [...(core.state.guard.get(round)?.guard.violations ?? [])];
-  for (const result of core.state.verify.get(round)?.results ?? [])
-    if (!result.passed) problems.push(`check "${result.name}" failed${result.timedOut ? ' (timed out)' : ''}`);
-  const reviewed = core.state.reviews.get(round);
-  for (const finding of reviewed?.blocking ?? []) problems.push(`blocking finding: ${finding.title}`);
+  const { problems, coverage } = roundProblems(core, round);
   const stoppers = roundStoppers(core, round, settled);
-  const allowed = core.state.recipe.repair.maxRounds + grantedRounds(core.state);
-  const decision = stoppers.length ? 'escalate' : !problems.length ? 'ready' : round < allowed ? 'repair' : 'escalate';
+  const budget = repairBudget(core, round, coverage);
+  const decision = stoppers.length
+    ? 'escalate'
+    : !problems.length
+      ? 'ready'
+      : budget.used < budget.allowed
+        ? 'repair'
+        : 'escalate';
+  if (!stoppers.length && problems.length && decision === 'escalate')
+    problems.push(
+      `${coverage ? 'coverage' : 'ordinary'} repair allowance exhausted (${budget.used}/${budget.allowed})`,
+    );
   const checked = core.state.verify.get(round);
   if (!checked) throw new DriverStop('No check evidence for this round.');
   core.record({
@@ -395,6 +404,33 @@ function decideRound(core: DriverCore, round: number, settled: Settled): 'repair
   return decision;
 }
 
+/** Keep coverage failures in the decision evidence even when they qualify for automatic repair. */
+function roundProblems(core: DriverCore, round: number): { problems: string[]; coverage: boolean } {
+  const problems: string[] = [...(core.state.guard.get(round)?.guard.violations ?? [])];
+  for (const result of core.state.verify.get(round)?.results ?? [])
+    if (!result.passed) problems.push(`check "${result.name}" failed${result.timedOut ? ' (timed out)' : ''}`);
+  const reviewed = core.state.reviews.get(round);
+  for (const finding of reviewed?.blocking ?? []) problems.push(`blocking finding: ${finding.title}`);
+  const coverage = reviewed?.report ? coverageProblems(reviewed.report) : [];
+  problems.push(...coverage);
+  return { problems, coverage: coverage.length > 0 };
+}
+
+/** Count recorded automatic decisions, so restarts and manual rounds cannot replenish either allowance. */
+function repairBudget(core: DriverCore, round: number, coverage: boolean): { used: number; allowed: number } {
+  let used = 0;
+  for (const [earlier, decision] of core.state.decisions) {
+    if (earlier >= round || decision.decision !== 'repair') continue;
+    const report = core.state.reviews.get(earlier)?.report;
+    const wasCoverage = report ? coverageProblems(report).length > 0 : false;
+    if (wasCoverage === coverage) used++;
+  }
+  return {
+    used,
+    allowed: coverage ? core.state.recipe.repair.coverageGapRounds : core.state.recipe.repair.maxRounds,
+  };
+}
+
 /** Missing evidence and uncertain review need a person, rather than another blind repair. */
 function roundStoppers(core: DriverCore, round: number, settled: Settled): string[] {
   const reviewed = core.state.reviews.get(round);
@@ -402,12 +438,24 @@ function roundStoppers(core: DriverCore, round: number, settled: Settled): strin
   if (settled.outcome === 'failed') stoppers.push(`${builderFailed}${settled.body}`);
   if (reviewed?.error) stoppers.push(`review unavailable: ${reviewed.error}`);
   if (core.state.recipe.review && !reviewed?.report) stoppers.push('review unavailable');
-  if (reviewed?.report) stoppers.push(...coverageProblems(reviewed.report));
+  // A concrete failing scenario can drive repair; uncertainty alone cannot justify autonomous edits.
+  if (reviewed?.report && coverageProblems(reviewed.report).length && !actionableCoverage(reviewed))
+    stoppers.push('coverage assessment has no supported repair or is unknown');
   if (reviewed?.report?.verdict === 'unknown') stoppers.push('review verdict unknown');
   if (reviewed?.report?.verdict === 'changes' && !reviewed.blocking.length)
     stoppers.push('review requests changes without a supported finding');
   if (!finalCandidate(core.state)) stoppers.push('candidate evidence does not match the current commit and spec');
   return stoppers;
+}
+
+/** Unknown evidence cannot authorise edits; a supported failing scenario can. */
+function actionableCoverage(review: ReviewRecord): boolean {
+  const requestCoverage = review.report?.requestCoverage?.verdict;
+  return (
+    review.report?.verdict === 'changes' &&
+    (requestCoverage === 'covered' || requestCoverage === 'gaps') &&
+    review.blocking.length > 0
+  );
 }
 
 async function askUser(

@@ -11,5 +11,5 @@ export const pipelineRecipe: Recipe = {
   review: { agent: 'claude' },
   polish: null,
   explain: { automatic: false, assignment: { agent: 'claude' } },
-  repair: { maxRounds: 2, reuseBuilderRounds: 1 },
+  repair: { maxRounds: 2, coverageGapRounds: 0, reuseBuilderRounds: 1 },
 };

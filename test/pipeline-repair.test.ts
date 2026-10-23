@@ -91,7 +91,11 @@ test('only supported blocking findings send work back; unsupported ones are down
 });
 
 test('after the recipe allows no more rounds the user decides, and accepting records an override', async () => {
-  const recipe = { ...pipelineRecipe, name: 'no-repair', repair: { maxRounds: 0, reuseBuilderRounds: 0 } };
+  const recipe = {
+    ...pipelineRecipe,
+    name: 'no-repair',
+    repair: { ...pipelineRecipe.repair, maxRounds: 0, reuseBuilderRounds: 0 },
+  };
   const harness = await createHarness(
     h =>
       goodWorkers(h, {
@@ -113,7 +117,11 @@ test('after the recipe allows no more rounds the user decides, and accepting rec
 });
 
 test('continue grants one more round with the user guidance in the repair prompt', async () => {
-  const recipe = { ...pipelineRecipe, name: 'no-repair', repair: { maxRounds: 0, reuseBuilderRounds: 0 } };
+  const recipe = {
+    ...pipelineRecipe,
+    name: 'no-repair',
+    repair: { ...pipelineRecipe.repair, maxRounds: 0, reuseBuilderRounds: 0 },
+  };
   let attempt = 0;
   const harness = await createHarness(
     h =>
@@ -141,7 +149,11 @@ test('continue grants one more round with the user guidance in the repair prompt
 });
 
 test('guidance from continue still reaches the automatic repair rounds after it', async () => {
-  const recipe = { ...pipelineRecipe, name: 'two-repairs', repair: { maxRounds: 2, reuseBuilderRounds: 0 } };
+  const recipe = {
+    ...pipelineRecipe,
+    name: 'two-repairs',
+    repair: { ...pipelineRecipe.repair, maxRounds: 2, reuseBuilderRounds: 0 },
+  };
   const repairPrompts: string[] = [];
   const harness = await createHarness(
     h =>

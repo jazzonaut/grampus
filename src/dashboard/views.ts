@@ -272,14 +272,15 @@ function reviewStep(state: TaskState, round: number | null): PipelineStep {
 }
 
 function repairStep(state: TaskState, round: number | null): PipelineStep {
-  const max = state.recipe.repair.maxRounds;
+  const max = state.recipe.repair.maxRounds + state.recipe.repair.coverageGapRounds;
   if (round === null || round === 0) {
     const decided = round === 0 ? state.decisions.get(0)?.decision : undefined;
     const skipped = state.finished !== null || decided === 'ready' || max === 0;
     return step('repair', 'Repair', skipped ? 'skipped' : 'pending');
   }
   const record = state.stages.get(`repair:${round}`);
-  return step('repair', 'Repair', running(record) ? 'running' : 'done', `round ${round} of ${max}`);
+  // The two automatic allowances and manual continuations do not form one round-number limit.
+  return step('repair', 'Repair', running(record) ? 'running' : 'done', `round ${round}`);
 }
 
 function acceptStep(state: TaskState): PipelineStep {

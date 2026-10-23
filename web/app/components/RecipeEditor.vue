@@ -116,7 +116,7 @@ async function save(): Promise<void> {
         <div class="rounded-lg border border-default p-3 space-y-3">
           <p class="text-sm font-medium">Repair</p>
           <div class="grid gap-3 sm:grid-cols-2">
-            <UFormField label="Rounds before asking you" :help="`0 to ${maxRounds}`">
+            <UFormField label="Automatic ordinary repairs" :help="`0 to ${maxRounds}, separate from coverage repairs`">
               <UInputNumber v-model="draft.repair.maxRounds" :min="0" :max="maxRounds" class="w-full" />
             </UFormField>
             <UFormField
@@ -126,6 +126,12 @@ async function save(): Promise<void> {
               <UInputNumber v-model="draft.repair.reuseBuilderRounds" :min="0" :max="maxRounds" class="w-full" />
             </UFormField>
           </div>
+          <UFormField
+            label="Automatic coverage repairs"
+            help="Separate allowance for coverage gaps with a concrete failing scenario. Zero asks you immediately; unknown evidence still needs you."
+          >
+            <UInputNumber v-model="draft.repair.coverageGapRounds" :min="0" :max="maxRounds" class="w-full" />
+          </UFormField>
           <USwitch v-model="ownRepair" label="Use a different agent for repair than for the build" />
           <AssignmentField v-if="ownRepair" v-model="repairAssignment" label="Repair agent" />
         </div>

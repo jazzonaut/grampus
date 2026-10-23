@@ -58,6 +58,8 @@ export const recipeSchema = z
     repair: z
       .object({
         maxRounds: z.number().int().min(0).max(recipeLimits.maxRepairRounds),
+        /** Separate automatic allowance for supported coverage findings; zero asks the user immediately. */
+        coverageGapRounds: z.number().int().min(0).max(recipeLimits.maxRepairRounds).default(0),
         /** Repair agent; omitted means the build assignment. */
         assignment: assignmentSchema.optional(),
         /** Rounds up to this number continue the builder's conversation; later rounds start fresh. */
@@ -80,6 +82,7 @@ export const standardRecipe: Recipe = {
   explain: { automatic: false, assignment: { agent: 'claude' } },
   repair: {
     maxRounds: 2,
+    coverageGapRounds: 3,
     assignment: { agent: 'codex', model: 'gpt-6.1-sol', effort: 'high' },
     reuseBuilderRounds: 1,
   },
@@ -97,6 +100,7 @@ export const standardClaudeRecipe: Recipe = {
   explain: { automatic: false, assignment: { agent: 'codex' } },
   repair: {
     maxRounds: 2,
+    coverageGapRounds: 3,
     assignment: { agent: 'claude', model: 'claude-sonnet-5-5', effort: 'high' },
     reuseBuilderRounds: 1,
   },
