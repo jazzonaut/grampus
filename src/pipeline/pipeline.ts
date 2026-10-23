@@ -14,6 +14,7 @@ import { finalCandidate } from './candidate.js';
 import { assertEvidenceUnchanged, evidenceSnapshot } from './evidence.js';
 import { DriverStop } from './driver-core.js';
 import { prepareWorkspace } from './setup.js';
+import { retainReviewProbes } from './review-probes.js';
 import { recordTestBaseline, testBaselineNote } from './test-evidence.js';
 import type { DriverCore, Launch, Settled } from './driver-core.js';
 import { measureDispatches } from '../measure/usage.js';
@@ -306,7 +307,10 @@ async function review(core: DriverCore, worktree: string, round: number): Promis
     spec: () =>
       reviewPrompt({
         request: core.state.request,
-        guidance: core.state.commands.flatMap(command => (command.kind === 'continue' ? [command.guidance] : [])),
+        guidance: [
+          ...core.state.commands.flatMap(command => (command.kind === 'continue' ? [command.guidance] : [])),
+          `Reassess prior review probes and report their committed regressions: ${JSON.stringify(core.state.reviews.get(round - 1)?.report?.probes ?? [])}`,
+        ],
         specPath: approvedSpecPath(worktree),
         baseSha: core.state.workspace?.baseSha ?? roundStart(core, 0),
         roundFromSha: guard.fromSha,
@@ -331,6 +335,12 @@ async function review(core: DriverCore, worktree: string, round: number): Promis
     validateCoverage(
       report,
       spec.acceptance.map(item => item.id),
+    );
+    await retainReviewProbes(
+      worktree,
+      candidate.sha,
+      report,
+      [...core.state.reviews.values()].reverse().flatMap(item => item.report ?? []),
     );
     const outcome = judgeCodeReview(report);
     keepEvidence(reportPath, join(core.store.dir, 'reviews', `round-${round}.json`));
@@ -451,6 +461,7 @@ function roundStoppers(core: DriverCore, round: number, settled: Settled): strin
 /** Unknown evidence cannot authorise edits; a supported failing scenario can. */
 function actionableCoverage(review: ReviewRecord): boolean {
   const requestCoverage = review.report?.requestCoverage?.verdict;
+  if (review.report?.verdict !== 'unknown' && review.report?.probes?.some(probe => !probe.regressionTest)) return true;
   return (
     review.report?.verdict === 'changes' &&
     (requestCoverage === 'covered' || requestCoverage === 'gaps') &&

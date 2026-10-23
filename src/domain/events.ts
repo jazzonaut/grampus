@@ -7,7 +7,7 @@ import type { Assignment, Recipe } from './recipe.js';
 import type { Finding, ReviewReport } from './review.js';
 import type { MaintenanceAssessment, PolishReport } from './polish.js';
 import type { CheckAssessment } from '../checks/failure.js';
-import type { AcceptanceScenario, CheckDefinition } from './spec.js';
+import type { AcceptanceScenario, BehaviouralHarness, CheckDefinition } from './spec.js';
 import type { DispatchMeasurement } from '../measure/usage.js';
 import { codeReferenceSchema, type CodeReference, type Explanation, type ExplanationAnswer } from './explanation.js';
 
@@ -15,7 +15,7 @@ import { codeReferenceSchema, type CodeReference, type Explanation, type Explana
 export type TaskOutcome = 'accepted' | 'abandoned' | 'not-selected';
 
 /** The event log schema. Logs written with another schema are refused; there are no migrations. */
-export const eventSchemaVersion = 5;
+export const eventSchemaVersion = 6;
 
 /** Pipeline stages that run as Orca workers. */
 export type Stage =
@@ -91,7 +91,7 @@ export type TaskEvent =
       sha: string;
       command: CheckDefinition | null;
       source: string;
-      verification: { checks: CheckDefinition[]; source: string };
+      verification: { checks: CheckDefinition[]; source: string; harness?: BehaviouralHarness };
     }
   | { type: 'setup.started'; attempt: number }
   | { type: 'setup.recorded'; attempt: number; sha: string; result: CheckResult; problems: string[] }

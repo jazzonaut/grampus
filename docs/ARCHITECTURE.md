@@ -95,6 +95,24 @@ A successful setup is not repeated on restart. A failed or interrupted attempt r
 retry; an uncertain attempt is never silently replayed. Setup must leave HEAD and tracked files
 unchanged. See [repository setup](CONFIGURATION.md#repository-setup).
 
+Fresh clean checkouts first normalise Git's implicit CRLF conversion back to the
+committed LF form, respecting explicit CRLF attributes and leaving shared Git
+configuration alone. This happens before workers and baseline checks.
+
+An optional base-commit `behaviouralHarness` adds the same portable commands,
+public-interface contract and protected test/helper files to every approved spec.
+Cross-check overlays exclude these files and reject a candidate that changed them.
+Named assertion failures are retained alongside command-level compatibility and
+execution classifications, so mixed output cannot hide an assertion that ran.
+These observations are shown in CLI comparison status and the dashboard; they do
+not turn unknown test compatibility into a behavioural verdict.
+
+Implementation reviews must declare executable probes. Their source is retained
+in the report; missing committed regressions request bounded coverage repair.
+Probe requirements carry across reviews until a named committed regression is
+reported. The driver verifies the file and named text at the candidate commit;
+the reviewer verifies assertion meaning and inclusion in approved checks.
+
 The same configuration snapshot includes mandatory repository verification: explicit `checks` in
 `grampus.json`, or the root Node `verify`/`check` script. These checks are merged ahead of acceptance
 checks into the exact spec bytes before approval, so baseline, build, repair and polish all use the
@@ -284,12 +302,14 @@ prints the addresses it answers on.
 - **Changes**: `/api/tasks/<id>/changes` counts lines per file between the task base or a recorded prior
   candidate (`from`) and the current commit. `/api/tasks/<id>/diff?path=...` returns one complete changed
   file diff at a time. The legacy whole-diff response is capped by `dashboardDiffBytes` and identifies
-  truncation. Uncommitted work is excluded. The Changes tab navigates by purpose or file, with all files
-  accessible, code-linked explanation and answers, and editable guidance submitted through the existing
+  truncation. Uncommitted work is excluded. Overview and Changes share a collapsible folder tree with
+  per-file line counts. The Changes tab keeps that tree beside the selected file diff when its panel
+  has room, with all files accessible, code-linked explanation and answers, and editable guidance through
   `continue` command. The explanation opens by default with a summary, labelled before/after comparison,
   file-linked key changes and caveats. It sits beside the diff when the content area has enough room,
-  and stacks above it on smaller screens. Long notes expand on demand; rationale and validation sit
-  under More detail. Unlabelled comparisons remain intact rather than guessing a split. The explanation
+  and stacks above it on smaller screens. Notes in Overview, Spec and explanations render in full;
+  rationale and validation sit under More detail. Key changes provide the purpose navigation without
+  a duplicate Purposes control. Unlabelled comparisons remain intact rather than guessing a split. The explanation
   worker targets 250 words, with a 25-word summary, 35 words per comparison side and short purpose groups;
   these are writing targets, not rejection limits, and material caveats take priority. Follow-up answers
   target 120 words unless more detail is requested. The report schema and candidate binding are unchanged.
@@ -398,7 +418,7 @@ prints the addresses it answers on.
 
 ```text
 <data>/config.json                       optional settings
-<data>/tasks/<task>/events.jsonl          append-only event log (schema 5)
+<data>/tasks/<task>/events.jsonl          append-only event log (schema 6)
 <data>/tasks/<task>/commands.jsonl        queued user commands
 <data>/tasks/<task>/driver.lock          the running driver's process id, token and heartbeat
 <data>/tasks/<task>/spec/v<n>.md          spec versions and their reviews
@@ -406,7 +426,7 @@ prints the addresses it answers on.
 <data>/tasks/<task>/reviews/polish-<r>.json
 <data>/tasks/<task>/explanations/<command-id>.json
 <data>/tasks/<task>/checks/<phase>-<r>/   check logs
-<data>/comparisons/<id>/events.jsonl      comparison log (schema 3)
+<data>/comparisons/<id>/events.jsonl      comparison log (schema 4)
 <data>/comparisons/<id>/commands.jsonl    queued picks and abandons
 <data>/comparisons/<id>/driver.lock      the comparison driver's lock, as for a task
 <data>/comparisons/<id>/cross-check/      cross-check logs
@@ -628,5 +648,5 @@ For builder comparisons, use shared mode with tests first in the first recipe, t
 interfaces, and compare repeated runs over several tasks. Full mode includes spec quality and test
 compatibility differences and is not an interchangeable behavioural benchmark.
 
-Task schema 5 and comparison schema 3 describe this workflow. Earlier logs are refused, not migrated
+Task schema 6 and comparison schema 4 describe this workflow. Earlier logs are refused, not migrated
 or rewritten. Recipe configuration now uses `polish`; `simplify` is not a supported alias.

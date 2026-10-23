@@ -25,6 +25,21 @@ const caveats = computed(() => {
 <template>
   <div class="space-y-3 min-w-0">
     <ChangeNote :source="report.summary" />
+    <details
+      v-for="probe in report.probes ?? []"
+      :key="probe.scenario"
+      class="rounded-lg border border-default p-3"
+      :open="!probe.regressionTest"
+    >
+      <summary class="cursor-pointer text-sm font-medium">
+        {{ probe.scenario }}: {{ probe.regressionTest ? 'regression retained' : 'regression needed' }}
+      </summary>
+      <p v-if="probe.regressionTest" class="mt-2 text-sm">
+        {{ probe.regressionTest.file }}: {{ probe.regressionTest.test }}
+      </p>
+      <p class="mt-2 text-sm">{{ probe.command }}</p>
+      <pre class="mt-2 whitespace-pre-wrap break-words text-xs">{{ probe.source }}</pre>
+    </details>
     <FindingList
       v-if="report.findings.length || downgraded?.length"
       :findings="report.findings"

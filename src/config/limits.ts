@@ -37,6 +37,8 @@ export const reviewLimits = {
   bytes: 256 * KiB,
   findings: 40,
   textLength: 4000,
+  /** Runnable probes include fixtures and imports, rather than only a prose finding. */
+  probeSourceLength: 32 * KiB,
 } as const;
 
 /** Keep polish local: broader extractions belong in a separate task. */
@@ -50,6 +52,9 @@ export const recipeLimits = {
 
 /** Bounds on recorded command output. */
 export const checkLimits = {
+  /** Named failures shown alongside the complete command log. */
+  assertions: 100,
+  assertionTextLength: 2000,
   /** Bytes of a check's combined output kept in its log file. */
   logBytes: 4 * MiB,
   /** Bytes of the log's tail quoted to repair workers and reviewers. */

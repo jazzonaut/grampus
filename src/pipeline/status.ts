@@ -208,6 +208,10 @@ function reviewLines(review: ReviewRecord | undefined): string[] {
   const where = (finding: Finding) => `${finding.file ?? '?'}:${finding.line ?? '?'}`;
   return [
     `review: ${review.report.verdict}. ${review.report.summary}`,
+    ...(review.report.probes?.map(
+      probe =>
+        `review probe: ${probe.scenario}: ${probe.regressionTest ? `retained in ${probe.regressionTest.file}: ${probe.regressionTest.test}` : 'committed regression needed'}`,
+    ) ?? []),
     ...(review.report.requestCoverage
       ? [`request coverage: ${review.report.requestCoverage.verdict}. ${review.report.requestCoverage.rationale}`]
       : []),

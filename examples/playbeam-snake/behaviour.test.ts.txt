@@ -1,0 +1,72 @@
+// Common Snake contract: production GameHost, roster input, frame clock and public results.
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { GameHost } from '../src/engine/game-host';
+import { snake } from '../src/games/snake';
+import type { GameResults, RosterPlayer } from '@playbeam/shared';
+
+const frameMs = 16;
+const roundSeconds = 30;
+const roundFrames = Math.ceil(roundSeconds * 1000 / frameMs) + 2;
+const player = (playerId: string, connected = true): RosterPlayer => ({
+  playerId, name: playerId, host: playerId === 'A', connected,
+});
+
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+function journey() {
+  let now = 1000;
+  let callback: FrameRequestCallback | undefined;
+  vi.stubGlobal('window', { devicePixelRatio: 1 });
+  vi.stubGlobal('requestAnimationFrame', (next: FrameRequestCallback) => { callback = next; return 1; });
+  vi.stubGlobal('cancelAnimationFrame', () => { callback = undefined; });
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+  const context = new Proxy({} as Record<string, unknown>, {
+    get: (target, key) => target[String(key)] ?? (() => ({ addColorStop() {} })),
+    set: (target, key, value) => { target[String(key)] = value; return true; },
+  });
+  const canvas = { clientWidth: 640, clientHeight: 480, width: 640, height: 480,
+    getContext: () => context } as unknown as HTMLCanvasElement;
+  const results: GameResults[] = [];
+  const host = new GameHost(canvas, snake, { config: { roundSeconds }, onGameOver: result => results.push(result) });
+  host.start();
+  const frames = (count = 1) => { for (let i = 0; i < count; i++) { now += frameMs; callback?.(now); } };
+  host.setRoster([player('A'), player('B')]);
+  frames(3);
+  return { host, results, frames };
+}
+
+describe('common Snake behavioural contract', () => {
+  it('retains both final standings when the roster clears before the next frame', () => {
+    const { host, results, frames } = journey();
+    host.setRoster([]);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.ranked.map(row => row.playerId).sort()).toEqual(['A', 'B']);
+    host.setRoster([player('A')]); frames();
+    expect(results).toHaveLength(1);
+  });
+  it('retains held participants across consecutive departures before the next frame', () => {
+    const { host, results, frames } = journey();
+    host.setRoster([player('A', false), player('B', false)]); frames();
+    host.setRoster([player('B', false)]);
+    host.setRoster([]);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.ranked.map(row => row.playerId).sort()).toEqual(['A', 'B']);
+  });
+  it('removes departed players from standings once remaining play advances', () => {
+    const { host, results, frames } = journey();
+    host.setRoster([player('B')]); frames(3);
+    host.setRoster([]);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.ranked.map(row => row.playerId)).toEqual(['B']);
+  });
+  it('pauses an all-held round and includes the held player when resumed play ends', () => {
+    const { host, results, frames } = journey();
+    host.setRoster([player('A', false), player('B', false)]);
+    frames(roundFrames * 2);
+    expect(results).toHaveLength(0);
+    host.setRoster([player('A', false), player('B')]);
+    frames(roundFrames);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.ranked.map(row => row.playerId).sort()).toEqual(['A', 'B']);
+  });
+});

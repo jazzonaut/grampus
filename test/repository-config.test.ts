@@ -70,3 +70,31 @@ test('explicit configuration rejects an empty verification baseline', async () =
   await commitAll(repo, 'Declare invalid checks');
   await assert.rejects(repositoryConfiguration(repo, await headSha(repo)));
 });
+
+test('common behavioural checks are fixed at the base and cannot be narrowed by a recipe', async () => {
+  const repo = await createRepository();
+  write(repo, 'test/behaviour.test.js', 'import "./greet.test.js";\n');
+  write(
+    repo,
+    'grampus.json',
+    JSON.stringify({
+      behaviouralHarness: {
+        contract: 'Call greet(name) and compare its returned string. No private state.',
+        files: ['test/behaviour.test.js', 'test/greet.test.js'],
+        checks: [{ name: 'Common behaviour', command: 'node test/behaviour.test.js' }],
+      },
+    }),
+  );
+  await commitAll(repo, 'Declare common behavioural harness');
+  const configured = await repositoryConfiguration(repo, await headSha(repo));
+  assert.deepEqual(configured.verification.checks, [
+    { name: 'Common behaviour', command: 'node test/behaviour.test.js', portable: true },
+  ]);
+  const spec = withRepositoryChecks(specText(), configured.verification.checks, configured.verification.harness);
+  assert.deepEqual(spec.block.protected, ['test/behaviour.test.js', 'test/greet.test.js']);
+  assert.match(spec.block.behaviouralHarness?.contract ?? '', /No private state/);
+  assert.equal(
+    withRepositoryChecks(spec.markdown, configured.verification.checks, configured.verification.harness).hash,
+    spec.hash,
+  );
+});

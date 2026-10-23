@@ -46,6 +46,21 @@ export const reviewReportSchema = z
     requestCoverage: requestCoverageSchema.optional(),
     /** Required, complete and unique for implementation reviews. */
     coverage: z.array(coverageSchema).max(reviewLimits.findings).optional(),
+    /** Reproducible probes used to establish requested outcomes, retained for the repair worker. */
+    probes: z
+      .array(
+        z
+          .object({
+            scenario: evidenceText,
+            suggestedPath: evidenceText,
+            command: evidenceText,
+            source: z.string().trim().min(1).max(reviewLimits.probeSourceLength),
+            regressionTest: z.object({ file: evidenceText, test: evidenceText }).strict().nullable(),
+          })
+          .strict(),
+      )
+      .max(reviewLimits.findings)
+      .optional(),
   })
   .strict();
 export type ReviewReport = z.infer<typeof reviewReportSchema>;
@@ -85,6 +100,7 @@ export function validateCoverage(report: ReviewReport, acceptanceIds?: readonly 
     acceptanceIds.some(id => !ids.includes(id))
   )
     throw new Error('Acceptance coverage must name every approved scenario exactly once.');
+  if (!report.probes) throw new Error('Review probes must be declared, using an empty array when none were needed.');
 }
 
 /** Coverage problems prevent readiness, even when a recipe permits automatic repair. */
@@ -97,6 +113,11 @@ export function coverageProblems(report: ReviewReport): string[] {
   for (const item of report.coverage ?? [])
     if (item.status === 'unverified')
       problems.push(`unverified outcome ${item.acceptanceId}: ${item.evidence} ${item.limitations.join(' ')}`);
+  for (const probe of report.probes ?? [])
+    if (!probe.regressionTest)
+      problems.push(
+        `Preserve review probe as a committed regression test: ${probe.scenario}. Suggested file: ${probe.suggestedPath}. Run: ${probe.command}\n${probe.source}`,
+      );
   return problems;
 }
 

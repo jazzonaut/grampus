@@ -74,4 +74,23 @@ function summary(cell: CrossCheckCell | undefined): { text: string; tone: string
       </tbody>
     </table>
   </div>
+  <details
+    v-for="cell in cells.filter(item => item.assessments?.some(check => check.assertions?.length))"
+    :key="`${cell.specOf}:${cell.candidate}`"
+    class="mt-3 rounded-lg border border-default p-3 text-sm"
+  >
+    <summary class="cursor-pointer font-medium">
+      Assertions: {{ recipeOf.get(cell.specOf) }} tests on {{ recipeOf.get(cell.candidate) }}
+    </summary>
+    <p class="mt-2 text-muted">
+      Observed failures are shown even when the command also reports infrastructure errors. Unknown means test
+      compatibility is not established.
+    </p>
+    <div v-for="check in cell.assessments" :key="check.name">
+      <div v-for="(assertion, index) in check.assertions ?? []" :key="index" class="mt-3">
+        <p class="font-medium">{{ check.name }}: {{ assertion.test }} ({{ assertion.outcome }})</p>
+        <pre class="whitespace-pre-wrap text-xs">{{ assertion.detail }}</pre>
+      </div>
+    </div>
+  </details>
 </template>

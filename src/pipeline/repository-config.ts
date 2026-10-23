@@ -1,13 +1,16 @@
 // Resolve repository preparation and mandatory verification from the immutable base commit.
 import { z } from 'zod';
 import { specLimits } from '../config/limits.js';
-import { checkDefinitionSchema, type CheckDefinition } from '../domain/spec.js';
+import { checkDefinitionSchema, harnessSchema, type BehaviouralHarness, type CheckDefinition } from '../domain/spec.js';
 import { git } from '../git/git.js';
 
 const configuration = z
   .object({
     setup: checkDefinitionSchema.nullable().optional(),
     checks: z.array(checkDefinitionSchema).min(1).max(specLimits.checks).optional(),
+    behaviouralHarness: harnessSchema
+      .extend({ checks: z.array(checkDefinitionSchema).min(1).max(specLimits.checks) })
+      .optional(),
   })
   .strict();
 
@@ -47,7 +50,7 @@ export async function repositoryConfiguration(
 ): Promise<{
   command: CheckDefinition | null;
   source: string;
-  verification: { checks: CheckDefinition[]; source: string };
+  verification: { checks: CheckDefinition[]; source: string; harness?: BehaviouralHarness };
 }> {
   const files = (await git(cwd, ['ls-tree', '--name-only', sha])).split(/\r?\n/);
   const explicit = files.includes('grampus.json')
@@ -66,12 +69,29 @@ export async function repositoryConfiguration(
       : install
         ? 'root lockfile at the base commit'
         : 'no repository setup';
-  if (explicit.checks) {
-    if (new Set(explicit.checks.map(check => check.name)).size !== explicit.checks.length)
-      throw new Error('Repository check names in grampus.json must be unique.');
-    if (new Set(explicit.checks.map(check => check.command.trim())).size !== explicit.checks.length)
-      throw new Error('Repository check commands in grampus.json must be unique.');
-    return { command, source, verification: { checks: explicit.checks, source: 'grampus.json at the base commit' } };
+  const inferred = explicit.checks
+    ? { checks: explicit.checks, source: 'grampus.json at the base commit' }
+    : await inferredVerification(cwd, sha, files);
+  const harness = explicit.behaviouralHarness;
+  if (harness) {
+    const tracked = (await git(cwd, ['ls-tree', '-r', '--name-only', '-z', sha])).split('\0');
+    for (const path of harness.files)
+      if (!tracked.includes(path)) throw new Error(`Harness file is not committed at the base: ${path}`);
   }
-  return { command, source, verification: await inferredVerification(cwd, sha, files) };
+  const checks = [...inferred.checks, ...(harness?.checks.map(check => ({ ...check, portable: true })) ?? [])];
+  if (new Set(checks.map(check => check.name)).size !== checks.length)
+    throw new Error('Repository check names in grampus.json must be unique.');
+  if (new Set(checks.map(check => check.command.trim())).size !== checks.length)
+    throw new Error('Repository check commands in grampus.json must be unique.');
+  return {
+    command,
+    source,
+    verification: {
+      checks,
+      source: harness
+        ? `${inferred.source}; common behavioural harness from grampus.json at the base commit`
+        : inferred.source,
+      ...(harness ? { harness: { contract: harness.contract, files: harness.files } } : {}),
+    },
+  };
 }

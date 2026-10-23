@@ -92,6 +92,7 @@ function polishedCandidate(
         ...review.report,
         requestCoverage: original?.report?.requestCoverage,
         coverage: original?.report?.coverage,
+        probes: original?.report?.probes,
       },
     },
     polished: true,

@@ -150,6 +150,13 @@ timeout settings. Generated dependencies must be ignored by Git; tracked changes
 make setup fail. Failures have their own logs and retry decision, not a failed behavioural baseline.
 After interruption, stop any previous setup process before confirming a retry.
 
+Before setup, a clean fresh checkout is normalised where Git reports LF in the index
+and CRLF in the working file. Explicit `eol=crlf` attributes are respected. Binary,
+mixed-ending and already-LF files are left alone. Grampus refreshes the affected
+index entries and requires a clean tree afterwards; it never changes shared or
+global Git settings. This prevents platform checkout conversion from consuming
+feature repair rounds. Actual formatting defects still fail verification.
+
 ### Repository verification baseline
 
 `checks` declares the mandatory repository verification baseline, independent of the recipe. The
@@ -179,6 +186,53 @@ uses stable existing public interfaces and can be run unchanged against independ
 This declaration is part of spec approval; it is not inferred from a passing run. Undeclared
 cross-check failures remain unknown unless the logs establish an execution or API incompatibility.
 
+### Common behavioural harness
+
+Declare `behaviouralHarness` in the base commit's `grampus.json` to give every
+recipe the same behavioural checks:
+
+```json
+{
+  "behaviouralHarness": {
+    "contract": "Invoke the public greeting function and compare its returned string.",
+    "files": ["test/common.test.js"],
+    "checks": [{ "name": "Common behaviour", "command": "node test/common.test.js" }]
+  }
+}
+```
+
+List every harness test, fixture and helper as an exact committed repository-relative
+file. Paths cannot contain traversal or globs. The contract, protected files and
+checks enter the exact approved spec. Harness commands are portable by declaration:
+approval must confirm they use stable public boundaries and suitable tolerances.
+The declaration does not prove that private implementation assumptions are portable.
+All checks run against each candidate; comparison overlays cannot replace harness
+files, and changing them from the common base invalidates the cross-check.
+Use a dedicated test command so unrelated overlaid tests cannot prevent the harness
+from running. Existing repository checks remain mandatory.
+
+[The Snake example](../examples/playbeam-snake/README.md) exercises roster changes,
+round timing and public results without inspecting private simulation state. Commit
+the harness before starting a new comparison; existing run evidence is not rewritten.
+
+### Review probes and individual assertions
+
+Implementation reviewers declare `probes`, using an empty array when none were
+needed. Useful executable probes include their complete source, reproduction
+command and suggested test path. A probe without an equivalent committed regression
+uses the bounded coverage-repair allowance. Later reviews must retain the scenario
+and cite its committed test file and test name. The driver checks that the file and
+named text exist at the reviewed commit; the reviewer remains responsible for
+confirming the test asserts the outcome and runs through approved checks. Omitting
+a previous probe cannot silently drop the requirement. Reviewers remain read-only.
+
+Cross-check assessments retain named assertion failures separately from command
+verdicts, including when an infrastructure footer or incompatible test prevents
+classifying the whole command. CLI status and the dashboard show each test, assertion
+and portability status. Unknown is never counted as behavioural failure or success.
+The parser recognises named Vitest/Jest and TAP failure sections; unsupported output
+remains available in the full log. Displayed evidence is bounded by `checkLimits`.
+
 ## Correction attribution
 
 When sending `continue`, `revise`, `reply` or `retry`, optionally add
@@ -201,5 +255,5 @@ justify a hypothetical future edit. The independent reviewer assesses whether th
 the code and preserves behaviour. Reports live in the worktree's private Git metadata so they cannot
 enter source commits.
 
-The old `simplify` recipe key is rejected by the strict recipe schema. Task logs use schema 5 and
-comparison logs schema 3; old evidence remains on disk but is not migrated by this version.
+The old `simplify` recipe key is rejected by the strict recipe schema. Task logs use schema 6 and
+comparison logs schema 4; old evidence remains on disk but is not migrated by this version.

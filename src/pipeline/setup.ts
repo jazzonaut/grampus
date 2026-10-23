@@ -6,12 +6,15 @@ import type { DriverCore } from './driver-core.js';
 import { DriverStop } from './driver-core.js';
 
 import { repositoryConfiguration } from './repository-config.js';
+import { prepareCheckout } from '../git/checkout.js';
 
 /** Snapshot explicit setup from the base commit, with lockfile-based Node defaults when absent. */
 async function configure(core: DriverCore, cwd: string): Promise<void> {
   if (core.state.setup.configuration) return;
   const sha = core.state.workspace?.baseSha;
   if (!sha) throw new DriverStop('Setup needs a recorded base commit.');
+  if ((await headSha(cwd)) !== sha) throw new DriverStop('Setup requires the recorded base commit.');
+  await prepareCheckout(cwd);
   core.record({ type: 'setup.configured', sha, ...(await repositoryConfiguration(cwd, sha)) });
 }
 

@@ -17,6 +17,7 @@ import { assessCheck } from '../checks/failure.js';
 import { matchesAny } from '../util/glob.js';
 import { entryEvidence } from './freshness.js';
 import type { ComparisonStore, CrossCheckCell } from './comparison.js';
+import { repositoryConfiguration } from '../pipeline/repository-config.js';
 
 /** An entry's final candidate: the commit its last verified round checked, and the checks of its spec. */
 const candidateOf = finalCandidate;
@@ -45,22 +46,23 @@ export async function crossCheckCell(
   if (!target) return { ...base, sha: null, results: null, error: `${candidate.taskId} has no verified commit` };
   if (!spec || !ownerCandidate)
     return { ...base, sha: target.sha, results: null, error: `${owner.taskId} has no approved spec and commit` };
-  // An entry against its own spec is its own last verification; running it again would only add noise.
-  if (owner.taskId === candidate.taskId)
-    return {
-      ...base,
-      sha: target.sha,
-      results: target.results,
-      error: null,
-      assessments: target.results.map(result => assessCheck(result, true)),
-    };
   const worktree = candidate.workspace?.path;
   if (!worktree || !existsSync(worktree)) return { ...base, sha: target.sha, results: null, error: 'worktree is gone' };
   try {
     if ((await headSha(worktree)) !== target.sha) throw new Error('worktree moved past the verified commit');
     if ((await uncommittedPaths(worktree)).length) throw new Error('worktree has uncommitted changes');
+    const protectedFiles = await commonHarnessFiles(worktree, baseSha, target.sha);
+    // Reuse own verification only after checking the same immutable harness binding as other cells.
+    if (owner.taskId === candidate.taskId)
+      return {
+        ...base,
+        sha: target.sha,
+        results: target.results,
+        error: null,
+        assessments: target.results.map(result => assessCheck(result, true)),
+      };
     log(`Cross-check: ${owner.taskId}'s checks on ${candidate.taskId}.`);
-    const results = await withOverlay(worktree, target.sha, baseSha, ownerCandidate.sha, () =>
+    const results = await withOverlay(worktree, target.sha, baseSha, ownerCandidate.sha, protectedFiles, () =>
       runChecks(worktree, spec.checks, store.crossCheckDir(), { rerunFailures: true }),
     );
     return {
@@ -99,14 +101,21 @@ async function withOverlay<T>(
   candidateSha: string,
   baseSha: string,
   ownerSha: string,
+  protectedFiles: ReadonlySet<string>,
   work: () => Promise<T>,
 ): Promise<T> {
   const patterns = currentSettings().testFilePatterns;
   const tests = (await changedPaths(worktree, baseSha, ownerSha)).filter(
-    change => change.status !== 'D' && matchesAny(change.path, patterns),
+    change => change.status !== 'D' && !protectedFiles.has(change.path) && matchesAny(change.path, patterns),
   );
   const existing = new Set(
     (await git(worktree, ['ls-tree', '-r', '--name-only', '-z', candidateSha])).split('\0').filter(Boolean),
+  );
+  // Restore actual checkout bytes, not another platform-dependent Git checkout conversion.
+  const originals = new Map(
+    tests
+      .filter(test => existing.has(test.path))
+      .map(test => [test.path, readFileSync(join(worktree, test.path))] as const),
   );
   let outcome: { value: T } | { error: unknown };
   try {
@@ -121,11 +130,26 @@ async function withOverlay<T>(
   }
   // Restore whatever happened above, then report: a dirty worktree would corrupt the entry's evidence.
   for (const test of tests) {
-    if (existing.has(test.path)) await git(worktree, ['checkout', candidateSha, '--', test.path]);
+    const original = originals.get(test.path);
+    if (original) writeFileSync(join(worktree, test.path), original);
     else rmSync(join(worktree, test.path), { force: true });
   }
   const left = await uncommittedPaths(worktree);
   if (left.length) throw new Error(`the worktree was not restored cleanly: ${left.join(', ')}`);
   if ('error' in outcome) throw outcome.error;
   return outcome.value;
+}
+
+/** The common contract stays bound to its base commit, including on the matrix diagonal. */
+async function commonHarnessFiles(worktree: string, baseSha: string, candidateSha: string): Promise<Set<string>> {
+  const harness = (await repositoryConfiguration(worktree, baseSha)).verification.harness;
+  const files = new Set(harness?.files ?? []);
+  if (
+    harness &&
+    (await changedPaths(worktree, baseSha, candidateSha)).some(
+      change => files.has(change.path) || (change.oldPath !== null && files.has(change.oldPath)),
+    )
+  )
+    throw new Error('The common behavioural harness changed from the comparison base.');
+  return files;
 }

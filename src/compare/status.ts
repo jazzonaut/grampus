@@ -7,6 +7,7 @@ import { TaskStore } from '../store/task-store.js';
 import { ComparisonStore, foldComparison, type ComparisonMode, type ComparisonState } from './comparison.js';
 import { crossCheckCounts } from './outcomes.js';
 import { observedComparison } from './freshness.js';
+import type { CheckAssertion } from '../checks/failure.js';
 
 export interface ComparisonSummary {
   comparisonId: string;
@@ -18,6 +19,7 @@ export interface ComparisonSummary {
   /** While the cross-check runs: cells measured of all of them. */
   crossCheck: { done: number; total: number } | null;
   crossCheckOutcomes?: ReturnType<typeof crossCheckCounts>;
+  assertions?: { owner: string; candidate: string; check: string; assertion: CheckAssertion }[];
   stale?: string | null;
   needsYou: { detail: string; since: string } | null;
   /** The latest refused pick or abandon, with why. */
@@ -48,6 +50,16 @@ export function summariseComparison(dataDir: string, comparisonId: string): Comp
     crossCheck: crossCheckProgress(state),
     stale: state.stale,
     crossCheckOutcomes: crossCheckCounts(state.crossCheck ?? state.crossCheckCells),
+    assertions: (state.crossCheck ?? state.crossCheckCells).flatMap(cell =>
+      (cell.assessments ?? []).flatMap(check =>
+        (check.assertions ?? []).map(assertion => ({
+          owner: cell.specOf,
+          candidate: cell.candidate,
+          check: check.name,
+          assertion,
+        })),
+      ),
+    ),
     needsYou: state.attention ? { detail: state.attention.detail, since: state.attention.since } : null,
     refused: state.refused,
     finished: state.finished,
@@ -81,6 +93,11 @@ export function renderComparison(summary: ComparisonSummary): string {
       `  cross-check cells: ${counts.passed} passed, ${counts.failed} behavioural failures, ${counts.incompatible} incompatible, ${counts.errors} execution errors, ${counts.unknown} unknown (${counts.total} total)`,
     );
   if (summary.refused) lines.push(`  Refused ${summary.refused.kind}: ${summary.refused.reason}`);
+  for (const item of summary.assertions ?? [])
+    lines.push(
+      `  assertion ${item.owner} -> ${item.candidate} / ${item.check}: ${item.assertion.test} [${item.assertion.outcome}]`,
+      `    ${item.assertion.detail}`,
+    );
   for (const entry of summary.entries) lines.push(`  ${entry.recipe}: ${entry.taskId}  ${entry.phase}`);
   if (summary.waiting.length) lines.push(`  not started yet: ${summary.waiting.join(', ')}`);
   if (summary.lastStop)

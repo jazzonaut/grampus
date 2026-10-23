@@ -351,6 +351,13 @@ CHANGE: write a review report to ${input.reportPath}.
 
 CONSTRAINTS:
 - Read-only: do not edit, commit or check out anything except writing the report.
+- Preserve useful executable probes in the report's "probes" array. For each new probe used to
+  establish a requested outcome, include {"scenario":"observable outcome", "suggestedPath":"repository-relative test path",
+  "command":"reproduction command", "source":"complete runnable probe including fixtures and assertions",
+  "regressionTest":null}. If an equivalent committed regression already covers it, set regressionTest
+  to {"file":"repository-relative test file", "test":"named test"} instead. Use [] when no new probes were needed. Never claim an in-memory
+  probe is committed. Missing regressions trigger bounded repair; the builder must commit the test,
+  run it through an approved check and retain the behaviour. Review the resulting test next round.
 - Evaluate implementation against the spec AND whether the spec and tests fulfil the original request.
   Follow the requested action through production wiring. An injected roster, mocked transport or unused
   helper does not prove the corresponding real journey. Use the smallest appropriate executable seam.

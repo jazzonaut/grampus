@@ -85,6 +85,7 @@ export function reviewJson(verdict: 'approve' | 'changes' | 'unknown', findings:
   return JSON.stringify({
     verdict,
     summary: 'Reviewed.',
+    probes: [],
     findings,
     requestCoverage: { verdict: 'covered', rationale: 'The greeting request is covered.' },
     coverage: [

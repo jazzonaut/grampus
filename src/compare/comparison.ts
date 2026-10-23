@@ -17,7 +17,7 @@ import type { Recipe } from '../domain/recipe.js';
 import { appendRecord, readRecords } from '../store/task-store.js';
 
 /** The comparison log schema. Logs written with another schema are refused; there are no migrations. */
-export const comparisonSchemaVersion = 3;
+export const comparisonSchemaVersion = 4;
 
 /** Exact candidate and approved specification behind one entry's comparison evidence. */
 export interface EntryEvidence {

@@ -140,7 +140,11 @@ function recordSpec(core: DriverCore, worktree: string, key: string): SpecVersio
   const text = readWorkerFile(source);
   try {
     if (text === null) throw new Error(`No spec file was written at ${source}.`);
-    const spec = withRepositoryChecks(text, core.state.setup.configuration?.verification.checks ?? []);
+    const spec = withRepositoryChecks(
+      text,
+      core.state.setup.configuration?.verification.checks ?? [],
+      core.state.setup.configuration?.verification.harness,
+    );
     const version = core.state.specs.length + 1;
     const path = join(core.store.dir, 'spec', `v${version}.md`);
     keepEvidence(source, path);

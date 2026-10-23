@@ -17,7 +17,7 @@ import { TaskReader } from '../src/dashboard/tasks.js';
 import { queueCommand, queueComparisonCommand } from '../src/control.js';
 import type { Recipe } from '../src/domain/recipe.js';
 import { pipelineRecipe } from './helpers/recipe-fixture.js';
-import { uncommittedPaths } from '../src/git/git.js';
+import { git, uncommittedPaths } from '../src/git/git.js';
 import { estimateCost } from '../src/measure/cost.js';
 import { drive } from '../src/pipeline/driver.js';
 import { foldEvents, type TaskState } from '../src/pipeline/state.js';
@@ -111,6 +111,7 @@ async function startRun(
   concurrency: number,
   sharedTests = false,
   beforeRepair?: () => Promise<void>,
+  commonHarness = false,
 ): Promise<Run> {
   const leader: Recipe = { ...pipelineRecipe, name: 'with-tests', testsFirst: { agent: 'codex' } };
   useTestSettings({
@@ -119,6 +120,26 @@ async function startRun(
     waitPollMs: 20,
   });
   const repo = await createRepository();
+  if (commonHarness) {
+    write(
+      repo,
+      'test/common.test.js',
+      "import assert from 'node:assert/strict'; import { greet } from '../greet.js'; assert.equal(greet('Bo'), 'Hello, Bo!');\n",
+    );
+    write(
+      repo,
+      'grampus.json',
+      JSON.stringify({
+        behaviouralHarness: {
+          contract: 'Call the public greet function and compare its returned greeting.',
+          files: ['test/common.test.js'],
+          checks: [{ name: 'common', command: 'node test/common.test.js' }],
+        },
+      }),
+    );
+    await commitAll(repo, 'Declare common harness');
+    await git(repo, ['config', 'core.autocrlf', 'true']);
+  }
   const dataDir = mkdtempSync(join(tmpdir(), 'grampus-compare-'));
   const desk = new FakeOrca(() => 'hang');
   const created = await startComparison(
@@ -263,7 +284,7 @@ for (const mode of ['full', 'shared'] as const)
   });
 
 test('a full comparison runs every recipe end to end, cross-checks the results and keeps the pick', async () => {
-  const run = await startRun('full', 2);
+  const run = await startRun('full', 2, false, undefined, true);
   await run.until(() => run.comparison().entries.length === 2, 'both entries');
   for (const index of [0, 1]) {
     await run.until(() => tryEntry(run, index)?.attention?.reason === 'approve-spec:1', `entry ${index} spec`);
@@ -286,16 +307,23 @@ test('a full comparison runs every recipe end to end, cross-checks the results a
     'each cell is recorded as it finishes, so progress shows and a restart resumes',
   );
   assert.ok(cells.every(cell => cell.incompatible?.length === 0));
+  assert.ok(cells.every(cell => cell.results?.some(result => result.name === 'common' && result.passed)));
+  assert.ok(first.specs[0]?.protected.includes('test/common.test.js'));
+  assert.ok(second.specs[0]?.protected.includes('test/common.test.js'));
   const standardOnAlt = cells.find(cell => cell.specOf === first.taskId && cell.candidate === second.taskId);
   const altOnStandard = cells.find(cell => cell.specOf === second.taskId && cell.candidate === first.taskId);
   assert.deepEqual(
     standardOnAlt?.results?.map(result => [result.name, result.passed]),
-    [['greet', true]],
+    [
+      ['common', true],
+      ['greet', true],
+    ],
   );
   // The alt spec's acceptance test was overlaid on the standard entry's commit, and passed there too.
   assert.deepEqual(
     altOnStandard?.results?.map(result => [result.name, result.passed]),
     [
+      ['common', true],
       ['greet', true],
       ['extra', true],
     ],
@@ -303,6 +331,11 @@ test('a full comparison runs every recipe end to end, cross-checks the results a
   const standardWorktree = first.workspace?.path ?? '';
   assert.equal(existsSync(join(standardWorktree, 'test', 'extra.test.js')), false, 'the overlay was removed');
   assert.deepEqual(await uncommittedPaths(standardWorktree), [], 'the candidate worktree is clean again');
+  assert.doesNotMatch(
+    readFileSync(join(standardWorktree, 'test/greet.test.js'), 'utf8'),
+    /\r/,
+    'the overlay restores exact checkout bytes despite Windows autocrlf',
+  );
 
   queueComparisonCommand(run.dataDir, run.comparisonId, 'dashboard', { kind: 'pick', taskId: second.taskId });
   assert.equal(await run.driver, 0);

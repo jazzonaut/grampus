@@ -16,6 +16,32 @@ export const checkDefinitionSchema = z
   .strict();
 export type CheckDefinition = z.infer<typeof checkDefinitionSchema>;
 
+/** A common behavioural boundary with immutable test and helper files at the task base. */
+export const harnessSchema = z
+  .object({
+    contract: z.string().trim().min(1).max(specLimits.acceptanceTextLength),
+    files: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(specLimits.pathLength)
+          .refine(
+            path =>
+              !path.includes('\\') &&
+              !path.startsWith('/') &&
+              !path.includes(':') &&
+              !path.split('/').some(part => part === '..' || part === '.' || !part) &&
+              !/[?*[\]{}]/.test(path),
+            'Harness files must be exact repository-relative paths',
+          ),
+      )
+      .min(1)
+      .max(specLimits.protectedPaths),
+  })
+  .strict();
+export type BehaviouralHarness = z.infer<typeof harnessSchema>;
+
 const acceptanceText = z.string().trim().min(1).max(specLimits.acceptanceTextLength);
 /** One requested outcome and the boundary at which its acceptance can actually be observed. */
 export const acceptanceSchema = z
@@ -41,6 +67,7 @@ const specBlockSchema = z
     /** Repository globs the builder must not change, such as approved acceptance tests. */
     protected: z.array(z.string().min(1).max(specLimits.pathLength)).max(specLimits.protectedPaths).default([]),
     acceptance: z.array(acceptanceSchema).min(1).max(specLimits.acceptanceScenarios),
+    behaviouralHarness: harnessSchema.optional(),
   })
   .strict();
 export type SpecBlock = z.infer<typeof specBlockSchema>;
@@ -55,9 +82,13 @@ export interface Spec {
 const blockPattern = /^```grampus[ \t]*\r?\n([\s\S]*?)\r?\n```[ \t]*$/gm;
 
 /** Include the snapshotted repository gate in the exact bytes the user approves, ahead of acceptance checks. */
-export function withRepositoryChecks(markdown: string, required: readonly CheckDefinition[]): Spec {
+export function withRepositoryChecks(
+  markdown: string,
+  required: readonly CheckDefinition[],
+  harness?: BehaviouralHarness,
+): Spec {
   const spec = parseSpec(markdown);
-  if (!required.length) return spec;
+  if (!required.length && !harness) return spec;
   const checks = required.map(check => {
     const existing = spec.block.checks.find(item => item.command.trim() === check.command.trim());
     if (existing) return { ...check, name: existing.name };
@@ -70,7 +101,13 @@ export function withRepositoryChecks(markdown: string, required: readonly CheckD
   checks.push(
     ...spec.block.checks.filter(check => !required.some(item => item.command.trim() === check.command.trim())),
   );
-  const block = { ...spec.block, checks };
+  const block = {
+    ...spec.block,
+    checks,
+    ...(harness
+      ? { behaviouralHarness: harness, protected: [...new Set([...spec.block.protected, ...harness.files])] }
+      : {}),
+  };
   const newline = markdown.includes('\r\n') ? '\r\n' : '\n';
   return parseSpec(
     markdown.replace(

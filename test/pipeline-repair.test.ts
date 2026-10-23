@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { pipelineRecipe } from './helpers/recipe-fixture.js';
 import {
@@ -22,6 +22,58 @@ async function approveAndWait(harness: Harness, reason: string) {
   harness.command({ kind: 'approve', specVersion: 1 });
   return harness.until(state => state.attention?.reason === reason, reason);
 }
+
+test('an approving review with a useful missing regression goes through bounded repair', async () => {
+  let reviews = 0;
+  const harness = await createHarness(
+    h =>
+      goodWorkers(h, {
+        review: context => {
+          const report = JSON.parse(reviewJson('approve'));
+          report.probes = [
+            {
+              scenario: 'Greets Bo',
+              suggestedPath: 'test/bo.test.js',
+              command: 'node test/bo.test.js',
+              source:
+                "import { greet } from '../greet.js'; if (greet('Bo') !== 'Hello, Bo!') throw Error('Greets Bo');",
+              regressionTest: reviews++ === 0 ? null : { file: 'test/bo.test.js', test: 'Greets Bo' },
+            },
+          ];
+          writeFileSync(outputPath(context.spec), JSON.stringify(report));
+          return { outcome: 'succeeded' };
+        },
+        repair: async context => {
+          assert.match(context.spec, /Preserve review probe/);
+          const cwd = worktreeOf(h);
+          write(
+            cwd,
+            'test/bo.test.js',
+            "import { greet } from '../greet.js'; if (greet('Bo') !== 'Hello, Bo!') throw Error('Greets Bo');\n",
+          );
+          // The approved command runs this file too, so it is durable check evidence.
+          write(
+            cwd,
+            'test/greet.test.js',
+            readFileSync(`${cwd}/test/greet.test.js`, 'utf8') + "\nimport './bo.test.js';\n",
+          );
+          await commitAll(cwd, 'Preserve review probe');
+          return { outcome: 'succeeded' };
+        },
+      }),
+    { ...pipelineRecipe, repair: { ...pipelineRecipe.repair, coverageGapRounds: 1 } },
+  );
+  const driver = harness.run();
+  try {
+    const ready = await approveAndWait(harness, 'ready:1');
+    assert.equal(ready.decisions.get(0)?.decision, 'repair');
+    assert.match(ready.decisions.get(0)?.reasons.join() ?? '', /Greets Bo/);
+    assert.equal(ready.decisions.get(1)?.decision, 'ready');
+  } finally {
+    harness.command({ kind: 'abandon' });
+    await driver;
+  }
+});
 
 test('a failing check goes to a repair round that continues the builder conversation', async () => {
   let builds = 0;
