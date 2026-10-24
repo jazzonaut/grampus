@@ -6,7 +6,7 @@ build, checks that Grampus runs itself against the exact commit, an independent 
 model family and bounded repair. It asks you only for decisions, and records every stage so different
 recipes (models, stages, repair budgets) can be compared.
 
-The standard recipes run unattended within a recorded 30-minute delivery budget, with bounded
+The standard recipes run unattended within a recorded 60-minute delivery budget, with bounded
 report recovery, investigation and repository-grounded answers to implementation questions. They
 finish at a verified branch, or report an incomplete result when the budget runs out. Product decisions
 still come to you. `adaptive-codex` and `adaptive-claude` start with cheaper builders and use a configured

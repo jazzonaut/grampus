@@ -23,8 +23,21 @@ export async function retainReviewProbes(
     if (!regression) continue;
     if (!matchesAny(regression.file, currentSettings().testFilePatterns))
       throw new Error(`Review probe regression is not a recognised test file: ${regression.file}`);
-    const source = await git(cwd, ['show', `${sha}:${regression.file}`]);
-    if (!source.includes(regression.test))
-      throw new Error(`Review probe regression test is missing: ${regression.file}: ${regression.test}`);
+    await validateRegressionReference(cwd, sha, regression);
   }
+}
+
+/** Check a retained reference against committed source without treating its existence as passing evidence. */
+export async function validateRegressionReference(
+  cwd: string,
+  sha: string,
+  regression: { file: string; test: string },
+): Promise<void> {
+  const source = await git(cwd, ['show', `${sha}:${regression.file}`]);
+  if (!source.includes(regression.test))
+    throw new Error(
+      `Review probe regression test is missing: ${regression.file}: ${regression.test}. ` +
+        'Use the exact leaf test title written in the committed source, without runner-added suite prefixes. ' +
+        'If no committed regression exists, keep regressionTest null; do not invent evidence.',
+    );
 }

@@ -5,8 +5,8 @@
 // Each entry point installs its settings once (`useSettings`). Library code reads `currentSettings()`,
 // which falls back to the built-in defaults, so tests are unaffected by a developer's own config.json.
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import { recipeSchema, builtInRecipes, type Recipe } from '../domain/recipe.js';
 import { defaultModelPrices, type ModelPrice } from '../measure/cost.js';
@@ -42,6 +42,8 @@ export interface Settings {
   defaultCheckTimeoutSeconds: number;
   /** Shell for check commands; null uses Node's platform default (cmd.exe on Windows, /bin/sh elsewhere). */
   checkShell: string | null;
+  /** Short absolute root for disposable, commit-bound review copies, separate from deeply nested evidence logs. */
+  reviewWorkspaceRoot: string;
   /** Repository paths treated as tests by the integrity guard. */
   testFilePatterns: readonly string[];
   /** Repository paths that configure how checks run; the guard names changes to them for the reviewer. */
@@ -113,6 +115,7 @@ export function defaultSettings(): Settings {
     waitPollMs: 2_000,
     defaultCheckTimeoutSeconds: 15 * 60,
     checkShell: null,
+    reviewWorkspaceRoot: join(tmpdir(), 'grampus-review'),
     checkInfrastructurePatterns: [
       'command .*not found',
       'is not recognized as an internal',
@@ -212,6 +215,7 @@ const fileSchema = z
     waitPollMs: z.number().int().positive(),
     defaultCheckTimeoutSeconds: z.number().int().positive().max(specLimits.checkTimeoutSeconds),
     checkShell: z.string().min(1).nullable(),
+    reviewWorkspaceRoot: z.string().min(1).refine(isAbsolute, 'must be an absolute path'),
     testFilePatterns: z.array(z.string().min(1)),
     checkInfrastructurePatterns: outputPatterns,
     checkAssertionPatterns: outputPatterns,

@@ -74,7 +74,7 @@ test('a task with an unknown recipe is refused before anything is created', asyn
   assert.equal(existsSync(join(home, 'tasks')), false);
 });
 
-test('saved recipes preserve other settings and cannot replace either built-in recipe', async () => {
+test('saved recipes preserve other settings and cannot replace a built-in recipe', async () => {
   const { home, base } = await start();
   writeFileSync(join(home, 'config.json'), JSON.stringify({ waitPollMs: 20 }));
   const cheap = { ...standardRecipe, name: 'cheap', build: { agent: 'codex', model: 'gpt-6-luna', effort: 'low' } };
@@ -102,7 +102,14 @@ test('saved recipes preserve other settings and cannot replace either built-in r
     defaultRecipe: string;
     recipes: { name: string }[];
   };
-  assert.deepEqual(catalog.builtIn, ['standard-codex', 'standard-claude', 'adaptive-codex', 'adaptive-claude']);
+  assert.deepEqual(catalog.builtIn, [
+    'standard-codex',
+    'standard-claude',
+    'adaptive-codex',
+    'adaptive-claude',
+    'standard-codex-polish',
+    'adaptive-codex-polish',
+  ]);
   assert.equal(catalog.defaultRecipe, 'standard-codex');
   assert.deepEqual(
     catalog.recipes.map(recipe => recipe.name),

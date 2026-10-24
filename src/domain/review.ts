@@ -24,6 +24,8 @@ const coverageSchema = z
 export const findingSchema = z
   .object({
     severity: z.enum(['blocking', 'note']),
+    /** Product choices require a user; technical corrections remain within the delivery mandate. */
+    resolution: z.enum(['technical', 'product']).optional(),
     title: text.min(1),
     file: text.optional(),
     line: z.number().int().positive().optional(),
@@ -60,7 +62,15 @@ export const reviewReportSchema = z
             suggestedPath: evidenceText,
             command: evidenceText,
             source: z.string().trim().min(1).max(reviewLimits.probeSourceLength),
-            regressionTest: z.object({ file: evidenceText, test: evidenceText }).strict().nullable(),
+            regressionTest: z
+              .object({
+                file: evidenceText,
+                test: evidenceText.describe(
+                  'Exact leaf test title in committed source, without runner-added suite prefixes.',
+                ),
+              })
+              .strict()
+              .nullable(),
           })
           .strict(),
       )

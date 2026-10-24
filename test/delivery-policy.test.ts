@@ -58,6 +58,7 @@ test('unattended delivery corrects a malformed review and finishes without user 
 });
 
 test('unattended recipes require independent review and reject unbounded budgets', () => {
+  assert.equal(deliverySchema.parse({}).maxSeconds, 3600);
   assert.equal(
     recipeSchema.safeParse({ ...pipelineRecipe, build: { agent: 'claude' }, delivery: { mode: 'unattended' } }).success,
     false,
@@ -70,6 +71,58 @@ test('unattended recipes require independent review and reject unbounded budgets
     recipeSchema.safeParse({ ...pipelineRecipe, delivery: { mode: 'unattended', maxSeconds: 0 } }).success,
     false,
   );
+});
+
+test('successive technical spec corrections have a separate allowance from report formatting', async () => {
+  let specs = 0;
+  let reports = 0;
+  const h = await createHarness(
+    h =>
+      goodWorkers(h, {
+        spec: context => {
+          writeFileSync(
+            outputPath(context.spec),
+            ++specs < 3 ? specText([{ name: 'missing test', command: 'node absent.test.js' }]) : specText(),
+          );
+          return { outcome: 'succeeded' };
+        },
+        'spec-review': context => {
+          writeFileSync(outputPath(context.spec), ++reports === 1 ? '{bad' : reviewJson('approve'));
+          return { outcome: 'succeeded' };
+        },
+      }),
+    recipeSchema.parse({ ...pipelineRecipe, delivery: { mode: 'unattended', specRevisions: 3, reportRetries: 1 } }),
+  );
+  const driver = h.run();
+  try {
+    const state = await h.until(s => s.finished !== null || s.attention !== null, 'successive corrections');
+    assert.equal(state.finished?.outcome, 'accepted');
+    assert.equal(state.commands.length, 0);
+    assert.equal(specs, 3);
+    assert.equal(reports, 4);
+  } finally {
+    h.command({ kind: 'abandon' });
+    await driver;
+  }
+});
+
+test('unattended stage deadline replaces a stopped worker once without chat commands', async () => {
+  let builds = 0;
+  const h = await createHarness(
+    h => goodWorkers(h, { build: context => (++builds === 1 ? 'hang' : goodWorkers(h)(context)) }),
+    recipeSchema.parse({ ...pipelineRecipe, delivery: { mode: 'unattended', stageSeconds: 2, stageRetries: 1 } }),
+  );
+  const driver = h.run();
+  try {
+    const state = await h.until(s => s.finished !== null, 'stalled worker recovery');
+    assert.equal(state.finished?.outcome, 'accepted');
+    assert.equal(state.commands.length, 0);
+    assert.equal(builds, 2);
+    assert.equal(h.orca.stopped.length, 1);
+  } finally {
+    h.command({ kind: 'abandon' });
+    await driver;
+  }
 });
 
 test('an unexecutable spec check is corrected even when its reviewer approves it', async () => {

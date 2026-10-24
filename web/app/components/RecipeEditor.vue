@@ -127,10 +127,16 @@ async function save(): Promise<void> {
               />
             </UFormField>
             <UFormField label="Report corrections"><UInputNumber v-model="draft.delivery.reportRetries" /></UFormField>
+            <UFormField label="Technical spec revisions"
+              ><UInputNumber v-model="draft.delivery.specRevisions"
+            /></UFormField>
+            <UFormField label="Worker deadline (seconds)"
+              ><UInputNumber v-model="draft.delivery.stageSeconds"
+            /></UFormField>
             <UFormField label="Investigations per review"
               ><UInputNumber v-model="draft.delivery.investigations"
             /></UFormField>
-            <UFormField label="Worker start retries"><UInputNumber v-model="draft.delivery.stageRetries" /></UFormField>
+            <UFormField label="Worker retries"><UInputNumber v-model="draft.delivery.stageRetries" /></UFormField>
             <UFormField label="Implementation questions resolved automatically"
               ><UInputNumber v-model="draft.delivery.questionResolutions"
             /></UFormField>

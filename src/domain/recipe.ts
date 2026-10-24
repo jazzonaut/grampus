@@ -41,6 +41,8 @@ export const deliverySchema = z
     maxSeconds: z.number().int().positive().max(deliveryLimits.maxSeconds).default(deliveryLimits.defaultSeconds),
     maxCostUsd: z.number().positive().max(deliveryLimits.maxCostUsd).nullable().default(null),
     reportRetries: z.number().int().min(0).max(deliveryLimits.maxRecoveries).default(deliveryLimits.reportRetries),
+    specRevisions: z.number().int().min(0).max(deliveryLimits.maxRecoveries).default(deliveryLimits.specRevisions),
+    stageSeconds: z.number().int().positive().max(deliveryLimits.maxSeconds).default(deliveryLimits.stageSeconds),
     investigations: z.number().int().min(0).max(deliveryLimits.maxRecoveries).default(deliveryLimits.investigations),
     stageRetries: z.number().int().min(0).max(deliveryLimits.maxRecoveries).default(deliveryLimits.stageRetries),
     questionResolutions: z
@@ -58,7 +60,7 @@ export const recipeSchema = z
     name: z.string().min(1).max(recipeLimits.nameLength),
     delivery: deliverySchema.optional(),
     spec: assignmentSchema,
-    /** Optional review of the spec before approval. Its findings are shown, never looped. */
+    /** Independent spec review; unattended technical corrections have their own bounded allowance. */
     specReview: assignmentSchema.nullable(),
     /** Optional worker that turns spec examples into failing acceptance tests before the build. */
     testsFirst: assignmentSchema.nullable(),
@@ -177,12 +179,28 @@ export const adaptiveClaudeRecipe: Recipe = {
   },
 };
 
+/** Standard delivery followed by a separately checked maintenance pass. */
+export const standardCodexPolishRecipe: Recipe = {
+  ...standardRecipe,
+  name: 'standard-codex-polish',
+  polish: { agent: 'codex', model: 'gpt-6.1-sol', effort: 'medium' },
+};
+
+/** Adaptive delivery with the same polisher as the standard maintenance experiment. */
+export const adaptiveCodexPolishRecipe: Recipe = {
+  ...adaptiveCodexRecipe,
+  name: 'adaptive-codex-polish',
+  polish: standardCodexPolishRecipe.polish,
+};
+
 /** Built-in recipes, with the default first. Saved recipes cannot shadow these names. */
 export const builtInRecipes: readonly Recipe[] = [
   standardRecipe,
   standardClaudeRecipe,
   adaptiveCodexRecipe,
   adaptiveClaudeRecipe,
+  standardCodexPolishRecipe,
+  adaptiveCodexPolishRecipe,
 ];
 
 /** The assignment that repairs a round. */

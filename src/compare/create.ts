@@ -2,7 +2,9 @@
 // driver. The driver then creates the entries; nothing else runs here.
 import { randomBytes } from 'node:crypto';
 import { inputLimits } from '../config/limits.js';
-import { availableRecipes, currentSettings } from '../config/settings.js';
+import { currentSettings } from '../config/settings.js';
+import type { DeliveryPolicy } from '../domain/recipe.js';
+import { comparisonRecipes } from './policy.js';
 import type { OrcaWorkspaces } from '../orca/client.js';
 import { resolveRepository, slug, taskTitle } from '../pipeline/create-task.js';
 import { ComparisonStore, type ComparisonMode } from './comparison.js';
@@ -14,6 +16,10 @@ export interface NewComparison {
   title?: string;
   recipeNames: readonly string[];
   mode: ComparisonMode;
+  /** A common mandate overrides authority only, preserving intentional recipe differences. */
+  delivery?: DeliveryPolicy;
+  /** In shared mode the lead spec writer also authors one common acceptance-test commit. */
+  sharedTests?: boolean;
   /** The command line that runs the comparison's driver. */
   driveCommand: (comparisonId: string) => string;
 }
@@ -30,14 +36,8 @@ export async function startComparison(
   const request = input.request.trim();
   if (!request || request.length > inputLimits.requestLength)
     throw new Error(`The request must be between 1 and ${inputLimits.requestLength} characters.`);
-  const names = [...new Set(input.recipeNames.map(name => name.trim()).filter(Boolean))];
-  if (names.length < 2) throw new Error('A comparison needs at least two different recipes.');
-  const known = availableRecipes();
-  const recipes = names.map(name => {
-    const recipe = known.find(item => item.name === name);
-    if (!recipe) throw new Error(`Unknown recipe "${name}". Available: ${known.map(item => item.name).join(', ')}.`);
-    return recipe;
-  });
+  if (input.sharedTests && input.mode !== 'shared') throw new Error('Shared acceptance tests require shared mode.');
+  const recipes = comparisonRecipes(input.recipeNames, input.delivery, input.sharedTests);
   const repository = await resolveRepository(input.repoPath);
   const title = await taskTitle(request, input.title);
   const comparisonId = `cmp-${slug(title)}-${randomBytes(3).toString('hex')}`;

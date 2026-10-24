@@ -6,13 +6,34 @@ Recipes may carry a `delivery` mandate, copied into `task.created`. The built-in
 recipes use unattended delivery; saved recipes without a mandate retain supervised approval.
 `pipeline/delivery.ts` owns authority records, dispatch admission budgets and progress-based fallback.
 Automatic actions use `policy.decided` with stable keys and commit/spec bindings, never fabricated
-`command.applied` events. Task schema 7 records these distinctions; earlier logs are refused without
+`command.applied` events. Task schema 8 records these distinctions; earlier logs are refused without
 migration. Existing installations and historical evidence are not rewritten by editing this checkout.
 
-The specification's baseline checks and independent review finish before automatic approval. A
+If the OS rejects a task-create command with `ENAMETOOLONG` before launching Orca, the client retains
+the complete specification under the system temporary directory's `grampus-task-specs` folder and
+passes a short instruction to read it. The run and request id determine the file; replay verifies its
+contents and uses the same request id. Unknown mutation outcomes never switch transport. These files
+must remain available while their workers run; no evidence is truncated to fit a command line.
+
+The specification's baseline checks and independent review finish before automatic approval.
+Specification approval validates a feasible test plan, not evidence of an implementation that has
+not been written. Existing suites may pass on the base commit. The acceptance mapping must identify
+concrete assertions, production boundaries and commands that will discover the planned tests.
+Missing future tests alone do not block planning approval; unusable commands, unmapped outcomes and
+infeasible seams do. Test-name inventories and minimum counts do not establish behavioural coverage.
+Tests-first still requires demonstrated behavioural failures, and final review must establish every
+outcome against committed tests and code. Unknown coverage still prevents acceptance.
+Technical specification revisions have their own recorded allowance, independent of report retries.
+Product findings escalate directly; exhausted technical recovery is labelled separately. A
 supported specification revision is bounded; invalid reports are corrected at the same version.
 Code-review report correction also stays at the same candidate, with separate attempt files and
-append-only events. Uncertain coverage receives a bounded investigation before escalation. A concrete
+append-only events. Correction workers read the existing report rather than repeating investigation.
+Spec and code reviewers receive the complete JSON Schema and run `validate-report.js` before submission.
+For code reports, validation also checks retained regression references against the workspace's
+committed HEAD. References use literal leaf test titles, not runner-added suite prefixes. A matching
+title only validates the reference; the driver still checks evidence and executes declared probes.
+The driver validates independently and retains unknown evidence as unknown. Uncertain coverage
+receives a bounded investigation before escalation. A concrete
 correctness scenario cannot be dismissed as a note for unattended readiness: a disproval must cite
 a retained executable regression. Demonstrated failures and missing regressions use the existing
 bounded repair machinery. Failed builder reports with concrete check or review evidence can enter
@@ -25,6 +46,11 @@ move the commit or edit the original candidate. The driver executes declared pro
 source and results. Probes cannot overwrite tracked tests or traverse symbolic links. A named
 committed regression that fails makes review unavailable. This is workspace isolation, not an OS
 sandbox. Candidate and approved-spec snapshots still surround verification and review.
+New copies live under the short configurable `reviewWorkspaceRoot`, with a hash of the task-store
+location, spec version and commit as their directory name. Deep evidence directories previously
+caused Node package imports to fail on Windows despite successful dependency installation. The event
+records the chosen path, and restart reuses that path even when configuration changes. Reports and
+logs remain in the task store; disposable copies can be removed after their tasks stop.
 
 For delivery-policy recipes, independent review and mandatory checks overlap after the builder has
 settled and the guard has bound the commit. Review explicitly sees checks as pending when they are
@@ -39,7 +65,11 @@ send it twice. Resolver questions do not recursively spawn more resolvers. Produ
 unsupported answers remain visible to the user. Automatic answers do not count as human commands.
 
 Elapsed-time budgets survive restart and abort check processes. Worker waits and new launches check
-the deadline. Estimated-cost caps are checked before dispatch; unavailable usage or prices prevent
+the deadline. The default total is 60 minutes. Unattended workers also have a 15-minute dispatch
+deadline. A stalled worker records durable stop intent and must have positively exited before a
+bounded replacement can start; restart preserves the original deadline and retry count. Question waits
+do not consume the worker deadline, but do consume the total delivery budget. Estimated-cost caps
+are checked before dispatch; unavailable usage or prices prevent
 another launch. In-flight Orca calls must reconcile before cleanup, and a running dispatch may exceed
 an estimated spending cap. Exhaustion records an `incomplete` task, releases workers and retains the
 branch and evidence. It never authorises an override. Already verified comparison entries can await
@@ -47,12 +77,18 @@ selection without consuming new worker budget. Merge, push and deployment remain
 
 `adaptive-codex` and `adaptive-claude` use cheaper initial editors with standard-strength specification
 and independent review. A configured fallback is selected once when unresolved failure counts fail
-to decrease across the configured number of rounds. The choice survives restart and consumes the
+to decrease across the configured number of rounds with comparable, commit-bound review evidence.
+Unavailable or unknown reviews cannot establish progress by dropping previously reported reasons.
+The choice survives restart and consumes the
 same budgets. Neither standard nor adaptive defaults run polish. Optional polish remains available
-for separate maintenance experiments.
+for separate maintenance experiments. `standard-codex-polish` and `adaptive-codex-polish` copy their
+unpolished counterparts and add the same `gpt-6.1-sol` medium-effort polish assignment. Their existing
+independent reviewer checks preservation and maintenance benefit, within the same delivery budget.
 
 Scorecards expose first/latest readiness, selection wait, launch time, all external interventions,
-automatic recovery/answers/investigations, fallback and reopened ready results. Comparison result
+automatic recovery/answers/investigations, fallback and reopened ready results. Comparison preflight
+displays effective delivery policies; a common policy override changes authority
+without changing model assignments. Shared mode can explicitly enable one lead tests-first stage. Comparison result
 time uses latest verification rather than the eventual pick time. CLI and dashboard comparisons
 default to shared specifications; shared executable tests still require tests-first in the lead recipe
 or a committed common harness. See [benchmark protocol](BENCHMARKS.md) for quality and cost evaluation.
@@ -475,7 +511,7 @@ prints the addresses it answers on.
 
 ```text
 <data>/config.json                       optional settings
-<data>/tasks/<task>/events.jsonl          append-only event log (schema 7)
+<data>/tasks/<task>/events.jsonl          append-only event log (schema 8)
 <data>/tasks/<task>/commands.jsonl        queued user commands
 <data>/tasks/<task>/driver.lock          the running driver's process id, token and heartbeat
 <data>/tasks/<task>/spec/v<n>.md          spec versions and their reviews
@@ -483,7 +519,7 @@ prints the addresses it answers on.
 <data>/tasks/<task>/reviews/polish-<r>.json
 <data>/tasks/<task>/explanations/<command-id>.json
 <data>/tasks/<task>/checks/<phase>-<r>/   check logs
-<data>/comparisons/<id>/events.jsonl      comparison log (schema 4)
+<data>/comparisons/<id>/events.jsonl      comparison log (schema 5)
 <data>/comparisons/<id>/commands.jsonl    queued picks and abandons
 <data>/comparisons/<id>/driver.lock      the comparison driver's lock, as for a task
 <data>/comparisons/<id>/cross-check/      cross-check logs
@@ -705,5 +741,5 @@ For builder comparisons, use shared mode with tests first in the first recipe, t
 interfaces, and compare repeated runs over several tasks. Full mode includes spec quality and test
 compatibility differences and is not an interchangeable behavioural benchmark.
 
-Task schema 7 and comparison schema 4 describe this workflow. Earlier logs are refused, not migrated
+Task schema 8 and comparison schema 5 describe this workflow. Earlier logs are refused, not migrated
 or rewritten. Recipe configuration now uses `polish`; `simplify` is not a supported alias.

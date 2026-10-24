@@ -31,7 +31,7 @@ export const commands: readonly CommandInfo[] = [
   },
   {
     name: 'compare',
-    args: '[--repo <path>] --recipes <a,b,...> [--mode full|shared] [--title <text>] <request...>',
+    args: '[--repo <path>] --recipes <a,b,...> [--mode full|shared] [--delivery unattended|supervised] [--max-seconds <n>] [--dry-run] [--shared-tests] [--title <text>] <request...>',
     summary: 'Run one request under several recipes from the same base commit',
     group: 'tasks',
     detail:

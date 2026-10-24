@@ -7,6 +7,9 @@ import {
   recipeSchema,
   standardRecipe,
   standardClaudeRecipe,
+  adaptiveCodexRecipe,
+  standardCodexPolishRecipe,
+  adaptiveCodexPolishRecipe,
 } from '../src/domain/recipe.js';
 import { judgeCodeReview, parseReviewReport } from '../src/domain/review.js';
 import { parseSpec } from '../src/domain/spec.js';
@@ -14,6 +17,22 @@ import { globToRegExp, matchesAny } from '../src/util/glob.js';
 
 const block = (value: unknown) =>
   `# Spec\n\n\`\`\`grampus\n${JSON.stringify({ acceptance: acceptanceScenarios((value as { checks?: { name: string }[] }).checks?.map(check => check.name)), ...(value as object) })}\n\`\`\`\n`;
+
+test('polish variants preserve parent delivery policy and use the same independent maintenance pass', () => {
+  for (const [parent, variant] of [
+    [standardRecipe, standardCodexPolishRecipe],
+    [adaptiveCodexRecipe, adaptiveCodexPolishRecipe],
+  ] as const) {
+    assert.deepEqual(variant, {
+      ...parent,
+      name: `${parent.name}-polish`,
+      polish: { agent: 'codex', model: 'gpt-6.1-sol', effort: 'medium' },
+    });
+    assert.equal(parent.polish, null);
+    assert.ok(builtInRecipes.includes(variant));
+    assert.equal(crossFamilyReview(variant), true);
+  }
+});
 
 test('a spec needs exactly one valid grampus block', () => {
   const spec = parseSpec(block({ checks: [{ name: 'unit', command: 'npm test' }] }));

@@ -9,6 +9,8 @@ import { dataDirectory } from './config/paths.js';
 import { availableRecipes, currentSettings, loadSettings, useSettings } from './config/settings.js';
 import { listComparisonIds } from './compare/comparison.js';
 import { startComparison } from './compare/create.js';
+import { comparisonRecipes, comparisonPolicyPreview } from './compare/policy.js';
+import { deliverySchema } from './domain/recipe.js';
 import { driveComparison } from './compare/driver.js';
 import { renderComparison, summariseComparison, type ComparisonSummary } from './compare/status.js';
 import {
@@ -59,6 +61,10 @@ async function main(argv: string[]): Promise<number> {
       port: { type: 'string' },
       recipes: { type: 'string' },
       mode: { type: 'string' },
+      delivery: { type: 'string' },
+      'max-seconds': { type: 'string' },
+      'dry-run': { type: 'boolean' },
+      'shared-tests': { type: 'boolean' },
       from: { type: 'string' },
       dirty: { type: 'boolean' },
       worktree: { type: 'boolean' },
@@ -113,7 +119,16 @@ async function comparisonCommand(
   command: string,
   rest: string[],
   source: CommandSource,
-  values: { repo?: string; recipes?: string; mode?: string; title?: string },
+  values: {
+    repo?: string;
+    recipes?: string;
+    mode?: string;
+    title?: string;
+    delivery?: string;
+    'max-seconds'?: string;
+    'dry-run'?: boolean;
+    'shared-tests'?: boolean;
+  },
 ): Promise<number | null> {
   switch (command) {
     case 'compare':
@@ -281,16 +296,39 @@ function queued(dataDir: string, taskId: string | undefined, source: CommandSour
 async function compare(
   dataDir: string,
   words: string[],
-  values: { repo?: string; recipes?: string; mode?: string; title?: string },
+  values: {
+    repo?: string;
+    recipes?: string;
+    mode?: string;
+    title?: string;
+    delivery?: string;
+    'max-seconds'?: string;
+    'dry-run'?: boolean;
+    'shared-tests'?: boolean;
+  },
 ): Promise<number> {
   const mode = values.mode ?? 'shared';
   if (mode !== 'shared' && mode !== 'full') throw new Error(`--mode must be shared or full, not "${mode}".`);
+  if (values['max-seconds'] && !values.delivery)
+    throw new Error('--max-seconds requires --delivery so the common policy is explicit.');
+  const delivery = values.delivery
+    ? deliverySchema.parse({
+        mode: values.delivery,
+        ...(values['max-seconds'] ? { maxSeconds: Number(values['max-seconds']) } : {}),
+      })
+    : undefined;
+  const names = required(values.recipes, '--recipes').split(',');
+  if (values['shared-tests'] && mode !== 'shared') throw new Error('--shared-tests requires --mode shared.');
+  console.log(comparisonPolicyPreview(comparisonRecipes(names, delivery, values['shared-tests'])));
+  if (values['dry-run']) return 0;
   const created = await startComparison(
     {
       dataDir,
       repoPath: resolve(values.repo ?? process.cwd()),
       request: required(words.join(' '), 'request'),
-      recipeNames: required(values.recipes, '--recipes').split(','),
+      recipeNames: names,
+      ...(delivery ? { delivery } : {}),
+      ...(values['shared-tests'] ? { sharedTests: true } : {}),
       mode,
       ...(values.title ? { title: values.title } : {}),
       driveCommand: comparisonId => `${selfCommand(dataDir)} drive-comparison ${comparisonId}`,

@@ -20,6 +20,7 @@ import { currentDispatch, stageKey, type SpecVersion } from './state.js';
 import { approvedSpecPath, keepEvidence, readWorkerFile, workerFile } from './workspace-files.js';
 import { evidenceSnapshot, assertEvidenceUnchanged } from './evidence.js';
 import { assessCheck } from '../checks/failure.js';
+import { correctStageReport } from './report-contract.js';
 
 interface Attempt {
   feedback: string | null;
@@ -221,9 +222,15 @@ async function approveAutomatically(
     landSpecChecks(core, spec, checks);
     if (checks?.failure) throw new Error(checks.failure);
     await automaticSpecReview(core, worktree, spec);
-    const { approved, detail, canRevise } = specReadiness(core, spec);
+    const { approved, detail, canRevise, product } = specReadiness(core, spec);
     if (!approved) {
-      if (spec.version <= deliveryPolicy(core).reportRetries && canRevise) {
+      const revisions = [...core.state.policyDecisions.keys()].filter(item => item.startsWith('revise-spec:')).length;
+      if (
+        !product &&
+        canRevise &&
+        (core.state.policyDecisions.has(`revise-spec:${spec.version}`) ||
+          revisions < deliveryPolicy(core).specRevisions)
+      ) {
         policyDecision(core, {
           key: `revise-spec:${spec.version}`,
           action: 'recover',
@@ -233,10 +240,12 @@ async function approveAutomatically(
         });
         return detail;
       }
-      const choice = await core.decide(`spec-product:${spec.version}`, `Specification needs a decision: ${detail}`, [
-        'revise',
-        'abandon',
-      ]);
+      const reason = product ? 'spec-product' : 'spec-recovery';
+      const choice = await core.decide(
+        `${reason}:${spec.version}`,
+        `${product ? 'Product decision required' : 'Technical specification recovery exhausted or unavailable'}: ${detail}`,
+        ['revise', 'abandon'],
+      );
       return choice.kind === 'revise' ? choice.feedback : detail;
     }
     policyDecision(core, {
@@ -261,9 +270,17 @@ function specReadiness(core: DriverCore, spec: SpecVersion) {
   return {
     approved: specApproved(review?.report) && invalidChecks.length === 0,
     canRevise: review?.report?.verdict === 'changes' || invalidChecks.length > 0,
-    detail: invalidChecks.length
-      ? `Baseline checks cannot execute: ${JSON.stringify(invalidChecks)}. Correct the check definitions or prerequisite problem without dropping mandatory repository checks.`
-      : (review?.error ?? JSON.stringify(review?.report) ?? 'No spec review was recorded.'),
+    product:
+      review?.report?.findings.some(finding => finding.severity === 'blocking' && finding.resolution === 'product') ??
+      false,
+    detail: [
+      ...(invalidChecks.length
+        ? [
+            `Baseline checks cannot execute: ${JSON.stringify(invalidChecks)}. Correct the check definitions or prerequisite problem without dropping mandatory repository checks.`,
+          ]
+        : []),
+      review?.error ?? JSON.stringify(review?.report) ?? 'No spec review was recorded.',
+    ].join('\n'),
   };
 }
 
@@ -299,15 +316,17 @@ async function automaticSpecReview(core: DriverCore, worktree: string, spec: Spe
         title: `Spec review v${spec.version}: ${core.state.title}`,
         launch: { assignment },
         spec: () =>
-          specReviewPrompt({
-            request: core.state.request,
-            specPath: spec.path,
-            reportPath,
-            checksBefore: before.results.map(result => ({
-              result,
-              excerpt: result.passed ? null : logExcerpt(result.logPath),
-            })),
-          }) + (error ? `\nCorrect the previous report's format without changing the spec: ${error}` : ''),
+          error
+            ? correctStageReport(worktree, 'spec-review', spec.version, attempt, spec.path, error)
+            : specReviewPrompt({
+                request: core.state.request,
+                specPath: spec.path,
+                reportPath,
+                checksBefore: before.results.map(result => ({
+                  result,
+                  excerpt: result.passed ? null : logExcerpt(result.logPath),
+                })),
+              }),
       });
       await assertEvidenceUnchanged(worktree, before.sha, spec, snapshot);
       recordSpecReview(core, spec, reportPath, settled, null, attempt);

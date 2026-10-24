@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { currentSettings } from '../config/settings.js';
+import { deliveryLimits } from '../config/limits.js';
 import { checkDeadline, checkDispatchBudget, deliveryPolicy, mandatePrompt, policyDecision } from './delivery.js';
 import { resolveImplementationQuestions } from './question-resolution.js';
 import type { Assignment } from '../domain/recipe.js';
@@ -86,6 +87,29 @@ export function lastActivity(
     if (active) last = Math.max(last, Date.parse(event.at));
   }
   return last;
+}
+
+/** Exclude overlapping question waits from a worker deadline, but never from total delivery time. */
+function workerElapsed(state: TaskState, dispatch: DispatchRecord): number {
+  const start = Date.parse(dispatch.startedAt);
+  const end = Date.now();
+  const waits = [...state.questions.values()]
+    .filter(question => question.dispatchId === dispatch.dispatchId && question.answeredAt)
+    .map(
+      question =>
+        [
+          Math.max(start, Date.parse(question.at)),
+          Math.min(end, Date.parse(question.answeredAt ?? question.at)),
+        ] as const,
+    )
+    .sort((a, b) => a[0] - b[0]);
+  let paused = 0;
+  let cursor = start;
+  for (const [from, to] of waits) {
+    paused += Math.max(0, to - Math.max(cursor, from));
+    cursor = Math.max(cursor, to);
+  }
+  return end - start - paused;
 }
 
 export class DriverCore {
@@ -476,6 +500,7 @@ export class DriverCore {
    * `retry` replaces it, and the request is withdrawn if the worker shows signs of life first.
    */
   private async askAboutQuietWorker(record: StageRecord, request: StageRequest, dispatch: DispatchRecord) {
+    if (deliveryPolicy(this).mode === 'unattended') return this.recoverQuietWorker(record, request, dispatch);
     const minutes = Math.round((Date.now() - lastActivity(this.state, this.events, record, dispatch)) / minuteMs);
     const choice = await this.decideUnless(
       `stage-quiet:${record.key}:${record.attempts}`,
@@ -493,9 +518,44 @@ export class DriverCore {
   /** Whether a running dispatch has been silent too long while not waiting for the user. */
   private quiet(record: StageRecord, dispatch: DispatchRecord): boolean {
     if (dispatch.settled || dispatch.exited) return false;
+    if (this.state.policyDecisions.has(`stop-stalled:${record.key}:${record.attempts}`)) return true;
     for (const question of this.state.questions.values())
       if (question.key === record.key && isOpen(question)) return false;
+    const policy = deliveryPolicy(this);
+    if (
+      policy.mode === 'unattended' &&
+      workerElapsed(this.state, dispatch) >= policy.stageSeconds * deliveryLimits.millisecondsPerSecond
+    )
+      return true;
     return Date.now() - lastActivity(this.state, this.events, record, dispatch) >= currentSettings().stalledWorkerMs;
+  }
+
+  /** Persist stop intent before calling Orca; a restart must confirm exit before replacing a writer. */
+  private async recoverQuietWorker(
+    record: StageRecord,
+    request: StageRequest,
+    dispatch: DispatchRecord,
+  ): Promise<void> {
+    policyDecision(this, {
+      key: `stop-stalled:${record.key}:${record.attempts}`,
+      action: 'recover',
+      reason: 'Worker exceeded its stage deadline or silence limit; confirm it stopped before replacement.',
+      sha: null,
+      specVersion: this.state.specs.at(-1)?.version ?? null,
+    });
+    this.requestId(`stop-stalled:${dispatch.dispatchId}`);
+    // Orca worker-stop is idempotent by dispatch, not a request-id accepting command.
+    await this.mutate(() => this.orca.stopWorker(dispatch.dispatchId));
+    await this.waitFor(() => dispatch.exited || Boolean(dispatch.settled));
+    if (dispatch.settled) return;
+    if (!dispatch.stopped)
+      this.record({
+        type: 'stage.stopped',
+        key: record.key,
+        dispatchId: dispatch.dispatchId,
+        reason: 'Stage deadline or silence limit exceeded; Orca confirmed exit.',
+      });
+    await this.recoverStage(record, request, 'Worker deadline exceeded; confirmed stopped.');
   }
 
   /**
@@ -514,6 +574,13 @@ export class DriverCore {
    */
   async runOptionalStage(request: StageRequest, cancelled?: () => boolean): Promise<Settled | { error: string }> {
     const record = await this.launchStage(request);
+    const previous = currentDispatch(record);
+    if (
+      previous?.exited &&
+      !previous.settled &&
+      this.state.policyDecisions.has(`stop-stalled:${record.key}:${record.attempts}`)
+    )
+      await this.recoverStage(record, request, 'Resume replacement after a confirmed stalled-worker stop.');
     const ended = () => {
       const current = this.state.stages.get(record.key);
       const dispatch = currentDispatch(current);
@@ -534,6 +601,9 @@ export class DriverCore {
         }
         return { error: 'Cancelled because the user continued or accepted.' };
       }
+      const dispatch = currentDispatch(record);
+      if (deliveryPolicy(this).mode === 'unattended' && dispatch && this.quiet(record, dispatch))
+        await this.recoverQuietWorker(record, request, dispatch);
       await this.pump();
     }
     const current = this.state.stages.get(record.key) ?? record;

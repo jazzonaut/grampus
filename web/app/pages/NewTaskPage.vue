@@ -7,7 +7,7 @@
 import { useToast } from '@nuxt/ui/composables';
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import type { Recipe } from '../../../src/domain/recipe';
+import type { DeliveryPolicy, Recipe } from '../../../src/domain/recipe';
 import { getJson, sendJson } from '../api/client';
 
 interface RepoChoice {
@@ -30,11 +30,30 @@ const recipe = ref('');
 const comparing = ref(route.query['compare'] === '1');
 const compared = ref<string[]>([]);
 const mode = ref<'full' | 'shared'>('shared');
+const commonDelivery = ref(false);
+const sharedTests = ref(false);
+const delivery = ref<DeliveryPolicy | null>(null);
+const policyRows = computed(() =>
+  compared.value.map(name => {
+    const policy = commonDelivery.value ? delivery.value : recipes.value.find(item => item.name === name)?.delivery;
+    return {
+      name,
+      policy,
+      text: policy
+        ? `${policy.mode}; ${policy.maxSeconds}s total; ${policy.stageSeconds}s per worker; ${policy.specRevisions} spec revisions; ${policy.reportRetries} report corrections; ${policy.stageRetries} worker retries; ${policy.investigations} investigations; ${policy.questionResolutions} automatic answers; ${policy.maxCostUsd === null ? 'no cost cap' : `$${policy.maxCostUsd} cap`}`
+        : 'Supervised; no delivery budget',
+    };
+  }),
+);
+const differingPolicies = computed(
+  () => new Set(policyRows.value.map(row => JSON.stringify(row.policy ?? null))).size > 1,
+);
 const modes = [
   {
     label: 'Full',
     value: 'full',
-    description: 'Each recipe writes its own spec (you approve each), and every result is checked against every spec.',
+    description:
+      'Each recipe writes its own spec under its delivery policy, and every result is checked against every spec.',
   },
   {
     label: 'Shared spec',
@@ -53,10 +72,11 @@ getJson<{ repos: RepoChoice[]; note: string | null }>('/api/repos').then(
   },
   (failure: unknown) => (repoNote.value = (failure as Error).message),
 );
-getJson<{ recipes: Recipe[]; defaultRecipe: string }>('/api/recipes').then(
+getJson<{ recipes: Recipe[]; defaultRecipe: string; deliveryDefaults: DeliveryPolicy }>('/api/recipes').then(
   value => {
     recipes.value = value.recipes;
     recipe.value = value.defaultRecipe;
+    delivery.value = { ...value.deliveryDefaults };
   },
   () => undefined,
 );
@@ -90,6 +110,8 @@ async function create(): Promise<void> {
         ...(title.value.trim() ? { title: title.value.trim() } : {}),
         recipes: compared.value,
         mode: mode.value,
+        ...(commonDelivery.value && delivery.value ? { delivery: delivery.value } : {}),
+        ...(mode.value === 'shared' && sharedTests.value ? { sharedTests: true } : {}),
       });
       toast.add({
         title: 'Comparison started',
@@ -190,6 +212,27 @@ async function create(): Promise<void> {
             <UFormField label="Mode">
               <URadioGroup v-model="mode" :items="modes" />
             </UFormField>
+            <USwitch
+              v-if="mode === 'shared'"
+              v-model="sharedTests"
+              label="Write shared acceptance tests before building"
+              description="The lead specification writer creates one test commit for every builder. Its cost and time are charged to the lead entry."
+            />
+            <USwitch
+              v-model="commonDelivery"
+              label="Use a common unattended delivery policy"
+              description="Apply the same budget and recovery allowances to every entry. Models and testing stages stay as configured."
+            />
+            <UFormField v-if="commonDelivery && delivery" label="Delivery budget per entry (seconds)">
+              <UInputNumber v-model="delivery.maxSeconds" :min="1" />
+            </UFormField>
+            <div v-for="row in policyRows" :key="row.name" class="text-sm">
+              <strong>{{ row.name }}</strong
+              >: {{ row.text }}
+            </div>
+            <p v-if="differingPolicies" class="text-sm text-warning">
+              These entries have different delivery policies. Their budgets and autonomy are not directly comparable.
+            </p>
           </template>
         </div>
 

@@ -10,8 +10,9 @@ import { join } from 'node:path';
 
 const root = join(import.meta.dirname, '..'),
   directory = join(root, 'dist', 'test');
-// Each test file starts many Git processes; CPU count alone oversubscribes Windows under load.
-const windowsWorkerLimit = 4;
+// Each file starts many Git processes. Four concurrent files exhausted observation deadlines on
+// Windows during real-worker benchmarks; reduce contention without weakening test timeouts.
+const windowsWorkerLimit = 2;
 const workers = Math.max(2, availableParallelism() - 1);
 const concurrency = process.platform === 'win32' ? Math.min(windowsWorkerLimit, workers) : workers;
 const files = readdirSync(directory)

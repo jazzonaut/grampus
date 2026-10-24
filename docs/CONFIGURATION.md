@@ -22,6 +22,7 @@ the installed data directory.
 | `waitPollMs` | `2000` | How often `grampus wait`, the dashboard and comparison drivers reread logs |
 | `defaultCheckTimeoutSeconds` | `900` | Check timeout when the spec sets none (at most 3600) |
 | `checkShell` | `null` | Shell for check commands; null uses cmd.exe on Windows and /bin/sh elsewhere |
+| `reviewWorkspaceRoot` | `<OS temp directory>/grampus-review` | Short absolute root for disposable review copies. Names hash the task location, spec version and candidate SHA. Keep this path short on Windows: Node package imports can fail in deep dependency trees even when installation succeeds. Existing recorded copies keep their original path on restart. These temporary copies may be cleared when their tasks are no longer running; retained reports and check logs remain in the task store |
 | `testFilePatterns` | `**/*.test.*`, `**/*.spec.*`, `**/test/**`, `**/tests/**`, `**/__tests__/**` | Paths the guard treats as tests |
 | `checkConfigPatterns` | `**/grampus.json`, `**/Directory.Build.props`, `**/Directory.Build.targets`, `**/*Tests.csproj`, `**/*Test.csproj`, `**/test/**/*.csproj`, `**/tests/**/*.csproj`, `**/*.runsettings`, `**/testconfig.json`, `**/global.json`, `**/package.json`, `**/tsconfig*.json`, `**/vitest.config.*`, `**/vitest.workspace.*`, `**/jest.config.*`, `**/playwright.config.*`, `**/eslint.config.*`, `**/.eslintrc*`, `**/eslint-suppressions.json`, `**/pyproject.toml`, `**/pytest.ini`, `**/setup.cfg`, `**/tox.ini`, `**/conftest.py`, `**/Makefile` | Paths outside the tests that configure how checks run; the guard names changes to them, and to files a check command names, for the reviewer and the user |
 | `crossCheckIncompatiblePatterns` | C# and TypeScript compiler errors, missing modules and exports, Python import errors, Java `cannot find symbol`, Rust `error[E…]` | Regular expressions that mark a failed cross-check as incompatible: the copied tests did not compile or load against that entry |
@@ -134,9 +135,11 @@ The standard recipes and new `adaptive-codex` and `adaptive-claude` recipes incl
 {
   "delivery": {
     "mode": "unattended",
-    "maxSeconds": 1800,
+    "maxSeconds": 3600,
     "maxCostUsd": null,
     "reportRetries": 1,
+    "specRevisions": 3,
+    "stageSeconds": 900,
     "investigations": 1,
     "stageRetries": 1,
     "questionResolutions": 2
@@ -163,9 +166,18 @@ reads usage and current configured model prices. Unknown usage or pricing preven
 under a spending cap. A running dispatch can overshoot: this is a dispatch admission budget, not a
 provider billing limit. Without a cost cap, missing measurements remain explicitly unknown in reports.
 
-Recovery allowances accept 0 to 3. Report correction retries the same spec or candidate, without a
-rebuild. Investigations gather evidence for uncertain coverage and concrete correctness concerns.
-Known failed starts and positively exited workers can be retried; uncertain launches retain the same
+Recovery allowances accept 0 to 3. `specRevisions` independently bounds automatic technical
+specification corrections (default 3); `reportRetries` bounds report formatting corrections (default 1).
+Neither counter replenishes on restart. A spec reviewer marks consequential unresolved choices with
+`resolution: "product"`; these go directly to the user. Exhausted technical recovery is labelled
+separately. Report correction reads the prior report at the same spec or candidate, without a rebuild
+or a fresh investigation. Review prompts include the complete JSON Schema and an executable validator. Investigations gather evidence for uncertain coverage and concrete correctness concerns.
+`stageSeconds` is a positive per-dispatch deadline (default 900 seconds, maximum 86,400) for
+unattended stages, independent of the total 3,600-second default. Question waits are excluded from the worker deadline, including across restart, but never extend
+the total budget. A deadline or silence limit records stop intent; the
+driver waits for Orca to positively report exit before spending a `stageRetries` allowance on a fresh
+worker. An acknowledged stop with unknown liveness never authorises replacement. Known failed starts
+and positively exited workers can also be retried; uncertain launches retain the same
 request id and must be reconciled. A bounded question resolver may answer implementation questions
 with existing repository references. Product decisions, unsupported answers and exhausted recovery
 allowances still reach the user. Interrupted setup is never blindly replayed.
@@ -177,7 +189,10 @@ allowances still reach the user. Interrupted setup is never blindly replayed.
 review models, mandatory repository checks and acceptance criteria. Both omit polish.
 
 Set `repair.fallback` to a stronger assignment and `repair.stagnantRounds` to the number of consecutive
-rounds without a decrease in unresolved failure count (default 2, range 1 to 5). The driver switches
+rounds without an evidenced decrease in unresolved failure count (default 2, range 1 to 5). Counts
+are comparable only when both reviews are usable, bound to their respective candidates and the same
+specification, and have known request coverage. Missing, unknown or stale reviews do not establish
+progress by listing fewer reasons. The driver switches
 once, records why, and retains that choice across restarts. This count is a progress heuristic, not
 proof that individual defects are identical. Fallback consumes the existing time, cost and repair
 budgets, and cannot share the reviewer's family in unattended mode. Omit fallback for a pure-model
@@ -323,5 +338,20 @@ justify a hypothetical future edit. The independent reviewer assesses whether th
 the code and preserves behaviour. Reports live in the worktree's private Git metadata so they cannot
 enter source commits.
 
-The old `simplify` recipe key is rejected by the strict recipe schema. Task logs use schema 7 and
-comparison logs schema 4; old evidence remains on disk but is not migrated by this version.
+The old `simplify` recipe key is rejected by the strict recipe schema. Task logs use schema 8 and
+comparison logs schema 5; old evidence remains on disk but is not migrated by this version.
+
+### Common comparison policy
+
+`grampus compare --delivery unattended --max-seconds 3600` copies one complete delivery policy
+into every selected recipe snapshot, including custom recipes that previously had no mandate. It
+keeps model assignments, review strength, polish and repair policy intact. Incompatible independent
+review configurations are rejected before launch. Without the override, intentional differences are
+retained and printed before launch. `--dry-run` prints that preflight without creating a comparison.
+The dashboard offers the same common-policy control and shows every selected entry's effective
+budget and recovery allowances before submission.
+
+`--shared-tests` requires shared mode and assigns the lead recipe's spec writer to tests-first.
+The existing shared-spec workflow then gives every entry the same acceptance-test commit.
+The lead entry pays the specification and tests-first overhead; compare implementation-phase time
+and cost separately from end-to-end delivery. This option is also available in the dashboard.

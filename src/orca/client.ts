@@ -9,6 +9,7 @@ import type { z } from 'zod';
 import { currentSettings } from '../config/settings.js';
 import type { Assignment } from '../domain/recipe.js';
 import { runProcess } from '../process/run.js';
+import { retainedTaskSpec } from './task-spec.js';
 import {
   accountListSchema,
   checkSchema,
@@ -209,7 +210,15 @@ export class OrcaCli implements Orca, OrcaWorkspaces, OrcaDesk, OrcaHealth {
       input.spec,
     ];
     if (input.deps?.length) args.push('--deps', JSON.stringify(input.deps));
-    return (await this.parse(taskCreateSchema, args, requestId)).task.id;
+    try {
+      return (await this.parse(taskCreateSchema, args, requestId)).task.id;
+    } catch (error) {
+      // spawn rejected the command before Orca could receive it. Only this known non-delivery permits
+      // changing transport; uncertain responses must still replay the original request unchanged.
+      if ((error as NodeJS.ErrnoException).code !== 'ENAMETOOLONG') throw error;
+      args[args.indexOf('--spec') + 1] = retainedTaskSpec(input.runId, requestId, input.spec);
+      return (await this.parse(taskCreateSchema, args, requestId)).task.id;
+    }
   }
 
   async createGate(input: { taskId: string; question: string; options: string[] }, requestId: string) {

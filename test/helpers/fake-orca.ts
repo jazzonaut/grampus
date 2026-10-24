@@ -205,6 +205,7 @@ export class FakeOrca implements Orca, OrcaWorkspaces, OrcaDesk, OrcaHealth {
 
   async stopWorker(dispatchId: string) {
     this.stopped.push(dispatchId);
+    this.liveness.set(dispatchId, 'exited');
   }
 
   /** Provider sessions per dispatch, for measurement tests. */

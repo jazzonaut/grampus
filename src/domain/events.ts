@@ -15,7 +15,7 @@ import { codeReferenceSchema, type CodeReference, type Explanation, type Explana
 export type TaskOutcome = 'accepted' | 'abandoned' | 'not-selected' | 'incomplete';
 
 /** The event log schema. Logs written with another schema are refused; there are no migrations. */
-export const eventSchemaVersion = 7;
+export const eventSchemaVersion = 8;
 
 /** Pipeline stages that run as Orca workers. */
 export type Stage =

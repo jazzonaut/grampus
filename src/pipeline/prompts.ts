@@ -6,6 +6,18 @@ import { polishLimits, reviewLimits, specLimits } from '../config/limits.js';
 import type { CheckResult } from '../domain/events.js';
 import type { Finding } from '../domain/review.js';
 import type { CheckDefinition } from '../domain/spec.js';
+import { reportContract } from './report-contract.js';
+
+// Both planning roles need the same boundary or review can demand implementation evidence too early.
+const specEvidenceBoundary = `Spec approval validates a test plan, not completed implementation evidence.
+Existing suite commands may pass on the base commit. Require a concrete acceptance mapping that says
+which behavioural assertions will be added, which production boundaries they exercise, and which
+declared suite commands will discover and execute them. Future tests need not exist at spec approval.
+Do not require test-name inventories, minimum test counts or JSON-report wrappers merely to prove
+future tests exist. Those mechanisms cannot prove that assertions establish the requested behaviour.
+Actual coverage is assessed against the committed tests and implementation during final review;
+passing commands alone never establish coverage. Tests-first, when enabled, additionally requires
+real behavioural failures before implementation. Neither stage may treat unknown evidence as success.`;
 
 const specFormat = `Spec format (Markdown):
 
@@ -30,10 +42,11 @@ Then exactly one fenced code block whose info string is \`grampus\`, containing 
  "checks":["unit tests"],"realComponents":["export entry point"],"mockedComponents":[],"limitations":[]}]}
 \`\`\`
 
-- "checks": commands run from the repository root, non-interactively, that exit 0 only when the
-  criteria hold. Prefer the project's existing commands and narrow them to the relevant tests. Each
-  must be deterministic and finish within its timeout. They may name tests the builder will add; say
-  under the criteria which tests are expected.
+- "checks": commands run from the repository root, non-interactively, that fail when their targeted
+  assertions fail. Prefer the project's existing commands and narrow them to the relevant tests. Each
+  must be deterministic and finish within its timeout. Use existing suite commands that execute on the
+  base commit. Specify mandatory new regression files and assertions in the acceptance mapping;
+  a missing-file-only command or no-tests result is unavailable evidence, not a behavioural red phase.
 - A check must exit 0 whenever the tests it targets pass. Narrow by test project or package, not by a
   filter over a whole solution or workspace: some runners fail when a project runs no tests. Grampus
   runs every check on the current commit before approval and shows the user any that fail.
@@ -124,6 +137,8 @@ CONSTRAINTS:
 
 ${specFormat}
 
+${specEvidenceBoundary}
+
 ACCEPTANCE: the spec file exists in this format. Then send worker_done with --outcome succeeded and
 --report-path ${input.specPath}. Use --outcome failed only if no useful spec is possible, and say why.`;
 }
@@ -138,8 +153,8 @@ export function specReviewPrompt(input: {
   const before = input.checksBefore
     ? `Grampus ran the spec's checks on the current commit, before any change:
 ${input.checksBefore.map(({ result, excerpt }) => `- ${result.name}: ${checkOutcome(result)}${excerpt ? `. Log tail:\n${excerpt}` : ''}`).join('\n')}
-A check may fail here only because the behaviour is missing, for example because it runs tests the
-builder will add. A check that fails for any other reason (no tests ran, a missing tool or dependency,
+A check may fail here because an existing executable assertion demonstrates missing behaviour.
+A missing future test file is not such an assertion. A check that fails for any other reason (no tests ran, a missing tool or dependency,
 a command that cannot work) can never prove its criteria, and is blocking. A check that already passes
 shows no regression but not the new behaviour.`
     : `Grampus could not run the spec's checks on the current commit; judge the commands by reading them.`;
@@ -150,18 +165,29 @@ Original user request:
 ${input.request}
 
 CHANGE: review the spec before the user approves it and write a report to ${input.reportPath}.
-Look for: ambiguity that would change the result, missing edge cases, criteria that no check
-exercises, checks that cannot prove their criteria or are likely slow or flaky, and scope beyond
+For each blocking finding set resolution to "technical" for repository-grounded corrections or
+"product" for consequential choices the request and repository cannot resolve. Test plumbing,
+baseline commands, missing regression coverage and report formatting are technical problems.
+Look for: ambiguity that would change the result, missing edge cases, criteria with no feasible
+assertion plan executed by a declared check, commands that are unusable or likely slow or flaky, and scope beyond
 the request. Severity "blocking" means it must be resolved before building; everything else is a note.
 Compare the acceptance mapping against the original request, not just the provisional approach.
 Trace each scenario through production entry points and name any mocked boundary that hides the
 requested behaviour. A central requested outcome missing from the spec is a coverage gap.
+
+${specEvidenceBoundary}
+Missing planned tests alone are not a blocking spec finding. Do not request implementation or
+completed coverage evidence from a read-only spec writer. Unmapped requested outcomes, unusable commands and infeasible test seams remain blocking.
+Batch concrete planning defects in one review. On revisions, verify the previous corrections and
+raise new blockers only for demonstrated omissions or contradictions, not increasingly prescriptive
+test naming or incidental design preferences. Do not waive an unresolved concrete defect.
 
 ${before}
 
 CONSTRAINTS: do not edit any file except the report. Do not repeat the spec back.
 
 ${reportFormat}
+${reportContract(input.reportPath, 'spec', input.specPath)}
 Also include "requestCoverage": {"verdict":"covered" | "gaps" | "unknown", "rationale":"how the spec accounts for the original request, including any omitted outcomes"}.
 
 ACCEPTANCE: the report file exists as valid JSON. Then send worker_done with --outcome succeeded and
@@ -183,6 +209,9 @@ ${checkList(input.checks)}
 
 CONSTRAINTS:
 - Write tests only. Do not implement the feature.
+- Cover every acceptance scenario using meaningful assertions, including required unchanged behaviour.
+  Report any scenario that cannot be tested through existing interfaces; do not invent imports or
+  weaken assertions to simulate coverage. Final review must still establish every requested outcome.
 - The tests must fail now, for the reason that the feature is missing, and pass once it exists.
 - Follow the project's test conventions. Commit the tests on the current branch, leave no
   uncommitted files, and do not push, change branches or rewrite history.
@@ -355,7 +384,8 @@ CONSTRAINTS:
   establish a requested outcome, include {"scenario":"observable outcome", "suggestedPath":"repository-relative test path",
   "command":"reproduction command", "source":"complete runnable probe including fixtures and assertions",
   "regressionTest":null}. If an equivalent committed regression already covers it, set regressionTest
-  to {"file":"repository-relative test file", "test":"named test"} instead. Use [] when no new probes were needed. Never claim an in-memory
+  to {"file":"repository-relative test file", "test":"named test"} instead. Use [] when no new probes were needed.
+  Use the exact leaf test title from committed source, without runner-added suite prefixes. Never claim an in-memory
   probe is committed. Missing regressions trigger bounded repair; the builder must commit the test,
   run it through an approved check and retain the behaviour. Review the resulting test next round.
 - Evaluate implementation against the spec AND whether the spec and tests fulfil the original request.
@@ -380,6 +410,7 @@ CONSTRAINTS:
 
 ${reportFormat}
 Also include both:
+${reportContract(input.reportPath, 'code', input.specPath)}
 "requestCoverage": {"verdict":"covered" | "gaps" | "unknown", "rationale":"assessment of the original request, including omissions in the spec"},
 "coverage": [{"acceptanceId":"id from the approved acceptance mapping", "status":"verified" | "unverified",
  "evidence":"specific test, assertion and driver check that exercise the outcome", "limitations":["remaining gaps or relevant mock boundaries"]}].

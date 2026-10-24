@@ -75,7 +75,7 @@ export async function checkDispatchBudget(core: DriverCore, key: string): Promis
   if (reason) throw new BudgetExhausted(reason);
 }
 
-/** Keep a cheaper editor while failure counts improve; switch once and retain the decision on restart. */
+/** Keep a cheaper editor while comparable evidence improves; switch once and retain the decision on restart. */
 export function selectedRepairAssignment(core: DriverCore, round: number): Assignment {
   const { repair, build } = core.state.recipe;
   const normal = repair.assignment ?? build;
@@ -85,17 +85,40 @@ export function selectedRepairAssignment(core: DriverCore, round: number): Assig
   if (round < count) return normal;
   const failures = Array.from({ length: count }, (_, index) => {
     const previous = round - count + index;
-    return core.state.decisions.get(previous)?.reasons.length ?? 0;
+    const decision = core.state.decisions.get(previous);
+    const review = core.state.reviews.get(previous);
+    return {
+      count: decision?.reasons.length ?? 0,
+      specVersion: decision?.specVersion,
+      comparable: Boolean(
+        decision &&
+        review?.report &&
+        !review.error &&
+        review.sha === decision.sha &&
+        review.specVersion === decision.specVersion &&
+        review.report.verdict !== 'unknown' &&
+        review.report.requestCoverage &&
+        review.report.requestCoverage.verdict !== 'unknown',
+      ),
+    };
   });
   if (
-    failures.some(value => value === 0) ||
-    failures.some((value, index) => index > 0 && value < (failures[index - 1] ?? 0))
+    failures.some(value => value.count === 0) ||
+    failures.some((value, index) => {
+      const previous = failures[index - 1];
+      return (
+        previous?.comparable &&
+        value.comparable &&
+        value.specVersion === previous.specVersion &&
+        value.count < previous.count
+      );
+    })
   )
     return normal;
   policyDecision(core, {
     key: `fallback:${round}`,
     action: 'fallback',
-    reason: `Unresolved failure count did not decrease across ${count} rounds; use the configured fallback within the same budget.`,
+    reason: `No reduction in unresolved failures was established by comparable review evidence across ${count} rounds; use the configured fallback within the same budget.`,
     sha: core.state.verify.get(round - 1)?.sha ?? null,
     specVersion: core.state.specs.at(-1)?.version ?? null,
   });
@@ -105,5 +128,5 @@ export function selectedRepairAssignment(core: DriverCore, round: number): Assig
 /** Shared worker instructions remove routine implementation questions without inventing product choices. */
 export function mandatePrompt(core: DriverCore): string {
   if (deliveryPolicy(core).mode !== 'unattended') return '';
-  return `\nDELIVERY MANDATE: Resolve implementation choices by inspecting the request and repository conventions. Record assumptions. Ask only for consequential product ambiguity or authority outside the request. Do not ask how to write a test, choose a helper, fix a check, or format your report. Batch concrete defects and use focused tests during repair, then run required verification. Do not weaken checks, expand scope, merge, push or deploy. Time budget: ${deliveryPolicy(core).maxSeconds}s from task creation, including recovery. Unknown remains unknown.\n`;
+  return `\nDELIVERY MANDATE: Resolve implementation choices by inspecting the request and repository conventions. Record assumptions. Ask only for consequential product ambiguity or authority outside the request. Do not ask how to write a test, choose a helper, fix a check, or format your report. Batch concrete defects and use focused tests during repair, then run required verification. Do not weaken checks, expand scope, merge, push or deploy. Time budget: ${deliveryPolicy(core).maxSeconds}s from task creation, including recovery. Each worker has ${deliveryPolicy(core).stageSeconds}s of execution time, excluding question waits; prioritise a complete report and retain unknown evidence rather than overrun. Unknown remains unknown.\n`;
 }

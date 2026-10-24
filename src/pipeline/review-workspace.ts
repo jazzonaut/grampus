@@ -1,4 +1,5 @@
 // Disposable Git copies let reviewers reproduce boundary failures without altering the candidate.
+import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { git, headSha } from '../git/git.js';
@@ -19,16 +20,22 @@ export async function reviewWorkspace(
   spec: SpecVersion,
 ): Promise<string> {
   if (!core.state.recipe.delivery) return source;
-  const path = join(core.store.dir, 'review-workspaces', `${spec.version}-${sha}`);
   const recorded = core.events.find(
     event => event.type === 'review.workspace' && event.sha === sha && event.specVersion === spec.version,
   );
   if (recorded?.type === 'review.workspace') {
+    const path = recorded.path;
     if ((await headSha(path)) !== sha) throw new Error('The isolated review checkout moved.');
     if (recorded.results.some(result => !result.passed))
       throw new Error('Isolated review setup failed; its recorded result remains unsuccessful.');
     return path;
   }
+  // Node's Windows package resolver can lose package imports beyond MAX_PATH even when Git and
+  // dependency installation succeed. Keep task names and evidence nesting out of executable paths.
+  const identity = createHash('sha256')
+    .update(JSON.stringify([resolve(core.store.dir), spec.version, sha]))
+    .digest('base64url');
+  const path = join(currentSettings().reviewWorkspaceRoot, identity);
   if (
     core.events.some(
       event => event.type === 'review.preparing' && event.sha === sha && event.specVersion === spec.version,

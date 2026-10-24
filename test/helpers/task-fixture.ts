@@ -149,7 +149,9 @@ export async function createHarness(
     command: body =>
       store.addCommand({ ...body, id: randomUUID(), at: new Date().toISOString(), source: 'cli' } as UserCommand),
     until: async (predicate, what) => {
-      const deadline = Date.now() + 20_000;
+      // Concurrent Windows Git processes can exceed 20 seconds across several real repair rounds.
+      // This is an observation timeout, independent of the delivery budgets asserted by each test.
+      const deadline = Date.now() + 40_000;
       for (;;) {
         const state = harness.state();
         if (predicate(state)) return state;

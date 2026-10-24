@@ -58,6 +58,25 @@ test('mutations carry the caller request id and parse the result', async () => {
   ]);
 });
 
+test('large task specifications survive the Windows command limit and replay with the same request id', async () => {
+  useTestSettings();
+  const { client, calls } = fakeOrca(JSON.stringify({ ok: true, result: { task: { id: 'task_large' } } }));
+  const spec = 'Full evidence: "quoted" \\ path\n'.repeat(3000);
+  for (let attempt = 0; attempt < 2; attempt++)
+    assert.equal(await client.createTask({ runId: 'run_1', title: 'Large task', spec }, 'req-large'), 'task_large');
+  const recorded = calls();
+  assert.equal(recorded.length, 2);
+  assert.deepEqual(recorded[0], recorded[1], 'replay uses exactly the same payload and request id');
+  const args = recorded[0]!;
+  assert.equal(args[args.indexOf('--retry-request') + 1], 'req-large');
+  const delivered = args[args.indexOf('--spec') + 1]!;
+  if (process.platform === 'win32') {
+    const path = /TASK SPECIFICATION FILE: (.+)\n/.exec(delivered)?.[1];
+    assert.ok(path, 'large Windows prompts must use the retained full specification');
+    assert.equal(readFileSync(path, 'utf8'), spec);
+  } else assert.equal(delivered, spec);
+});
+
 test('worker-start passes the launch choice and reads a non-ready receipt despite a non-zero exit', async () => {
   useTestSettings();
   const receipt = { taskId: 'task_1', dispatchId: 'dispatch_1', state: 'outcome_unknown', lastError: 'no turn start' };

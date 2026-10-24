@@ -50,8 +50,13 @@ when the user gave one: without it Grampus names the task from the request.
 When the user wants to know which recipe does a request best, start a comparison instead of a task:
 
 ```text
-{{grampus}} compare [--repo <absolute repo path>] --recipes <a,b,...> [--mode full|shared] --source chat "<request>"
+{{grampus}} compare [--repo <absolute repo path>] --recipes <a,b,...> [--mode full|shared] [--shared-tests] [--delivery unattended --max-seconds 3600] --source chat "<request>"
 ```
+
+Use `--delivery unattended --max-seconds 3600` when the user wants a common 60-minute mandate;
+without it, saved recipe policies remain distinct. The CLI prints every effective policy before launch.
+Use `--dry-run` to preview without creating resources. In shared mode, `--shared-tests` asks the lead
+spec writer to author one acceptance-test commit for all entries.
 
 Each recipe runs as its own task (an entry) from the same base commit. In `full` mode
 every entry writes its own spec under its recorded approval policy, and every result is then checked

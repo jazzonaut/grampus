@@ -28,6 +28,7 @@ import type { DriverCore, Launch, Settled } from './driver-core.js';
 import { measureDispatches } from '../measure/usage.js';
 import { inspectCandidate } from './guard.js';
 import { buildPrompt, repairPrompt, reviewPrompt, testsFirstPrompt, type RepairProblems } from './prompts.js';
+import { correctStageReport } from './report-contract.js';
 import { polish, polishNote } from './polish.js';
 import { approveSpec, ensureGate } from './spec-phase.js';
 import { currentDispatch, stageKey, type ReviewRecord, type SpecVersion } from './state.js';
@@ -336,15 +337,17 @@ async function review(core: DriverCore, worktree: string, round: number): Promis
   let corrected = 0;
   let investigated = 0;
   let guidance = '';
+  let correction = false;
   for (let attempt = 0; ; attempt++) {
     const recorded = core.events.find(
       event => event.type === 'review.recorded' && event.round === round && (event.attempt ?? 0) === attempt,
     );
-    if (!recorded) await reviewOnce(core, worktree, round, attempt, guidance);
+    if (!recorded) await reviewOnce(core, worktree, round, attempt, guidance, correction);
     const result = core.state.reviews.get(round);
     const report = result?.report;
     if (result?.error && corrected < corrections) {
       corrected++;
+      correction = true;
       guidance = `Correct the report at the SAME candidate, without rebuilding. Validation error: ${result.error}. Reassess only if needed to produce honest evidence. Return the exact report schema.`;
       policyDecision(core, {
         key: `review-correction:${round}:${attempt}`,
@@ -362,6 +365,7 @@ async function review(core: DriverCore, worktree: string, round: number): Promis
         unresolvedConcerns(report).length);
     if (uncertain && investigated < investigations) {
       investigated++;
+      correction = false;
       guidance = `Investigate these unresolved claims with focused executable reproductions. Do not dismiss a concrete correctness concern as speculative without testing it. Resolve or retain it as unknown. Do not change production code. Prior report: ${JSON.stringify(report)}`;
       policyDecision(core, {
         key: `review-investigation:${round}:${attempt}`,
@@ -382,6 +386,7 @@ async function reviewOnce(
   round: number,
   attempt: number,
   guidance: string,
+  correction: boolean,
 ): Promise<void> {
   const assignment = core.state.recipe.review;
   if (!assignment) return;
@@ -401,36 +406,38 @@ async function reviewOnce(
     round,
     title: `Review ${round}: ${core.state.title}`,
     spec: () =>
-      reviewPrompt({
-        request: core.state.request,
-        guidance: [
-          guidance,
-          ...(candidate.results.length
-            ? []
-            : [
-                'Driver checks are running concurrently. Do not claim they passed; establish behavioural coverage independently. Readiness requires the driver to record every required check successfully at this exact commit.',
-              ]),
-          ...(workspace !== worktree
-            ? [
-                `ISOLATED REVIEW WORKSPACE: ${workspace}. Change directory there before running commands. Read the original request and form your own boundary-risk assessment before reading the builder's tests. Reproduce high-risk state transitions with executable probes. You may create new test fixtures here, but do not change production files or the original candidate. Include complete runnable probe source and commands in the report; Grampus executes them independently. A passing suite alone does not disprove an untested race.`,
-              ]
-            : []),
-          ...core.state.commands.flatMap(command => (command.kind === 'continue' ? [command.guidance] : [])),
-          `Reassess prior review probes and report their committed regressions: ${JSON.stringify(core.state.reviews.get(round - 1)?.report?.probes ?? [])}`,
-        ],
-        specPath: approvedSpecPath(worktree),
-        baseSha: core.state.workspace?.baseSha ?? roundStart(core, 0),
-        roundFromSha: guard.fromSha,
-        acceptanceTests: protectedFiles(core),
-        testBaseline:
-          core.state.testBaseline?.assessments.map(item => `${item.name}: ${item.outcome}. ${item.reason}`) ?? [],
-        sha: candidate.sha,
-        reportPath,
-        results: candidate.results,
-        modifiedTests: sinceBuild(core, round, result => result.modifiedTests),
-        modifiedCheckConfig: sinceBuild(core, round, result => result.modifiedCheckConfig ?? []),
-        previousFindings: round > 0 ? (core.state.reviews.get(round - 1)?.blocking ?? []) : [],
-      }),
+      correction
+        ? correctStageReport(worktree, 'review', round, attempt, approvedSpecPath(worktree), guidance)
+        : reviewPrompt({
+            request: core.state.request,
+            guidance: [
+              guidance,
+              ...(candidate.results.length
+                ? []
+                : [
+                    'Driver checks are running concurrently. Do not claim they passed; establish behavioural coverage independently. Readiness requires the driver to record every required check successfully at this exact commit.',
+                  ]),
+              ...(workspace !== worktree
+                ? [
+                    `ISOLATED REVIEW WORKSPACE: ${workspace}. Change directory there before running commands. Read the original request and form your own boundary-risk assessment before reading the builder's tests. Reproduce high-risk state transitions with executable probes. You may create new test fixtures here, but do not change production files or the original candidate. Include complete runnable probe source and commands in the report; Grampus executes them independently. A passing suite alone does not disprove an untested race.`,
+                  ]
+                : []),
+              ...core.state.commands.flatMap(command => (command.kind === 'continue' ? [command.guidance] : [])),
+              `Reassess prior review probes and report their committed regressions: ${JSON.stringify(core.state.reviews.get(round - 1)?.report?.probes ?? [])}`,
+            ],
+            specPath: approvedSpecPath(worktree),
+            baseSha: core.state.workspace?.baseSha ?? roundStart(core, 0),
+            roundFromSha: guard.fromSha,
+            acceptanceTests: protectedFiles(core),
+            testBaseline:
+              core.state.testBaseline?.assessments.map(item => `${item.name}: ${item.outcome}. ${item.reason}`) ?? [],
+            sha: candidate.sha,
+            reportPath,
+            results: candidate.results,
+            modifiedTests: sinceBuild(core, round, result => result.modifiedTests),
+            modifiedCheckConfig: sinceBuild(core, round, result => result.modifiedCheckConfig ?? []),
+            previousFindings: round > 0 ? (core.state.reviews.get(round - 1)?.blocking ?? []) : [],
+          }),
     launch: { assignment },
   });
   await assertEvidenceUnchanged(worktree, candidate.sha, spec, before);

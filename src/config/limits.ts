@@ -52,7 +52,9 @@ export const recipeLimits = {
 
 /** Recorded delivery mandates bound recovery and spending without weakening verification. */
 export const deliveryLimits = {
-  defaultSeconds: 1800,
+  defaultSeconds: 3600,
+  stageSeconds: 900,
+  specRevisions: 3,
   maxSeconds: 86_400,
   maxRecoveries: 3,
   reportRetries: 1,

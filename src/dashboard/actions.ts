@@ -10,7 +10,7 @@ import { queueComparisonCommand } from '../control.js';
 import { inputLimits, recipeLimits } from '../config/limits.js';
 import { availableRecipes, currentSettings, saveRecipes, useSettings } from '../config/settings.js';
 import { mergeAccepted } from '../delivery/merge.js';
-import { recipeSchema, standardRecipe, builtInRecipes, type Recipe } from '../domain/recipe.js';
+import { recipeSchema, deliverySchema, standardRecipe, builtInRecipes, type Recipe } from '../domain/recipe.js';
 import { OrcaError, OrcaUncertainError } from '../orca/client.js';
 import { createTask, driverTabTitle } from '../pipeline/create-task.js';
 import { removeTask } from '../pipeline/remove-task.js';
@@ -272,6 +272,8 @@ const newComparisonSchema = z
     title: z.string().max(inputLimits.titleLength).optional(),
     recipes: z.array(z.string().min(1).max(recipeLimits.nameLength)).min(2),
     mode: z.enum(['shared', 'full']),
+    delivery: deliverySchema.optional(),
+    sharedTests: z.boolean().optional(),
   })
   .strict();
 
@@ -285,6 +287,8 @@ export async function startComparisonRoute({ app, request, response }: Call): Pr
       request: input.request,
       recipeNames: input.recipes,
       mode: input.mode,
+      ...(input.delivery ? { delivery: input.delivery } : {}),
+      ...(input.sharedTests ? { sharedTests: true } : {}),
       ...(input.title?.trim() ? { title: input.title } : {}),
       driveCommand: comparisonId => `${app.selfCommand} drive-comparison ${comparisonId}`,
     },
